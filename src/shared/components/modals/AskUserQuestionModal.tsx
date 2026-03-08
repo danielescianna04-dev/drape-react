@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../theme/colors';
 
 interface QuestionOption {
@@ -28,6 +29,7 @@ export const AskUserQuestionModal: React.FC<Props> = ({
     onAnswer,
     onCancel
 }) => {
+    const { t } = useTranslation(['common', 'terminal']);
     const [answers, setAnswers] = useState<{ [key: string]: string | string[] }>({});
 
     const handleOptionSelect = (questionIndex: number, optionLabel: string, multiSelect: boolean) => {
@@ -51,7 +53,7 @@ export const AskUserQuestionModal: React.FC<Props> = ({
 
     const renderModalContent = () => (
         <View style={styles.modalInner}>
-            <Text style={styles.title}>Agent has questions</Text>
+            <Text style={styles.title}>{t('terminal:agent.questionsTitle')}</Text>
 
             <ScrollView style={styles.questionsContainer} showsVerticalScrollIndicator={false}>
                 {(questions || []).map((q, qIndex) => (
@@ -123,10 +125,10 @@ export const AskUserQuestionModal: React.FC<Props> = ({
 
             <View style={styles.actions}>
                 <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
-                    <Text style={styles.cancelText}>Cancel</Text>
+                    <Text style={styles.cancelText}>{t('common:cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-                    <Text style={styles.submitText}>Submit</Text>
+                    <Text style={styles.submitText}>{t('terminal:agent.submit')}</Text>
                 </TouchableOpacity>
             </View>
         </View>

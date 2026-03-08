@@ -108,7 +108,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           } else if (response.data.error === 'authorization_pending' || response.data.error === 'slow_down') {
             // Expected, continue polling
           } else if (response.data.error) {
-            setError(`Errore: ${response.data.error_description || response.data.error}`);
+            setError(t('settings:gitAuth.errors.errorPrefix', { message: response.data.error_description || response.data.error }));
             if (intervalId) clearInterval(intervalId);
             setLoading(false);
           }
@@ -140,7 +140,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
       handleClose();
     } catch (error: any) {
       console.error('Error saving OAuth account:', error);
-      setError('Impossibile salvare l\'account');
+      setError(t('settings:gitAccounts.saveAccountError'));
     } finally {
       setLoading(false);
     }
@@ -174,7 +174,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
       }
     } catch (err: any) {
       console.error('OAuth error:', err);
-      setError(`Autenticazione fallita: ${err.message}`);
+      setError(t('settings:gitAuth.errors.authFailed', { message: err.message }));
       setLoading(false);
     }
   };
@@ -382,7 +382,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           <Text style={styles.selectedProviderName}>{providerConfig?.name}</Text>
         </View>
 
-        <Text style={styles.authMethodTitle}>Scegli come accedere</Text>
+        <Text style={styles.authMethodTitle}>{t('settings:gitAccounts.chooseAccessMethod')}</Text>
 
         <TouchableOpacity
           style={styles.authMethodButton}
@@ -393,10 +393,10 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           <Ionicons name="globe-outline" size={24} color="#fff" />
           <View style={styles.authMethodTextContainer}>
             <Text style={styles.authMethodButtonText}>
-              Accedi con {getProviderDisplayName(selectedProvider!)}
+              {t('settings:gitAccounts.signInWithProvider', { provider: getProviderDisplayName(selectedProvider!) })}
             </Text>
             <Text style={styles.authMethodSubtext}>
-              {Platform.OS === 'ios' || Platform.OS === 'android' ? 'Via Device Flow' : 'Apre il browser'}
+              {Platform.OS === 'ios' || Platform.OS === 'android' ? t('settings:gitAccounts.deviceFlow') : t('settings:gitAccounts.opensBrowser')}
             </Text>
           </View>
           {loading && <ActivityIndicator color="#fff" />}
@@ -409,8 +409,8 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
         >
           <Ionicons name="key-outline" size={24} color="#fff" />
           <View style={styles.authMethodTextContainer}>
-            <Text style={styles.authMethodButtonText}>Usa Token Personale</Text>
-            <Text style={styles.authMethodSubtext}>Inserisci manualmente un PAT</Text>
+            <Text style={styles.authMethodButtonText}>{t('settings:gitAuth.usePersonalAccessToken')}</Text>
+            <Text style={styles.authMethodSubtext}>{t('settings:gitAccounts.enterPatManually')}</Text>
           </View>
         </TouchableOpacity>
 
@@ -418,7 +418,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
 
         <TouchableOpacity style={styles.backButtonSmall} onPress={handleBack}>
           <Ionicons name="arrow-back" size={16} color="rgba(255,255,255,0.5)" />
-          <Text style={styles.backButtonSmallText}>Indietro</Text>
+          <Text style={styles.backButtonSmallText}>{t('common:back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -430,27 +430,27 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
         <Ionicons name="arrow-back" size={20} color="rgba(255,255,255,0.6)" />
       </TouchableOpacity>
 
-      <Text style={styles.deviceFlowTitle}>Autorizza su {getProviderDisplayName(selectedProvider!)}</Text>
+      <Text style={styles.deviceFlowTitle}>{t('settings:gitAccounts.authorizeOnProvider', { provider: getProviderDisplayName(selectedProvider!) })}</Text>
       <Text style={styles.deviceFlowSubtitle}>
-        Copia il codice e incollalo nella pagina che si aprirà
+        {t('settings:gitAccounts.copyCodeAndPaste')}
       </Text>
 
       <View style={styles.deviceCodeContainer}>
         <Text style={styles.deviceCode}>{deviceFlow?.user_code}</Text>
         <TouchableOpacity style={styles.copyButton} onPress={handleCopyCode}>
           <Ionicons name="copy-outline" size={18} color="#fff" />
-          <Text style={styles.copyButtonText}>Copia</Text>
+          <Text style={styles.copyButtonText}>{t('common:copy')}</Text>
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={styles.openBrowserButton} onPress={handleOpenVerification}>
         <Ionicons name="open-outline" size={18} color="#fff" />
-        <Text style={styles.openBrowserButtonText}>Apri {getProviderDisplayName(selectedProvider!)}</Text>
+        <Text style={styles.openBrowserButtonText}>{t('settings:gitAccounts.openProvider', { provider: getProviderDisplayName(selectedProvider!) })}</Text>
       </TouchableOpacity>
 
       <View style={styles.pollingIndicator}>
         <ActivityIndicator color={AppColors.primary} size="small" />
-        <Text style={styles.pollingText}>In attesa di autorizzazione...</Text>
+        <Text style={styles.pollingText}>{t('settings:gitAuth.waitingForAuthorization')}</Text>
       </View>
 
       {error && <Text style={styles.errorText}>{error}</Text>}
@@ -478,7 +478,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
             <Text style={styles.inputLabel}>{t('settings:gitAccounts.serverUrl')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="https://gitlab.mycompany.com"
+              placeholder={t('settings:gitAccounts.serverUrlPlaceholder')}
               placeholderTextColor="rgba(255,255,255,0.3)"
               value={serverUrl}
               onChangeText={setServerUrl}
@@ -509,7 +509,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           </Text>
           <TextInput
             style={styles.input}
-            placeholder={providerConfig?.requiresUsername ? t('settings:gitAccounts.appPasswordPlaceholder') : 'ghp_xxxxxxxxxxxx'}
+            placeholder={providerConfig?.requiresUsername ? t('settings:gitAccounts.appPasswordPlaceholder') : t('settings:gitAccounts.personalTokenPlaceholder')}
             placeholderTextColor="rgba(255,255,255,0.3)"
             value={token}
             onChangeText={setToken}
@@ -566,8 +566,8 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           <View style={styles.header}>
             <Text style={styles.title}>
               {step === 'select-provider' ? t('settings:gitAccounts.addAccountTitle') :
-               step === 'auth-method' ? 'Metodo di Accesso' :
-               step === 'device-flow' ? 'Autorizzazione' :
+               step === 'auth-method' ? t('settings:gitAccounts.accessMethodTitle') :
+               step === 'device-flow' ? t('settings:gitAccounts.authorizationTitle') :
                t('settings:gitAccounts.authentication')}
             </Text>
             <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>

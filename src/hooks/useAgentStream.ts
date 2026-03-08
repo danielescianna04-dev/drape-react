@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
+import i18next from 'i18next';
 import { config } from '../config/config';
 import { useTerminalStore } from '../core/terminal/terminalStore';
 import { useAuthStore } from '../core/auth/authStore';
@@ -385,7 +386,7 @@ export const useAgentStream = () => {
       setState((prev) => ({
         ...prev,
         status: 'idle',
-        error: 'Cancelled by user',
+        error: i18next.t('common:cancelledByUser'),
       }));
     }
   }, []);

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 interface FileEditCardProps {
   /** File path being edited */
@@ -20,13 +21,14 @@ export const FileEditCard: React.FC<FileEditCardProps> = ({
   stats,
   diffLines,
 }) => {
+  const { t } = useTranslation(['common', 'terminal']);
   const [isModalVisible, setIsModalVisible] = useState(false);
 
   return (
     <>
       <View>
         {/* Header and stats outside the card */}
-        <Text style={styles.header}>Edit {filePath}</Text>
+        <Text style={styles.header}>{t('common:edit')} {filePath}</Text>
         {stats && <Text style={styles.stats}>{stats}</Text>}
 
         {/* Card with code only, no header */}
@@ -35,7 +37,7 @@ export const FileEditCard: React.FC<FileEditCardProps> = ({
             onPress={() => setIsModalVisible(true)}
             style={styles.expandButton}
           >
-            <Text style={styles.expandText}>Click to expand</Text>
+            <Text style={styles.expandText}>{t('terminal:fileEdit.expand')}</Text>
           </TouchableOpacity>
           <View style={styles.content}>
             {diffLines.map((line, index) => {
@@ -84,7 +86,7 @@ export const FileEditCard: React.FC<FileEditCardProps> = ({
         >
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>File Edit</Text>
+              <Text style={styles.modalTitle}>{t('terminal:fileEdit.title')}</Text>
               <TouchableOpacity
                 onPress={() => setIsModalVisible(false)}
                 style={styles.closeButton}

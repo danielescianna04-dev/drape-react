@@ -14,6 +14,7 @@ import { AnthropicIcon, GoogleIcon, OpenAIIcon } from '../../../shared/component
 import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { ThinkingIndicator } from '../../../shared/components/atoms/ThinkingIndicator';
+import { useTranslation } from 'react-i18next';
 
 const AI_MODELS = [
   { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, isPremium: true, thinkingLevels: [] as string[] },
@@ -137,6 +138,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
   contextUsagePercent = 0,
   selectedModel = 'gemini-3-flash',
 }) => {
+  const { t } = useTranslation();
   const [showContextInfo, setShowContextInfo] = React.useState(false);
   const [showModelSelector, setShowModelSelector] = React.useState(false);
   const dropdownAnim = useSharedValue(0);
@@ -152,6 +154,19 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
     const model = AI_MODELS.find(m => m.id === storeSelectedModel);
     return model?.name ?? 'Claude 4.6 Sonnet';
   }, [storeSelectedModel]);
+
+  const getElementLabel = React.useCallback((tag?: string) => {
+    const normalizedTag = tag?.toLowerCase() || '';
+    const labelKeys: Record<string, string> = {
+      h1: 'heading', h2: 'heading', h3: 'heading', h4: 'heading', h5: 'heading', h6: 'heading',
+      p: 'text', span: 'text', a: 'link', button: 'button', img: 'image', video: 'video',
+      input: 'input', textarea: 'input', select: 'menu', div: 'section', section: 'section',
+      nav: 'navigation', header: 'header', footer: 'footer', ul: 'list', ol: 'list',
+      li: 'listItem', form: 'form', label: 'label', svg: 'icon',
+    };
+    const key = labelKeys[normalizedTag];
+    return key ? t(`terminal:preview.elementLabels.${key}`) : normalizedTag.toUpperCase();
+  }, [t]);
 
   const toggleModelSelector = React.useCallback(() => {
     if (showModelSelector) {
@@ -279,7 +294,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
               const allLevels = ['minimal', 'low', 'medium', 'high'];
               return (
                 <View style={{ paddingHorizontal: 14, paddingBottom: 10, borderTopWidth: 0.5, borderTopColor: 'rgba(255,255,255,0.06)', marginTop: 4 }}>
-                  <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: '500', marginBottom: 8, marginTop: 8 }}>Livello ragionamento:</Text>
+                  <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: '500', marginBottom: 8, marginTop: 8 }}>{t('terminal:preview.thinkingLevel')}</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                     {allLevels.map((level) => {
                       const isAvailable = modelLevels.includes(level);
@@ -334,18 +349,18 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
               borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
             }}>
               <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '600', marginBottom: 6 }}>
-                Contesto: {contextUsagePercent}%
+                {t('chat:context.title', { percent: contextUsagePercent })}
               </Text>
               <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, lineHeight: 16 }}>
                 {contextUsagePercent < compactionAt
-                  ? `Compattazione automatica al ${compactionAt}%. Manca il ${remaining}% prima del riassunto.`
-                  : 'Compattazione del contesto attiva.'}
+                  ? t('chat:context.beforeCompaction', { threshold: compactionAt, remaining })
+                  : t('chat:context.compactionActive')}
               </Text>
               <View style={{ marginTop: 8, height: 3, borderRadius: 1.5, backgroundColor: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
                 <View style={{ width: `${contextUsagePercent}%`, height: '100%', borderRadius: 1.5, backgroundColor: col }} />
               </View>
               <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, marginTop: 4 }}>
-                Finestra: {windowK}K token
+                {t('chat:context.window', { size: windowK })}
               </Text>
             </View>
           </>
@@ -416,7 +431,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                             <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: '500' }} numberOfLines={1}>
                               {previewChatId
                                 ? (previewChats.find((c: any) => c.id === previewChatId)?.title?.slice(0, 20) || 'Chat')
-                                : 'Cronologia'}
+                                : t('terminal:preview.history')}
                             </Text>
                             <Ionicons
                               name={showPastChats ? "chevron-up" : "chevron-down"}
@@ -535,7 +550,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                     {(aiMessages || []).length === 0 && !isAiLoading && (
                       <View style={{ paddingVertical: 14, paddingHorizontal: 4 }}>
                         <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', textAlign: 'center' }}>
-                          Seleziona un elemento e chiedi modifiche
+                          {t('terminal:preview.selectElementPrompt')}
                         </Text>
                       </View>
                     )}
@@ -587,7 +602,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                               : <Ionicons name="flash" size={10} color={AppColors.primary} />
                             }
                             <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: '500' }}>
-                              {msg.isCompacting ? 'Compattazione in corso...' : 'Contesto compattato'}
+                              {msg.isCompacting ? t('terminal:preview.contextCompacting') : t('terminal:preview.contextCompacted')}
                             </Text>
                             <View style={{ flex: 1, height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)' }} />
                           </View>
@@ -598,10 +613,10 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                           <View key={index} style={{ marginVertical: 8, marginHorizontal: 4, backgroundColor: 'rgba(139, 124, 246, 0.1)', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: 'rgba(139, 124, 246, 0.2)' }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                               <Ionicons name="flash" size={14} color={AppColors.primary} style={{ marginRight: 8 }} />
-                              <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff' }}>Budget AI esaurito</Text>
+                              <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff' }}>{t('terminal:preview.aiBudgetExceeded')}</Text>
                             </View>
                             <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
-                              Passa a Go per continuare
+                              {t('terminal:preview.upgradeMessage')}
                             </Text>
                             <TouchableOpacity
                               onPress={() => useNavigationStore.getState().navigateTo('plans')}
@@ -609,7 +624,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                               activeOpacity={0.7}
                             >
                               <Ionicons name="rocket-outline" size={14} color="#fff" />
-                              <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>Passa a Go</Text>
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>{t('terminal:preview.upgradeCta')}</Text>
                             </TouchableOpacity>
                           </View>
                         );
@@ -740,9 +755,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                       }}>
                         <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: '500' }}>
                           {(() => {
-                            const tag = selectedElement.tag?.toLowerCase() || '';
-                            const labels: Record<string, string> = { h1: 'Titolo', h2: 'Titolo', h3: 'Titolo', h4: 'Titolo', h5: 'Titolo', h6: 'Titolo', p: 'Testo', span: 'Testo', a: 'Link', button: 'Bottone', img: 'Immagine', video: 'Video', input: 'Input', textarea: 'Input', select: 'Menu', div: 'Sezione', section: 'Sezione', nav: 'Navigazione', header: 'Header', footer: 'Footer', ul: 'Lista', ol: 'Lista', li: 'Elemento', form: 'Form', label: 'Etichetta', svg: 'Icona' };
-                            return labels[tag] || tag.toUpperCase();
+                            return getElementLabel(selectedElement.tag);
                           })()}
                         </Text>
                         <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600', flex: 1 }} numberOfLines={1}>
@@ -795,7 +808,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                   style={styles.previewInput}
                   value={message}
                   onChangeText={setMessage}
-                  placeholder="Chiedi modifiche..."
+                  placeholder={t('chat:placeholderFast')}
                   placeholderTextColor="rgba(255, 255, 255, 0.35)"
                   multiline
                   maxLength={500}

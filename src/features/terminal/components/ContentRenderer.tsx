@@ -2,6 +2,7 @@ import React from 'react';
 import { Dimensions, View, Text, StyleSheet } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useTabStore, Tab } from '../../../core/tabs/tabStore';
 import { FluidTabSwitcher } from '../../../shared/components/FluidTabSwitcher';
 
@@ -13,13 +14,17 @@ interface ContentRendererProps {
   swipeEnabled?: boolean;
 }
 
-const EmptyState = () => (
-  <View style={emptyStyles.container}>
-    <Ionicons name="browsers-outline" size={64} color="#333" />
-    <Text style={emptyStyles.title}>Nessuna scheda aperta</Text>
-    <Text style={emptyStyles.subtitle}>Premi il + per aprire una nuova scheda</Text>
-  </View>
-);
+const EmptyState = () => {
+  const { t } = useTranslation('terminal');
+
+  return (
+    <View style={emptyStyles.container}>
+      <Ionicons name="browsers-outline" size={64} color="#333" />
+      <Text style={emptyStyles.title}>{t('contentRenderer.emptyTitle')}</Text>
+      <Text style={emptyStyles.subtitle}>{t('contentRenderer.emptySubtitle')}</Text>
+    </View>
+  );
+};
 
 const emptyStyles = StyleSheet.create({
   container: {

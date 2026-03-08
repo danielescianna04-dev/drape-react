@@ -247,6 +247,11 @@ export class AgentLoop {
       let shouldContinue = true;
       let consecutiveSameToolCount = 0;
       let lastToolSignature = ''; // Track tool name + key input to detect actual loops
+      const isPreviewElementExecutionPrompt =
+        prompt.includes('L’utente ha selezionato un elemento specifico nella preview e vuole che tu modifichi PROPRIO quello.')
+        || prompt.includes('L’utente sta confermando di procedere con una modifica già riferita a un elemento selezionato nella preview.')
+        || prompt.includes('L’utente sta inviando un follow-up breve nella preview chat.');
+      let previewExecutionNudgeCount = 0;
       while (shouldContinue && this.iterationCount < this.maxIterations) {
         this.iterationCount++;
 
@@ -936,6 +941,25 @@ export class AgentLoop {
           // Continue loop to get next agent response
           shouldContinue = true;
         } else {
+          if (
+            isPreviewElementExecutionPrompt &&
+            this.iterationCount === 1 &&
+            previewExecutionNudgeCount < 1 &&
+            fullText.trim().length > 0
+          ) {
+            previewExecutionNudgeCount++;
+            log.warn('[AgentLoop] Preview selected-element request returned text without tools. Nudging execution.');
+            this.pushMessage({
+              role: 'user',
+              content: [{
+                type: 'text',
+                text: 'Agisci adesso sul codice usando i tool. Leggi il file rilevante, modifica l’elemento selezionato nella preview e applica davvero la richiesta dell’utente. Non descrivere di nuovo il piano.',
+              }],
+            });
+            shouldContinue = true;
+            continue;
+          }
+
           // No tool calls - agent is done.
           // Do not force a follow-up pass just because some todos remain pending:
           // the model may have intentionally stopped after giving a plan or partial result,

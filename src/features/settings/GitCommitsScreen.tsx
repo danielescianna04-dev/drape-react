@@ -15,6 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { githubService, GitHubCommit } from '../../core/github/githubService';
 import { gitAccountService } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
@@ -26,6 +27,7 @@ interface Props {
 }
 
 export const GitCommitsScreen = ({ repositoryUrl, onClose }: Props) => {
+  const { t } = useTranslation(['terminal', 'common']);
   const [commits, setCommits] = useState<GitHubCommit[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -71,7 +73,7 @@ export const GitCommitsScreen = ({ repositoryUrl, onClose }: Props) => {
       setCommits(fetchedCommits);
     } catch (err: any) {
       console.error('Error loading commits:', err);
-      setError(err.message || 'Impossibile caricare i commit');
+      setError(err.message || t('terminal:git.noCommitsFound'));
     } finally {
       setLoading(false);
     }
@@ -90,10 +92,10 @@ export const GitCommitsScreen = ({ repositoryUrl, onClose }: Props) => {
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-    if (days > 0) return `${days}g fa`;
-    if (hours > 0) return `${hours}h fa`;
-    if (minutes > 0) return `${minutes}m fa`;
-    return 'ora';
+    if (days > 0) return t('terminal:chat.daysAgo', { count: days });
+    if (hours > 0) return t('terminal:chat.hoursAgo', { count: hours });
+    if (minutes > 0) return t('terminal:chat.minutesAgo', { count: minutes });
+    return t('terminal:chat.justNow');
   };
 
   const getRepoName = () => {
@@ -101,7 +103,7 @@ export const GitCommitsScreen = ({ repositoryUrl, onClose }: Props) => {
     if (match) {
       return `${match[1]}/${match[2].replace('.git', '')}`;
     }
-    return 'Repository';
+    return t('common:repository');
   };
 
   const handleCommitPress = (commit: GitHubCommit) => {
@@ -166,7 +168,7 @@ export const GitCommitsScreen = ({ repositoryUrl, onClose }: Props) => {
                 onPress={() => handleOpenInGitHub(commit.url)}
               >
                 <Ionicons name="open-outline" size={16} color={AppColors.primary} />
-                <Text style={styles.actionButtonText}>Apri su GitHub</Text>
+                <Text style={styles.actionButtonText}>{t('terminal:git.openInGithub')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -215,7 +217,7 @@ export const GitCommitsScreen = ({ repositoryUrl, onClose }: Props) => {
             <Ionicons name="chevron-back" size={22} color="rgba(255,255,255,0.5)" />
           </TouchableOpacity>
           <View>
-            <Text style={styles.headerTitle}>Commit</Text>
+            <Text style={styles.headerTitle}>{t('common:commits')}</Text>
             <Text style={styles.headerSubtitle}>{getRepoName()}</Text>
           </View>
         </View>
@@ -258,13 +260,13 @@ export const GitCommitsScreen = ({ repositoryUrl, onClose }: Props) => {
               onPress={loadCommits}
             >
               <Ionicons name="refresh" size={18} color="#fff" />
-              <Text style={styles.retryButtonText}>Riprova</Text>
+              <Text style={styles.retryButtonText}>{t('common:retry')}</Text>
             </TouchableOpacity>
           </View>
         ) : commits.length > 0 ? (
           <>
             <Text style={styles.sectionTitle}>
-              {commits.length} commit recenti
+              {t('terminal:git.recentCommits', { count: commits.length })}
             </Text>
             {commits.map(renderCommitCard)}
           </>
@@ -273,9 +275,9 @@ export const GitCommitsScreen = ({ repositoryUrl, onClose }: Props) => {
             <View style={styles.emptyIcon}>
               <Ionicons name="git-commit-outline" size={48} color="rgba(255,255,255,0.2)" />
             </View>
-            <Text style={styles.emptyText}>Nessun commit</Text>
+            <Text style={styles.emptyText}>{t('terminal:git.noCommitsFound')}</Text>
             <Text style={styles.emptySubtext}>
-              Questo repository non ha ancora commit
+              {t('terminal:git.noCommitsYet')}
             </Text>
           </View>
         )}

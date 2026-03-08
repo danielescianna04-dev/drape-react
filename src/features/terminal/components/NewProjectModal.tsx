@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, Modal, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../../../shared/components/atoms/Button';
 import { Input } from '../../../shared/components/atoms/Input';
 import { AppColors } from '../../../shared/theme/colors';
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export const NewProjectModal = ({ visible, onClose, onConfirm }: Props) => {
+  const { t } = useTranslation(['terminal', 'common']);
   const [projectName, setProjectName] = useState('');
   const [language, setLanguage] = useState('');
 
@@ -27,15 +29,15 @@ export const NewProjectModal = ({ visible, onClose, onConfirm }: Props) => {
 
   const renderModalContent = () => (
     <View style={styles.modalInner}>
-      <View style={styles.header}>
-        <Ionicons name="folder-outline" size={24} color={AppColors.primary} />
-        <Text style={styles.title}>Nuovo Progetto</Text>
-      </View>
+        <View style={styles.header}>
+          <Ionicons name="folder-outline" size={24} color={AppColors.primary} />
+          <Text style={styles.title}>{t('terminal:newProjectModal.title')}</Text>
+        </View>
 
       <Input
         value={projectName}
         onChangeText={setProjectName}
-        placeholder="Nome del progetto"
+        placeholder={t('terminal:newProjectModal.namePlaceholder')}
         autoFocus
         style={{ marginBottom: 12 }}
       />
@@ -43,19 +45,19 @@ export const NewProjectModal = ({ visible, onClose, onConfirm }: Props) => {
       <Input
         value={language}
         onChangeText={setLanguage}
-        placeholder="Linguaggio (es. JavaScript)"
+        placeholder={t('terminal:newProjectModal.languagePlaceholder')}
         style={{ marginBottom: 20 }}
       />
 
       <View style={styles.buttons}>
         <Button
-          label="Annulla"
+          label={t('common:cancel')}
           onPress={onClose}
           variant="secondary"
           style={{ flex: 1 }}
         />
         <Button
-          label="Crea"
+          label={t('common:create')}
           onPress={handleConfirm}
           variant="primary"
           disabled={!projectName.trim()}

@@ -13,6 +13,7 @@ import { BlurView } from 'expo-blur';
 import { AppColors } from '../../theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
     visible: boolean;
@@ -24,6 +25,7 @@ interface Props {
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export const CreationProgressModal = ({ visible, progress, status, step }: Props) => {
+    const { t } = useTranslation('projects');
     const progressAnim = useRef(new Animated.Value(0)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const [activityLog, setActivityLog] = useState<string[]>([]);
@@ -175,8 +177,8 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
                     </View>
 
                     {/* Title */}
-                    <Text style={styles.title}>Creazione in corso</Text>
-                    <Text style={styles.subtitle}>{step || 'Inizializzazione...'}</Text>
+                    <Text style={styles.title}>{t('progress.title')}</Text>
+                    <Text style={styles.subtitle}>{step || t('progress.initializing')}</Text>
 
                     {/* Big percentage */}
                     <Text style={styles.bigPercent}>{roundedDisplayProgress}%</Text>
@@ -222,7 +224,7 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
                             {activityLog.length === 0 && (
                                 <View style={styles.logLine}>
                                     <Ionicons name="ellipse" size={12} color={AppColors.primary} style={styles.logIcon} />
-                                    <Text style={styles.logTextActive}>Avvio generazione...</Text>
+                                    <Text style={styles.logTextActive}>{t('progress.initializing')}</Text>
                                 </View>
                             )}
                         </ScrollView>

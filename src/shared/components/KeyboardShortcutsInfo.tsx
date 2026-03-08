@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../theme/colors';
 
 interface ShortcutItem {
@@ -14,6 +15,7 @@ interface ShortcutItem {
  * Can be integrated into Settings, Help, or displayed as a modal
  */
 export const KeyboardShortcutsInfo: React.FC = () => {
+  const { t } = useTranslation('terminal');
   // Only relevant on iOS (iPad with keyboard)
   if (Platform.OS !== 'ios') {
     return null;
@@ -22,27 +24,27 @@ export const KeyboardShortcutsInfo: React.FC = () => {
   const shortcuts: ShortcutItem[] = [
     {
       keys: '⌘ ↵',
-      description: 'Send message',
+      description: t('keyboardShortcuts.shortcuts.send_message.description'),
       available: false, // Coming soon
     },
     {
       keys: '⇧ ↵',
-      description: 'New line',
+      description: t('keyboardShortcuts.shortcuts.new_line.description'),
       available: true,
     },
     {
       keys: '⌘ /',
-      description: 'Toggle terminal/AI mode',
+      description: t('keyboardShortcuts.shortcuts.toggle_mode.description'),
       available: false, // Coming soon
     },
     {
       keys: '⌘ K',
-      description: 'Focus search',
+      description: t('keyboardShortcuts.shortcuts.focus_search.description'),
       available: false, // Coming soon
     },
     {
       keys: 'esc',
-      description: 'Dismiss keyboard',
+      description: t('keyboardShortcuts.shortcuts.dismiss_keyboard.description'),
       available: true,
     },
   ];
@@ -53,13 +55,13 @@ export const KeyboardShortcutsInfo: React.FC = () => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Ionicons name="keyboard-outline" size={24} color={AppColors.primary} />
-        <Text style={styles.title}>Keyboard Shortcuts</Text>
+        <Ionicons name="keypad-outline" size={24} color={AppColors.primary} />
+        <Text style={styles.title}>{t('keyboardShortcuts.title')}</Text>
       </View>
 
       {availableShortcuts.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Available</Text>
+          <Text style={styles.sectionTitle}>{t('keyboardShortcuts.available')}</Text>
           {availableShortcuts.map((shortcut, index) => (
             <ShortcutRow
               key={index}
@@ -73,7 +75,7 @@ export const KeyboardShortcutsInfo: React.FC = () => {
 
       {comingSoonShortcuts.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Coming Soon</Text>
+          <Text style={styles.sectionTitle}>{t('keyboardShortcuts.comingSoon')}</Text>
           {comingSoonShortcuts.map((shortcut, index) => (
             <ShortcutRow
               key={index}
@@ -87,8 +89,7 @@ export const KeyboardShortcutsInfo: React.FC = () => {
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          Full keyboard shortcut support requires additional native integration.
-          More shortcuts will be available in future updates.
+          {t('keyboardShortcuts.footerCompact')}
         </Text>
       </View>
     </View>
@@ -101,21 +102,25 @@ interface ShortcutRowProps {
   available: boolean;
 }
 
-const ShortcutRow: React.FC<ShortcutRowProps> = ({ keys, description, available }) => (
-  <View style={[styles.shortcutRow, !available && styles.shortcutRowDisabled]}>
-    <View style={styles.keyBadge}>
-      <Text style={[styles.keyText, !available && styles.keyTextDisabled]}>{keys}</Text>
-    </View>
-    <Text style={[styles.descriptionText, !available && styles.descriptionTextDisabled]}>
-      {description}
-    </Text>
-    {!available && (
-      <View style={styles.comingSoonBadge}>
-        <Text style={styles.comingSoonText}>Soon</Text>
+const ShortcutRow: React.FC<ShortcutRowProps> = ({ keys, description, available }) => {
+  const { t } = useTranslation('terminal');
+
+  return (
+    <View style={[styles.shortcutRow, !available && styles.shortcutRowDisabled]}>
+      <View style={styles.keyBadge}>
+        <Text style={[styles.keyText, !available && styles.keyTextDisabled]}>{keys}</Text>
       </View>
-    )}
-  </View>
-);
+      <Text style={[styles.descriptionText, !available && styles.descriptionTextDisabled]}>
+        {description}
+      </Text>
+      {!available && (
+        <View style={styles.comingSoonBadge}>
+          <Text style={styles.comingSoonText}>{t('keyboardShortcuts.soon')}</Text>
+        </View>
+      )}
+    </View>
+  );
+};
 
 const styles = StyleSheet.create({
   container: {

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../shared/theme/colors';
 import { useIAPStore } from '../../core/iap/iapStore';
 import { IAP_PRODUCT_IDS } from '../../core/iap/iapConstants';
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser = false, onSelectPlan }) => {
+  const { t } = useTranslation(['projects', 'common']);
   const { products: iapProducts } = useIAPStore();
   const goProduct = iapProducts.find(p => p.productId === IAP_PRODUCT_IDS.GO_MONTHLY);
   const goMonthlyPrice = goProduct?.localizedPrice || '€22.99';
@@ -55,7 +57,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
     ]).start();
   }, []);
 
-  const firstName = displayName?.split(' ')[0] || 'Ciao';
+  const firstName = displayName?.split(' ')[0] || t('common:welcome');
 
   return (
     <View style={styles.container}>
@@ -76,12 +78,14 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
           </LinearGradient>
         </View>
         <Text style={styles.welcomeTitle}>
-          {isNewUser ? `Benvenuto, ${firstName}!` : `Ciao, ${firstName}!`}
+          {isNewUser
+            ? t('projects:onboardingPlans.welcomeNew', { name: firstName })
+            : t('projects:onboardingPlans.welcomeBack', { name: firstName })}
         </Text>
         <Text style={styles.welcomeSubtitle}>
           {isNewUser
-            ? 'Scegli il piano che fa per te per iniziare a creare.'
-            : 'Sblocca più potenza per i tuoi progetti.'}
+            ? t('projects:onboardingPlans.welcomeSubtitleNew')
+            : t('projects:onboardingPlans.welcomeSubtitleReturning')}
         </Text>
       </Animated.View>
 
@@ -97,7 +101,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
               style={styles.popularBadgeGradient}
             >
               <Ionicons name="star" size={10} color="#fff" />
-              <Text style={styles.popularBadgeText}>Consigliato</Text>
+              <Text style={styles.popularBadgeText}>{t('projects:onboardingPlans.recommended')}</Text>
             </LinearGradient>
           </View>
           <TouchableOpacity
@@ -113,23 +117,25 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
               <Text style={styles.planName}>Go</Text>
               <View style={styles.planPriceRow}>
                 <Text style={styles.planPrice}>{goIntroPrice || goMonthlyPrice}</Text>
-                <Text style={styles.planPricePeriod}>/mese</Text>
+                <Text style={styles.planPricePeriod}>{t('projects:onboardingPlans.perMonth')}</Text>
                 {goIntroPrice && (
                   <Text style={styles.planPriceOriginal}>{goMonthlyPrice}</Text>
                 )}
               </View>
             </View>
             {goIntroPrice && (
-              <Text style={styles.introOfferText}>Primo mese — poi {goMonthlyPrice}/mese</Text>
+              <Text style={styles.introOfferText}>
+                {t('projects:onboardingPlans.introOffer', { price: goMonthlyPrice })}
+              </Text>
             )}
 
             <View style={styles.planFeatures}>
               {[
-                { icon: 'folder-open', text: '5 progetti + 5 clonati' },
-                { icon: 'eye', text: '20 preview al mese' },
-                { icon: 'sparkles', text: 'Budget AI potenziato' },
-                { icon: 'cloud-upload', text: '2GB Storage Cloud' },
-                { icon: 'mail', text: 'Supporto email' },
+                { icon: 'folder-open', text: t('projects:onboardingPlans.goFeatures.projects') },
+                { icon: 'eye', text: t('projects:onboardingPlans.goFeatures.previews') },
+                { icon: 'sparkles', text: t('projects:onboardingPlans.goFeatures.aiBudget') },
+                { icon: 'cloud-upload', text: t('projects:onboardingPlans.goFeatures.storage') },
+                { icon: 'mail', text: t('projects:onboardingPlans.goFeatures.support') },
               ].map((f, i) => (
                 <View key={i} style={styles.featureRow}>
                   <LinearGradient
@@ -149,7 +155,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
               end={{ x: 1, y: 0 }}
               style={styles.planCta}
             >
-              <Text style={styles.planCtaText}>Inizia con Go</Text>
+              <Text style={styles.planCtaText}>{t('projects:onboardingPlans.startGo')}</Text>
               <Ionicons name="arrow-forward" size={18} color="#fff" />
             </LinearGradient>
           </TouchableOpacity>
@@ -166,16 +172,16 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
               <Text style={styles.planName}>Free</Text>
               <View style={styles.planPriceRow}>
                 <Text style={styles.planPrice}>€0</Text>
-                <Text style={styles.planPricePeriod}>/mese</Text>
+                <Text style={styles.planPricePeriod}>{t('projects:onboardingPlans.perMonth')}</Text>
               </View>
             </View>
 
             <View style={styles.planFeatures}>
               {[
-                { icon: 'folder-open', text: '2 progetti + 1 clonato' },
-                { icon: 'eye', text: '5 preview al mese' },
-                { icon: 'sparkles', text: 'Budget AI base' },
-                { icon: 'cloud-upload', text: '500MB Storage' },
+                { icon: 'folder-open', text: t('projects:onboardingPlans.freeFeatures.projects') },
+                { icon: 'eye', text: t('projects:onboardingPlans.freeFeatures.previews') },
+                { icon: 'sparkles', text: t('projects:onboardingPlans.freeFeatures.aiBudget') },
+                { icon: 'cloud-upload', text: t('projects:onboardingPlans.freeFeatures.storage') },
               ].map((f, i) => (
                 <View key={i} style={styles.featureRow}>
                   <View style={styles.featureIconBgFree}>
@@ -187,7 +193,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
             </View>
 
             <View style={styles.planCtaFree}>
-              <Text style={styles.planCtaFreeText}>Continua gratis</Text>
+              <Text style={styles.planCtaFreeText}>{t('projects:onboardingPlans.continueFree')}</Text>
             </View>
           </TouchableOpacity>
         </Animated.View>

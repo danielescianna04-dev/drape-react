@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
     content: string;
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export const CollapsibleCodeBlock = ({ content, language }: Props) => {
+    const { t } = useTranslation(['common', 'terminal']);
     const [isExpanded, setIsExpanded] = useState(false);
 
     // Remove trailing newline
@@ -43,7 +45,7 @@ export const CollapsibleCodeBlock = ({ content, language }: Props) => {
                         onPress={() => setIsExpanded(true)}
                         style={styles.expandButton}
                     >
-                        <Text style={styles.expandText}>Show {lines.length - 6} more lines</Text>
+                        <Text style={styles.expandText}>{t('terminal:terminalItem.showMoreLines', { count: lines.length - 6 })}</Text>
                         <Ionicons name="chevron-down" size={14} color="#8B949E" />
                     </TouchableOpacity>
                 </View>
@@ -54,7 +56,7 @@ export const CollapsibleCodeBlock = ({ content, language }: Props) => {
                     onPress={() => setIsExpanded(false)}
                     style={styles.collapseButton}
                 >
-                    <Text style={styles.expandText}>Show less</Text>
+                    <Text style={styles.expandText}>{t('common:showLess')}</Text>
                     <Ionicons name="chevron-up" size={14} color="#8B949E" />
                 </TouchableOpacity>
             )}

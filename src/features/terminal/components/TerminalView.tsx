@@ -287,7 +287,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
           ]}>
             {item.type === TerminalItemType.COMMAND ? 'COMMAND' :
               item.type === TerminalItemType.ERROR ? 'ERROR' :
-                item.type === TerminalItemType.SYSTEM ? 'SYSTEM' : 'OUTPUT'}
+                item.type === TerminalItemType.SYSTEM ? 'INFO' : 'OUTPUT'}
           </Text>
         </View>
 

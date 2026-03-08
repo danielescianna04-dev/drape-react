@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 interface TabItemProps {
   /** Tab label/title */
@@ -32,6 +33,8 @@ export const TabItem: React.FC<TabItemProps> = ({
   activeColor = 'rgba(139, 124, 246, 0.2)',
   inactiveColor = 'rgba(255, 255, 255, 0.05)',
 }) => {
+  const { t } = useTranslation('common');
+
   return (
     <TouchableOpacity
       style={[
@@ -56,7 +59,7 @@ export const TabItem: React.FC<TabItemProps> = ({
             onClose();
           }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityLabel="Close tab"
+          accessibilityLabel={t('close')}
           accessibilityRole="button"
         >
           <Ionicons name="close" size={16} color="#888" />

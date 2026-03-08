@@ -14,12 +14,14 @@ import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../core/git/git
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { AppColors } from '../../shared/theme/colors';
 import { AddGitAccountModal } from '../settings/components/AddGitAccountModal';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   onClose: () => void;
 }
 
 export const GitManagementScreen = ({ onClose }: Props) => {
+  const { t } = useTranslation(['terminal', 'common']);
   const [accounts, setAccounts] = useState<GitAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -67,19 +69,19 @@ export const GitManagementScreen = ({ onClose }: Props) => {
     const providerName = providerConfig?.name || account.provider;
 
     Alert.alert(
-      'Rimuovi Account',
-      `Sei sicuro di voler rimuovere l'account ${account.username} (${providerName})?`,
+      t('terminal:git.removeAccount'),
+      t('terminal:git.removeAccountConfirm', { account: `${account.username} (${providerName})` }),
       [
-        { text: 'Annulla', style: 'cancel' },
+        { text: t('common:cancel'), style: 'cancel' },
         {
-          text: 'Rimuovi',
+          text: t('common:remove'),
           style: 'destructive',
           onPress: async () => {
             try {
               await gitAccountService.deleteAccount(account, userId);
               loadAccounts();
             } catch (error) {
-              Alert.alert('Errore', 'Impossibile rimuovere l\'account');
+              Alert.alert(t('common:error'), t('terminal:git.unableToRemoveAccount'));
             }
           },
         },
@@ -102,9 +104,9 @@ export const GitManagementScreen = ({ onClose }: Props) => {
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const months = Math.floor(days / 30);
 
-    if (months > 0) return `${months} mesi fa`;
-    if (days > 0) return `${days}g fa`;
-    return 'oggi';
+    if (months > 0) return t('terminal:git.monthsAgo', { count: months });
+    if (days > 0) return t('terminal:chat.daysAgo', { count: days });
+    return t('terminal:git.today');
   };
 
   const renderSkeletonCard = (index: number) => {
@@ -150,7 +152,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
           </View>
           <View style={styles.accountMetaRow}>
             <Ionicons name={iconName as any} size={12} color="rgba(255,255,255,0.35)" />
-            <Text style={styles.accountMeta}>Aggiunto {getTimeAgo(account.addedAt)}</Text>
+            <Text style={styles.accountMeta}>{t('terminal:git.added')} {getTimeAgo(account.addedAt)}</Text>
           </View>
         </View>
         <TouchableOpacity
@@ -176,7 +178,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
           >
             <Ionicons name="chevron-back" size={22} color="rgba(255,255,255,0.5)" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Account Git</Text>
+          <Text style={styles.headerTitle}>{t('terminal:git.accountsTitle')}</Text>
         </View>
         <TouchableOpacity
           style={styles.addButton}
@@ -193,7 +195,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
           <Ionicons name="information-circle" size={20} color={AppColors.primary} />
         </View>
         <Text style={styles.infoText}>
-          Collega i tuoi account Git (GitHub, GitLab, Bitbucket, Gitea) per accedere a repository privati e gestire i tuoi progetti.
+          {t('terminal:git.accountsBanner')}
         </Text>
       </View>
 
@@ -209,7 +211,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
           </>
         ) : accounts.length > 0 ? (
           <>
-            <Text style={styles.sectionTitle}>Account collegati</Text>
+            <Text style={styles.sectionTitle}>{t('terminal:git.connectedAccounts')}</Text>
             {accounts.map(renderAccountCard)}
           </>
         ) : (
@@ -217,9 +219,9 @@ export const GitManagementScreen = ({ onClose }: Props) => {
             <View style={styles.emptyIcon}>
               <Ionicons name="git-branch" size={48} color="rgba(255,255,255,0.2)" />
             </View>
-            <Text style={styles.emptyText}>Nessun account collegato</Text>
+            <Text style={styles.emptyText}>{t('terminal:git.noConnectedAccounts')}</Text>
             <Text style={styles.emptySubtext}>
-              Aggiungi un account Git per accedere ai repository privati
+              {t('terminal:git.addAccountToAccessPrivate')}
             </Text>
             <TouchableOpacity
               style={styles.emptyButton}
@@ -227,7 +229,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
               onPress={handleAddAccount}
             >
               <Ionicons name="add" size={20} color="#fff" />
-              <Text style={styles.emptyButtonText}>Aggiungi Account</Text>
+              <Text style={styles.emptyButtonText}>{t('terminal:git.addAccount')}</Text>
             </TouchableOpacity>
           </View>
         )}

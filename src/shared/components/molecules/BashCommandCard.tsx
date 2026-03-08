@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 
 interface BashCommandCardProps {
@@ -21,12 +22,13 @@ export const BashCommandCard: React.FC<BashCommandCardProps> = ({
   output,
   hasError = false,
 }) => {
+  const { t } = useTranslation('terminal');
   const [isModalVisible, setIsModalVisible] = useState(false);
 
   const renderCardContent = () => (
     <>
       <View style={styles.header}>
-        <Text style={styles.title}>Bash</Text>
+        <Text style={styles.title}>{t('bashCard.title')}</Text>
         <TouchableOpacity
           onPress={() => setIsModalVisible(true)}
           style={styles.expandButton}
@@ -36,14 +38,14 @@ export const BashCommandCard: React.FC<BashCommandCardProps> = ({
       </View>
       <View style={styles.content}>
         <View style={styles.row}>
-          <Text style={styles.label}>IN</Text>
+          <Text style={styles.label}>{t('bashCard.inputShort')}</Text>
           <Text style={styles.input} numberOfLines={2}>
             {command}
           </Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.row}>
-          <Text style={styles.label}>OUT</Text>
+          <Text style={styles.label}>{t('bashCard.outputShort')}</Text>
           <Text style={styles.output} numberOfLines={3}>
             {output}
           </Text>
@@ -55,7 +57,7 @@ export const BashCommandCard: React.FC<BashCommandCardProps> = ({
   const renderModalContent = () => (
     <View style={{ flex: 1 }}>
       <View style={styles.modalHeader}>
-        <Text style={styles.modalTitle}>Bash Output</Text>
+        <Text style={styles.modalTitle}>{t('bashCard.outputTitle')}</Text>
         <TouchableOpacity
           onPress={() => setIsModalVisible(false)}
           style={styles.closeButton}
@@ -65,12 +67,12 @@ export const BashCommandCard: React.FC<BashCommandCardProps> = ({
       </View>
       <ScrollView style={styles.modalContent}>
         <View style={styles.modalSection}>
-          <Text style={styles.modalLabel}>INPUT</Text>
+          <Text style={styles.modalLabel}>{t('bashCard.inputTitle')}</Text>
           <Text style={styles.modalInput}>{command}</Text>
         </View>
         <View style={styles.modalDivider} />
         <View style={styles.modalSection}>
-          <Text style={styles.modalLabel}>OUTPUT</Text>
+          <Text style={styles.modalLabel}>{t('bashCard.outputLabel')}</Text>
           <Text style={styles.modalOutput}>{output}</Text>
         </View>
       </ScrollView>

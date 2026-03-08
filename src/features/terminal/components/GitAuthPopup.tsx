@@ -366,7 +366,7 @@ export const GitAuthPopup = React.memo(() => {
         <View style={styles.optionTextContainer}>
           <Text style={styles.optionButtonText}>{t('settings:gitAuth.loginWithGitHub')}</Text>
           {(Platform.OS === 'ios' || Platform.OS === 'android') && (
-            <Text style={styles.optionSubtext}>Via Device Flow</Text>
+            <Text style={styles.optionSubtext}>{t('settings:gitAccounts.deviceFlow')}</Text>
           )}
         </View>
         {isLoading && <ActivityIndicator color="#FFFFFF" />}
@@ -408,7 +408,7 @@ export const GitAuthPopup = React.memo(() => {
           <Text style={styles.optionSubtext}>{t('settings:gitAuth.comingSoon')}</Text>
         </View>
         <View style={styles.comingSoonBadge}>
-          <Text style={styles.comingSoonText}>Soon</Text>
+          <Text style={styles.comingSoonText}>{t('common:comingSoon')}</Text>
         </View>
       </TouchableOpacity>
 
@@ -419,18 +419,18 @@ export const GitAuthPopup = React.memo(() => {
           <Text style={styles.optionSubtext}>{t('settings:gitAuth.comingSoon')}</Text>
         </View>
         <View style={styles.comingSoonBadge}>
-          <Text style={styles.comingSoonText}>Soon</Text>
+          <Text style={styles.comingSoonText}>{t('common:comingSoon')}</Text>
         </View>
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.providerOption} disabled>
         <Ionicons name="git-branch" size={24} color="#F05032" />
         <View style={styles.optionTextContainer}>
-          <Text style={styles.optionButtonText}>Self-Hosted Git</Text>
+          <Text style={styles.optionButtonText}>{t('settings:gitAuth.selfHostedGit')}</Text>
           <Text style={styles.optionSubtext}>{t('settings:gitAuth.customGitServer')}</Text>
         </View>
         <View style={styles.comingSoonBadge}>
-          <Text style={styles.comingSoonText}>Soon</Text>
+          <Text style={styles.comingSoonText}>{t('common:comingSoon')}</Text>
         </View>
       </TouchableOpacity>
     </>
@@ -448,7 +448,7 @@ export const GitAuthPopup = React.memo(() => {
       </Text>
       <TextInput
         style={styles.input}
-        placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+        placeholder={t('settings:gitAccounts.personalTokenPlaceholder')}
         placeholderTextColor="rgba(255,255,255,0.3)"
         value={pat}
         onChangeText={setPat}

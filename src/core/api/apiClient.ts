@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { Alert } from 'react-native';
+import i18next from 'i18next';
 import { auth } from '../../config/firebase';
 
 const apiClient = axios.create();
@@ -18,10 +19,10 @@ function showReloginAlert(): void {
       return;
     }
     Alert.alert(
-      'Sessione scaduta',
-      'La tua sessione non è più valida. Effettua di nuovo il login.',
+      i18next.t('common:authRequired'),
+      i18next.t('common:connectionLost'),
       [{
-        text: 'Accedi',
+        text: i18next.t('common:login'),
         onPress: () => {
           authAlertShown = false;
           logout();

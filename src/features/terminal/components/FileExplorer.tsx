@@ -126,7 +126,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
           if (isMounted) {
             console.error('Search error:', err);
             setSearchResults([]);
-            setSearchError(err.message || 'Errore nella ricerca');
+            setSearchError(err.message || t('terminal:fileExplorer.searchError'));
           }
         } finally {
           if (isMounted) setSearching(false);
@@ -185,7 +185,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
             setTimeout(() => loadFiles(false, retryCount + 1, isMountedRef), 2000);
             return;
           }
-          setError(err.message || 'Failed to load files');
+          setError(err.message || t('terminal:fileExplorer.loadError'));
         }
       }
     } finally {
@@ -329,7 +329,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       });
       useFileCacheStore.getState().clearCache(projectId);
     } catch (err: any) {
-      Alert.alert('Errore', err.message || 'Creazione fallita');
+      Alert.alert(t('common:error'), err.message || t('terminal:fileExplorer.createFailed'));
     } finally {
       setCreating(null); setNewName(''); setCreatingInFolder(null); Keyboard.dismiss();
     }
@@ -338,17 +338,17 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
   // --- File operations ---
   const handleDeleteFile = async (filePath: string) => {
     const fileName = filePath.split('/').pop() || filePath;
-    Alert.alert('Elimina', `Sei sicuro di voler eliminare "${fileName}"?`, [
-      { text: 'Annulla', style: 'cancel' },
+    Alert.alert(t('common:delete'), t('common:deleteConfirmMessage', { name: fileName }), [
+      { text: t('common:cancel'), style: 'cancel' },
       {
-        text: 'Elimina', style: 'destructive',
+        text: t('common:delete'), style: 'destructive',
         onPress: async () => {
           try {
             await workstationService.deleteFile(projectId, filePath);
             // Optimistic: rimuovi subito dal local state
             setFiles(prev => prev.filter(f => f !== filePath && !f.startsWith(filePath + '/')));
             useFileCacheStore.getState().clearCache(projectId);
-          } catch (err: any) { Alert.alert('Errore', err.message || 'Eliminazione fallita'); }
+          } catch (err: any) { Alert.alert(t('common:error'), err.message || t('terminal:fileExplorer.deleteFailed')); }
         }
       },
     ]);
@@ -364,7 +364,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       // Optimistic: aggiorna path subito nel local state
       setFiles(prev => prev.map(f => f === renamingFile ? newPath : f.startsWith(renamingFile + '/') ? f.replace(renamingFile, newPath) : f));
       useFileCacheStore.getState().clearCache(projectId);
-    } catch (err: any) { Alert.alert('Errore', err.message || 'Rinomina fallita'); }
+    } catch (err: any) { Alert.alert(t('common:error'), err.message || t('terminal:fileExplorer.renameFailed')); }
     finally { setRenamingFile(null); setRenameValue(''); Keyboard.dismiss(); }
   };
 
@@ -559,7 +559,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         .catch((err: any) => {
           // Revert optimistic update
           setFiles(prev => prev.map(f => f === newPath ? filePath : f));
-          Alert.alert('Errore', err.message || 'Spostamento fallito');
+          Alert.alert(t('common:error'), err.message || t('terminal:fileExplorer.moveFailed'));
         });
       return;
     }
@@ -575,7 +575,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
             .then(() => useFileCacheStore.getState().clearCache(projectId))
             .catch((err: any) => {
               setFiles(prev => prev.map(f => f === newPath ? filePath : f));
-              Alert.alert('Errore', err.message || 'Spostamento fallito');
+              Alert.alert(t('common:error'), err.message || t('terminal:fileExplorer.moveFailed'));
             });
         }
         return;
@@ -820,7 +820,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         return (
           <View style={styles.searchResultsContainer}>
             <Ionicons name="alert-circle-outline" size={48} color={AppColors.white.w25} />
-            <Text style={styles.noResultsText}>Errore nella ricerca</Text>
+            <Text style={styles.noResultsText}>{t('terminal:fileExplorer.searchError')}</Text>
           </View>
         );
       }
@@ -945,7 +945,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
           onChangeText={setNewName}
           onSubmitEditing={handleCreate}
           onBlur={() => { setCreating(null); setNewName(''); }}
-          placeholder={creating === 'folder' ? 'Nome cartella...' : 'Nome file...'}
+          placeholder={creating === 'folder' ? `${t('common:folderName')}...` : `${t('common:selectFile')}...`}
           placeholderTextColor={AppColors.white.w25}
           autoCorrect={false}
           autoCapitalize="none"
@@ -1076,22 +1076,22 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
                 <>
                   <TouchableOpacity style={styles.popoverItem} onPress={() => handleContextMenuAction('newFile')}>
                     <Ionicons name="document-outline" size={16} color={AppColors.white.w70} />
-                    <Text style={styles.popoverItemText}>Nuovo file</Text>
+                    <Text style={styles.popoverItemText}>{t('terminal:fileExplorer.newFile')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.popoverItem} onPress={() => handleContextMenuAction('newFolder')}>
                     <Ionicons name="folder-outline" size={16} color={AppColors.white.w70} />
-                    <Text style={styles.popoverItemText}>Nuova cartella</Text>
+                    <Text style={styles.popoverItemText}>{t('terminal:fileExplorer.newFolder')}</Text>
                   </TouchableOpacity>
                   <View style={styles.popoverDivider} />
                 </>
               )}
               <TouchableOpacity style={styles.popoverItem} onPress={() => handleContextMenuAction('rename')}>
                 <Ionicons name="pencil-outline" size={16} color={AppColors.white.w70} />
-                <Text style={styles.popoverItemText}>Rinomina</Text>
+                <Text style={styles.popoverItemText}>{t('common:rename')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.popoverItem} onPress={() => handleContextMenuAction('delete')}>
                 <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
-                <Text style={[styles.popoverItemText, { color: '#FF6B6B' }]}>Elimina</Text>
+                <Text style={[styles.popoverItemText, { color: '#FF6B6B' }]}>{t('common:delete')}</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>

@@ -15,9 +15,9 @@ interface DescriptionInputProps {
 export const DescriptionInput = React.memo<DescriptionInputProps>(({
   value,
   onChangeText,
-  placeholder = "Es. Una landing page per vendere scarpe..."
+  placeholder
 }) => {
-  const { t } = useTranslation('projects');
+  const { t } = useTranslation(['projects', 'common']);
   const inputRef = useRef<TextInput>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
@@ -71,7 +71,7 @@ export const DescriptionInput = React.memo<DescriptionInputProps>(({
       <TextInput
         ref={inputRef}
         style={styles.textInput}
-        placeholder={placeholder}
+        placeholder={placeholder || t('create.descriptionPlaceholder')}
         placeholderTextColor="rgba(255,255,255,0.3)"
         value={value}
         onChangeText={(text) => {
@@ -96,7 +96,7 @@ export const DescriptionInput = React.memo<DescriptionInputProps>(({
           activeOpacity={0.7}
         >
           <Ionicons name="checkmark-circle" size={18} color="#fff" />
-          <Text style={styles.dismissText}>Fatto</Text>
+          <Text style={styles.dismissText}>{t('common:done')}</Text>
         </TouchableOpacity>
       </Animated.View>
     </>

@@ -15,57 +15,7 @@ import { ImageViewerModal } from '../../../shared/components/modals/ImageViewerM
 const colors = AppColors.dark;
 
 // Module-level: each new thinking indicator picks the next phrase, never repeats "Thinking" every time
-const THINKING_PHRASES = [
-  'Thinking',
-  'Reasoning',
-  'Analyzing code',
-  'Planning approach',
-  'Working through this',
-  'Considering options',
-  'Reviewing context',
-  'Processing',
-  'I\'m cooking',
-  'Crunching the logic',
-  'Connecting the dots',
-  'Diving deep',
-  'Almost there',
-  'Brainstorming',
-  'Mapping it out',
-  'Piecing it together',
-  'On it',
-  'Let me think',
-  'Hmm interesting',
-  'One sec',
-  'Hold on',
-  'Getting creative',
-  'Figuring this out',
-  'Running the numbers',
-  'Doing the math',
-  'Cooking something up',
-  'Brewing ideas',
-  'Untangling this',
-  'In the zone',
-  'Bear with me',
-  'Working my magic',
-  'Deep in thought',
-  'Putting it all together',
-  'Exploring possibilities',
-  'Weighing the options',
-  'Crafting a solution',
-  'Let me cook',
-  'Give me a moment',
-  'Chewing on this',
-  'Building the puzzle',
-  'Following the thread',
-  'Mulling it over',
-  'Sketching it out',
-  'Reading between the lines',
-  'Zooming in',
-  'Stepping back to think',
-  'Loading brainpower',
-  'Spinning up ideas',
-  'This is a good one',
-];
+const THINKING_PHRASES = ['thinking'];
 let _globalPhraseIndex = Math.floor(Math.random() * THINKING_PHRASES.length);
 
 interface Props {
@@ -253,7 +203,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
   const rotatingPhrase = THINKING_PHRASES[(basePhraseIndex + phraseOffset) % THINKING_PHRASES.length];
   const thinkingDisplayText = item?.thinkingContent
     ? item.thinkingContent
-    : `${rotatingPhrase}${thinkingElapsedSec >= 10 ? ` (${thinkingElapsedSec}s)` : ''}`;
+    : `${t('terminal:agent.thinking')}${thinkingElapsedSec >= 10 ? ` (${thinkingElapsedSec}s)` : ''}`;
   const dotSequence = ['.', '..', '...', '..', '.'];
 
   // Animated dots for executing tools (bounce: . → .. → ... → .. → .)
@@ -489,11 +439,11 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                 return (
                   <View style={[styles.bashCard, hasError && styles.bashCardError]}>
                     <View style={styles.bashHeader}>
-                      <Text style={styles.bashTitle}>Bash</Text>
+                      <Text style={styles.bashTitle}>{t('terminal:terminalItem.bash')}</Text>
                       <TouchableOpacity
                         onPress={() => setIsModalVisible(true)}
                         style={styles.expandButton}
-                        accessibilityLabel="Espandi output bash"
+                        accessibilityLabel={t('terminal:terminalItem.expandBashOutput')}
                         accessibilityRole="button"
                         accessibilityHint="Mostra output completo a schermo intero"
                       >
@@ -502,12 +452,12 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                     </View>
                     <View style={styles.bashContent}>
                       <View style={styles.bashRow}>
-                        <Text style={styles.bashLabel}>IN</Text>
+                        <Text style={styles.bashLabel}>{t('terminal:terminalItem.inShort')}</Text>
                         <Text style={styles.bashInput} numberOfLines={2}>{item.content || ''}</Text>
                       </View>
                       <View style={styles.bashDivider} />
                       <View style={styles.bashRow}>
-                        <Text style={styles.bashLabel}>OUT</Text>
+                        <Text style={styles.bashLabel}>{t('terminal:terminalItem.outShort')}</Text>
                         <Text style={styles.bashOutput} numberOfLines={3}>{outputItem.content || ''}</Text>
                       </View>
                     </View>
@@ -521,7 +471,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                     >
                       <View style={styles.modalContainer}>
                         <View style={styles.modalHeader}>
-                          <Text style={styles.modalTitle}>Bash Output</Text>
+                          <Text style={styles.modalTitle}>{t('terminal:terminalItem.outputTitle')}</Text>
                           <TouchableOpacity
                             onPress={() => setIsModalVisible(false)}
                             style={styles.closeButton}
@@ -531,12 +481,12 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                         </View>
                         <ScrollView style={styles.modalContent}>
                           <View style={styles.modalSection}>
-                            <Text style={styles.modalLabel}>INPUT</Text>
+                            <Text style={styles.modalLabel}>{t('terminal:terminalItem.inputTitle')}</Text>
                             <Text style={styles.modalInput}>{item.content || ''}</Text>
                           </View>
                           <View style={styles.modalDivider} />
                           <View style={styles.modalSection}>
-                            <Text style={styles.modalLabel}>OUTPUT</Text>
+                            <Text style={styles.modalLabel}>{t('terminal:terminalItem.outputLabel')}</Text>
                             <Text style={styles.modalOutput}>{outputItem.content || ''}</Text>
                           </View>
                         </ScrollView>
@@ -634,7 +584,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                       onPress={() => { handleCopy(item.content || ''); setShowMessageMenu(false); }}
                     >
                       <Ionicons name="copy-outline" size={17} color="rgba(255,255,255,0.85)" />
-                      <Text style={styles.menuItemText}>Copia</Text>
+                      <Text style={styles.menuItemText}>{t('common:copy')}</Text>
                     </TouchableOpacity>
                   </View>
                 </BlurView>
@@ -657,60 +607,62 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
 
               // Detect tool type from header for badge color
               let badgeColor = AppColors.primary;
-              let badgeText = 'LOADING';
+              let badgeText = t('terminal:terminalItem.loadingBadge');
               let iconName: any = 'hourglass-outline';
 
               if (header.startsWith('Read ')) {
                 badgeColor = '#58A6FF';
-                badgeText = 'READ';
+                badgeText = t('terminal:terminalItem.badges.read');
                 iconName = 'document-text-outline';
               } else if (header.startsWith('Write ')) {
                 badgeColor = '#3FB950';
-                badgeText = 'WRITE';
+                badgeText = t('terminal:terminalItem.badges.write');
                 iconName = 'document-text-outline';
               } else if (header.startsWith('Edit ')) {
                 badgeColor = '#3FB950';
-                badgeText = 'EDIT';
+                badgeText = t('terminal:terminalItem.badges.edit');
                 iconName = 'create-outline';
               } else if (header.startsWith('Multi-edit ')) {
                 badgeColor = '#3FB950';
-                badgeText = 'MULTI-EDIT';
+                badgeText = t('terminal:terminalItem.badges.multiEdit');
                 iconName = 'create-outline';
               } else if (header.startsWith('Patch ')) {
                 badgeColor = '#3FB950';
-                badgeText = 'PATCH';
+                badgeText = t('terminal:terminalItem.badges.patch');
                 iconName = 'create-outline';
               } else if (header.startsWith('List files')) {
                 badgeColor = '#A371F7';
-                badgeText = 'LIST';
+                badgeText = t('terminal:terminalItem.badges.list');
                 iconName = 'folder-open-outline';
               } else if (header.startsWith('Search ') || header.startsWith('Glob ')) {
                 badgeColor = '#A371F7';
-                badgeText = header.startsWith('Glob ') ? 'GLOB' : 'SEARCH';
+                badgeText = header.startsWith('Glob ')
+                  ? t('terminal:terminalItem.badges.glob')
+                  : t('terminal:terminalItem.badges.search');
                 iconName = 'search-outline';
               } else if (header.startsWith('Run command')) {
                 badgeColor = '#3FB950';
-                badgeText = 'CMD';
+                badgeText = t('terminal:terminalItem.badges.command');
                 iconName = 'terminal';
               } else if (header.startsWith('Web search')) {
                 badgeColor = '#58A6FF';
-                badgeText = 'WEB';
+                badgeText = t('terminal:terminalItem.badges.web');
                 iconName = 'globe-outline';
               } else if (header.startsWith('Fetch URL')) {
                 badgeColor = '#58A6FF';
-                badgeText = 'FETCH';
+                badgeText = t('terminal:terminalItem.badges.fetch');
                 iconName = 'cloud-download-outline';
               } else if (header.startsWith('User Question')) {
                 badgeColor = '#FFA657';
-                badgeText = 'Q&A';
+                badgeText = t('terminal:terminalItem.badges.qa');
                 iconName = 'help-circle-outline';
               } else if (header.startsWith('Todo List')) {
                 badgeColor = '#FFA657';
-                badgeText = 'TODO';
+                badgeText = t('terminal:terminalItem.badges.todo');
                 iconName = 'checkbox-outline';
               } else if (header.startsWith('Agent:')) {
                 badgeColor = '#BC8CFF';
-                badgeText = 'AGENT';
+                badgeText = t('terminal:terminalItem.badges.agent');
                 iconName = 'flash-outline';
               }
 
@@ -749,7 +701,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                   <View style={styles.readFileInline}>
                     <View style={styles.toolBadge}>
                       <Ionicons name="document-text-outline" size={12} color="#58A6FF" />
-                      <Text style={styles.toolBadgeText}>READ</Text>
+                      <Text style={styles.toolBadgeText}>{t('terminal:terminalItem.badges.read')}</Text>
                     </View>
                     <Text style={styles.readFileName}>{fileName}</Text>
                   </View>
@@ -769,7 +721,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                       <View style={styles.readFileInline}>
                         <View style={[styles.toolBadge, styles.toolBadgeGlob]}>
                           <Ionicons name="search-outline" size={12} color="#A371F7" />
-                          <Text style={[styles.toolBadgeText, { color: '#A371F7' }]}>GLOB</Text>
+                          <Text style={[styles.toolBadgeText, { color: '#A371F7' }]}>{t('terminal:terminalItem.badges.glob')}</Text>
                         </View>
                         <Text style={styles.readFileName}>{pattern}</Text>
                       </View>
@@ -809,7 +761,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                         <View style={styles.readFileInline}>
                           <View style={[styles.toolBadge, styles.toolBadgeEdit]}>
                             <Ionicons name="create-outline" size={12} color="#3FB950" />
-                            <Text style={[styles.toolBadgeText, { color: '#3FB950' }]}>EDIT</Text>
+                            <Text style={[styles.toolBadgeText, { color: '#3FB950' }]}>{t('terminal:terminalItem.badges.edit')}</Text>
                           </View>
                           <Text style={styles.readFileName}>{fileName}</Text>
                         </View>
@@ -868,7 +820,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                                   onPress={() => setIsExpanded(true)}
                                   style={styles.showMoreButton}
                                 >
-                                  <Text style={styles.showMoreText}>Show {nonEmptyCodeLines.length - 4} more lines</Text>
+                                  <Text style={styles.showMoreText}>{t('terminal:terminalItem.showMoreLines', { count: nonEmptyCodeLines.length - 4 })}</Text>
                                   <Ionicons name="chevron-down" size={14} color="#8B949E" />
                                 </TouchableOpacity>
                               </View>
@@ -879,7 +831,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                                 onPress={() => setIsExpanded(false)}
                                 style={styles.showLessButton}
                               >
-                                <Text style={styles.showMoreText}>Show less</Text>
+                                <Text style={styles.showMoreText}>{t('common:showLess')}</Text>
                                 <Ionicons name="chevron-up" size={14} color="#8B949E" />
                               </TouchableOpacity>
                             )}
@@ -907,7 +859,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                           <View style={styles.readFileInline}>
                             <View style={[styles.toolBadge, styles.toolBadgeWrite]}>
                               <Ionicons name="document-text-outline" size={12} color="#3FB950" />
-                              <Text style={[styles.toolBadgeText, { color: '#3FB950' }]}>WRITE</Text>
+                              <Text style={[styles.toolBadgeText, { color: '#3FB950' }]}>{t('terminal:terminalItem.badges.write')}</Text>
                             </View>
                             <Text style={styles.readFileName}>{fileName}</Text>
                           </View>
@@ -1001,7 +953,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
 
                                 {isExpanded && diffLines.length > 6 && (
                                   <TouchableOpacity onPress={() => setIsExpanded(false)} style={styles.showLessButton}>
-                                    <Text style={styles.showMoreText}>Show less</Text>
+                                    <Text style={styles.showMoreText}>{t('common:showLess')}</Text>
                                     <Ionicons name="chevron-up" size={14} color="#8B949E" />
                                   </TouchableOpacity>
                                 )}
@@ -1055,7 +1007,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                           <View style={styles.readFileInline}>
                             <View style={[styles.toolBadge, styles.toolBadgeList]}>
                               <Ionicons name="folder-open-outline" size={12} color="#A371F7" />
-                              <Text style={[styles.toolBadgeText, { color: '#A371F7' }]}>LIST</Text>
+                              <Text style={[styles.toolBadgeText, { color: '#A371F7' }]}>{t('terminal:terminalItem.badges.list')}</Text>
                             </View>
                             <Text style={styles.readFileName}>{directory}</Text>
                             <Text style={[styles.readFileName, { color: 'rgba(255,255,255,0.5)', marginLeft: 8 }]}>
@@ -1096,7 +1048,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                                 onPress={() => setIsExpanded(false)}
                                 style={styles.showLessButton}
                               >
-                                <Text style={styles.showMoreText}>Show less</Text>
+                                <Text style={styles.showMoreText}>{t('common:showLess')}</Text>
                                 <Ionicons name="chevron-up" size={14} color="#8B949E" />
                               </TouchableOpacity>
                             )}
@@ -1125,10 +1077,10 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                             <View style={styles.todoBoardHeader}>
                               <View style={[styles.toolBadge, styles.toolBadgeTodo]}>
                                 <Ionicons name="checkmark-done-outline" size={12} color="#FFB86C" />
-                                <Text style={[styles.toolBadgeText, { color: '#FFB86C' }]}>TODO</Text>
+                                <Text style={[styles.toolBadgeText, { color: '#FFB86C' }]}>{t('terminal:terminalItem.badges.todo')}</Text>
                               </View>
                               <View style={styles.todoBoardTitleWrap}>
-                                <Text style={styles.todoBoardTitle}>Attività</Text>
+                                <Text style={styles.todoBoardTitle}>{t('terminal:terminalItem.activityTitle')}</Text>
                               </View>
                             </View>
 
@@ -1199,7 +1151,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                               <View style={styles.readFileInline}>
                                 <View style={[styles.toolBadge, styles.toolBadgeWebSearch]}>
                                   <Ionicons name="globe-outline" size={12} color="#58A6FF" />
-                                  <Text style={[styles.toolBadgeText, { color: '#58A6FF' }]}>WEB</Text>
+                                  <Text style={[styles.toolBadgeText, { color: '#58A6FF' }]}>{t('terminal:terminalItem.badges.web')}</Text>
                                 </View>
                                 <Text style={styles.readFileName}>{query}</Text>
                               </View>
@@ -1251,7 +1203,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                                       onPress={() => setIsExpanded(false)}
                                       style={styles.showLessButton}
                                     >
-                                      <Text style={styles.showMoreText}>Show less</Text>
+                                      <Text style={styles.showMoreText}>{t('common:showLess')}</Text>
                                       <Ionicons name="chevron-up" size={14} color="#8B949E" />
                                     </TouchableOpacity>
                                   )}
@@ -1281,7 +1233,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                                 <View style={styles.readFileInline}>
                                   <View style={[styles.toolBadge, styles.toolBadgeQuestion]}>
                                     <Ionicons name="help-circle-outline" size={12} color="#FFA657" />
-                                    <Text style={[styles.toolBadgeText, { color: '#FFA657' }]}>Q&A</Text>
+                                    <Text style={[styles.toolBadgeText, { color: '#FFA657' }]}>{t('terminal:terminalItem.badges.qa')}</Text>
                                   </View>
                                   <Text style={[styles.readFileName, { color: 'rgba(255,255,255,0.5)' }]}>
                                     {stats ? stats.replace('└─ ', '') : 'User input'}
@@ -1340,7 +1292,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                                   <View style={styles.readFileInline}>
                                     <View style={[styles.toolBadge, { backgroundColor: 'rgba(46, 160, 67, 0.1)', borderColor: 'rgba(46, 160, 67, 0.2)' }]}>
                                       <Ionicons name="terminal" size={12} color="#3FB950" />
-                                      <Text style={[styles.toolBadgeText, { color: '#3FB950' }]}>CMD</Text>
+                                      <Text style={[styles.toolBadgeText, { color: '#3FB950' }]}>{t('terminal:terminalItem.badges.command')}</Text>
                                     </View>
                                     <Text style={styles.readFileName} numberOfLines={1}>{displayCommand}</Text>
                                   </View>
@@ -1496,7 +1448,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                                       <View style={styles.agentCardLeft}>
                                         <View style={[styles.toolBadge, styles.toolBadgeAgent]}>
                                           <Ionicons name={agentIcon as any} size={12} color="#BC8CFF" />
-                                          <Text style={[styles.toolBadgeText, { color: '#BC8CFF' }]}>AGENT</Text>
+                                          <Text style={[styles.toolBadgeText, { color: '#BC8CFF' }]}>{t('terminal:terminalItem.badges.agent')}</Text>
                                         </View>
                                         <Text style={styles.agentTypeName}>{agentLabel}</Text>
                                       </View>
@@ -1507,7 +1459,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                                           color={isError ? '#F85149' : '#3FB950'}
                                         />
                                         <Text style={[styles.agentStatusChipText, isError && { color: '#F85149' }]}>
-                                          {isError ? 'Error' : 'Done'}
+                                          {isError ? t('common:error') : t('common:done')}
                                         </Text>
                                       </View>
                                     </View>
@@ -1529,7 +1481,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                                         <Text style={styles.agentResultText} numberOfLines={isExpanded ? undefined : 4}>{summary}</Text>
                                         {summary.split('\n').length > 4 && (
                                           <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} style={styles.agentExpandBtn}>
-                                            <Text style={styles.agentExpandText}>{isExpanded ? 'Show less' : 'Show more'}</Text>
+                                            <Text style={styles.agentExpandText}>{isExpanded ? t('common:showLess') : t('common:showMore')}</Text>
                                             <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={14} color="#6E7681" />
                                           </TouchableOpacity>
                                         )}
@@ -1556,7 +1508,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                               onPress={() => setIsExpanded(true)}
                               style={styles.showMoreButtonSimple}
                             >
-                              <Text style={styles.showMoreText}>Show {lines.length - MAX_LINES} more lines</Text>
+                              <Text style={styles.showMoreText}>{t('terminal:terminalItem.showMoreLines', { count: lines.length - MAX_LINES })}</Text>
                               <Ionicons name="chevron-down" size={14} color="#8B949E" />
                             </TouchableOpacity>
                           )}
@@ -1565,7 +1517,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                               onPress={() => setIsExpanded(false)}
                               style={styles.showMoreButtonSimple}
                             >
-                              <Text style={styles.showMoreText}>Show less</Text>
+                              <Text style={styles.showMoreText}>{t('common:showLess')}</Text>
                               <Ionicons name="chevron-up" size={14} color="#8B949E" />
                             </TouchableOpacity>
                           )}
@@ -1632,7 +1584,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
 
         {item.type === ItemType.ERROR && (
           <View style={styles.messageBlock}>
-            <Text style={styles.errorName}>Error</Text>
+            <Text style={styles.errorName}>{t('common:error')}</Text>
             <Text style={styles.errorMessage}>{(() => {
               const raw = item.content || '';
               if (typeof raw === 'object') return (raw as any).message || (raw as any).error || JSON.stringify(raw);
@@ -1650,11 +1602,11 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
             // Show as Git Clone card when it's the cloning message (finished loading)
             <View style={styles.loadingCard}>
               <View style={styles.loadingHeader}>
-                <Text style={styles.loadingTitle}>Git Clone</Text>
+                <Text style={styles.loadingTitle}>{t('terminal:terminalItem.gitClone')}</Text>
               </View>
               <View style={styles.loadingBody}>
                 <View style={styles.loadingRow}>
-                  <Text style={styles.loadingLabel}>STATUS</Text>
+                  <Text style={styles.loadingLabel}>{t('terminal:terminalItem.status')}</Text>
                   <Text style={styles.loadingStatus}>{item.content}</Text>
                 </View>
               </View>
@@ -1710,7 +1662,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                     </View>
                   </View>
                   <View style={styles.projectCreatedDivider} />
-                  <Text style={styles.projectCreatedHint}>Scrivi cosa vuoi fare o chiedi all'AI</Text>
+                  <Text style={styles.projectCreatedHint}>{t('terminal:terminalItem.projectCreatedHint')}</Text>
                 </View>
               );
             })()
@@ -1725,11 +1677,11 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
         {item.type === ItemType.LOADING && (
           <View style={styles.loadingCard}>
             <View style={styles.loadingHeader}>
-              <Text style={styles.loadingTitle}>Git Clone</Text>
+              <Text style={styles.loadingTitle}>{t('terminal:terminalItem.gitClone')}</Text>
             </View>
             <View style={styles.loadingBody}>
               <View style={styles.loadingRow}>
-                <Text style={styles.loadingLabel}>STATUS</Text>
+                <Text style={styles.loadingLabel}>{t('terminal:terminalItem.status')}</Text>
                 <Text style={styles.loadingStatus}>
                   {item.content || ''}
                   {'.'.repeat(dotCount)}
@@ -1743,7 +1695,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
           <View style={styles.backendLogBlock}>
             <View style={styles.backendLogHeader}>
               <Ionicons name="server-outline" size={12} color="#8B949E" />
-              <Text style={styles.backendLogLabel}>BACKEND</Text>
+              <Text style={styles.backendLogLabel}>{t('terminal:terminalItem.backend')}</Text>
               <Text style={styles.backendLogTime}>
                 {item.timestamp ? new Date(item.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
               </Text>
@@ -1799,7 +1751,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
             activeOpacity={0.8}
           >
             <Ionicons name="refresh" size={13} color="#58A6FF" />
-            <Text style={styles.retryToolButtonText}>Riprova solo questo tool</Text>
+            <Text style={styles.retryToolButtonText}>{t('terminal:terminalItem.retryTool')}</Text>
           </TouchableOpacity>
         )}
       </View>

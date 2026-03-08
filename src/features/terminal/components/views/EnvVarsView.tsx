@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../../shared/theme/colors';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 import { config } from '../../../../config/config';
@@ -24,6 +25,7 @@ interface EnvVariable {
 const SIDEBAR_WIDTH = 30;
 
 export const EnvVarsView = ({ tab }: Props) => {
+  const { t } = useTranslation(['terminal', 'common']);
   const insets = useSafeAreaInsets();
   const { currentWorkstation } = useTerminalStore();
   const { isSidebarHidden } = useSidebarOffset();
@@ -98,7 +100,7 @@ export const EnvVarsView = ({ tab }: Props) => {
       }
     } catch (error) {
       console.error('Error saving variables:', error);
-      Alert.alert('Errore', 'Impossibile salvare le modifiche');
+      Alert.alert(t('common:error'), t('common:envVarSaveFailed'));
     }
     return false;
   };
@@ -129,12 +131,12 @@ export const EnvVarsView = ({ tab }: Props) => {
     if (!projectId) return;
 
     Alert.alert(
-      'Conferma eliminazione',
-      `Sei sicuro di voler eliminare "${key}"?`,
+      t('common:deleteVariableTitle'),
+      t('common:deleteVariableMessage', { key }),
       [
-        { text: 'Annulla', style: 'cancel' },
+        { text: t('common:cancel'), style: 'cancel' },
         {
-          text: 'Elimina',
+          text: t('common:delete'),
           style: 'destructive',
           onPress: async () => {
             const updatedVars = envVars.filter(v => v.key !== key);
@@ -151,7 +153,7 @@ export const EnvVarsView = ({ tab }: Props) => {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Ionicons name="key" size={24} color={AppColors.primary} />
-          <Text style={styles.headerTitle}>Variabili Ambiente</Text>
+          <Text style={styles.headerTitle}>{t('common:envVariables')}</Text>
         </View>
       </View>
 
@@ -159,19 +161,19 @@ export const EnvVarsView = ({ tab }: Props) => {
         {isLoading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator color={AppColors.primary} />
-            <Text style={styles.loadingText}>Caricamento...</Text>
+            <Text style={styles.loadingText}>{t('common:loading')}</Text>
           </View>
         ) : !projectId ? (
           <View style={styles.loadingContainer}>
             <Ionicons name="alert-circle-outline" size={32} color="rgba(255,255,255,0.3)" />
-            <Text style={styles.emptyText}>Apri un progetto per gestire le variabili d'ambiente</Text>
+            <Text style={styles.emptyText}>{t('terminal:envVars.openProject')}</Text>
           </View>
         ) : (
           <>
             {/* Current Variables */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Variabili Configurate</Text>
+                <Text style={styles.sectionTitle}>{t('terminal:envVars.configuredVariables')}</Text>
                 <TouchableOpacity
                   style={styles.addButton}
                   onPress={() => setShowAddForm(!showAddForm)}
@@ -185,7 +187,7 @@ export const EnvVarsView = ({ tab }: Props) => {
                   <View style={styles.addFormInner}>
                     <TextInput
                       style={styles.input}
-                      placeholder="Nome variabile (es. API_KEY)"
+                      placeholder={t('terminal:envVars.variableNamePlaceholder')}
                       placeholderTextColor="rgba(255,255,255,0.3)"
                       value={newKey}
                       onChangeText={setNewKey}
@@ -193,14 +195,14 @@ export const EnvVarsView = ({ tab }: Props) => {
                     />
                     <TextInput
                       style={styles.input}
-                      placeholder="Valore"
+                      placeholder={t('common:enterValue')}
                       placeholderTextColor="rgba(255,255,255,0.3)"
                       value={newValue}
                       onChangeText={setNewValue}
                       secureTextEntry
                     />
                     <TouchableOpacity style={styles.saveButton} onPress={handleAddVariable}>
-                      <Text style={styles.saveButtonText}>Aggiungi</Text>
+                      <Text style={styles.saveButtonText}>{t('common:add')}</Text>
                     </TouchableOpacity>
                   </View>
                 </Animated.View>
@@ -209,8 +211,8 @@ export const EnvVarsView = ({ tab }: Props) => {
               {envVars.length === 0 ? (
                 <View style={styles.emptyContainer}>
                   <Ionicons name="key-outline" size={28} color="rgba(255,255,255,0.2)" />
-                  <Text style={styles.emptyText}>Nessuna variabile configurata</Text>
-                  <Text style={styles.emptySubtext}>Premi + per aggiungere una variabile al file .env</Text>
+                  <Text style={styles.emptyText}>{t('terminal:envVars.noneConfigured')}</Text>
+                  <Text style={styles.emptySubtext}>{t('terminal:envVars.tapPlus')}</Text>
                 </View>
               ) : (
                 envVars.map((variable) => (
@@ -239,10 +241,10 @@ export const EnvVarsView = ({ tab }: Props) => {
                           </TouchableOpacity>
                         </View>
                       </View>
-                      <Text style={styles.variableValue}>
+                          <Text style={styles.variableValue}>
                         {variable.isSecret && !visibleSecrets.has(variable.key)
                           ? '••••••••'
-                          : variable.value || '(vuoto)'}
+                          : variable.value || `(${t('terminal:envVars.emptyValue')})`}
                       </Text>
                     </View>
                   </View>

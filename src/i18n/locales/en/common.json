@@ -19,6 +19,7 @@
   "done": "Done",
   "start": "Start",
   "continue": "Continue",
+  "submit": "Submit",
   "loading": "Loading...",
   "error": "Error",
   "success": "Success",
@@ -32,6 +33,7 @@
   "searchPlaceholder": "Search...",
   "copy": "Copy",
   "copied": "Copied",
+  "some": "some",
   "share": "Share",
   "open": "Open",
   "create": "Create",
@@ -105,6 +107,11 @@
   "unableToDelete": "Unable to delete",
   "unableToConnect": "Unable to connect",
   "connectionLost": "Connection lost",
+  "networkError": "Network error",
+  "cancelledByUser": "Cancelled by user",
+  "iapUnavailable": "In-App Purchase not available on this device",
+  "iapConnectionError": "Unable to connect to the App Store. Please try again.",
+  "noData": "No data available",
   "verifyCredentials": "Verify credentials",
   "selectFile": "Select file",
   "selectAtLeastOne": "Select at least one item",
@@ -119,6 +126,29 @@
   "envVariables": "Environment Variables",
   "agentStopped": "Agent stopped",
   "galleryPermissionRequired": "Gallery access permission is required",
+  "galleryPermissionTitle": "Permission required",
+  "openSettings": "Open settings",
+  "removeImage": "Remove image",
+  "attachImage": "Attach image",
+  "messageFieldLabel": "Message field",
+  "messageFieldHint": "Write a message for the AI and use the send button to submit it.",
+  "terminalModeLabel": "Terminal mode",
+  "aiModeLabel": "AI mode",
+  "selectAiModelLabel": "Select AI model: {{model}}",
+  "selectAiModelHint": "Open the model selection menu",
+  "deleteVariableTitle": "Confirm",
+  "deleteVariableMessage": "Do you want to delete the variable {{key}}?",
+  "envVarLoadFailed": "Unable to load environment variables",
+  "envVarSaveSuccess": "Environment variables saved successfully",
+  "envVarSaveFailed": "Unable to save environment variables",
+  "envVarEnterName": "Enter the variable name",
+  "envVarAlreadyExists": "A variable with this name already exists",
+  "errorBoundary": {
+    "title": "Oops! Something went wrong",
+    "message": "An unexpected error occurred. You can try again or go back home.",
+    "goHome": "Go to Home",
+    "debugInfo": "Debug Info:"
+  },
   "offline": {
     "title": "No Connection",
     "message": "Drape requires an internet connection to work. Check your connection and try again.",
@@ -133,5 +163,17 @@
     "forceTitle": "Update required",
     "forceMessage": "A new version of Drape is available.\nUpdate the app to continue.",
     "forceButton": "Update on App Store"
+  },
+  "splash": {
+    "tagline": "AI-Powered Mobile IDE",
+    "builtForDevelopers": "Built for developers"
+  },
+  "planApproval": {
+    "title": "Execution Plan",
+    "steps": "Steps to execute:",
+    "reject": "Reject",
+    "approve": "Approve Plan",
+    "filesCount_one": "{{count}} file",
+    "filesCount_other": "{{count}} files"
   }
 }

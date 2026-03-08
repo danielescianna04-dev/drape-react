@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, Linking, Share } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 export interface PreviewPublishSheetProps {
   visible: boolean;
@@ -29,6 +30,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
   onUnpublish,
   onClose,
 }) => {
+  const { t } = useTranslation();
   return (
     <Modal
       visible={visible}
@@ -41,7 +43,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
           {publishStatus === 'done' && publishedUrl ? (
             <>
               <Ionicons name="checkmark-circle" size={48} color="#00D084" style={{ alignSelf: 'center', marginBottom: 12 }} />
-              <Text style={styles.publishModalTitle}>Pubblicato!</Text>
+              <Text style={styles.publishModalTitle}>{t('terminal:publish.published')}</Text>
               <Text style={styles.publishModalUrl}>{publishedUrl}</Text>
               <View style={styles.publishModalActions}>
                 <TouchableOpacity
@@ -51,32 +53,32 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                   }}
                 >
                   <Ionicons name="share-outline" size={18} color="#fff" />
-                  <Text style={styles.publishActionText}>Condividi</Text>
+                  <Text style={styles.publishActionText}>{t('terminal:publish.share')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.publishActionButton}
                   onPress={() => Linking.openURL(publishedUrl)}
                 >
                   <Ionicons name="open-outline" size={18} color="#fff" />
-                  <Text style={styles.publishActionText}>Apri</Text>
+                  <Text style={styles.publishActionText}>{t('terminal:publish.open')}</Text>
                 </TouchableOpacity>
               </View>
               <TouchableOpacity
                 style={styles.publishCloseBtn}
                 onPress={onClose}
               >
-                <Text style={styles.publishCloseBtnText}>Chiudi</Text>
+                <Text style={styles.publishCloseBtnText}>{t('terminal:publish.close')}</Text>
               </TouchableOpacity>
             </>
           ) : (
             <>
               <Text style={styles.publishModalTitle}>
-                {existingPublish ? 'Aggiorna pubblicazione' : 'Pubblica sito'}
+                {existingPublish ? t('terminal:publish.updateTitle') : t('terminal:publish.publishTitle')}
               </Text>
               <Text style={styles.publishModalSubtitle}>
                 {existingPublish
-                  ? `Il sito verra' ricostruito e aggiornato`
-                  : 'Scegli un nome per il tuo sito'}
+                  ? t('terminal:publish.updateSubtitle')
+                  : t('terminal:publish.publishSubtitle')}
               </Text>
               <View style={styles.publishSlugRow}>
                 <Text style={styles.publishSlugPrefix}>drape.info/p/</Text>
@@ -92,7 +94,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                     autoCapitalize="none"
                     autoCorrect={false}
                     editable={!isPublishing}
-                    placeholder="nome-progetto"
+                    placeholder={t('terminal:publish.slugPlaceholder')}
                     placeholderTextColor="rgba(255,255,255,0.3)"
                   />
                 )}
@@ -105,14 +107,14 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                       onPress={() => Linking.openURL(existingPublish.url)}
                     >
                       <Ionicons name="open-outline" size={16} color="#fff" />
-                      <Text style={styles.publishActionText}>Apri sito</Text>
+                      <Text style={styles.publishActionText}>{t('terminal:publish.openSite')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.publishActionButton}
                       onPress={() => Share.share({ url: existingPublish.url, message: existingPublish.url })}
                     >
                       <Ionicons name="share-outline" size={16} color="#fff" />
-                      <Text style={styles.publishActionText}>Condividi</Text>
+                      <Text style={styles.publishActionText}>{t('terminal:publish.share')}</Text>
                     </TouchableOpacity>
                   </View>
                   <View style={styles.publishModalActions}>
@@ -121,7 +123,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                       onPress={onUnpublish}
                     >
                       <Ionicons name="trash-outline" size={16} color="rgba(255, 59, 48, 0.8)" />
-                      <Text style={[styles.publishActionText, { color: 'rgba(255, 59, 48, 0.8)' }]}>Rimuovi</Text>
+                      <Text style={[styles.publishActionText, { color: 'rgba(255, 59, 48, 0.8)' }]}>{t('terminal:publish.remove')}</Text>
                     </TouchableOpacity>
                   </View>
                 </>
@@ -133,7 +135,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                 <View style={styles.publishProgressRow}>
                   <ActivityIndicator size="small" color="#007AFF" />
                   <Text style={styles.publishProgressText}>
-                    {publishStatus === 'building' ? 'Building...' : 'Aggiornamento...'}
+                    {publishStatus === 'building' ? 'Building...' : t('terminal:publish.updating')}
                   </Text>
                 </View>
               )}
@@ -143,7 +145,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                   onPress={onClose}
                   disabled={isPublishing}
                 >
-                  <Text style={styles.publishCancelBtnText}>Annulla</Text>
+                  <Text style={styles.publishCancelBtnText}>{t('terminal:publish.cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.publishConfirmBtn, isPublishing && { opacity: 0.5 }]}
@@ -152,7 +154,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                 >
                   <Ionicons name={existingPublish ? "refresh" : "cloud-upload-outline"} size={16} color="#fff" />
                   <Text style={styles.publishConfirmBtnText}>
-                    {existingPublish ? 'Aggiorna' : 'Pubblica'}
+                    {existingPublish ? t('terminal:publish.update') : t('terminal:publish.publish')}
                   </Text>
                 </TouchableOpacity>
               </View>

@@ -23,5 +23,18 @@
     "beforeCompaction": "Auto-compaction at {{threshold}}%.\n{{remaining}}% remaining before summary.",
     "compactionActive": "Compaction active — old messages are being summarized automatically.",
     "window": "Window: {{size}}K tokens"
+  },
+  "composer": {
+    "scrollToBottom": "Back to bottom",
+    "photoPickerTitle": "Select photos from device",
+    "photoPickerSubtitle": "Open the full photo library",
+    "allPhotos": "All photos",
+    "selectPhotos": "Select {{count}} photo",
+    "selectPhotosPlural": "Select {{count}} photos",
+    "maxImagesTitle": "Limit reached",
+    "maxImagesMessage": "You can add up to 4 images",
+    "maxImagesTotalMessage": "You can select up to 4 images in total",
+    "maxImagesPartialMessage": "Only {{count}} images added. Maximum 4 images total.",
+    "unknownError": "Unknown error"
   }
 }

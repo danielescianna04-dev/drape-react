@@ -6,6 +6,7 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Animated, Platform } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../theme/colors';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -47,6 +48,7 @@ const TOOL_CONFIG: Record<string, { icon: string; label: string; color: string }
 };
 
 export const AgentProgress: React.FC<Props> = ({ events, status, currentTool }) => {
+    const { t } = useTranslation('terminal');
     const scrollViewRef = useRef<ScrollView>(null);
     const pulseAnim = useRef(new Animated.Value(0.4)).current;
     const [loadingDots, setLoadingDots] = useState('.');
@@ -80,7 +82,26 @@ export const AgentProgress: React.FC<Props> = ({ events, status, currentTool }) 
         scrollViewRef.current?.scrollToEnd({ animated: true });
     }, [events]);
 
-    const activeConfig = currentTool ? (TOOL_CONFIG[currentTool] || TOOL_CONFIG['default']) : TOOL_CONFIG['think'];
+    const localizedToolConfig = {
+        ...TOOL_CONFIG,
+        read_file: { ...TOOL_CONFIG.read_file, label: t('agentProgress.reading') },
+        glob_files: { ...TOOL_CONFIG.glob_files, label: t('agentProgress.searching') },
+        edit_file: { ...TOOL_CONFIG.edit_file, label: t('agentProgress.editing') },
+        write_file: { ...TOOL_CONFIG.write_file, label: t('agentProgress.writing') },
+        search_in_files: { ...TOOL_CONFIG.search_in_files, label: t('agentProgress.searching') },
+        list_files: { ...TOOL_CONFIG.list_files, label: t('agentProgress.listing') },
+        list_directory: { ...TOOL_CONFIG.list_directory, label: t('agentProgress.listing') },
+        create_folder: { ...TOOL_CONFIG.create_folder, label: t('agentProgress.creating') },
+        delete_file: { ...TOOL_CONFIG.delete_file, label: t('agentProgress.deleting') },
+        move_file: { ...TOOL_CONFIG.move_file, label: t('agentProgress.moving') },
+        copy_file: { ...TOOL_CONFIG.copy_file, label: t('agentProgress.copying') },
+        web_fetch: { ...TOOL_CONFIG.web_fetch, label: t('agentProgress.fetching') },
+        execute_command: { ...TOOL_CONFIG.execute_command, label: t('agentProgress.running') },
+        think: { ...TOOL_CONFIG.think, label: t('agentProgress.thinking') },
+        default: { ...TOOL_CONFIG.default, label: t('agentProgress.executing') },
+    };
+
+    const activeConfig = currentTool ? (localizedToolConfig[currentTool as keyof typeof localizedToolConfig] || localizedToolConfig.default) : localizedToolConfig.think;
 
     // Get details from the current running tool
     const getCurrentToolDetails = (): string => {
@@ -131,21 +152,21 @@ export const AgentProgress: React.FC<Props> = ({ events, status, currentTool }) 
                         <View style={[styles.toolBadge, { backgroundColor: `${activeConfig.color}15`, borderColor: `${activeConfig.color}30` }]}>
                             <Ionicons name={activeConfig.icon as any} size={12} color={activeConfig.color} />
                             <Text style={[styles.toolBadgeText, { color: activeConfig.color }]}>
-                                {activeConfig.label.toUpperCase()}
+                                {t(`agent.toolAction.${activeConfig.label.toLowerCase()}`, { defaultValue: activeConfig.label }).toUpperCase()}
                             </Text>
                         </View>
                     ) : (
                         <View style={[styles.toolBadge, styles.toolBadgeComplete]}>
                             <Ionicons name={status === 'error' ? "warning-outline" : "checkmark-circle-outline"} size={12} color={status === 'error' ? '#FF4444' : '#3FB950'} />
                             <Text style={[styles.toolBadgeText, { color: status === 'error' ? '#FF4444' : '#3FB950' }]}>
-                                {status === 'error' ? 'FAILED' : 'COMPLETED'}
+                                {status === 'error' ? t('agent.event.failed').toUpperCase() : t('agent.event.completed').toUpperCase()}
                             </Text>
                         </View>
                     )}
 
                     {status === 'running' && (
                         <Animated.Text style={[styles.statusText, { opacity: pulseAnim }]}>
-                            {currentToolDetails || currentTool || 'Thinking'}{loadingDots}
+                            {currentToolDetails || currentTool || t('agent.toolAction.thinking')}{loadingDots}
                         </Animated.Text>
                     )}
                 </View>
@@ -168,7 +189,9 @@ export const AgentProgress: React.FC<Props> = ({ events, status, currentTool }) 
                         nestedScrollEnabled={true}
                     >
                         {relevantEvents.map((event, i) => {
-                            const config = event.tool ? (TOOL_CONFIG[event.tool] || TOOL_CONFIG['default']) : TOOL_CONFIG['default'];
+                            const config = event.tool
+                                ? (localizedToolConfig[event.tool as keyof typeof localizedToolConfig] || localizedToolConfig.default)
+                                : localizedToolConfig.default;
                             // Format the description based on the tool and result
                             let details = '';
                             if (event.tool === 'read_file' && event.input) {
@@ -206,8 +229,8 @@ export const AgentProgress: React.FC<Props> = ({ events, status, currentTool }) 
                                     <Text style={styles.logText} numberOfLines={1}>
                                         <Text style={{ color: config.color, fontWeight: '700' }}>{event.tool}</Text>
                                         <Text style={{ color: '#6E7681' }}>
-                                            {event.type === 'tool_start' ? ' started' :
-                                                event.type === 'tool_complete' ? ' completed' : ' failed'}
+                                            {event.type === 'tool_start' ? ` ${t('agent.event.started')}` :
+                                                event.type === 'tool_complete' ? ` ${t('agent.event.completed')}` : ` ${t('agent.event.failed')}`}
                                         </Text>
                                         {details ? <Text style={{ color: '#8B949E' }}> {details}</Text> : null}
                                     </Text>

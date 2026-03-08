@@ -57,11 +57,11 @@ export const SettingsPanel = ({ onClose }: Props) => {
   });
 
   const models = [
-    { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', description: 'Anthropic - Potenza creativa illimitata', icon: 'infinite', isPremium: true },
-    { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', description: 'Anthropic - Equilibrio perfetto e codice d\'élite', icon: 'sparkles' },
-    { id: 'gpt-5-3', name: 'GPT 5.3', description: 'OpenAI - Intelligenza versatile di ultima generazione', icon: 'bulb', isPremium: true },
-    { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', description: 'Google - Ragionamento multimodale avanzato', icon: 'planet', isPremium: true },
-    { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', description: 'Google - Risposte istantanee ad alta efficienza', icon: 'flash' },
+    { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', description: 'Anthropic', icon: 'infinite', isPremium: true },
+    { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', description: 'Anthropic', icon: 'sparkles' },
+    { id: 'gpt-5-3', name: 'GPT 5.3', description: 'OpenAI', icon: 'bulb', isPremium: true },
+    { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', description: 'Google', icon: 'planet', isPremium: true },
+    { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', description: 'Google', icon: 'flash' },
   ];
 
   return (
@@ -233,7 +233,7 @@ export const SettingsPanel = ({ onClose }: Props) => {
             <View style={[styles.infoItem, { borderBottomWidth: 0 }]}>
               <Ionicons name="earth-outline" size={16} color="rgba(255,255,255,0.4)" />
               <Text style={styles.infoLabel}>{t('settings:system.region')}</Text>
-              <Text style={styles.infoValue}>Europe (Milan)</Text>
+              <Text style={styles.infoValue}>{Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Rome'}</Text>
             </View>
           </BlurView>
         </View>

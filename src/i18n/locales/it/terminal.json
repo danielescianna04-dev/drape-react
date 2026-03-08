@@ -65,6 +65,7 @@
     "branchSwitched": "Branch cambiato",
     "selectBranch": "Seleziona branch",
     "defaultBranch": "default",
+    "loadingCommits": "Caricamento commit...",
     "loadingBranches": "Caricamento branch...",
     "deleteBranch": "Elimina branch",
     "mergeBranch": "Merge branch",
@@ -84,7 +85,21 @@
     "current": "current",
     "privateRepoAuth": "Per clonare questa repository privata è necessario autenticarsi con un account GitHub che ha accesso.",
     "selectOrAddAccount": "Seleziona un account o aggiungine uno nuovo",
-    "chooseAuthMethod": "Scegli come autenticarti con GitHub"
+    "chooseAuthMethod": "Scegli come autenticarti con GitHub",
+    "openInGithub": "Apri su GitHub",
+    "recentCommits": "{{count}} commit recenti",
+    "noCommitsYet": "Questa repository non ha ancora commit",
+    "sharedAccountTitle": "Account condiviso",
+    "sharedAccountMessage": "Questo account è stato aggiunto da un altro utente. Non puoi rimuoverlo, ma puoi aggiungere il tuo.",
+    "accountsTitle": "Account Git",
+    "accountsBanner": "Collega i tuoi account GitHub per accedere a repository private e gestire i tuoi progetti.",
+    "connectedAccounts": "Account collegati",
+    "noConnectedAccounts": "Nessun account collegato",
+    "addAccountToAccessPrivate": "Aggiungi un account GitHub per accedere ai repository privati",
+    "monthsAgo": "{{count}} mesi fa",
+    "today": "oggi",
+    "shared": "Condiviso",
+    "added": "Aggiunto"
   },
   "connectRepo": {
     "title": "Connetti Repository",
@@ -172,6 +187,11 @@
     "varsSavedIn": "Variabili salvate in {{file}}",
     "noWebUI": "Questo progetto non ha una web UI.\nL'output del terminale apparirà qui.",
     "errorOccurred": "Si è verificato un errore",
+    "missingEnvVars": "Questo progetto richiede variabili d'ambiente non configurate.",
+    "missingEnvVarsWithList": "Questo progetto richiede variabili d'ambiente non configurate:\n\n{{vars}}",
+    "moduleNotFound": "Modulo non trovato. Controlla le dipendenze del progetto.",
+    "compileError": "Errore di compilazione durante l'avvio della preview.",
+    "elementSelected": "Selezionato",
     "steps": {
       "analyzing": "Analisi progetto",
       "cloning": "Preparazione file",
@@ -193,7 +213,347 @@
     "sessionExpiredTitle": "Sessione scaduta",
     "sessionStatePreserved": "Stato progetto preservato",
     "sessionFastRestart": "Ripartenza immediata",
-    "sessionRestartCta": "Riavvia Preview"
+    "sessionRestartCta": "Riavvia Preview",
+    "thinkingLevel": "Livello ragionamento:",
+    "selectElementPrompt": "Seleziona un elemento e chiedi modifiche",
+    "contextCompacting": "Compattazione in corso...",
+    "contextCompacted": "Contesto compattato",
+    "aiBudgetExceeded": "Budget AI esaurito",
+    "startPreview": "Avvia Anteprima",
+    "aiAssistant": "AI Assistant",
+    "aiAssistantReady": "AI Assistant pronto",
+    "elementLabels": {
+      "heading": "Titolo",
+      "text": "Testo",
+      "link": "Link",
+      "button": "Bottone",
+      "image": "Immagine",
+      "video": "Video",
+      "input": "Input",
+      "menu": "Menu",
+      "section": "Sezione",
+      "navigation": "Navigazione",
+      "header": "Header",
+      "footer": "Footer",
+      "list": "Lista",
+      "listItem": "Elemento",
+      "form": "Form",
+      "label": "Etichetta",
+      "icon": "Icona"
+    },
+    "dock": {
+      "terminal": "Terminale",
+      "development": "sviluppo",
+      "terminalWindowTitle": "drape — bash",
+      "log": "Log",
+      "privacy": "Privacy",
+      "navigationUnavailable": "Navigazione non disponibile",
+      "noThreats": "Nessuna minaccia rilevata"
+    },
+    "history": "Cronologia",
+    "upgradeMessage": "Passa a Go per continuare",
+    "upgradeCta": "Passa a Go"
+  },
+  "contentRenderer": {
+    "emptyTitle": "Nessuna scheda aperta",
+    "emptySubtitle": "Premi il + per aprire una nuova scheda"
+  },
+  "newProjectModal": {
+    "title": "Nuovo Progetto",
+    "namePlaceholder": "Nome del progetto",
+    "languagePlaceholder": "Linguaggio (es. JavaScript)"
+  },
+  "fileEdit": {
+    "title": "Modifica File",
+    "expand": "Tocca per espandere"
+  },
+  "agentMode": {
+    "title": "Seleziona Modalità",
+    "recommended": "Consigliato",
+    "fastTitle": "Esecuzione Rapida",
+    "fastDescription": "Genera subito il codice e corregge eventuali errori in tempo reale",
+    "fastFeature1": "Veloce",
+    "fastFeature2": "Auto-correzione",
+    "planningTitle": "Pianificazione",
+    "planningDescription": "Crea un piano dettagliato e attendi la tua approvazione prima di procedere",
+    "planningFeature1": "Controllo totale",
+    "planningFeature2": "Piano dettagliato"
+  },
+  "publish": {
+    "published": "Pubblicato!",
+    "share": "Condividi",
+    "open": "Apri",
+    "close": "Chiudi",
+    "updateTitle": "Aggiorna pubblicazione",
+    "publishTitle": "Pubblica sito",
+    "updateSubtitle": "Il sito verra' ricostruito e aggiornato",
+    "publishSubtitle": "Scegli un nome per il tuo sito",
+    "slugPlaceholder": "nome-progetto",
+    "openSite": "Apri sito",
+    "remove": "Rimuovi",
+    "updating": "Aggiornamento...",
+    "cancel": "Annulla",
+    "update": "Aggiorna",
+    "publish": "Pubblica"
+  },
+  "folderModal": {
+    "title": "Nuova Cartella",
+    "placeholder": "Nome della cartella"
+  },
+  "agentStatus": {
+    "ready": "Pronto",
+    "write": "Scrittura",
+    "read": "Lettura",
+    "browse": "Navigazione",
+    "run": "Esecuzione",
+    "edit": "Modifica",
+    "complete": "Completamento",
+    "search": "Ricerca",
+    "analyze": "Analisi"
+  },
+  "envVars": {
+    "openProject": "Apri un progetto per gestire le variabili d'ambiente",
+    "configuredVariables": "Variabili configurate",
+    "variableNamePlaceholder": "Nome variabile (es. API_KEY)",
+    "noneConfigured": "Nessuna variabile configurata",
+    "tapPlus": "Premi + per aggiungere una variabile al file .env",
+    "emptyValue": "vuoto"
+  },
+  "previewView": {
+    "mockAiResponse": "Sto analizzando la tua richiesta. Modifico il codice...",
+    "askAiChanges": "Chiedi modifiche all'AI",
+    "describeChanges": "Descrivi le modifiche...",
+    "designMode": "Modalità design",
+    "livePreview": "Anteprima live",
+    "pinchHint": "Pizzica per la modalità design",
+    "device": {
+      "mobile": "Mobile",
+      "tablet": "Tablet",
+      "desktop": "Desktop"
+    },
+    "orientation": {
+      "portrait": "Verticale",
+      "landscape": "Orizzontale"
+    }
+  },
+  "tasks": {
+    "title": "Task Manager",
+    "running": "Esecuzione in corso...",
+    "waiting": "In attesa",
+    "iteration_one": "Iterazione {{count}}",
+    "iteration_other": "Iterazione {{count}}",
+    "usingTool": "Usando {{tool}}...",
+    "noActivePlan": "Nessun piano attivo",
+    "noActivePlanHint": "Chiedi all'AI di eseguire un task per vedere il piano qui.",
+    "planProgress": "Avanzamento piano",
+    "completedCount_one": "{{count}} completato",
+    "completedCount_other": "{{count}} completati",
+    "totalCount_one": "{{count}} totale",
+    "totalCount_other": "{{count}} totali",
+    "planSteps": "Passaggi del piano",
+    "noLogs": "Nessun log disponibile",
+    "noFilesChanged": "Nessun file modificato",
+    "filesCreated_one": "File creato ({{count}})",
+    "filesCreated_other": "File creati ({{count}})",
+    "filesModified_one": "File modificato ({{count}})",
+    "filesModified_other": "File modificati ({{count}})",
+    "finalSummary": "Riepilogo finale",
+    "tabs": {
+      "plan": "Piano",
+      "logs": "Log eventi",
+      "files": "File"
+    }
+  },
+  "tabSelector": {
+    "title": "Nuova scheda",
+    "types": {
+      "chat": {
+        "title": "Chat AI",
+        "description": "Conversa con l'intelligenza artificiale"
+      },
+      "terminal": {
+        "title": "Terminal",
+        "description": "Esegui comandi nel terminale"
+      },
+      "github": {
+        "title": "GitHub",
+        "description": "Gestisci repository e commit"
+      },
+      "browser": {
+        "title": "Browser",
+        "description": "Naviga sul web"
+      },
+      "preview": {
+        "title": "Preview",
+        "description": "Anteprima live dell'app"
+      },
+      "file": {
+        "title": "File",
+        "description": "Apri un file del progetto"
+      }
+    }
+  },
+  "agent": {
+    "thinking": "Sto pensando",
+    "iteration_one": "Iterazione {{count}}",
+    "iteration_other": "Iterazione {{count}}",
+    "executionPlan": "Piano di esecuzione",
+    "estimatedFiles_one": "{{count}} file",
+    "estimatedFiles_other": "{{count}} file",
+    "reject": "Rifiuta",
+    "approveAndExecute": "Approva ed esegui",
+    "questionsTitle": "L'agent ha delle domande",
+    "submit": "Invia",
+    "taskCompleted": "Task completato con successo",
+    "planExecuted": "Piano eseguito con successo",
+    "executionError": "Errore di esecuzione: {{message}}",
+    "errorWithMessage": "Errore agent: {{message}}",
+    "regularModeFallback": "Segnaposto modalità AI standard",
+    "planRejected": "Piano rifiutato dall'utente",
+    "chatTitle": "Chat agent",
+    "noProjectContext": "Nessun contesto progetto",
+    "modeLabel": "Modalità:",
+    "fastMode": "Modalità rapida",
+    "planningMode": "Modalità pianificazione",
+    "noMessages": "Nessun messaggio",
+    "startChatting": "Inizia a chattare con l'AI",
+    "fastExecution": "esecuzione rapida",
+    "planAndExecute": "pianifica ed esegui",
+    "modeDescription": "Modalità agent: {{mode}}",
+    "filesCreated": "File creati:",
+    "filesModified": "File modificati:",
+    "messageAi": "Messaggia l'AI...",
+    "tellAgent": "Di' all'agent cosa fare...",
+    "describeTask": "Descrivi il task da pianificare...",
+    "toolInvocations": "Invocazioni tool",
+    "toolsUsed_one": "({{count}} tool usato)",
+    "toolsUsed_other": "({{count}} tool usati)",
+    "parameters": "Parametri:",
+    "result": "Risultato:",
+    "reasoning": "Ragionamento di Claude",
+    "todoListUpdated": "Lista task aggiornata",
+    "todoProgress": "{{completed}} di {{total}} completati",
+    "readyToCode": "Pronto a scrivere codice?",
+    "hereIsPlan": "Ecco il piano di Claude:",
+    "claude": "Claude",
+    "user": "Utente",
+    "status": {
+      "pending": "In attesa",
+      "running": "In esecuzione",
+      "success": "Successo",
+      "error": "Errore",
+      "failed": "Fallito",
+      "completed": "Completato"
+    },
+    "toolAction": {
+      "reading": "Lettura",
+      "searching": "Ricerca",
+      "editing": "Modifica",
+      "writing": "Scrittura",
+      "listing": "Elenco",
+      "creating": "Creazione",
+      "deleting": "Eliminazione",
+      "moving": "Spostamento",
+      "copying": "Copia",
+      "fetching": "Recupero",
+      "running": "Esecuzione",
+      "thinking": "Ragionamento",
+      "executing": "Esecuzione"
+    },
+    "event": {
+      "started": "avviato",
+      "completed": "completato",
+      "failed": "fallito"
+    }
+  },
+  "fileViewer": {
+    "savedSuccess": "File salvato con successo",
+    "searchFound_one": "{{count}} risultato",
+    "searchFound_other": "{{count}} risultati",
+    "editing": "Modifica"
+  },
+  "keyboardShortcuts": {
+    "title": "Scorciatoie da tastiera",
+    "available": "Disponibili",
+    "comingSoon": "In arrivo",
+    "soon": "Presto",
+    "footer": "Le scorciatoie da tastiera funzionano al meglio con una tastiera fisica su iPad. Altre scorciatoie verranno aggiunte nei prossimi aggiornamenti.",
+    "footerCompact": "Il supporto completo alle scorciatoie da tastiera richiede ulteriore integrazione nativa. Altre scorciatoie saranno disponibili nei prossimi aggiornamenti.",
+    "categories": {
+      "chat": "Chat",
+      "navigation": "Navigazione",
+      "editing": "Modifica",
+      "system": "Sistema"
+    },
+    "shortcuts": {
+      "send_message": {
+        "name": "Invia messaggio",
+        "description": "Invia il messaggio corrente"
+      },
+      "new_line": {
+        "name": "Nuova riga",
+        "description": "Inserisci una nuova riga senza inviare"
+      },
+      "toggle_mode": {
+        "name": "Cambia modalità",
+        "description": "Passa tra modalità Terminale e AI"
+      },
+      "focus_search": {
+        "name": "Vai alla ricerca",
+        "description": "Passa alla ricerca o command palette"
+      },
+      "new_conversation": {
+        "name": "Nuova conversazione",
+        "description": "Avvia una nuova conversazione"
+      },
+      "open_settings": {
+        "name": "Impostazioni",
+        "description": "Apri la schermata impostazioni"
+      },
+      "undo": {
+        "name": "Annulla",
+        "description": "Annulla l'ultima modifica"
+      },
+      "redo": {
+        "name": "Ripristina",
+        "description": "Ripristina l'ultima modifica annullata"
+      },
+      "dismiss_keyboard": {
+        "name": "Nascondi tastiera",
+        "description": "Nascondi la tastiera a schermo"
+      },
+      "close_modal": {
+        "name": "Chiudi modal",
+        "description": "Chiudi il modal o foglio corrente"
+      }
+    }
+  },
+  "bashCard": {
+    "title": "Bash",
+    "inputShort": "IN",
+    "outputShort": "OUT",
+    "outputTitle": "Output Bash",
+    "inputTitle": "INPUT",
+    "outputLabel": "OUTPUT"
+  },
+  "fileExplorer": {
+    "privateRepoAuth": "Per clonare questa repository privata è necessario autenticarsi con un account GitHub che ha accesso.",
+    "searchError": "Errore nella ricerca",
+    "loadError": "Impossibile caricare i file",
+    "createFailed": "Creazione fallita",
+    "deleteFailed": "Eliminazione fallita",
+    "renameFailed": "Rinomina fallita",
+    "moveFailed": "Spostamento fallito",
+    "newFile": "Nuovo file",
+    "newFolder": "Nuova cartella"
+  },
+  "toolbar": {
+    "closePreview": "Chiudi anteprima",
+    "reloadPreview": "Ricarica anteprima",
+    "viewDesktop": "Visualizza desktop",
+    "viewMobile": "Visualizza mobile",
+    "updatePublishedSite": "Aggiorna sito pubblicato",
+    "publishSite": "Pubblica sito"
   },
   "chat": {
     "thinking": "Ragionando",
@@ -262,10 +622,84 @@
   "terminalItem": {
     "showMoreLines": "Mostra {{count}} righe in più",
     "projectCreated": "Progetto creato",
+    "projectCreatedHint": "Scrivi cosa vuoi fare o chiedi all'AI",
+    "activityTitle": "Attività",
+    "bash": "Bash",
+    "expandBashOutput": "Espandi output bash",
+    "inShort": "IN",
+    "outShort": "OUT",
+    "outputTitle": "Bash Output",
+    "inputTitle": "INPUT",
+    "outputLabel": "OUTPUT",
+    "loadingBadge": "LOADING",
+    "gitClone": "Git Clone",
+    "status": "STATUS",
+    "backend": "BACKEND",
+    "retryTool": "Riprova solo questo tool",
+    "badges": {
+      "read": "READ",
+      "write": "WRITE",
+      "edit": "EDIT",
+      "multiEdit": "MULTI-EDIT",
+      "patch": "PATCH",
+      "list": "LIST",
+      "search": "SEARCH",
+      "glob": "GLOB",
+      "command": "CMD",
+      "web": "WEB",
+      "fetch": "FETCH",
+      "qa": "Q&A",
+      "todo": "TODO",
+      "agent": "AGENT"
+    },
     "reject": "Rifiuta",
     "approve": "Approva",
     "planApproved": "Piano approvato",
     "planRejected": "Piano rifiutato"
+  },
+  "previewPublish": {
+    "slugTaken": "Slug gia occupato. Scegli un altro nome.",
+    "serverSideNotSupported": "Questo framework e server-side e non puo essere pubblicato come sito statico. Usa la preview live.",
+    "publishFailed": "Pubblicazione fallita",
+    "removeTitle": "Rimuovi pubblicazione",
+    "removeMessage": "Il sito drape.info/p/{{slug}} non sara' piu' accessibile."
+  },
+  "cloneWidget": {
+    "syncing": "📦 Sincronizzazione progetto...",
+    "ready": "✅ Progetto pronto",
+    "error": "❌ Errore di sincronizzazione"
+  },
+  "githubConnect": {
+    "title": "Connetti GitHub",
+    "description": "Collega il tuo account GitHub per accedere alle tue repository",
+    "button": "Connetti con GitHub",
+    "info": "Verrai reindirizzato su GitHub per autorizzare l'accesso"
+  },
+  "agentProgress": {
+    "reading": "Lettura",
+    "searching": "Ricerca",
+    "editing": "Modifica",
+    "writing": "Scrittura",
+    "listing": "Elenco",
+    "creating": "Creazione",
+    "deleting": "Eliminazione",
+    "moving": "Spostamento",
+    "copying": "Copia",
+    "fetching": "Recupero",
+    "running": "Esecuzione",
+    "thinking": "Ragionamento",
+    "executing": "Esecuzione"
+  },
+  "shellView": {
+    "log": "Log",
+    "pause": "PAUSA",
+    "auto": "AUTO",
+    "searchPlaceholder": "Cerca log, errori o tool...",
+    "tool": "Tool",
+    "always": "Sempre",
+    "noLogs": "Nessun log",
+    "changeFilters": "Modifica i filtri per vedere altre voci",
+    "emptyState": "I log del container e i comandi\ndell'AI appariranno qui"
   },
   "welcome": {
     "subtitle": "Mobile-first AI IDE\ncon supporto multi-model"

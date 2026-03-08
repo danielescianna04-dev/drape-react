@@ -7,6 +7,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { AppColors } from '../../theme/colors';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
     isRunning: boolean;
@@ -30,6 +31,7 @@ export const AgentStatusBadge: React.FC<Props> = ({
     currentTool,
     iteration,
 }) => {
+    const { t } = useTranslation();
     const pulseAnim = useRef(new Animated.Value(1)).current;
     const opacityAnim = useRef(new Animated.Value(1)).current;
 
@@ -78,14 +80,14 @@ export const AgentStatusBadge: React.FC<Props> = ({
 
     const getToolDisplayName = (tool: string): string => {
         const names: Record<string, string> = {
-            write_file: 'Scrittura',
-            read_file: 'Lettura',
-            list_directory: 'Navigazione',
-            run_command: 'Esecuzione',
-            edit_file: 'Modifica',
-            signal_completion: 'Completamento',
-            search_files: 'Ricerca',
-            code_analysis: 'Analisi',
+            write_file: t('terminal:agentStatus.write'),
+            read_file: t('terminal:agentStatus.read'),
+            list_directory: t('terminal:agentStatus.browse'),
+            run_command: t('terminal:agentStatus.run'),
+            edit_file: t('terminal:agentStatus.edit'),
+            signal_completion: t('terminal:agentStatus.complete'),
+            search_files: t('terminal:agentStatus.search'),
+            code_analysis: t('terminal:agentStatus.analyze'),
         };
         return names[tool] || tool;
     };
@@ -94,7 +96,7 @@ export const AgentStatusBadge: React.FC<Props> = ({
         return (
             <View style={styles.container}>
                 <View style={styles.idleDot} />
-                <Text style={styles.idleText}>Pronto</Text>
+                <Text style={styles.idleText}>{t('terminal:agentStatus.ready')}</Text>
             </View>
         );
     }

@@ -102,9 +102,9 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const greeting = (currentHour >= 5 && currentHour < 18) ? t('goodMorning') : t('goodEvening');
 
   // Prioritize Auth user, fallback to GitHub user, then default
-  const userName = user?.displayName || gitHubUser?.name || user?.email?.split('@')[0] || 'Developer';
+  const userName = user?.displayName || gitHubUser?.name || user?.email?.split('@')[0] || t('home.defaultUserName');
   const userAvatar = user?.photoURL || gitHubUser?.avatarUrl;
-  const userEmail = user?.email || gitHubUser?.login || 'Mobile IDE';
+  const userEmail = user?.email || gitHubUser?.login || t('home.defaultUserEmail');
   const [recentProjects, setRecentProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -314,8 +314,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       );
       if (!hasMarker) {
         Alert.alert(
-          'Non è un progetto',
-          'Seleziona i file di un progetto (con package.json, index.html, requirements.txt, ecc.)'
+          t('file.invalidProjectTitle'),
+          t('file.invalidProjectMessage')
         );
         return;
       }
@@ -324,7 +324,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       const markerFile = validAssets.find(f => PROJECT_MARKERS.includes(f.name));
       const projectName = markerFile
         ? markerFile.name.replace(/\.[^.]+$/, '') === markerFile.name
-          ? 'Local Project'
+          ? t('file.localProject')
           : markerFile.name.replace(/\.[^.]+$/, '')
         : validAssets[0].name.replace(/\.[^.]+$/, '');
 
@@ -332,7 +332,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       setLoadingProjectName(projectName);
       currentProgressRef.current = 5;
       setLoadingProgress(5);
-      setLoadingStep('Lettura file...');
+      setLoadingStep(t('progress.readingFiles'));
       setIsLoadingProject(true);
 
       // Read file contents
@@ -351,22 +351,22 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
       if (files.length === 0) {
         setIsLoadingProject(false);
-        Alert.alert(t('common:error'), 'Impossibile leggere i file selezionati');
+        Alert.alert(t('common:error'), t('file.unableToReadSelected'));
         return;
       }
 
-      await animateProgressTo(25, 'Creazione progetto...', 500);
+      await animateProgressTo(25, t('progress.creatingProject'), 500);
 
       // Create project in Firebase
       const userId = user?.uid || 'anonymous';
       const project = await workstationService.savePersonalProject(projectName, userId, 'local');
 
-      await animateProgressTo(45, 'Preparazione workspace...', 500);
+      await animateProgressTo(45, t('progress.preparingWorkspace'), 500);
 
       // Create workspace on backend (creates dir on Hetzner)
       await workstationService.createWorkstationForProject(project);
 
-      await animateProgressTo(65, 'Caricamento file...', 500);
+      await animateProgressTo(65, t('progress.uploadingFiles'), 500);
 
       // Upload files in bulk
       await apiClient.post(`${config.apiUrl}/fly/project/${project.id}/upload-files`, { files }, { timeout: 60000 });
@@ -380,7 +380,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       onOpenProject({
         ...project,
         files: files.map(f => f.path),
-        language: 'Unknown',
+        language: t('file.unknownLanguage'),
         folderId: null,
       });
 
@@ -404,10 +404,10 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       const errCode = error?.response?.data?.error;
       if (errCode === 'LOCAL_LIMIT_EXCEEDED') {
         const max = error.response.data.limits?.maxLocal || '?';
-        Alert.alert('Limite raggiunto', `Hai raggiunto il limite di ${max} progetti locali per il tuo piano. Elimina un progetto o fai upgrade.`);
+        Alert.alert(t('alerts.localLimitTitle'), t('alerts.localLimitMessage', { max }));
       } else if (errCode === 'STORAGE_LIMIT_EXCEEDED') {
         const maxMb = error.response.data.limits?.maxStorageMb || '?';
-        Alert.alert('Storage pieno', `Hai raggiunto il limite di ${maxMb}MB di storage per il tuo piano. Elimina un progetto o fai upgrade.`);
+        Alert.alert(t('alerts.storageFullTitle'), t('alerts.storageFullMessage', { maxMb }));
       } else {
         Alert.alert(t('common:error'), error.message || t('projects:file.errorOpeningProject'));
       }
@@ -455,13 +455,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     setLoadingProjectName(project.name);
     currentProgressRef.current = 5;
     setLoadingProgress(5);
-    setLoadingStep('Preparazione');
+    setLoadingStep(t('progress.preparing'));
     setIsLoadingProject(true);
 
     // Start Live Activity (Dynamic Island)
     liveActivityService.startPreviewActivity(project.name, {
       remainingSeconds: 60,
-      currentStep: 'Preparazione...',
+      currentStep: t('progress.preparingLive'),
       progress: 0.05,
     }, 'open').catch((err) => console.warn('[Project] Failed to start live activity:', err?.message || err));
 
@@ -494,7 +494,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
       // End Live Activity with success
       if (liveActivityService.isActivityActive()) {
-        liveActivityService.endWithSuccess(project.name, 'Aperto!').catch((err) => console.warn('[Project] Failed to end live activity:', err?.message || err));
+        liveActivityService.endWithSuccess(project.name, t('actions.opened')).catch((err) => console.warn('[Project] Failed to end live activity:', err?.message || err));
       }
 
       // Brief pause
@@ -578,14 +578,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     if (repoUrl && !existingMachineId) {
       try {
         // Start from 12% (after grace period) to 25%
-        animateProgressTo(25, 'Allocazione VM', 1200);
+        animateProgressTo(25, t('progress.allocatingVm'), 1200);
 
         const tokenData = await gitAccountService.getTokenForRepo(userId, repoUrl).catch(() => null);
         const token = tokenData?.token || null;
 
         // Smoothly animate to 55% over the file sync + git init (~18s total)
         // File sync is fast (400ms) but git init + detection takes ~15-17s more
-        animateProgressTo(55, 'Sincronizzazione file', 16000);
+        animateProgressTo(55, t('progress.syncingFiles'), 16000);
 
         // Create abort controller with 2-minute timeout for large repos
         const controller = new AbortController();
@@ -621,7 +621,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           if (data?.error === 'PROJECT_LIMIT_EXCEEDED') {
             throw new Error(`Hai raggiunto il limite di progetti per il tuo piano.\nPassa a un piano superiore.`);
           }
-          const errorMsg = data?.error || data?.message || 'Server non disponibile';
+          const errorMsg = data?.error || data?.message || t('alerts.serverUnavailable');
           console.error('❌ [Home] VM warmup failed:', response.status, errorMsg);
           throw new Error(errorMsg);
         }
@@ -632,14 +632,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         }
 
         // VM warmup done - animate to 65%
-        animateProgressTo(65, 'Rilevamento progetto', 500);
+        animateProgressTo(65, t('progress.detectingProject'), 500);
 
         vmCompleted = true;
       } catch (e: any) {
         console.warn('⚠️ [Home] VM warmup error:', e.message);
         // Handle timeout errors
         if (e.name === 'AbortError') {
-          throw new Error('Clone timeout - il repository è troppo grande. Riprova.');
+          throw new Error(t('alerts.cloneTimeout'));
         }
         // Re-throw pool exhausted errors to show to user
         if (e.message.includes('riprova') || e.message.includes('richieste')) {
@@ -664,7 +664,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               if (!match) return null;
 
               const [, owner, repo] = match;
-              animateProgressTo(75, 'Caricamento git data', 1200);
+              animateProgressTo(75, t('progress.loadingGitData'), 1200);
 
               // Get token
               const accounts = await gitAccountService.getAllAccounts(userId);
@@ -720,7 +720,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         parallelFetches.push(
           (async () => {
             try {
-              animateProgressTo(85, 'Caricamento file', 1500);
+              animateProgressTo(85, t('progress.loadingFiles'), 1500);
               const result = await filePrefetchService.prefetchFiles(project.id, repoUrl);
               return result;
             } catch (e: any) {
@@ -747,7 +747,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
     // End Live Activity with success
     if (liveActivityService.isActivityActive()) {
-      liveActivityService.endWithSuccess(project.name, 'Aperto!').catch((err) => console.warn('[Project] Failed to end live activity:', err?.message || err));
+      liveActivityService.endWithSuccess(project.name, t('actions.opened')).catch((err) => console.warn('[Project] Failed to end live activity:', err?.message || err));
     }
 
     // Brief pause at 100%
@@ -876,14 +876,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     try {
       if (repoUrl) {
         await Share.share({
-          message: `Dai un'occhiata a questo progetto: ${selectedProject.name}\n${repoUrl}`,
+          message: `${t('projects:actions.shareMessage', { name: selectedProject.name })}\n${repoUrl}`,
           url: repoUrl,
           title: selectedProject.name,
         });
       } else {
         // Se non c'è un repo, condividi solo il nome
         await Share.share({
-          message: `Sto lavorando su "${selectedProject.name}" con Drape IDE!`,
+          message: t('actions.shareMessage', { name: selectedProject.name }),
           title: selectedProject.name,
         });
       }
@@ -1264,7 +1264,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                           <View style={styles.repoInfoRow}>
                             <Ionicons name="logo-github" size={16} color="rgba(255,255,255,0.5)" />
                             <Text style={styles.repoUrlText} numberOfLines={1}>
-                              {getRepoInfo(selectedProject.repositoryUrl || selectedProject.githubUrl)?.full || 'Repository'}
+                              {getRepoInfo(selectedProject.repositoryUrl || selectedProject.githubUrl)?.full || t('common:repository')}
                             </Text>
                             <TouchableOpacity
                               onPress={async () => {
@@ -1388,7 +1388,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                         <View style={styles.repoInfoRow}>
                           <Ionicons name="logo-github" size={16} color="rgba(255,255,255,0.5)" />
                           <Text style={styles.repoUrlText} numberOfLines={1}>
-                            {getRepoInfo(selectedProject.repositoryUrl || selectedProject.githubUrl)?.full || 'Repository'}
+                            {getRepoInfo(selectedProject.repositoryUrl || selectedProject.githubUrl)?.full || t('common:repository')}
                           </Text>
                           <TouchableOpacity
                             onPress={async () => {
@@ -1427,7 +1427,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                         <View style={styles.sheetActionIcon}>
                           <Ionicons name="open-outline" size={20} color="#fff" />
                         </View>
-                        <Text style={styles.sheetActionText}>Apri</Text>
+                        <Text style={styles.sheetActionText}>{t('common:open')}</Text>
                       </TouchableOpacity>
 
                       {(selectedProject.repositoryUrl || selectedProject.githubUrl) && (

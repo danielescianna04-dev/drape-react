@@ -156,7 +156,7 @@ const AnimatedGradientBg = () => {
 };
 
 // Hero top section (new landing visual)
-const HeroShowcase = () => {
+const HeroShowcase = ({ t }: { t: (key: string) => string }) => {
   const pulse = useRef(new RNAnimated.Value(0)).current;
 
   useEffect(() => {
@@ -169,9 +169,9 @@ const HeroShowcase = () => {
   }, [pulse]);
 
   const nodes = [
-    { icon: 'code-slash' as const, label: 'Code' },
-    { icon: 'sparkles' as const, label: 'AI' },
-    { icon: 'eye' as const, label: 'Preview' },
+    { icon: 'code-slash' as const, label: t('auth:hero.code') },
+    { icon: 'sparkles' as const, label: t('auth:hero.ai') },
+    { icon: 'eye' as const, label: t('auth:hero.preview') },
   ];
 
   return (
@@ -202,7 +202,7 @@ const HeroShowcase = () => {
         </View>
 
         <View style={heroStyles.captionPill}>
-          <Text style={heroStyles.captionText}>Dal prompt alla release in un unico flusso.</Text>
+          <Text style={heroStyles.captionText}>{t('auth:hero.caption')}</Text>
         </View>
       </View>
     </View>
@@ -313,14 +313,14 @@ const GlassInputWrapper = ({ children }: { children: React.ReactNode }) => {
 };
 
 // Helper component for glass back button
-const GlassBackButton = ({ onPress }: { onPress: () => void }) => {
+const GlassBackButton = ({ onPress, accessibilityLabel }: { onPress: () => void; accessibilityLabel: string }) => {
   if (isLiquidGlassSupported) {
     return (
       <LiquidGlassView style={styles.glassBackButton} interactive={true} effect="clear" colorScheme="dark">
         <TouchableOpacity
           onPress={onPress}
           style={styles.backButtonInner}
-          accessibilityLabel="Indietro"
+          accessibilityLabel={accessibilityLabel}
           accessibilityRole="button"
         >
           <Ionicons name="arrow-back" size={22} color="#fff" />
@@ -332,7 +332,7 @@ const GlassBackButton = ({ onPress }: { onPress: () => void }) => {
     <TouchableOpacity
       style={styles.backButton}
       onPress={onPress}
-      accessibilityLabel="Indietro"
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
     >
       <Ionicons name="arrow-back" size={22} color="#fff" />
@@ -354,6 +354,7 @@ export const AuthScreen = () => {
   const [verificationPassword, setVerificationPassword] = useState('');
   const [resendSuccess, setResendSuccess] = useState(false);
   const [isAutoLogging, setIsAutoLogging] = useState(false);
+  const backLabel = t('common:back');
 
   const modalHeight = useRef(new RNAnimated.Value(200)).current;
   const modalBottom = useRef(new RNAnimated.Value(90)).current;
@@ -496,7 +497,7 @@ export const AuthScreen = () => {
     // Email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) {
-      setLocalError(t('auth:errors.invalidEmail') || 'Please enter a valid email address');
+      setLocalError(t('auth:errors.invalidEmailFormat'));
       return;
     }
 
@@ -579,9 +580,9 @@ export const AuthScreen = () => {
             style={styles.primaryButton}
             onPress={() => switchMode('register')}
             activeOpacity={0.9}
-            accessibilityLabel="Inizia gratis"
+            accessibilityLabel={t('auth:startFree')}
             accessibilityRole="button"
-            accessibilityHint="Apri modulo di registrazione"
+            accessibilityHint={t('auth:a11y.openRegister')}
           >
             <LinearGradient
               colors={[AppColors.primary, '#8B5CF6']}
@@ -597,9 +598,9 @@ export const AuthScreen = () => {
             style={styles.secondaryButton}
             onPress={() => switchMode('login')}
             activeOpacity={0.8}
-            accessibilityLabel="Ho già un account"
+            accessibilityLabel={t('auth:alreadyHaveAccount')}
             accessibilityRole="button"
-            accessibilityHint="Apri modulo di accesso"
+            accessibilityHint={t('auth:a11y.openLogin')}
           >
             <Text style={styles.secondaryButtonText}>{t('auth:alreadyHaveAccount')}</Text>
           </TouchableOpacity>
@@ -673,7 +674,7 @@ export const AuthScreen = () => {
       {mode !== 'initial' && mode !== 'verify' && (
         <Animated.View entering={FadeIn.duration(300)} style={styles.formContent}>
           <View style={styles.formHeader}>
-            <GlassBackButton onPress={() => switchMode('initial')} />
+            <GlassBackButton onPress={() => switchMode('initial')} accessibilityLabel={backLabel} />
             <Text style={styles.formTitle}>
               {mode === 'login' && t('auth:login.title')}
               {mode === 'register' && t('auth:register.title')}
@@ -699,8 +700,8 @@ export const AuthScreen = () => {
                 value={displayName}
                 onChangeText={setDisplayName}
                 autoCapitalize="words"
-                accessibilityLabel="Nome"
-                accessibilityHint="Inserisci il tuo nome"
+                accessibilityLabel={t('auth:register.name')}
+                accessibilityHint={t('auth:a11y.enterName')}
               />
             </GlassInputWrapper>
           )}
@@ -715,8 +716,8 @@ export const AuthScreen = () => {
               onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
-              accessibilityLabel="Email"
-              accessibilityHint="Inserisci il tuo indirizzo email"
+              accessibilityLabel={t('auth:login.email')}
+              accessibilityHint={t('auth:a11y.enterEmail')}
             />
           </GlassInputWrapper>
 
@@ -731,12 +732,12 @@ export const AuthScreen = () => {
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
-                accessibilityLabel="Password"
-                accessibilityHint="Inserisci la tua password"
+                accessibilityLabel={t('auth:login.password')}
+                accessibilityHint={t('auth:a11y.enterPassword')}
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
-                accessibilityLabel={showPassword ? "Nascondi password" : "Mostra password"}
+                accessibilityLabel={showPassword ? t('auth:a11y.hidePassword') : t('auth:a11y.showPassword')}
                 accessibilityRole="button"
               >
                 <Ionicons
@@ -759,8 +760,8 @@ export const AuthScreen = () => {
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
-                accessibilityLabel="Conferma password"
-                accessibilityHint="Inserisci nuovamente la password"
+                accessibilityLabel={t('auth:register.confirmPassword')}
+                accessibilityHint={t('auth:a11y.enterConfirmPassword')}
               />
             </GlassInputWrapper>
           )}
@@ -769,9 +770,9 @@ export const AuthScreen = () => {
             <TouchableOpacity
               style={styles.forgotLink}
               onPress={() => switchMode('forgot')}
-              accessibilityLabel="Password dimenticata"
+              accessibilityLabel={t('auth:login.forgotPassword')}
               accessibilityRole="button"
-              accessibilityHint="Apri modulo di recupero password"
+              accessibilityHint={t('auth:a11y.openPasswordReset')}
             >
               <Text style={styles.forgotLinkText}>{t('auth:login.forgotPassword')}</Text>
             </TouchableOpacity>
@@ -783,9 +784,9 @@ export const AuthScreen = () => {
             disabled={isLoading}
             activeOpacity={0.9}
             accessibilityLabel={
-              mode === 'login' ? 'Accedi' :
-              mode === 'register' ? 'Crea account' :
-              'Invia email di recupero'
+              mode === 'login' ? t('auth:login.loginButton') :
+              mode === 'register' ? t('auth:createAccount') :
+              t('auth:sendEmail')
             }
             accessibilityRole="button"
             accessibilityState={{ disabled: isLoading, busy: isLoading }}
@@ -805,7 +806,7 @@ export const AuthScreen = () => {
             <TouchableOpacity
               onPress={() => switchMode('register')}
               style={styles.switchMode}
-              accessibilityLabel="Non hai un account? Registrati"
+              accessibilityLabel={t('auth:a11y.noAccount')}
               accessibilityRole="button"
             >
               <Text style={styles.switchModeText}>
@@ -817,7 +818,7 @@ export const AuthScreen = () => {
             <TouchableOpacity
               onPress={() => switchMode('login')}
               style={styles.switchMode}
-              accessibilityLabel="Hai già un account? Accedi"
+              accessibilityLabel={t('auth:a11y.haveAccount')}
               accessibilityRole="button"
             >
               <Text style={styles.switchModeText}>
@@ -839,7 +840,7 @@ export const AuthScreen = () => {
                 onPress={handleAppleSignIn}
                 activeOpacity={0.8}
                 disabled={isLoading}
-                accessibilityLabel="Continua con Apple"
+                accessibilityLabel={t('auth:continueWithApple')}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: isLoading }}
               >
@@ -864,7 +865,7 @@ export const AuthScreen = () => {
         <Animated.View entering={FadeInDown.delay(200).duration(700)} style={styles.brandingSection}>
           <DrapeLogo size={72} gradient />
           <Text style={styles.brandName}>Drape</Text>
-          <Text style={styles.tagline}>Il tuo IDE AI, semplice e potente.</Text>
+          <Text style={styles.tagline}>{t('auth:tagline')}</Text>
         </Animated.View>
       </View>
 

@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { config } from '../../../config/config';
@@ -26,6 +27,7 @@ interface Props {
 type AgentMode = 'off' | 'fast' | 'planning';
 
 export const AgentChatPanel = ({ onClose, projectId }: Props) => {
+  const { t, i18n } = useTranslation(['terminal', 'common']);
   const [input, setInput] = useState('');
   const [agentMode, setAgentMode] = useState<AgentMode>('off');
   const [projectContext, setProjectContext] = useState<any>(null);
@@ -114,7 +116,7 @@ User Request: ${userMessage}`;
           if (completeEvent) {
             addMessage({
               id: (Date.now() + 1).toString(),
-              content: completeEvent.summary || 'Task completed successfully',
+              content: completeEvent.summary || t('terminal:agent.taskCompleted'),
               type: 'agent',
               timestamp: new Date(),
               filesCreated: completeEvent.filesCreated,
@@ -129,7 +131,7 @@ User Request: ${userMessage}`;
       } catch (error: any) {
         addMessage({
           id: (Date.now() + 1).toString(),
-          content: `Agent error: ${error.message}`,
+          content: t('terminal:agent.errorWithMessage', { message: error.message }),
           type: 'error',
           timestamp: new Date(),
         });
@@ -138,7 +140,7 @@ User Request: ${userMessage}`;
       // Regular AI chat (you can integrate your existing AI logic here)
       addMessage({
         id: (Date.now() + 1).toString(),
-        content: 'Regular AI mode - integrate your existing chat logic here',
+        content: t('terminal:agent.regularModeFallback'),
         type: 'assistant',
         timestamp: new Date(),
       });
@@ -158,7 +160,7 @@ User Request: ${userMessage}`;
         if (completeEvent) {
           addMessage({
             id: Date.now().toString(),
-            content: completeEvent.summary || 'Plan executed successfully',
+            content: completeEvent.summary || t('terminal:agent.planExecuted'),
             type: 'agent',
             timestamp: new Date(),
             filesCreated: completeEvent.filesCreated,
@@ -168,7 +170,7 @@ User Request: ${userMessage}`;
       } catch (error: any) {
         addMessage({
           id: Date.now().toString(),
-          content: `Execution error: ${error.message}`,
+          content: t('terminal:agent.executionError', { message: error.message }),
           type: 'error',
           timestamp: new Date(),
         });
@@ -181,7 +183,7 @@ User Request: ${userMessage}`;
     agentStream.reset();
     addMessage({
       id: Date.now().toString(),
-      content: 'Plan rejected by user',
+      content: t('terminal:agent.planRejected'),
       type: 'system',
       timestamp: new Date(),
     });
@@ -239,9 +241,9 @@ User Request: ${userMessage}`;
                 <Ionicons name="chatbubbles" size={20} color={AppColors.primary} />
               </View>
               <View>
-                <Text style={styles.headerTitle}>Agent Chat</Text>
+                <Text style={styles.headerTitle}>{t('terminal:agent.chatTitle')}</Text>
                 <Text style={styles.headerSubtitle}>
-                  {projectContext?.name || 'No project context'}
+                  {projectContext?.name || t('terminal:agent.noProjectContext')}
                 </Text>
               </View>
             </View>
@@ -265,7 +267,7 @@ User Request: ${userMessage}`;
             />
           ) : null}
           <View style={styles.modeSectionInner}>
-            <Text style={styles.modeLabel}>Mode:</Text>
+            <Text style={styles.modeLabel}>{t('terminal:agent.modeLabel')}</Text>
             <View style={styles.modeToggle}>
               <TouchableOpacity
                 onPress={() => setAgentMode('off')}
@@ -312,7 +314,7 @@ User Request: ${userMessage}`;
               <View style={styles.activeBadge}>
                 <View style={styles.activeDot} />
                 <Text style={styles.activeBadgeText}>
-                  {agentMode === 'fast' ? 'Fast Mode' : 'Planning Mode'}
+                  {agentMode === 'fast' ? t('terminal:agent.fastMode') : t('terminal:agent.planningMode')}
                 </Text>
               </View>
             )}
@@ -331,11 +333,11 @@ User Request: ${userMessage}`;
           {messages.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="chatbubbles-outline" size={48} color={AppColors.white.w25} />
-              <Text style={styles.emptyText}>No messages yet</Text>
+              <Text style={styles.emptyText}>{t('terminal:agent.noMessages')}</Text>
               <Text style={styles.emptySubtext}>
                 {agentMode === 'off'
-                  ? 'Start chatting with AI'
-                  : `Agent mode: ${agentMode === 'fast' ? 'Fast execution' : 'Plan & execute'}`}
+                  ? t('terminal:agent.startChatting')
+                  : t('terminal:agent.modeDescription', { mode: agentMode === 'fast' ? t('terminal:agent.fastExecution') : t('terminal:agent.planAndExecute') })}
               </Text>
             </View>
           ) : (
@@ -358,7 +360,7 @@ User Request: ${userMessage}`;
                         {message.type.charAt(0).toUpperCase() + message.type.slice(1)}
                       </Text>
                       <Text style={styles.messageTime}>
-                        {new Date(message.timestamp).toLocaleTimeString('it-IT', {
+                        {new Date(message.timestamp).toLocaleTimeString(i18n.language === 'it' ? 'it-IT' : 'en-US', {
                           hour: '2-digit',
                           minute: '2-digit'
                         })}
@@ -369,7 +371,7 @@ User Request: ${userMessage}`;
 
                     {message.filesCreated && message.filesCreated.length > 0 && (
                       <View style={styles.filesSection}>
-                        <Text style={styles.filesLabel}>Files created:</Text>
+                        <Text style={styles.filesLabel}>{t('terminal:agent.filesCreated')}</Text>
                         {message.filesCreated.map((file: string, index: number) => (
                           <Text key={index} style={styles.fileName}>• {file}</Text>
                         ))}
@@ -378,7 +380,7 @@ User Request: ${userMessage}`;
 
                     {message.filesModified && message.filesModified.length > 0 && (
                       <View style={styles.filesSection}>
-                        <Text style={styles.filesLabel}>Files modified:</Text>
+                        <Text style={styles.filesLabel}>{t('terminal:agent.filesModified')}</Text>
                         {message.filesModified.map((file: string, index: number) => (
                           <Text key={index} style={styles.fileName}>• {file}</Text>
                         ))}
@@ -438,10 +440,10 @@ User Request: ${userMessage}`;
                   onChangeText={setInput}
                   placeholder={
                     agentMode === 'off'
-                      ? 'Message AI...'
+                      ? t('terminal:agent.messageAi')
                       : agentMode === 'fast'
-                        ? 'Tell agent what to do...'
-                        : 'Describe task for planning...'
+                        ? t('terminal:agent.tellAgent')
+                        : t('terminal:agent.describeTask')
                   }
                   placeholderTextColor={AppColors.white.w40}
                   multiline
@@ -474,10 +476,10 @@ User Request: ${userMessage}`;
                 onChangeText={setInput}
                 placeholder={
                   agentMode === 'off'
-                    ? 'Message AI...'
+                    ? t('terminal:agent.messageAi')
                     : agentMode === 'fast'
-                      ? 'Tell agent what to do...'
-                      : 'Describe task for planning...'
+                      ? t('terminal:agent.tellAgent')
+                      : t('terminal:agent.describeTask')
                 }
                 placeholderTextColor={AppColors.white.w40}
                 multiline

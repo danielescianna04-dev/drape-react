@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, ActivityIndicator, StyleSheet, Modal } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../theme/colors';
 
@@ -8,11 +9,13 @@ interface Props {
     message?: string;
 }
 
-export const LoadingModal = ({ visible, message = 'Loading...' }: Props) => {
+export const LoadingModal = ({ visible, message }: Props) => {
+    const { t } = useTranslation('common');
+    const resolvedMessage = message || t('loading');
     const renderContent = () => (
         <>
             <ActivityIndicator size="large" color={AppColors.primary} style={styles.spinner} />
-            <Text style={styles.message}>{message}</Text>
+            <Text style={styles.message}>{resolvedMessage}</Text>
         </>
     );
 

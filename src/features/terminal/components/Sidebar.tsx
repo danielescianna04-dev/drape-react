@@ -51,7 +51,7 @@ interface Props {
 }
 
 export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) => {
-  const { t } = useTranslation(['projects', 'common']);
+  const { t } = useTranslation(['projects', 'common', 'terminal']);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
@@ -202,19 +202,23 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
       const data = await response.json();
 
       if (data.hasUncommittedChanges || data.hasUnpushedCommits) {
-        let warningMsg = '⚠️ Attenzione! ';
+        let warningMsg = `${t('projects:sidebar.gitWarningPrefix')} `;
         if (data.hasUncommittedChanges) {
-          warningMsg += `Ci sono ${data.uncommittedFiles?.length || 'alcune'} modifiche non committate. `;
+          warningMsg += t('projects:sidebar.uncommittedChangesWarning', {
+            count: data.uncommittedFiles?.length ?? t('common:some'),
+          });
         }
         if (data.hasUnpushedCommits) {
-          warningMsg += `Ci sono ${data.unpushedCount || 'alcuni'} commit non pushati su Git.`;
+          warningMsg += t('projects:sidebar.unpushedCommitsWarning', {
+            count: data.unpushedCount ?? t('common:some'),
+          });
         }
         setDeleteWarning({ hasChanges: true, message: warningMsg });
       } else {
-        setDeleteWarning({ hasChanges: false, message: 'Tutto sincronizzato con Git.' });
+        setDeleteWarning({ hasChanges: false, message: t('projects:sidebar.gitSynced') });
       }
     } catch (error) {
-      setDeleteWarning({ hasChanges: false, message: 'Impossibile verificare lo stato Git.' });
+      setDeleteWarning({ hasChanges: false, message: t('projects:sidebar.gitStatusCheckFailed') });
     } finally {
       setIsCheckingGit(false);
     }
@@ -308,7 +312,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
   const renderSidebarContent = () => (
     <>
       <View style={styles.header}>
-        <Text style={styles.headerTitle} numberOfLines={1}>{currentWorkstation?.name || 'Files'}</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{currentWorkstation?.name || t('projects:sidebar.files')}</Text>
       </View>
 
       <ScrollView
@@ -358,7 +362,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
       {/* Bottom close button */}
       <TouchableOpacity style={styles.bottomClose} onPress={handleClose} activeOpacity={0.7}>
         <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.5)" />
-        <Text style={styles.bottomCloseText}>Chiudi</Text>
+        <Text style={styles.bottomCloseText}>{t('common:close')}</Text>
       </TouchableOpacity>
     </>
   );
@@ -372,27 +376,27 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
           color={deleteWarning?.hasChanges ? "#FF6B6B" : AppColors.primary}
         />
         <Text style={styles.deleteModalTitle}>
-          Elimina "{deleteTarget?.name}"?
+          {t('projects:sidebar.deleteProjectTitle', { name: deleteTarget?.name })}
         </Text>
       </View>
 
       {isCheckingGit ? (
         <View style={styles.deleteModalLoading}>
           <ActivityIndicator size="small" color={AppColors.primary} />
-          <Text style={styles.deleteModalLoadingText}>Controllo modifiche Git...</Text>
+          <Text style={styles.deleteModalLoadingText}>{t('projects:sidebar.checkingGitChanges')}</Text>
         </View>
       ) : (
         <Text style={[
           styles.deleteModalMessage,
           deleteWarning?.hasChanges && styles.deleteModalWarning
         ]}>
-          {deleteWarning?.message || 'Questa azione eliminerà il progetto e tutti i file locali.'}
+          {deleteWarning?.message || t('projects:sidebar.deleteDefaultWarning', { defaultValue: 'This action will delete the project and all local files.' })}
         </Text>
       )}
 
       {deleteWarning?.hasChanges && !isCheckingGit && (
         <Text style={styles.deleteModalSubWarning}>
-          Queste modifiche andranno perse se non le salvi prima su Git.
+          {t('projects:sidebar.deleteUnsavedWarning', { defaultValue: 'These changes will be lost if you do not save them to Git first.' })}
         </Text>
       )}
 
@@ -405,7 +409,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
             setDeleteWarning(null);
           }}
         >
-          <Text style={styles.deleteModalCancelText}>Annulla</Text>
+          <Text style={styles.deleteModalCancelText}>{t('common:cancel')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity

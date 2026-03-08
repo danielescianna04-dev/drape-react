@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useTranslation } from 'react-i18next';
 import apiClient from '../../../core/api/apiClient';
 import { useFileHistoryStore, FileModification } from '../../../core/history/fileHistoryStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
@@ -20,6 +21,7 @@ export const UndoRedoBar: React.FC<UndoRedoBarProps> = ({
   onUndoComplete,
   onRedoComplete,
 }) => {
+  const { t } = useTranslation(['common', 'terminal']);
   const [isUndoing, setIsUndoing] = useState(false);
   const [isRedoing, setIsRedoing] = useState(false);
 
@@ -127,9 +129,9 @@ export const UndoRedoBar: React.FC<UndoRedoBarProps> = ({
         style={[styles.button, !hasUndo && styles.buttonDisabled]}
         onPress={handleUndo}
         disabled={!hasUndo || isUndoing}
-        accessibilityLabel="Annulla"
+        accessibilityLabel={t('common:undo', { defaultValue: 'Undo' })}
         accessibilityRole="button"
-        accessibilityHint={`Annulla ultima modifica. ${undoCount} ${undoCount === 1 ? 'modifica' : 'modifiche'} disponibili`}
+        accessibilityHint={`${t('common:undo', { defaultValue: 'Undo' })}. ${undoCount}`}
         accessibilityState={{ disabled: !hasUndo || isUndoing }}
       >
         {isUndoing ? (
@@ -154,9 +156,9 @@ export const UndoRedoBar: React.FC<UndoRedoBarProps> = ({
         style={[styles.button, !hasRedo && styles.buttonDisabled]}
         onPress={handleRedo}
         disabled={!hasRedo || isRedoing}
-        accessibilityLabel="Ripeti"
+        accessibilityLabel={t('common:redo', { defaultValue: 'Redo' })}
         accessibilityRole="button"
-        accessibilityHint={`Ripeti ultima modifica annullata. ${redoCount} ${redoCount === 1 ? 'modifica' : 'modifiche'} disponibili`}
+        accessibilityHint={`${t('common:redo', { defaultValue: 'Redo' })}. ${redoCount}`}
         accessibilityState={{ disabled: !hasRedo || isRedoing }}
       >
         {isRedoing ? (

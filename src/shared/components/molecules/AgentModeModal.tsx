@@ -11,6 +11,7 @@ import {
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../theme/colors';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
     visible: boolean;
@@ -21,11 +22,12 @@ interface Props {
 const { width } = Dimensions.get('window');
 
 export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode }) => {
+    const { t } = useTranslation();
     const renderContent = () => (
         <View style={styles.modalInner}>
             {/* Header */}
             <View style={styles.header}>
-                <Text style={styles.title}>Seleziona Modalità</Text>
+                <Text style={styles.title}>{t('terminal:agentMode.title')}</Text>
                 <TouchableOpacity
                     onPress={onClose}
                     style={styles.closeButton}
@@ -55,13 +57,13 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                         <Ionicons name="flash" size={24} color={AppColors.primary} />
                                     </View>
                                     <View style={styles.recommendedBadge}>
-                                        <Text style={styles.recommendedText}>Consigliato</Text>
+                                        <Text style={styles.recommendedText}>{t('terminal:agentMode.recommended')}</Text>
                                     </View>
                                 </View>
 
-                                <Text style={styles.modeTitle}>Esecuzione Rapida</Text>
+                                <Text style={styles.modeTitle}>{t('terminal:agentMode.fastTitle')}</Text>
                                 <Text style={styles.modeDescription}>
-                                    Genera subito il codice e corregge eventuali errori in tempo reale
+                                    {t('terminal:agentMode.fastDescription')}
                                 </Text>
 
                                 <View style={styles.features}>
@@ -71,7 +73,7 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                             size={16}
                                             color={AppColors.primary}
                                         />
-                                        <Text style={styles.featureText}>Veloce</Text>
+                                        <Text style={styles.featureText}>{t('terminal:agentMode.fastFeature1')}</Text>
                                     </View>
                                     <View style={styles.feature}>
                                         <Ionicons
@@ -79,7 +81,7 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                             size={16}
                                             color={AppColors.primary}
                                         />
-                                        <Text style={styles.featureText}>Auto-correzione</Text>
+                                        <Text style={styles.featureText}>{t('terminal:agentMode.fastFeature2')}</Text>
                                     </View>
                                 </View>
                             </View>
@@ -91,13 +93,13 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                     <Ionicons name="flash" size={24} color={AppColors.primary} />
                                 </View>
                                 <View style={styles.recommendedBadge}>
-                                    <Text style={styles.recommendedText}>Consigliato</Text>
+                                    <Text style={styles.recommendedText}>{t('terminal:agentMode.recommended')}</Text>
                                 </View>
                             </View>
 
-                            <Text style={styles.modeTitle}>Esecuzione Rapida</Text>
+                            <Text style={styles.modeTitle}>{t('terminal:agentMode.fastTitle')}</Text>
                             <Text style={styles.modeDescription}>
-                                Genera subito il codice e corregge eventuali errori in tempo reale
+                                {t('terminal:agentMode.fastDescription')}
                             </Text>
 
                             <View style={styles.features}>
@@ -107,7 +109,7 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                         size={16}
                                         color={AppColors.primary}
                                     />
-                                    <Text style={styles.featureText}>Veloce</Text>
+                                    <Text style={styles.featureText}>{t('terminal:agentMode.fastFeature1')}</Text>
                                 </View>
                                 <View style={styles.feature}>
                                     <Ionicons
@@ -115,7 +117,7 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                         size={16}
                                         color={AppColors.primary}
                                     />
-                                    <Text style={styles.featureText}>Auto-correzione</Text>
+                                    <Text style={styles.featureText}>{t('terminal:agentMode.fastFeature2')}</Text>
                                 </View>
                             </View>
                         </View>
@@ -145,9 +147,9 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                     </View>
                                 </View>
 
-                                <Text style={styles.modeTitle}>Pianificazione</Text>
+                                <Text style={styles.modeTitle}>{t('terminal:agentMode.planningTitle')}</Text>
                                 <Text style={styles.modeDescription}>
-                                    Crea un piano dettagliato e attendi la tua approvazione prima di procedere
+                                    {t('terminal:agentMode.planningDescription')}
                                 </Text>
 
                                 <View style={styles.features}>
@@ -157,7 +159,7 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                             size={16}
                                             color={AppColors.white.w40}
                                         />
-                                        <Text style={styles.featureText}>Controllo totale</Text>
+                                        <Text style={styles.featureText}>{t('terminal:agentMode.planningFeature1')}</Text>
                                     </View>
                                     <View style={styles.feature}>
                                         <Ionicons
@@ -165,7 +167,7 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                             size={16}
                                             color={AppColors.white.w40}
                                         />
-                                        <Text style={styles.featureText}>Piano dettagliato</Text>
+                                        <Text style={styles.featureText}>{t('terminal:agentMode.planningFeature2')}</Text>
                                     </View>
                                 </View>
                             </View>
@@ -182,9 +184,9 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                 </View>
                             </View>
 
-                            <Text style={styles.modeTitle}>Pianificazione</Text>
+                            <Text style={styles.modeTitle}>{t('terminal:agentMode.planningTitle')}</Text>
                             <Text style={styles.modeDescription}>
-                                Crea un piano dettagliato e attendi la tua approvazione prima di procedere
+                                {t('terminal:agentMode.planningDescription')}
                             </Text>
 
                             <View style={styles.features}>
@@ -194,7 +196,7 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                         size={16}
                                         color={AppColors.white.w40}
                                     />
-                                    <Text style={styles.featureText}>Controllo totale</Text>
+                                    <Text style={styles.featureText}>{t('terminal:agentMode.planningFeature1')}</Text>
                                 </View>
                                 <View style={styles.feature}>
                                     <Ionicons
@@ -202,7 +204,7 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                         size={16}
                                         color={AppColors.white.w40}
                                     />
-                                    <Text style={styles.featureText}>Piano dettagliato</Text>
+                                    <Text style={styles.featureText}>{t('terminal:agentMode.planningFeature2')}</Text>
                                 </View>
                             </View>
                         </View>

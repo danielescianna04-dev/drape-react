@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { config } from '../../../config/config';
@@ -33,6 +34,7 @@ interface AIVariable {
 type AIStatus = 'not_started' | 'analyzing' | 'complete' | 'error';
 
 export const SecretsPanel = ({ onClose }: Props) => {
+  const { t } = useTranslation(['common', 'terminal']);
   const insets = useSafeAreaInsets();
   const { currentWorkstation } = useWorkstationStore();
   const { sidebarTranslateX } = useSidebarOffset();
@@ -303,9 +305,9 @@ export const SecretsPanel = ({ onClose }: Props) => {
         }
       );
       if (!response.ok) throw new Error('Failed to save');
-      Alert.alert('Salvato', 'Variabili salvate nel file .env');
+      Alert.alert(t('common:saved'), t('common:envVarSaveSuccess'));
     } catch (error) {
-      Alert.alert('Errore', 'Impossibile salvare le variabili');
+      Alert.alert(t('common:error'), t('common:envVarSaveFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -314,7 +316,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
   const handleAddVariable = () => {
     if (!newKey.trim()) return;
     if (envVars.find(v => v.key === newKey)) {
-      Alert.alert('Errore', 'Variabile gia esistente');
+      Alert.alert(t('common:error'), t('common:envVarAlreadyExists'));
       return;
     }
     setEnvVars([...envVars, { key: newKey, value: newValue, isSecret: true, isUserConfigured: true }]);
@@ -378,7 +380,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
       />
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Text style={styles.headerTitle}>Secrets</Text>
+        <Text style={styles.headerTitle}>{t('common:envVariables')}</Text>
         <View style={styles.headerRight}>
           {envVars.length > 0 && (
             <TouchableOpacity
@@ -389,7 +391,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
               {isSaving ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.saveButtonText}>Salva</Text>
+                <Text style={styles.saveButtonText}>{t('common:save')}</Text>
               )}
             </TouchableOpacity>
           )}
@@ -415,7 +417,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
             <View style={styles.addForm}>
               <TextInput
                 style={styles.addFormInput}
-                placeholder="NOME_VARIABILE"
+                placeholder={t('terminal:envVars.variableNamePlaceholder')}
                 placeholderTextColor="rgba(255,255,255,0.3)"
                 value={newKey}
                 onChangeText={setNewKey}
@@ -424,7 +426,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
               />
               <TextInput
                 style={styles.addFormInput}
-                placeholder="valore"
+                placeholder={t('common:enterValue')}
                 placeholderTextColor="rgba(255,255,255,0.3)"
                 value={newValue}
                 onChangeText={setNewValue}
@@ -439,13 +441,13 @@ export const SecretsPanel = ({ onClose }: Props) => {
                     setNewValue('');
                   }}
                 >
-                  <Text style={styles.addFormCancelText}>Annulla</Text>
+                  <Text style={styles.addFormCancelText}>{t('common:cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.addFormSubmit}
                   onPress={handleAddVariable}
                 >
-                  <Text style={styles.addFormSubmitText}>Aggiungi</Text>
+                  <Text style={styles.addFormSubmitText}>{t('common:add')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -455,7 +457,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
               onPress={() => setShowAddForm(true)}
             >
               <Ionicons name="add" size={18} color="rgba(255,255,255,0.4)" />
-              <Text style={styles.addButtonText}>Aggiungi variabile</Text>
+              <Text style={styles.addButtonText}>{t('common:add')} {t('common:envVariables').toLowerCase()}</Text>
             </TouchableOpacity>
           )}
 
@@ -464,7 +466,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
             <View style={styles.scanBanner}>
               <View style={styles.scanBannerContent}>
                 <ActivityIndicator size="small" color={AppColors.primary} />
-                <Text style={styles.scanBannerText}>Scansione codice...</Text>
+                <Text style={styles.scanBannerText}>{t('terminal:tasks.running')}</Text>
               </View>
               <View style={styles.scanProgress}>
                 <Animated.View style={[styles.scanProgressBar, progressAnimatedStyle]} />
@@ -481,18 +483,18 @@ export const SecretsPanel = ({ onClose }: Props) => {
                     <Ionicons name="sparkles" size={12} color="#fff" />
                   </View>
                   <Text style={styles.suggestionTitle}>
-                    Suggerimenti AI
+                    {t('terminal:preview.aiAssistant')}
                   </Text>
                   <View style={styles.suggestionCountBadge}>
                     <Text style={styles.suggestionCountText}>{aiVariables.length}</Text>
                   </View>
                 </View>
                 <TouchableOpacity onPress={handleAddAllAIVariables}>
-                  <Text style={styles.addAllText}>Aggiungi tutte</Text>
+                  <Text style={styles.addAllText}>{t('common:add')} {t('common:all').toLowerCase()}</Text>
                 </TouchableOpacity>
               </View>
               <Text style={styles.aiSuggestionSubtitle}>
-                Variabili rilevate dall'analisi del codice
+                {t('terminal:envVars.configuredVariables')}
               </Text>
               {aiVariables.slice(0, 4).map((aiVar) => (
                 <TouchableOpacity
@@ -528,7 +530,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
           {/* User's Variables (isUserConfigured: true) - Always show first */}
           {envVars.filter(v => v.isUserConfigured === true).length > 0 && (
             <View style={styles.configuredSection}>
-              <Text style={styles.sectionTitle}>Le mie variabili</Text>
+              <Text style={styles.sectionTitle}>{t('terminal:envVars.configuredVariables')}</Text>
               {envVars.filter(v => v.isUserConfigured === true).map((envVar) => (
                 <View key={envVar.key} style={styles.variableItem}>
                   <View style={styles.variableHeader}>
@@ -561,7 +563,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
                     style={styles.variableInput}
                     value={envVar.value}
                     onChangeText={(value) => handleUpdateVariable(envVar.key, value)}
-                    placeholder="Inserisci valore..."
+                    placeholder={t('common:enterValue')}
                     placeholderTextColor="rgba(255,255,255,0.2)"
                     secureTextEntry={envVar.isSecret && !visibleSecrets.has(envVar.key)}
                   />
@@ -577,9 +579,9 @@ export const SecretsPanel = ({ onClose }: Props) => {
             return (
               <View style={styles.configuredSection}>
                 <View style={styles.suggestionHeader}>
-                  <Text style={styles.sectionTitle}>Dal progetto</Text>
+                  <Text style={styles.sectionTitle}>{t('common:project')}</Text>
                   {projectVars.length > 4 && (
-                    <Text style={styles.projectVarsCount}>{projectVars.length} variabili</Text>
+                    <Text style={styles.projectVarsCount}>{projectVars.length} {t('common:envVariables').toLowerCase()}</Text>
                   )}
                 </View>
                 {projectVars.slice(0, 4).map((envVar) => (
@@ -620,7 +622,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
                       style={styles.variableInput}
                       value={envVar.value}
                       onChangeText={(value) => handleUpdateVariable(envVar.key, value)}
-                      placeholder="Inserisci valore..."
+                      placeholder={t('common:enterValue')}
                       placeholderTextColor="rgba(255,255,255,0.2)"
                       secureTextEntry={envVar.isSecret && !visibleSecrets.has(envVar.key)}
                     />
@@ -645,9 +647,9 @@ export const SecretsPanel = ({ onClose }: Props) => {
           {/* Empty State */}
           {envVars.length === 0 && aiVariables.length === 0 && aiStatus !== 'analyzing' && (
             <Animated.View entering={FadeIn.duration(300)} style={styles.emptyState}>
-              <Text style={styles.emptyText}>Nessuna variabile trovata</Text>
+              <Text style={styles.emptyText}>{t('terminal:envVars.noneConfigured')}</Text>
               <Text style={styles.emptySubtext}>
-                Aggiungi manualmente o attendi la scansione AI
+                {t('terminal:envVars.tapPlus')}
               </Text>
             </Animated.View>
           )}
@@ -665,7 +667,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
           <View style={styles.modalContent}>
             <View style={[styles.modalHeader, { paddingTop: 16 }]}>
               <Text style={styles.modalTitle}>
-                {aiVariables.length} Variabili Trovate
+                {aiVariables.length} {t('common:envVariables')}
               </Text>
               <TouchableOpacity
                 onPress={() => setShowAllAIVars(false)}
@@ -710,7 +712,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
                 activeOpacity={0.7}
               >
                 <Ionicons name="checkmark-done" size={18} color="#fff" />
-                <Text style={styles.modalAddAllText}>Aggiungi tutte</Text>
+                <Text style={styles.modalAddAllText}>{t('common:add')} {t('common:all').toLowerCase()}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -728,7 +730,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
           <View style={styles.modalContent}>
             <View style={[styles.modalHeader, { paddingTop: 16 }]}>
               <Text style={styles.modalTitle}>
-                Variabili dal Progetto
+                {t('common:project')} {t('common:envVariables').toLowerCase()}
               </Text>
               <TouchableOpacity
                 onPress={() => setShowAllProjectVars(false)}
@@ -782,7 +784,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
                     style={styles.variableInput}
                     value={envVar.value}
                     onChangeText={(value) => handleUpdateVariable(envVar.key, value)}
-                    placeholder="Inserisci valore..."
+                    placeholder={t('common:enterValue')}
                     placeholderTextColor="rgba(255,255,255,0.2)"
                     secureTextEntry={envVar.isSecret && !visibleSecrets.has(envVar.key)}
                   />

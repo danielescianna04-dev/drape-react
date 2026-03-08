@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigationStore } from '../../core/navigation/navigationStore';
+import i18n from '../../i18n';
 
 interface Props {
   children: React.ReactNode;
@@ -57,9 +58,9 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({ error, onRetry }) => {
           <Ionicons name="warning-outline" size={64} color="#ef4444" />
         </View>
 
-        <Text style={styles.title}>Ops! Qualcosa è andato storto</Text>
+        <Text style={styles.title}>{i18n.t('common:errorBoundary.title')}</Text>
         <Text style={styles.message}>
-          Si è verificato un errore imprevisto. Puoi riprovare o tornare alla home.
+          {i18n.t('common:errorBoundary.message')}
         </Text>
 
         <View style={styles.buttonContainer}>
@@ -69,7 +70,7 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({ error, onRetry }) => {
             activeOpacity={0.8}
           >
             <Ionicons name="refresh-outline" size={20} color="#fff" />
-            <Text style={styles.buttonText}>Riprova</Text>
+            <Text style={styles.buttonText}>{i18n.t('common:retry')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -78,13 +79,13 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({ error, onRetry }) => {
             activeOpacity={0.8}
           >
             <Ionicons name="home-outline" size={20} color="#fff" />
-            <Text style={styles.buttonText}>Torna alla Home</Text>
+            <Text style={styles.buttonText}>{i18n.t('common:errorBoundary.goHome')}</Text>
           </TouchableOpacity>
         </View>
 
         {__DEV__ && error && (
           <View style={styles.debugContainer}>
-            <Text style={styles.debugTitle}>Debug Info:</Text>
+            <Text style={styles.debugTitle}>{i18n.t('common:errorBoundary.debugInfo')}</Text>
             <Text style={styles.debugText}>{error.message}</Text>
           </View>
         )}

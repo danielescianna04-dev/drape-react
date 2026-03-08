@@ -8,6 +8,8 @@
   "project": "Progetto",
   "home": {
     "getStarted": "Inizia",
+    "defaultUserName": "Developer",
+    "defaultUserEmail": "Mobile IDE",
     "newProject": "Nuovo",
     "createProject": "Crea progetto",
     "clone": "Clona",
@@ -80,6 +82,27 @@
     "showLess": "Mostra meno",
     "aiRecommendedBecause": "Suggerimento AI:"
   },
+  "alerts": {
+    "creationFailed": "Creazione fallita",
+    "creationErrorWithMessage": "Impossibile creare il progetto: {{error}}",
+    "creationConnectionLost": "Connessione persa durante la creazione. Riprova.",
+    "selectLanguage": "Seleziona una tecnologia",
+    "loginRequired": "Devi essere loggato per creare un progetto",
+    "storageLimitTitle": "Spazio esaurito",
+    "storageLimitMessage": "Hai usato {{used}}MB su {{max}}MB disponibili.\nElimina progetti o passa a un piano superiore.",
+    "unableToStartAgent": "Impossibile avviare l'agente. Riprova.",
+    "unableToCreateProject": "Impossibile creare il progetto. Riprova.",
+    "projectCreated": "Progetto creato!",
+    "projectReady": "{{name}} è pronto",
+    "creatingWithAi": "Creazione con AI...",
+    "creatingProject": "Creazione progetto...",
+    "localLimitTitle": "Limite raggiunto",
+    "localLimitMessage": "Hai raggiunto il limite di {{max}} progetti locali per il tuo piano. Elimina un progetto o fai upgrade.",
+    "storageFullTitle": "Storage pieno",
+    "storageFullMessage": "Hai raggiunto il limite di {{maxMb}}MB di storage per il tuo piano. Elimina un progetto o fai upgrade.",
+    "serverUnavailable": "Server non disponibile",
+    "cloneTimeout": "Clone timeout - la repository è troppo grande. Riprova."
+  },
   "limit": {
     "reached": "Limite raggiunto",
     "maxProjects": "Hai raggiunto il massimo di {{count}} progetti con il piano Free.",
@@ -102,14 +125,82 @@
     "rename": "Rinomina",
     "renameProject": "Rinomina Progetto",
     "opening": "Apertura...",
-    "startingEnv": "Avvio ambiente..."
+    "opened": "Aperto!",
+    "startingEnv": "Avvio ambiente...",
+    "shareMessage": "Sto lavorando su \"{{name}}\" con Drape IDE!"
+  },
+  "progress": {
+    "title": "Creazione in corso",
+    "initializing": "Inizializzazione...",
+    "readingFiles": "Lettura file...",
+    "creatingProject": "Creazione progetto...",
+    "preparingWorkspace": "Preparazione workspace...",
+    "uploadingFiles": "Caricamento file...",
+    "preparing": "Preparazione",
+    "preparingLive": "Preparazione...",
+    "switchingProject": "Cambio progetto...",
+    "allocatingVm": "Allocazione VM",
+    "syncingFiles": "Sincronizzazione file",
+    "detectingProject": "Rilevamento progetto",
+    "loadingGitData": "Caricamento git data",
+    "loadingFiles": "Caricamento file"
   },
   "file": {
     "selected": "File Selezionato",
     "unableToOpen": "Impossibile aprire il file picker",
     "linkCopied": "Link repository copiato negli appunti",
     "noValidFileSelected": "Nessun file valido selezionato",
-    "errorOpeningProject": "Errore durante l'apertura del progetto"
+    "errorOpeningProject": "Errore durante l'apertura del progetto",
+    "invalidProjectTitle": "Non è un progetto",
+    "invalidProjectMessage": "Seleziona i file di un progetto con marker come package.json, index.html, requirements.txt e simili.",
+    "localProject": "Progetto locale",
+    "unableToReadSelected": "Impossibile leggere i file selezionati",
+    "unknownLanguage": "Sconosciuto"
+  },
+  "onboardingPlans": {
+    "welcomeNew": "Benvenuto, {{name}}!",
+    "welcomeBack": "Ciao, {{name}}!",
+    "welcomeSubtitleNew": "Scegli il piano che fa per te per iniziare a creare.",
+    "welcomeSubtitleReturning": "Sblocca più potenza per i tuoi progetti.",
+    "recommended": "Consigliato",
+    "perMonth": "/mese",
+    "introOffer": "Primo mese — poi {{price}}/mese",
+    "startGo": "Inizia con Go",
+    "continueFree": "Continua gratis",
+    "goFeatures": {
+      "projects": "5 progetti + 5 clonati",
+      "previews": "20 preview al mese",
+      "aiBudget": "Budget AI potenziato",
+      "storage": "2GB Storage Cloud",
+      "support": "Supporto email"
+    },
+    "freeFeatures": {
+      "projects": "2 progetti + 1 clonato",
+      "previews": "5 preview al mese",
+      "aiBudget": "Budget AI base",
+      "storage": "500MB Storage"
+    }
+  },
+  "problem": {
+    "title": "Il Problema",
+    "cards": {
+      "desktop": {
+        "title": "Desktop Dependency",
+        "description": "Gli IDE attuali come VS Code, Cursor e Warp sono progettati per desktop. Il mobile manca ancora di un'esperienza fluida per lo sviluppo professionale."
+      },
+      "ai": {
+        "title": "AI Frammentata",
+        "description": "I developer devono usare tool separati per GPT-5, Claude 4.5 e Gemini Pro 2.5. Nessuna integrazione nativa in ambiente mobile."
+      },
+      "productivity": {
+        "title": "Produttività Persa",
+        "description": "Il 68% dei developer usa lo smartphone per più di 3 ore al giorno, ma solo per task minori. Manca una piattaforma seria per il coding mobile."
+      },
+      "emergency": {
+        "title": "Emergenze Bloccanti",
+        "description": "Production down mentre sei fuori casa? Debug urgente? Non puoi sempre aprire il laptop. Su mobile hai zero opzioni professionali."
+      }
+    }
   },
   "all": {
     "title": "Tutti i Progetti",
@@ -140,9 +231,17 @@
   },
   "sidebar": {
     "closeSidebar": "Chiudi sidebar",
+    "files": "File",
     "noProjectOpen": "Nessun progetto aperto",
     "openProjectFromHome": "Apri un progetto dalla Home per vedere i file",
     "deleteAnyway": "Elimina comunque",
+    "gitWarningPrefix": "Attenzione!",
+    "uncommittedChangesWarning": "Ci sono {{count}} modifiche non committate. ",
+    "unpushedCommitsWarning": "Ci sono {{count}} commit non pushati su Git.",
+    "gitSynced": "Tutto sincronizzato con Git.",
+    "gitStatusCheckFailed": "Impossibile verificare lo stato Git.",
+    "deleteProjectTitle": "Elimina \"{{name}}\"?",
+    "checkingGitChanges": "Controllo modifiche Git...",
     "noChatsYet": "Nessuna chat",
     "messages": "messaggi",
     "repositories": "repository",

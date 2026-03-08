@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
     isCloning: boolean;
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export const CloneWidget = ({ isCloning, progress, success, error, repoName }: Props) => {
+    const { t } = useTranslation('terminal');
     if (!isCloning && !success && !error) return null;
 
     return (
@@ -35,9 +37,9 @@ export const CloneWidget = ({ isCloning, progress, success, error, repoName }: P
 
             <View style={styles.textContainer}>
                 <Text style={styles.title}>
-                    {isCloning && '📦 Sincronizzazione progetto...'}
-                    {success && '✅ Progetto pronto'}
-                    {error && '❌ Errore di sincronizzazione'}
+                    {isCloning && t('cloneWidget.syncing')}
+                    {success && t('cloneWidget.ready')}
+                    {error && t('cloneWidget.error')}
                 </Text>
 
                 {(progress || repoName) && (

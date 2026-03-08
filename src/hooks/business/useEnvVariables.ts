@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Alert } from 'react-native';
 import { config } from '../../config/config';
+import i18n from '../../i18n';
 
 export interface EnvVariable {
   key: string;
@@ -40,7 +41,7 @@ export const useEnvVariables = (workstationId: string | undefined) => {
       setHasEnvExample(data.hasEnvExample || false);
     } catch (error) {
       console.error('Failed to load env variables:', error);
-      Alert.alert('Errore', "Impossibile caricare le variabili d'ambiente");
+      Alert.alert(i18n.t('common:error'), i18n.t('common:envVarLoadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -72,10 +73,10 @@ export const useEnvVariables = (workstationId: string | undefined) => {
         throw new Error(`Failed to save env variables: ${response.status}`);
       }
 
-      Alert.alert('Successo', "Variabili d'ambiente salvate correttamente");
+      Alert.alert(i18n.t('common:success'), i18n.t('common:envVarSaveSuccess'));
     } catch (error) {
       console.error('Failed to save env variables:', error);
-      Alert.alert('Errore', "Impossibile salvare le variabili d'ambiente");
+      Alert.alert(i18n.t('common:error'), i18n.t('common:envVarSaveFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -83,13 +84,13 @@ export const useEnvVariables = (workstationId: string | undefined) => {
 
   const addEnvVariable = useCallback((key: string, value: string) => {
     if (!key.trim()) {
-      Alert.alert('Errore', 'Inserisci il nome della variabile');
+      Alert.alert(i18n.t('common:error'), i18n.t('common:envVarEnterName'));
       return false;
     }
 
     const existingVar = envVars.find(v => v.key === key);
     if (existingVar) {
-      Alert.alert('Errore', 'Una variabile con questo nome esiste già');
+      Alert.alert(i18n.t('common:error'), i18n.t('common:envVarAlreadyExists'));
       return false;
     }
 
@@ -103,12 +104,12 @@ export const useEnvVariables = (workstationId: string | undefined) => {
 
   const deleteEnvVariable = useCallback((key: string) => {
     Alert.alert(
-      'Conferma',
-      `Vuoi eliminare la variabile ${key}?`,
+      i18n.t('common:deleteVariableTitle'),
+      i18n.t('common:deleteVariableMessage', { key }),
       [
-        { text: 'Annulla', style: 'cancel' },
+        { text: i18n.t('common:cancel'), style: 'cancel' },
         {
-          text: 'Elimina',
+          text: i18n.t('common:delete'),
           style: 'destructive',
           onPress: () => setEnvVars(envVars.filter(v => v.key !== key))
         }

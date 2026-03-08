@@ -68,12 +68,12 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
           } else if (response.data.error === 'authorization_pending') {
             // This is expected, continue polling
           } else if (response.data.error) {
-            setError(`Error: ${response.data.error_description}`);
+            setError(t('settings:gitAuth.errors.errorPrefix', { message: response.data.error_description }));
             if (intervalId) clearInterval(intervalId);
             setIsLoading(false);
           }
         } catch (err) {
-          setError('Failed to poll for authentication. Please try again.');
+          setError(t('settings:gitAuth.errors.authError'));
           if (intervalId) clearInterval(intervalId);
           setIsLoading(false);
         }
@@ -115,17 +115,17 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
           if (response.data.access_token) {
             onAuthenticated(response.data.access_token);
           } else {
-            throw new Error('No access token in response');
+            throw new Error(t('settings:gitAuth.errors.noTokenInResponse'));
           }
         } else {
-          throw new Error('No code in callback URL');
+          throw new Error(t('settings:gitAuth.errors.authError'));
         }
       } else if (result.type === 'cancel') {
-        setError('Authentication cancelled');
+        setError(t('settings:gitAuth.errors.authCancelled'));
       }
     } catch (err: any) {
       console.error('❌ Web Browser OAuth error:', err);
-      setError(`Authentication failed: ${err.message}`);
+      setError(t('settings:gitAuth.errors.authFailed', { message: err.message }));
     } finally {
       setIsLoading(false);
     }
@@ -147,8 +147,8 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
       console.error('❌ Device flow error:', err);
       console.error('Response:', err.response?.data);
 
-      const errorMessage = err.response?.data?.error || err.message || 'Failed to start GitHub authentication';
-      setError(`Failed to start GitHub authentication: ${errorMessage}`);
+      const errorMessage = err.response?.data?.error || err.message || t('settings:gitAuth.errors.authError');
+      setError(t('settings:gitAuth.errors.authFailed', { message: errorMessage }));
     } finally {
       setIsLoading(false);
     }
@@ -193,7 +193,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
         <View style={styles.optionTextContainer}>
           <Text style={styles.optionButtonText}>{t('settings:gitAuth.authWithGitHub')}</Text>
           {(Platform.OS === 'ios' || Platform.OS === 'android') && (
-            <Text style={styles.optionSubtext}>Via Device Flow</Text>
+            <Text style={styles.optionSubtext}>{t('settings:gitAccounts.deviceFlow')}</Text>
           )}
         </View>
         {isLoading && <ActivityIndicator color="#FFFFFF" />}
@@ -202,7 +202,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
         <Ionicons name="key-outline" size={24} color="#FFFFFF" />
         <View style={styles.optionTextContainer}>
           <Text style={styles.optionButtonText}>{t('settings:gitAuth.usePersonalAccessToken')}</Text>
-          <Text style={styles.optionSubtext}>Genera un token da GitHub</Text>
+          <Text style={styles.optionSubtext}>{t('settings:gitAuth.generateTokenFromGitHub')}</Text>
         </View>
       </TouchableOpacity>
       {error && <Text style={styles.errorText}>{error}</Text>}
@@ -219,7 +219,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
       <Text style={styles.subtitle}>{t('settings:gitAuth.patDescription')}</Text>
       <TextInput
         style={styles.input}
-        placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+        placeholder={t('settings:gitAccounts.personalTokenPlaceholder')}
         placeholderTextColor="rgba(255, 255, 255, 0.3)"
         value={pat}
         onChangeText={setPat}

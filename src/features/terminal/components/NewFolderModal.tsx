@@ -5,6 +5,7 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { Button } from '../../../shared/components/atoms/Button';
 import { Input } from '../../../shared/components/atoms/Input';
 import { AppColors } from '../../../shared/theme/colors';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   visible: boolean;
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export const NewFolderModal = ({ visible, onClose, onConfirm }: Props) => {
+  const { t } = useTranslation();
   const [folderName, setFolderName] = useState('');
 
   const handleConfirm = () => {
@@ -27,26 +29,26 @@ export const NewFolderModal = ({ visible, onClose, onConfirm }: Props) => {
     <View style={styles.modalInner}>
       <View style={styles.header}>
         <Ionicons name="folder-open-outline" size={24} color={AppColors.primary} />
-        <Text style={styles.title}>Nuova Cartella</Text>
+        <Text style={styles.title}>{t('terminal:folderModal.title')}</Text>
       </View>
 
       <Input
         value={folderName}
         onChangeText={setFolderName}
-        placeholder="Nome della cartella"
+        placeholder={t('terminal:folderModal.placeholder')}
         autoFocus
         style={{ marginBottom: 20 }}
       />
 
       <View style={styles.buttons}>
         <Button
-          label="Annulla"
+          label={t('common:cancel')}
           onPress={onClose}
           variant="secondary"
           style={{ flex: 1 }}
         />
         <Button
-          label="Crea"
+          label={t('common:create')}
           onPress={handleConfirm}
           variant="primary"
           disabled={!folderName.trim()}

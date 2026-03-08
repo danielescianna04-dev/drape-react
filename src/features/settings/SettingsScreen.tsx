@@ -826,7 +826,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               </BlurView>
             )}
           </TouchableOpacity>
-          <Text style={styles.headerTitleSmall}>Utilizzo</Text>
+          <Text style={styles.headerTitleSmall}>{t('resources.usage')}</Text>
           <TouchableOpacity onPress={fetchSystemStatus} style={{ width: 44, alignItems: 'center' }}>
             <Ionicons name="refresh-outline" size={20} color="rgba(255,255,255,0.5)" />
           </TouchableOpacity>
@@ -861,14 +861,14 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           </BlurView>
 
           {/* System Resources */}
-          <Text style={styles.detailSectionTitle}>Risorse Sistema</Text>
+          <Text style={styles.detailSectionTitle}>{t('resources.title')}</Text>
 
           <View style={styles.hudGridRefined}>
             <View style={styles.usageGridRow}>
               <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>
                 <Ionicons name="eye-outline" size={18} color="#34D399" style={{ marginBottom: 16 }} />
                 <View style={styles.usageTextRow}>
-                  <Text style={styles.usageNameMini}>Anteprime</Text>
+                  <Text style={styles.usageNameMini}>{t('resources.previews')}</Text>
                   <Text style={styles.usagePercent}>{systemStatus?.previews.percent || 0}%</Text>
                 </View>
                 <View style={styles.miniBarBg}>
@@ -880,7 +880,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>
                 <Ionicons name="folder-outline" size={18} color="#60A5FA" style={{ marginBottom: 16 }} />
                 <View style={styles.usageTextRow}>
-                  <Text style={styles.usageNameMini}>Progetti</Text>
+                  <Text style={styles.usageNameMini}>{t('resources.projects')}</Text>
                   <Text style={styles.usagePercent}>{systemStatus?.projects.percent || 0}%</Text>
                 </View>
                 <View style={styles.miniBarBg}>
@@ -897,7 +897,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Ionicons name="server-outline" size={16} color="#A78BFA" />
-                  <Text style={styles.monitorTitle}>Storage</Text>
+                  <Text style={styles.monitorTitle}>{t('resources.storage')}</Text>
                 </View>
                 <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{systemStatus.storage.usedMb} MB / {systemStatus.storage.limitMb} MB</Text>
               </View>

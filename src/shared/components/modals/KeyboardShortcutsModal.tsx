@@ -11,8 +11,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../theme/colors';
-import { KEYBOARD_SHORTCUTS, getShortcutsByCategory } from '../../../constants/keyboardShortcuts';
+import { getShortcutsByCategory } from '../../../constants/keyboardShortcuts';
 
 interface KeyboardShortcutsModalProps {
   visible: boolean;
@@ -28,6 +29,7 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation('terminal');
 
   // Only show on iOS where keyboard shortcuts are more common
   if (Platform.OS !== 'ios') {
@@ -35,10 +37,10 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
   }
 
   const categories = [
-    { id: 'chat', name: 'Chat', icon: 'chatbubbles' },
-    { id: 'navigation', name: 'Navigation', icon: 'compass' },
-    { id: 'editing', name: 'Editing', icon: 'create' },
-    { id: 'system', name: 'System', icon: 'settings' },
+    { id: 'chat', icon: 'chatbubbles' },
+    { id: 'navigation', icon: 'compass' },
+    { id: 'editing', icon: 'create' },
+    { id: 'system', icon: 'settings' },
   ] as const;
 
   return (
@@ -53,8 +55,8 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              <Ionicons name="keyboard-outline" size={28} color={AppColors.primary} />
-              <Text style={styles.title}>Keyboard Shortcuts</Text>
+              <Ionicons name="keypad-outline" size={28} color={AppColors.primary} />
+              <Text style={styles.title}>{t('keyboardShortcuts.title')}</Text>
             </View>
             <TouchableOpacity
               onPress={onClose}
@@ -86,23 +88,23 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
                       size={18}
                       color={AppColors.primary}
                     />
-                    <Text style={styles.categoryName}>{category.name}</Text>
+                    <Text style={styles.categoryName}>{t(`keyboardShortcuts.categories.${category.id}`)}</Text>
                   </View>
 
                   <View style={styles.shortcutsList}>
                     {shortcuts.map((shortcut) => (
                       <View key={shortcut.id} style={styles.shortcutRow}>
                         <View style={styles.shortcutInfo}>
-                          <Text style={styles.shortcutName}>{shortcut.name}</Text>
+                          <Text style={styles.shortcutName}>{t(`keyboardShortcuts.shortcuts.${shortcut.id}.name`)}</Text>
                           <Text style={styles.shortcutDescription}>
-                            {shortcut.description}
+                            {t(`keyboardShortcuts.shortcuts.${shortcut.id}.description`)}
                           </Text>
                         </View>
 
                         <View style={styles.shortcutKeys}>
                           {!shortcut.implemented && (
                             <View style={styles.comingSoonBadge}>
-                              <Text style={styles.comingSoonText}>Soon</Text>
+                              <Text style={styles.comingSoonText}>{t('keyboardShortcuts.soon')}</Text>
                             </View>
                           )}
                           <View
@@ -136,8 +138,7 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
                 color="rgba(255, 255, 255, 0.5)"
               />
               <Text style={styles.footerText}>
-                Keyboard shortcuts work best with a physical keyboard on iPad.
-                More shortcuts will be added in future updates.
+                {t('keyboardShortcuts.footer')}
               </Text>
             </View>
           </ScrollView>

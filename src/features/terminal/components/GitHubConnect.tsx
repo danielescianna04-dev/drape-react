@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 import { githubService } from '../../../core/github/githubService';
 
@@ -10,6 +11,7 @@ import { githubService } from '../../../core/github/githubService';
  * Displays a connect button to start OAuth flow
  */
 export const GitHubConnect: React.FC = () => {
+  const { t } = useTranslation('terminal');
   const handleConnect = () => {
     githubService.startOAuthFlow();
   };
@@ -17,9 +19,9 @@ export const GitHubConnect: React.FC = () => {
   return (
     <View style={styles.container}>
       <Ionicons name="logo-github" size={64} color="rgba(255, 255, 255, 0.3)" />
-      <Text style={styles.emptyTitle}>Connetti GitHub</Text>
+      <Text style={styles.emptyTitle}>{t('githubConnect.title')}</Text>
       <Text style={styles.emptyText}>
-        Collega il tuo account GitHub per accedere alle tue repository
+        {t('githubConnect.description')}
       </Text>
 
       <TouchableOpacity style={styles.connectButton} onPress={handleConnect}>
@@ -28,12 +30,12 @@ export const GitHubConnect: React.FC = () => {
           style={styles.connectGradient}
         >
           <Ionicons name="logo-github" size={20} color="#FFFFFF" />
-          <Text style={styles.connectButtonText}>Connetti con GitHub</Text>
+          <Text style={styles.connectButtonText}>{t('githubConnect.button')}</Text>
         </LinearGradient>
       </TouchableOpacity>
 
       <Text style={styles.infoText}>
-        Verrai reindirizzato su GitHub per autorizzare l'accesso
+        {t('githubConnect.info')}
       </Text>
     </View>
   );

@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import * as Haptics from 'expo-haptics';
 import { AppColors } from '../../../shared/theme/colors';
@@ -597,6 +598,7 @@ const LINE_H = 20;
 const FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 
 export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClose }: Props) => {
+  const { t } = useTranslation(['terminal', 'common']);
   const insets = useSafeAreaInsets();
   const { isSidebarHidden } = useSidebarOffset();
   const [content, setContent] = useState('');
@@ -653,7 +655,7 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
       setIsEdited(false);
       setIsEditing(false);
     } catch (err: any) {
-      setError(err.message || 'Failed to load file');
+      setError(err.message || t('common:unableToLoad'));
     } finally {
       setLoading(false);
     }
@@ -666,9 +668,9 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
       useFileCacheStore.getState().clearCache(projectId);
       setOriginalContent(content);
       setIsEdited(false);
-      Alert.alert('Saved', 'File saved successfully');
+      Alert.alert(t('common:saved'), t('terminal:fileViewer.savedSuccess'));
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to save');
+      Alert.alert(t('common:error'), err.message || t('common:unableToSave'));
     } finally {
       setSaving(false);
     }
@@ -722,7 +724,7 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
             ) : (
               <>
                 <Ionicons name="cloud-upload-outline" size={14} color="#fff" />
-                <Text style={styles.saveBtnText}>Save</Text>
+                <Text style={styles.saveBtnText}>{t('common:save')}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -736,12 +738,12 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
             style={styles.searchInput}
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search..."
+            placeholder={t('common:searchPlaceholder')}
             placeholderTextColor="#666"
             autoFocus
           />
           {searchResults.length > 0 && (
-            <Text style={styles.searchCount}>{searchResults.length} found</Text>
+            <Text style={styles.searchCount}>{t('terminal:fileViewer.searchFound', { count: searchResults.length })}</Text>
           )}
           <TouchableOpacity onPress={() => { setShowSearch(false); setSearchQuery(''); }}>
             <Ionicons name="close" size={20} color="#666" />
@@ -759,7 +761,7 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
           <Ionicons name="alert-circle" size={48} color="#f44" />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity onPress={loadFile} style={styles.retryBtn}>
-            <Text style={styles.retryText}>Retry</Text>
+            <Text style={styles.retryText}>{t('common:retry')}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -840,8 +842,8 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
         <View style={[styles.footer, { marginLeft: -sidebarPadding, paddingRight: Math.max(12, insets.right + 12) }]}>
           <Text style={[styles.footerText, { marginLeft: sidebarPadding }]}>{language.toUpperCase()}</Text>
           <Text style={styles.footerText}>{lines.length} lines</Text>
-          {isEditing && <Text style={[styles.footerText, { color: '#569cd6' }]}>Editing</Text>}
-          {isEdited && !isEditing && <Text style={styles.footerMod}>Modified</Text>}
+          {isEditing && <Text style={[styles.footerText, { color: '#569cd6' }]}>{t('terminal:fileViewer.editing')}</Text>}
+          {isEdited && !isEditing && <Text style={styles.footerMod}>{t('common:modified')}</Text>}
         </View>
       )}
     </KeyboardAvoidingView>

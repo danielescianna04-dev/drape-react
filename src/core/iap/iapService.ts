@@ -1,4 +1,5 @@
 import { Platform, Alert } from 'react-native';
+import i18next from 'i18next';
 import { config } from '../../config/config';
 import { getAuthHeaders } from '../api/getAuthToken';
 import { ALL_PRODUCT_IDS } from './iapConstants';
@@ -188,13 +189,13 @@ class IAPService {
 
     const iap = await getIap();
     if (!iap) {
-      Alert.alert('Errore', 'In-App Purchase non disponibile su questo dispositivo');
+      Alert.alert(i18next.t('common:error'), i18next.t('common:iapUnavailable'));
       callbacks.onError('not_available');
       return;
     }
 
     if (!this.initialized) {
-      Alert.alert('Errore', 'Impossibile connettersi all\'App Store. Riprova.');
+      Alert.alert(i18next.t('common:error'), i18next.t('common:iapConnectionError'));
       callbacks.onError('not_available');
       return;
     }

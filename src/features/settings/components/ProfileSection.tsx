@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 import { GlassCard } from './GlassCard';
 
@@ -22,6 +23,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
   onEditPress,
   loading = false,
 }) => {
+  const { t } = useTranslation('settings');
   if (!user) return null;
 
   return (
@@ -40,7 +42,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
           </View>
           <View style={styles.profileInfo}>
             <View style={styles.profileNameRow}>
-              <Text style={styles.profileName}>{user.displayName || 'User'}</Text>
+              <Text style={styles.profileName}>{user.displayName || t('profile.defaultName')}</Text>
               <View style={[styles.planBadge, { backgroundColor: currentPlan === 'free' ? 'rgba(148,163,184,0.2)' : currentPlan === 'pro' ? `${AppColors.primary}20` : '#F472B620' }]}>
                 <Text style={[styles.planBadgeText, { color: currentPlan === 'free' ? '#94A3B8' : currentPlan === 'pro' ? AppColors.primary : '#F472B6' }]}>
                   {currentPlan.toUpperCase()}

@@ -637,7 +637,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           },
         };
       case 'error':
-        return { content: msg.content || 'Errore sconosciuto', type: TerminalItemType.ERROR, timestamp: msg.timestamp };
+        return { content: msg.content || t('composer.unknownError'), type: TerminalItemType.ERROR, timestamp: msg.timestamp };
       case 'context_compacted':
         return { content: msg.isCompacting ? '__CONTEXT_COMPACTING__' : '__CONTEXT_COMPACTED__', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp };
       case 'budget_exceeded':
@@ -735,11 +735,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert(
-        'Permesso necessario',
-        'È necessario il permesso per accedere alla galleria',
+        t('common:galleryPermissionTitle'),
+        t('common:galleryPermissionRequired'),
         [
-          { text: 'Annulla', style: 'cancel' },
-          { text: 'Impostazioni', onPress: () => Linking.openSettings() },
+          { text: t('common:cancel'), style: 'cancel' },
+          { text: t('common:openSettings'), onPress: () => Linking.openSettings() },
         ]
       );
       return;
@@ -808,12 +808,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       setSelectedInputImages(prev => {
         const remainingSlots = 4 - prev.length;
         if (remainingSlots <= 0) {
-          Alert.alert('Limite raggiunto', 'Puoi aggiungere massimo 4 immagini');
+          Alert.alert(t('composer.maxImagesTitle'), t('composer.maxImagesMessage'));
           return prev;
         }
         const imagesToAdd = photosWithBase64.slice(0, remainingSlots);
         if (photosWithBase64.length > remainingSlots) {
-          Alert.alert('Limite raggiunto', `Aggiunte solo ${remainingSlots} immagini. Massimo 4 immagini totali.`);
+          Alert.alert(t('composer.maxImagesTitle'), t('composer.maxImagesPartialMessage', { count: remainingSlots }));
         }
         const newImages = [...prev, ...imagesToAdd];
         return newImages;
@@ -2092,7 +2092,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       } catch (err: any) {
         addTerminalItem({
           id: (Date.now() + 1).toString(),
-          content: `Errore: ${err.message || 'Esecuzione fallita'}`,
+          content: `${t('common:error')}: ${err.message || t('terminal:tools.failed')}`,
           isDirectTerminal: true,
           type: TerminalItemType.OUTPUT,
           timestamp: new Date(),
@@ -2921,7 +2921,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               <View style={styles.innerGloss} />
 
               <Ionicons name="flash" size={11} color="rgba(255,255,255,0.95)" />
-              <Text style={styles.upgradePillText}>Passa a GO</Text>
+              <Text style={styles.upgradePillText}>{t('terminal:preview.upgradeCta')}</Text>
             </BlurView>
           </TouchableOpacity>
         )}
@@ -3071,7 +3071,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                         : <Ionicons name="flash" size={12} color={AppColors.primary} />
                       }
                       <SafeText style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: '500' }}>
-                        {isCompacting ? 'Compattazione contesto in corso...' : 'Contesto compattato'}
+                        {isCompacting ? t('terminal:preview.contextCompacting') : t('terminal:preview.contextCompacted')}
                       </SafeText>
                       <View style={{ flex: 1, height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)' }} />
                     </View>
@@ -3227,7 +3227,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   activeOpacity={0.85}
                 >
                   <Ionicons name="arrow-down" size={16} color="#FFFFFF" />
-                  <Text style={styles.scrollToBottomText}>Torna in basso</Text>
+                  <Text style={styles.scrollToBottomText}>{t('composer.scrollToBottom')}</Text>
                 </TouchableOpacity>
               )}
 
@@ -3495,7 +3495,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
                       return (
                         <View style={styles.thinkingLevelContainer}>
-                          <SafeText style={styles.thinkingLevelLabel}>Livello ragionamento:</SafeText>
+                          <SafeText style={styles.thinkingLevelLabel}>{t('terminal:preview.thinkingLevel')}</SafeText>
                           <View style={styles.thinkingLevelOptions}>
                             {allLevels.map((level: string) => {
                               const isAvailable = modelLevels.includes(level);
@@ -3603,7 +3603,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetHeaderTitle}>Drape</Text>
               <TouchableOpacity onPress={() => { }}>
-                <Text style={styles.sheetHeaderAction}>Tutte le foto</Text>
+                <Text style={styles.sheetHeaderAction}>{t('composer.allPhotos')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -3635,7 +3635,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                           newSet.add(photo.id);
                         } else {
                           // Show warning if trying to select more than 4 total
-                          Alert.alert('Limite raggiunto', 'Puoi selezionare massimo 4 immagini in totale');
+                          Alert.alert(t('composer.maxImagesTitle'), t('composer.maxImagesMessage'));
                         }
                       }
                       return newSet;
@@ -3661,7 +3661,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 >
                   <Ionicons name="checkmark-circle" size={16} color="#fff" />
                   <Text style={styles.sendPhotosButtonText}>
-                    Seleziona {selectedPhotoIds.size} {selectedPhotoIds.size === 1 ? 'foto' : 'foto'}
+                    {selectedPhotoIds.size === 1
+                      ? t('composer.selectPhotos', { count: selectedPhotoIds.size })
+                      : t('composer.selectPhotosPlural', { count: selectedPhotoIds.size })}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -3680,8 +3682,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   <Ionicons name="images-outline" size={20} color="rgba(255,255,255,0.8)" />
                 </View>
                 <View style={styles.toolTextContainer}>
-                  <Text style={styles.toolTitle}>Seleziona foto da dispositivo</Text>
-                  <Text style={styles.toolSubtitle}>Apri la libreria foto completa</Text>
+                  <Text style={styles.toolTitle}>{t('composer.photoPickerTitle')}</Text>
+                  <Text style={styles.toolSubtitle}>{t('composer.photoPickerSubtitle')}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.3)" />
               </TouchableOpacity>

@@ -65,6 +65,7 @@
     "branchSwitched": "Branch switched",
     "selectBranch": "Select branch",
     "defaultBranch": "default",
+    "loadingCommits": "Loading commits...",
     "loadingBranches": "Loading branches...",
     "deleteBranch": "Delete branch",
     "mergeBranch": "Merge branch",
@@ -84,7 +85,21 @@
     "current": "current",
     "privateRepoAuth": "To clone this private repository, you need to authenticate with a GitHub account that has access.",
     "selectOrAddAccount": "Select an account or add a new one",
-    "chooseAuthMethod": "Choose how to authenticate with GitHub"
+    "chooseAuthMethod": "Choose how to authenticate with GitHub",
+    "openInGithub": "Open on GitHub",
+    "recentCommits": "{{count}} recent commits",
+    "noCommitsYet": "This repository has no commits yet",
+    "sharedAccountTitle": "Shared account",
+    "sharedAccountMessage": "This account was added by another user. You can't remove it, but you can add your own.",
+    "accountsTitle": "Git Accounts",
+    "accountsBanner": "Connect your GitHub accounts to access private repositories and manage your projects.",
+    "connectedAccounts": "Connected accounts",
+    "noConnectedAccounts": "No connected accounts",
+    "addAccountToAccessPrivate": "Add a GitHub account to access private repositories",
+    "monthsAgo": "{{count}} months ago",
+    "today": "today",
+    "shared": "Shared",
+    "added": "Added"
   },
   "connectRepo": {
     "title": "Connect Repository",
@@ -172,6 +187,11 @@
     "varsSavedIn": "Variables saved in {{file}}",
     "noWebUI": "This project doesn't have a web UI.\nTerminal output will appear here.",
     "errorOccurred": "An error occurred",
+    "missingEnvVars": "This project requires missing environment variables.",
+    "missingEnvVarsWithList": "This project requires missing environment variables:\n\n{{vars}}",
+    "moduleNotFound": "Module not found. Check the project dependencies.",
+    "compileError": "Compilation error while starting the preview.",
+    "elementSelected": "Selected",
     "steps": {
       "analyzing": "Analyzing project",
       "cloning": "Preparing files",
@@ -193,7 +213,347 @@
     "sessionExpiredTitle": "Session Expired",
     "sessionStatePreserved": "Project state preserved",
     "sessionFastRestart": "Fast restart available",
-    "sessionRestartCta": "Restart Preview"
+    "sessionRestartCta": "Restart Preview",
+    "thinkingLevel": "Reasoning level:",
+    "selectElementPrompt": "Select an element and ask for changes",
+    "contextCompacting": "Compacting context...",
+    "contextCompacted": "Context compacted",
+    "aiBudgetExceeded": "AI budget exhausted",
+    "startPreview": "Start Preview",
+    "aiAssistant": "AI Assistant",
+    "aiAssistantReady": "AI Assistant ready",
+    "elementLabels": {
+      "heading": "Heading",
+      "text": "Text",
+      "link": "Link",
+      "button": "Button",
+      "image": "Image",
+      "video": "Video",
+      "input": "Input",
+      "menu": "Menu",
+      "section": "Section",
+      "navigation": "Navigation",
+      "header": "Header",
+      "footer": "Footer",
+      "list": "List",
+      "listItem": "Item",
+      "form": "Form",
+      "label": "Label",
+      "icon": "Icon"
+    },
+    "dock": {
+      "terminal": "Terminal",
+      "development": "development",
+      "terminalWindowTitle": "drape — bash",
+      "log": "Log",
+      "privacy": "Privacy",
+      "navigationUnavailable": "Navigation unavailable",
+      "noThreats": "No threats detected"
+    },
+    "history": "History",
+    "upgradeMessage": "Upgrade to Go to continue",
+    "upgradeCta": "Upgrade to Go"
+  },
+  "contentRenderer": {
+    "emptyTitle": "No open tabs",
+    "emptySubtitle": "Press + to open a new tab"
+  },
+  "newProjectModal": {
+    "title": "New Project",
+    "namePlaceholder": "Project name",
+    "languagePlaceholder": "Language (e.g. JavaScript)"
+  },
+  "fileEdit": {
+    "title": "File Edit",
+    "expand": "Click to expand"
+  },
+  "agentMode": {
+    "title": "Select Mode",
+    "recommended": "Recommended",
+    "fastTitle": "Fast Execution",
+    "fastDescription": "Generate the code immediately and fix issues in real time",
+    "fastFeature1": "Fast",
+    "fastFeature2": "Auto-fix",
+    "planningTitle": "Planning",
+    "planningDescription": "Create a detailed plan and wait for your approval before proceeding",
+    "planningFeature1": "Full control",
+    "planningFeature2": "Detailed plan"
+  },
+  "publish": {
+    "published": "Published!",
+    "share": "Share",
+    "open": "Open",
+    "close": "Close",
+    "updateTitle": "Update publish",
+    "publishTitle": "Publish site",
+    "updateSubtitle": "The site will be rebuilt and updated",
+    "publishSubtitle": "Choose a name for your site",
+    "slugPlaceholder": "project-name",
+    "openSite": "Open site",
+    "remove": "Remove",
+    "updating": "Updating...",
+    "cancel": "Cancel",
+    "update": "Update",
+    "publish": "Publish"
+  },
+  "folderModal": {
+    "title": "New Folder",
+    "placeholder": "Folder name"
+  },
+  "agentStatus": {
+    "ready": "Ready",
+    "write": "Writing",
+    "read": "Reading",
+    "browse": "Browsing",
+    "run": "Executing",
+    "edit": "Editing",
+    "complete": "Completing",
+    "search": "Searching",
+    "analyze": "Analyzing"
+  },
+  "envVars": {
+    "openProject": "Open a project to manage environment variables",
+    "configuredVariables": "Configured variables",
+    "variableNamePlaceholder": "Variable name (e.g. API_KEY)",
+    "noneConfigured": "No variables configured",
+    "tapPlus": "Press + to add a variable to the .env file",
+    "emptyValue": "empty"
+  },
+  "previewView": {
+    "mockAiResponse": "I'm analyzing your request. I'm updating the code...",
+    "askAiChanges": "Ask AI for changes",
+    "describeChanges": "Describe the changes...",
+    "designMode": "Design Mode",
+    "livePreview": "Live Preview",
+    "pinchHint": "Pinch for design mode",
+    "device": {
+      "mobile": "Mobile",
+      "tablet": "Tablet",
+      "desktop": "Desktop"
+    },
+    "orientation": {
+      "portrait": "Portrait",
+      "landscape": "Landscape"
+    }
+  },
+  "tasks": {
+    "title": "Task Manager",
+    "running": "Running...",
+    "waiting": "Waiting",
+    "iteration_one": "Iteration {{count}}",
+    "iteration_other": "Iteration {{count}}",
+    "usingTool": "Using {{tool}}...",
+    "noActivePlan": "No active plan",
+    "noActivePlanHint": "Ask AI to run a task to see the plan here.",
+    "planProgress": "Plan Progress",
+    "completedCount_one": "{{count}} Completed",
+    "completedCount_other": "{{count}} Completed",
+    "totalCount_one": "{{count}} Total",
+    "totalCount_other": "{{count}} Total",
+    "planSteps": "Plan Steps",
+    "noLogs": "No logs available",
+    "noFilesChanged": "No files changed",
+    "filesCreated_one": "Files Created ({{count}})",
+    "filesCreated_other": "Files Created ({{count}})",
+    "filesModified_one": "Files Modified ({{count}})",
+    "filesModified_other": "Files Modified ({{count}})",
+    "finalSummary": "Final Summary",
+    "tabs": {
+      "plan": "Plan",
+      "logs": "Event Logs",
+      "files": "Files"
+    }
+  },
+  "tabSelector": {
+    "title": "New Tab",
+    "types": {
+      "chat": {
+        "title": "AI Chat",
+        "description": "Talk with artificial intelligence"
+      },
+      "terminal": {
+        "title": "Terminal",
+        "description": "Run commands in the terminal"
+      },
+      "github": {
+        "title": "GitHub",
+        "description": "Manage repositories and commits"
+      },
+      "browser": {
+        "title": "Browser",
+        "description": "Browse the web"
+      },
+      "preview": {
+        "title": "Preview",
+        "description": "Live preview of the app"
+      },
+      "file": {
+        "title": "File",
+        "description": "Open a project file"
+      }
+    }
+  },
+  "agent": {
+    "thinking": "Thinking",
+    "iteration_one": "Iteration {{count}}",
+    "iteration_other": "Iteration {{count}}",
+    "executionPlan": "Execution Plan",
+    "estimatedFiles_one": "{{count}} file",
+    "estimatedFiles_other": "{{count}} files",
+    "reject": "Reject",
+    "approveAndExecute": "Approve & Execute",
+    "questionsTitle": "Agent has questions",
+    "submit": "Submit",
+    "taskCompleted": "Task completed successfully",
+    "planExecuted": "Plan executed successfully",
+    "executionError": "Execution error: {{message}}",
+    "errorWithMessage": "Agent error: {{message}}",
+    "regularModeFallback": "Regular AI mode placeholder",
+    "planRejected": "Plan rejected by user",
+    "chatTitle": "Agent Chat",
+    "noProjectContext": "No project context",
+    "modeLabel": "Mode:",
+    "fastMode": "Fast Mode",
+    "planningMode": "Planning Mode",
+    "noMessages": "No messages yet",
+    "startChatting": "Start chatting with AI",
+    "fastExecution": "Fast execution",
+    "planAndExecute": "Plan & execute",
+    "modeDescription": "Agent mode: {{mode}}",
+    "filesCreated": "Files created:",
+    "filesModified": "Files modified:",
+    "messageAi": "Message AI...",
+    "tellAgent": "Tell agent what to do...",
+    "describeTask": "Describe task for planning...",
+    "toolInvocations": "Tool Invocations",
+    "toolsUsed_one": "({{count}} tool used)",
+    "toolsUsed_other": "({{count}} tools used)",
+    "parameters": "Parameters:",
+    "result": "Result:",
+    "reasoning": "Claude's Reasoning",
+    "todoListUpdated": "Todo List Updated",
+    "todoProgress": "{{completed}} of {{total}} completed",
+    "readyToCode": "Ready to code?",
+    "hereIsPlan": "Here is Claude's plan:",
+    "claude": "Claude",
+    "user": "User",
+    "status": {
+      "pending": "Pending",
+      "running": "Running",
+      "success": "Success",
+      "error": "Error",
+      "failed": "Failed",
+      "completed": "Completed"
+    },
+    "toolAction": {
+      "reading": "Reading",
+      "searching": "Searching",
+      "editing": "Editing",
+      "writing": "Writing",
+      "listing": "Listing",
+      "creating": "Creating",
+      "deleting": "Deleting",
+      "moving": "Moving",
+      "copying": "Copying",
+      "fetching": "Fetching",
+      "running": "Running",
+      "thinking": "Thinking",
+      "executing": "Executing"
+    },
+    "event": {
+      "started": "started",
+      "completed": "completed",
+      "failed": "failed"
+    }
+  },
+  "fileViewer": {
+    "savedSuccess": "File saved successfully",
+    "searchFound_one": "{{count}} found",
+    "searchFound_other": "{{count}} found",
+    "editing": "Editing"
+  },
+  "keyboardShortcuts": {
+    "title": "Keyboard Shortcuts",
+    "available": "Available",
+    "comingSoon": "Coming Soon",
+    "soon": "Soon",
+    "footer": "Keyboard shortcuts work best with a physical keyboard on iPad. More shortcuts will be added in future updates.",
+    "footerCompact": "Full keyboard shortcut support requires additional native integration. More shortcuts will be available in future updates.",
+    "categories": {
+      "chat": "Chat",
+      "navigation": "Navigation",
+      "editing": "Editing",
+      "system": "System"
+    },
+    "shortcuts": {
+      "send_message": {
+        "name": "Send Message",
+        "description": "Send the current message"
+      },
+      "new_line": {
+        "name": "New Line",
+        "description": "Insert a new line without sending"
+      },
+      "toggle_mode": {
+        "name": "Toggle Mode",
+        "description": "Switch between Terminal and AI mode"
+      },
+      "focus_search": {
+        "name": "Focus Search",
+        "description": "Jump to search or command palette"
+      },
+      "new_conversation": {
+        "name": "New Conversation",
+        "description": "Start a new conversation"
+      },
+      "open_settings": {
+        "name": "Settings",
+        "description": "Open settings screen"
+      },
+      "undo": {
+        "name": "Undo",
+        "description": "Undo last change"
+      },
+      "redo": {
+        "name": "Redo",
+        "description": "Redo last undone change"
+      },
+      "dismiss_keyboard": {
+        "name": "Dismiss Keyboard",
+        "description": "Hide the on-screen keyboard"
+      },
+      "close_modal": {
+        "name": "Close Modal",
+        "description": "Close the current modal or sheet"
+      }
+    }
+  },
+  "bashCard": {
+    "title": "Bash",
+    "inputShort": "IN",
+    "outputShort": "OUT",
+    "outputTitle": "Bash Output",
+    "inputTitle": "INPUT",
+    "outputLabel": "OUTPUT"
+  },
+  "fileExplorer": {
+    "privateRepoAuth": "To clone this private repository, you need to authenticate with a GitHub account that has access.",
+    "searchError": "Search error",
+    "loadError": "Failed to load files",
+    "createFailed": "Creation failed",
+    "deleteFailed": "Delete failed",
+    "renameFailed": "Rename failed",
+    "moveFailed": "Move failed",
+    "newFile": "New file",
+    "newFolder": "New folder"
+  },
+  "toolbar": {
+    "closePreview": "Close preview",
+    "reloadPreview": "Reload preview",
+    "viewDesktop": "View desktop",
+    "viewMobile": "View mobile",
+    "updatePublishedSite": "Update published site",
+    "publishSite": "Publish site"
   },
   "chat": {
     "thinking": "Thinking",
@@ -262,10 +622,84 @@
   "terminalItem": {
     "showMoreLines": "Show {{count}} more lines",
     "projectCreated": "Project created",
+    "projectCreatedHint": "Write what you want to do or ask the AI",
+    "activityTitle": "Activity",
+    "bash": "Bash",
+    "expandBashOutput": "Expand bash output",
+    "inShort": "IN",
+    "outShort": "OUT",
+    "outputTitle": "Bash Output",
+    "inputTitle": "INPUT",
+    "outputLabel": "OUTPUT",
+    "loadingBadge": "LOADING",
+    "gitClone": "Git Clone",
+    "status": "STATUS",
+    "backend": "BACKEND",
+    "retryTool": "Retry this tool only",
+    "badges": {
+      "read": "READ",
+      "write": "WRITE",
+      "edit": "EDIT",
+      "multiEdit": "MULTI-EDIT",
+      "patch": "PATCH",
+      "list": "LIST",
+      "search": "SEARCH",
+      "glob": "GLOB",
+      "command": "CMD",
+      "web": "WEB",
+      "fetch": "FETCH",
+      "qa": "Q&A",
+      "todo": "TODO",
+      "agent": "AGENT"
+    },
     "reject": "Reject",
     "approve": "Approve",
     "planApproved": "Plan approved",
     "planRejected": "Plan rejected"
+  },
+  "previewPublish": {
+    "slugTaken": "Slug already taken. Choose another name.",
+    "serverSideNotSupported": "This framework is server-side and cannot be published as a static site. Use live preview instead.",
+    "publishFailed": "Publish failed",
+    "removeTitle": "Remove publication",
+    "removeMessage": "The site drape.info/p/{{slug}} will no longer be accessible."
+  },
+  "cloneWidget": {
+    "syncing": "📦 Syncing project...",
+    "ready": "✅ Project ready",
+    "error": "❌ Sync error"
+  },
+  "githubConnect": {
+    "title": "Connect GitHub",
+    "description": "Link your GitHub account to access your repositories",
+    "button": "Connect with GitHub",
+    "info": "You'll be redirected to GitHub to authorize access"
+  },
+  "agentProgress": {
+    "reading": "Reading",
+    "searching": "Searching",
+    "editing": "Editing",
+    "writing": "Writing",
+    "listing": "Listing",
+    "creating": "Creating",
+    "deleting": "Deleting",
+    "moving": "Moving",
+    "copying": "Copying",
+    "fetching": "Fetching",
+    "running": "Running",
+    "thinking": "Thinking",
+    "executing": "Executing"
+  },
+  "shellView": {
+    "log": "Log",
+    "pause": "PAUSE",
+    "auto": "AUTO",
+    "searchPlaceholder": "Search logs, errors or tools...",
+    "tool": "Tool",
+    "always": "Always",
+    "noLogs": "No logs",
+    "changeFilters": "Change the filters to see other entries",
+    "emptyState": "Container logs and AI commands\nwill appear here"
   },
   "welcome": {
     "subtitle": "Mobile-first AI IDE\nwith multi-model support"

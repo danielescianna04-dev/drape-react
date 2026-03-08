@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Text, TextStyle, View, ViewStyle } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 interface ThinkingIndicatorProps {
   text?: string;
@@ -8,11 +9,13 @@ interface ThinkingIndicatorProps {
 }
 
 export const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({
-  text = 'Thinking',
+  text,
   textStyle,
   containerStyle,
 }) => {
+  const { t } = useTranslation('terminal');
   const dotsPhase = useRef(new Animated.Value(0)).current;
+  const resolvedText = text || t('agent.thinking');
 
   useEffect(() => {
     const dots = Animated.loop(
@@ -55,7 +58,7 @@ export const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({
 
   return (
     <Animated.View style={[containerStyle, { opacity: pulseOpacity, flexDirection: 'row', alignItems: 'center' }]}>
-      <Text style={textStyle}>{text}</Text>
+      <Text style={textStyle}>{resolvedText}</Text>
       <View style={{ flexDirection: 'row', marginLeft: 1 }}>
         <Animated.Text style={[textStyle, { opacity: dot1Opacity }]}>.</Animated.Text>
         <Animated.Text style={[textStyle, { opacity: dot2Opacity }]}>.</Animated.Text>

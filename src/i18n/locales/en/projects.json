@@ -8,6 +8,8 @@
   "project": "Project",
   "home": {
     "getStarted": "Get Started",
+    "defaultUserName": "Developer",
+    "defaultUserEmail": "Mobile IDE",
     "newProject": "New",
     "createProject": "Create project",
     "clone": "Clone",
@@ -80,6 +82,27 @@
     "showLess": "Show less",
     "aiRecommendedBecause": "AI recommendation:"
   },
+  "alerts": {
+    "creationFailed": "Creation failed",
+    "creationErrorWithMessage": "Unable to create the project: {{error}}",
+    "creationConnectionLost": "Connection lost during creation. Try again.",
+    "selectLanguage": "Select a technology",
+    "loginRequired": "You must be logged in to create a project",
+    "storageLimitTitle": "Storage full",
+    "storageLimitMessage": "You have used {{used}}MB of {{max}}MB available.\nDelete projects or upgrade to a higher plan.",
+    "unableToStartAgent": "Unable to start the agent. Try again.",
+    "unableToCreateProject": "Unable to create the project. Try again.",
+    "projectCreated": "Project created!",
+    "projectReady": "{{name}} is ready",
+    "creatingWithAi": "Creating with AI...",
+    "creatingProject": "Creating project...",
+    "localLimitTitle": "Limit reached",
+    "localLimitMessage": "You have reached the limit of {{max}} local projects for your plan. Delete a project or upgrade.",
+    "storageFullTitle": "Storage full",
+    "storageFullMessage": "You have reached the limit of {{maxMb}}MB of storage for your plan. Delete a project or upgrade.",
+    "serverUnavailable": "Server unavailable",
+    "cloneTimeout": "Clone timeout - the repository is too large. Try again."
+  },
   "limit": {
     "reached": "Limit reached",
     "maxProjects": "You've reached the maximum of {{count}} projects with the Free plan.",
@@ -102,14 +125,82 @@
     "rename": "Rename",
     "renameProject": "Rename Project",
     "opening": "Opening...",
-    "startingEnv": "Starting environment..."
+    "opened": "Opened!",
+    "startingEnv": "Starting environment...",
+    "shareMessage": "I'm working on \"{{name}}\" with Drape IDE!"
+  },
+  "progress": {
+    "title": "Creation in progress",
+    "initializing": "Initializing...",
+    "readingFiles": "Reading files...",
+    "creatingProject": "Creating project...",
+    "preparingWorkspace": "Preparing workspace...",
+    "uploadingFiles": "Uploading files...",
+    "preparing": "Preparing",
+    "preparingLive": "Preparing...",
+    "switchingProject": "Switching project...",
+    "allocatingVm": "Allocating VM",
+    "syncingFiles": "Syncing files",
+    "detectingProject": "Detecting project",
+    "loadingGitData": "Loading git data",
+    "loadingFiles": "Loading files"
   },
   "file": {
     "selected": "File Selected",
     "unableToOpen": "Unable to open file picker",
     "linkCopied": "Repository link copied to clipboard",
     "noValidFileSelected": "No valid file selected",
-    "errorOpeningProject": "Error opening project"
+    "errorOpeningProject": "Error opening project",
+    "invalidProjectTitle": "This is not a project",
+    "invalidProjectMessage": "Select project files with markers like package.json, index.html, requirements.txt, and similar.",
+    "localProject": "Local Project",
+    "unableToReadSelected": "Unable to read the selected files",
+    "unknownLanguage": "Unknown"
+  },
+  "onboardingPlans": {
+    "welcomeNew": "Welcome, {{name}}!",
+    "welcomeBack": "Hi, {{name}}!",
+    "welcomeSubtitleNew": "Choose the plan that fits you to start creating.",
+    "welcomeSubtitleReturning": "Unlock more power for your projects.",
+    "recommended": "Recommended",
+    "perMonth": "/month",
+    "introOffer": "First month — then {{price}}/month",
+    "startGo": "Start with Go",
+    "continueFree": "Continue for free",
+    "goFeatures": {
+      "projects": "5 projects + 5 cloned",
+      "previews": "20 previews per month",
+      "aiBudget": "Boosted AI budget",
+      "storage": "2GB cloud storage",
+      "support": "Email support"
+    },
+    "freeFeatures": {
+      "projects": "2 projects + 1 cloned",
+      "previews": "5 previews per month",
+      "aiBudget": "Base AI budget",
+      "storage": "500MB storage"
+    }
+  },
+  "problem": {
+    "title": "The Problem",
+    "cards": {
+      "desktop": {
+        "title": "Desktop Dependency",
+        "description": "Current IDEs like VS Code, Cursor, and Warp are built for desktop. Mobile still lacks a smooth experience for professional development."
+      },
+      "ai": {
+        "title": "Fragmented AI",
+        "description": "Developers have to use separate tools for GPT-5, Claude 4.5, and Gemini Pro 2.5. There is no native integration in a mobile environment."
+      },
+      "productivity": {
+        "title": "Lost Productivity",
+        "description": "68% of developers use smartphones for more than 3 hours a day, but only for minor tasks. There is no serious platform for mobile coding."
+      },
+      "emergency": {
+        "title": "Blocking Emergencies",
+        "description": "Production down while you're away from home? Urgent debug? You can't always open a laptop. Mobile offers zero professional options."
+      }
+    }
   },
   "all": {
     "title": "All Projects",
@@ -140,9 +231,17 @@
   },
   "sidebar": {
     "closeSidebar": "Close sidebar",
+    "files": "Files",
     "noProjectOpen": "No project open",
     "openProjectFromHome": "Open a project from Home to see files",
     "deleteAnyway": "Delete anyway",
+    "gitWarningPrefix": "Warning!",
+    "uncommittedChangesWarning": "There are {{count}} uncommitted changes. ",
+    "unpushedCommitsWarning": "There are {{count}} unpushed Git commits.",
+    "gitSynced": "Everything is synced with Git.",
+    "gitStatusCheckFailed": "Unable to verify Git status.",
+    "deleteProjectTitle": "Delete \"{{name}}\"?",
+    "checkingGitChanges": "Checking Git changes...",
     "noChatsYet": "No chats yet",
     "messages": "messages",
     "repositories": "repositories",

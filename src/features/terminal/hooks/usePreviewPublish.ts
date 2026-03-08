@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Alert } from 'react-native';
+import i18next from 'i18next';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
 
 interface PublishState {
@@ -77,11 +78,11 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
         const normalized = String(detail).toLowerCase();
 
         if (response.status === 409) {
-          setPublishError('Slug gia occupato. Scegli un altro nome.');
+          setPublishError(i18next.t('terminal:previewPublish.slugTaken'));
         } else if (normalized.includes('server-side frameworks')) {
-          setPublishError('Questo framework e server-side e non puo essere pubblicato come sito statico. Usa la preview live.');
+          setPublishError(i18next.t('terminal:previewPublish.serverSideNotSupported'));
         } else {
-          setPublishError(detail || 'Publish failed');
+          setPublishError(detail || i18next.t('terminal:previewPublish.publishFailed'));
         }
       } else {
         setPublishStatus('done');
@@ -90,7 +91,7 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
       }
     } catch (e: any) {
       setPublishStatus('error');
-      setPublishError(e.message || 'Network error');
+      setPublishError(e.message || i18next.t('common:networkError'));
     } finally {
       setIsPublishing(false);
     }
@@ -98,12 +99,12 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
 
   const handleUnpublish = () => {
     Alert.alert(
-      'Rimuovi pubblicazione',
-      `Il sito drape.info/p/${existingPublish?.slug} non sara' piu' accessibile.`,
+      i18next.t('terminal:previewPublish.removeTitle'),
+      i18next.t('terminal:previewPublish.removeMessage', { slug: existingPublish?.slug }),
       [
-        { text: 'Annulla', style: 'cancel' },
+        { text: i18next.t('common:cancel'), style: 'cancel' },
         {
-          text: 'Rimuovi', style: 'destructive', onPress: async () => {
+          text: i18next.t('common:remove'), style: 'destructive', onPress: async () => {
             if (!projectId) return;
             try {
               const deleteAuthHeaders = await getAuthHeaders();

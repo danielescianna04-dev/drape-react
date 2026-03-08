@@ -5,6 +5,7 @@ import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedVa
 import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
 import { useTranslation } from 'react-i18next';
+import i18next from 'i18next';
 import { ProjectInfo } from '../../../core/preview/projectDetector';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
@@ -342,15 +343,15 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     if (lower.includes('invalid environment variables') || lower.includes('environment variable') || lower.includes('not set')) {
       const vars = extractMissingEnvVars(bodyText);
       if (vars.length > 0) {
-        return `Il progetto richiede variabili d'ambiente non configurate:\n\n${vars.map(v => `• ${v}`).join('\n')}`;
+        return i18next.t('terminal:preview.missingEnvVarsWithList', { vars: vars.map(v => `• ${v}`).join('\n') });
       }
-      return `Il progetto richiede variabili d'ambiente non configurate.`;
+      return i18next.t('terminal:preview.missingEnvVars');
     }
     if (lower.includes('cannot find module') || lower.includes('module_not_found')) {
-      return `Modulo non trovato. Controlla le dipendenze del progetto.`;
+      return i18next.t('terminal:preview.moduleNotFound');
     }
     if (lower.includes('failed to compile') || lower.includes('syntaxerror')) {
-      return `Errore di compilazione durante l'avvio preview.`;
+      return i18next.t('terminal:preview.compileError');
     }
     return null;
   };

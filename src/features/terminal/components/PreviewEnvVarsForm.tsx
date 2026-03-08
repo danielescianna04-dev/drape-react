@@ -87,7 +87,7 @@ export const PreviewEnvVarsForm: React.FC<PreviewEnvVarsFormProps> = ({
           ) : (
             <>
               <Ionicons name="play" size={16} color="#fff" />
-              <Text style={styles.envVarsSaveText}>Avvia</Text>
+              <Text style={styles.envVarsSaveText}>{t('common:start')}</Text>
             </>
           )}
         </TouchableOpacity>
@@ -97,7 +97,7 @@ export const PreviewEnvVarsForm: React.FC<PreviewEnvVarsFormProps> = ({
           onPress={onCancel}
           activeOpacity={0.7}
         >
-          <Text style={styles.envVarsSkipText}>Annulla</Text>
+          <Text style={styles.envVarsSkipText}>{t('common:cancel')}</Text>
         </TouchableOpacity>
       </View>
     </View>

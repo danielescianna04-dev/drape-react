@@ -19,6 +19,7 @@
   "done": "Fatto",
   "start": "Inizia",
   "continue": "Continua",
+  "submit": "Invia",
   "loading": "Caricamento...",
   "error": "Errore",
   "success": "Successo",
@@ -32,6 +33,7 @@
   "searchPlaceholder": "Cerca...",
   "copy": "Copia",
   "copied": "Copiato",
+  "some": "alcune",
   "share": "Condividi",
   "open": "Apri",
   "create": "Crea",
@@ -105,6 +107,11 @@
   "unableToDelete": "Impossibile eliminare",
   "unableToConnect": "Impossibile connettersi",
   "connectionLost": "Connessione persa",
+  "networkError": "Errore di rete",
+  "cancelledByUser": "Annullato dall'utente",
+  "iapUnavailable": "Gli acquisti in-app non sono disponibili su questo dispositivo",
+  "iapConnectionError": "Impossibile connettersi all'App Store. Riprova.",
+  "noData": "Nessun dato disponibile",
   "verifyCredentials": "Verifica le credenziali",
   "selectFile": "Seleziona file",
   "selectAtLeastOne": "Seleziona almeno un elemento",
@@ -119,6 +126,29 @@
   "envVariables": "Variabili Ambiente",
   "agentStopped": "Agente fermato",
   "galleryPermissionRequired": "È necessario il permesso per accedere alla galleria",
+  "galleryPermissionTitle": "Permesso necessario",
+  "openSettings": "Impostazioni",
+  "removeImage": "Rimuovi immagine",
+  "attachImage": "Allega immagine",
+  "messageFieldLabel": "Campo messaggio",
+  "messageFieldHint": "Scrivi un messaggio per l'AI e usa il pulsante invia per inviarlo.",
+  "terminalModeLabel": "Modalità terminale",
+  "aiModeLabel": "Modalità AI",
+  "selectAiModelLabel": "Seleziona modello AI: {{model}}",
+  "selectAiModelHint": "Apri il menu di selezione modello",
+  "deleteVariableTitle": "Conferma",
+  "deleteVariableMessage": "Vuoi eliminare la variabile {{key}}?",
+  "envVarLoadFailed": "Impossibile caricare le variabili d'ambiente",
+  "envVarSaveSuccess": "Variabili d'ambiente salvate correttamente",
+  "envVarSaveFailed": "Impossibile salvare le variabili d'ambiente",
+  "envVarEnterName": "Inserisci il nome della variabile",
+  "envVarAlreadyExists": "Una variabile con questo nome esiste già",
+  "errorBoundary": {
+    "title": "Ops! Qualcosa è andato storto",
+    "message": "Si è verificato un errore imprevisto. Puoi riprovare o tornare alla home.",
+    "goHome": "Torna alla Home",
+    "debugInfo": "Debug Info:"
+  },
   "offline": {
     "title": "Nessuna Connessione",
     "message": "Drape richiede una connessione internet per funzionare. Controlla la connessione e riprova.",
@@ -133,5 +163,17 @@
     "forceTitle": "Aggiornamento richiesto",
     "forceMessage": "È disponibile una nuova versione di Drape.\nAggiorna l'app per continuare.",
     "forceButton": "Aggiorna su App Store"
+  },
+  "splash": {
+    "tagline": "IDE mobile potenziato dall'AI",
+    "builtForDevelopers": "Creato per sviluppatori"
+  },
+  "planApproval": {
+    "title": "Piano di esecuzione",
+    "steps": "Passaggi da eseguire:",
+    "reject": "Rifiuta",
+    "approve": "Approva piano",
+    "filesCount_one": "{{count}} file",
+    "filesCount_other": "{{count}} file"
   }
 }

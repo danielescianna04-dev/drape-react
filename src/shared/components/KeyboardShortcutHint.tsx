@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../theme/colors';
 
 interface KeyboardShortcutHintProps {
@@ -67,9 +68,24 @@ const styles = StyleSheet.create({
  * Pre-defined keyboard shortcut hints for common actions
  */
 export const KeyboardShortcuts = {
-  Send: () => <KeyboardShortcutHint shortcut="⌘ ↵" description="Send" />,
-  NewLine: () => <KeyboardShortcutHint shortcut="⇧ ↵" description="New line" />,
-  ToggleMode: () => <KeyboardShortcutHint shortcut="⌘ /" description="Toggle mode" />,
-  Search: () => <KeyboardShortcutHint shortcut="⌘ K" description="Search" />,
-  Escape: () => <KeyboardShortcutHint shortcut="esc" description="Close" />,
+  Send: () => {
+    const { t } = useTranslation('terminal');
+    return <KeyboardShortcutHint shortcut="⌘ ↵" description={t('keyboardShortcuts.shortcuts.send_message.name')} />;
+  },
+  NewLine: () => {
+    const { t } = useTranslation('terminal');
+    return <KeyboardShortcutHint shortcut="⇧ ↵" description={t('keyboardShortcuts.shortcuts.new_line.name')} />;
+  },
+  ToggleMode: () => {
+    const { t } = useTranslation('terminal');
+    return <KeyboardShortcutHint shortcut="⌘ /" description={t('keyboardShortcuts.shortcuts.toggle_mode.name')} />;
+  },
+  Search: () => {
+    const { t } = useTranslation('terminal');
+    return <KeyboardShortcutHint shortcut="⌘ K" description={t('keyboardShortcuts.shortcuts.focus_search.name')} />;
+  },
+  Escape: () => {
+    const { t } = useTranslation('terminal');
+    return <KeyboardShortcutHint shortcut="esc" description={t('keyboardShortcuts.shortcuts.close_modal.name')} />;
+  },
 };

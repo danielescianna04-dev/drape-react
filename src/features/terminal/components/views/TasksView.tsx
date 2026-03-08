@@ -8,6 +8,7 @@ import { useAgentStore, agentSelectors } from '../../../../core/agent/agentStore
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Animated, { FadeInUp, FadeInRight, Layout } from 'react-native-reanimated';
+import { useTranslation } from 'react-i18next';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export const TasksView = ({ tab }: Props) => {
+    const { t } = useTranslation('terminal');
     const insets = useSafeAreaInsets();
     const { plan, isRunning, error, summary, iteration, events, currentTool } = useAgentStore();
     const progress = agentSelectors.getAgentPlanProgress();
@@ -46,8 +48,8 @@ export const TasksView = ({ tab }: Props) => {
             {!plan ? (
                 <View style={styles.emptyContainer}>
                     <Ionicons name="list-outline" size={64} color="rgba(255,255,255,0.1)" />
-                    <Text style={styles.emptyText}>Nessun piano attivo</Text>
-                    <Text style={styles.emptySubtext}>Chiedi all'AI di eseguire un task per vedere il piano qui.</Text>
+                    <Text style={styles.emptyText}>{t('tasks.noActivePlan')}</Text>
+                    <Text style={styles.emptySubtext}>{t('tasks.noActivePlanHint')}</Text>
                 </View>
             ) : (
                 <>
@@ -61,7 +63,7 @@ export const TasksView = ({ tab }: Props) => {
                             >
                                 <View style={{ padding: 20 }}>
                                     <View style={styles.progressHeader}>
-                                        <Text style={styles.progressTitle}>Avanzamento Piano</Text>
+                                        <Text style={styles.progressTitle}>{t('tasks.planProgress')}</Text>
                                         <Text style={styles.progressPercentage}>{progress?.percentage}%</Text>
                                     </View>
                                     <View style={styles.progressBarBg}>
@@ -73,15 +75,15 @@ export const TasksView = ({ tab }: Props) => {
                                         />
                                     </View>
                                     <View style={styles.progressStats}>
-                                        <Text style={styles.statText}>{progress?.completed} Completati</Text>
-                                        <Text style={styles.statText}>{progress?.total} Totali</Text>
+                                        <Text style={styles.statText}>{t('tasks.completedCount', { count: progress?.completed || 0 })}</Text>
+                                        <Text style={styles.statText}>{t('tasks.totalCount', { count: progress?.total || 0 })}</Text>
                                     </View>
                                 </View>
                             </LiquidGlassView>
                         ) : (
                             <View style={styles.progressCardInner}>
                                 <View style={styles.progressHeader}>
-                                    <Text style={styles.progressTitle}>Avanzamento Piano</Text>
+                                    <Text style={styles.progressTitle}>{t('tasks.planProgress')}</Text>
                                     <Text style={styles.progressPercentage}>{progress?.percentage}%</Text>
                                 </View>
                                 <View style={styles.progressBarBg}>
@@ -93,14 +95,14 @@ export const TasksView = ({ tab }: Props) => {
                                     />
                                 </View>
                                 <View style={styles.progressStats}>
-                                    <Text style={styles.statText}>{progress?.completed} Completati</Text>
-                                    <Text style={styles.statText}>{progress?.total} Totali</Text>
+                                    <Text style={styles.statText}>{t('tasks.completedCount', { count: progress?.completed || 0 })}</Text>
+                                    <Text style={styles.statText}>{t('tasks.totalCount', { count: progress?.total || 0 })}</Text>
                                 </View>
                             </View>
                         )}
                     </View>
 
-                    <Text style={styles.sectionHeader}>Passaggi del Piano</Text>
+                    <Text style={styles.sectionHeader}>{t('tasks.planSteps')}</Text>
                     {plan.steps.map((step, index) => {
                         const stepContent = (
                             <View style={styles.stepInner}>
@@ -154,7 +156,7 @@ export const TasksView = ({ tab }: Props) => {
             {events.length === 0 ? (
                 <View style={styles.emptyContainer}>
                     <Ionicons name="terminal-outline" size={64} color="rgba(255,255,255,0.1)" />
-                    <Text style={styles.emptyText}>Nessun log disponibile</Text>
+                    <Text style={styles.emptyText}>{t('tasks.noLogs')}</Text>
                 </View>
             ) : (
                 <ScrollView style={styles.logsContainer} showsVerticalScrollIndicator={false}>
@@ -204,13 +206,13 @@ export const TasksView = ({ tab }: Props) => {
             {fileChanges.total === 0 ? (
                 <View style={styles.emptyContainer}>
                     <Ionicons name="copy-outline" size={64} color="rgba(255,255,255,0.1)" />
-                    <Text style={styles.emptyText}>Nessun file modificato</Text>
+                    <Text style={styles.emptyText}>{t('tasks.noFilesChanged')}</Text>
                 </View>
             ) : (
                 <>
                     {fileChanges.created.length > 0 && (
                         <>
-                            <Text style={styles.sectionHeader}>File Creati ({fileChanges.created.length})</Text>
+                            <Text style={styles.sectionHeader}>{t('tasks.filesCreated', { count: fileChanges.created.length })}</Text>
                             {fileChanges.created.map((file, index) => {
                                 const fileContent = (
                                     <View style={styles.fileRowInner}>
@@ -239,7 +241,7 @@ export const TasksView = ({ tab }: Props) => {
                     )}
                     {fileChanges.modified.length > 0 && (
                         <>
-                            <Text style={[styles.sectionHeader, { marginTop: 20 }]}>File Modificati ({fileChanges.modified.length})</Text>
+                            <Text style={[styles.sectionHeader, { marginTop: 20 }]}>{t('tasks.filesModified', { count: fileChanges.modified.length })}</Text>
                             {fileChanges.modified.map((file, index) => {
                                 const fileContent = (
                                     <View style={styles.fileRowInner}>
@@ -281,9 +283,9 @@ export const TasksView = ({ tab }: Props) => {
             {/* Header */}
             <View style={[styles.header, { paddingTop: insets.top + 20 }]}>
                 <View>
-                    <Text style={styles.title}>Task Manager</Text>
+                    <Text style={styles.title}>{t('tasks.title')}</Text>
                     <Text style={styles.subtitle}>
-                        {isRunning ? 'Esecuzione in corso...' : 'In attesa'}
+                        {isRunning ? t('tasks.running') : t('tasks.waiting')}
                     </Text>
                 </View>
                 {isLiquidGlassSupported ? (
@@ -294,12 +296,12 @@ export const TasksView = ({ tab }: Props) => {
                         colorScheme="dark"
                     >
                         <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
-                            <Text style={styles.iterationText}>Iterazione {iteration}</Text>
+                            <Text style={styles.iterationText}>{t('tasks.iteration', { count: iteration })}</Text>
                         </View>
                     </LiquidGlassView>
                 ) : (
                     <View style={styles.iterationBadge}>
-                        <Text style={styles.iterationText}>Iterazione {iteration}</Text>
+                        <Text style={styles.iterationText}>{t('tasks.iteration', { count: iteration })}</Text>
                     </View>
                 )}
             </View>
@@ -320,7 +322,7 @@ export const TasksView = ({ tab }: Props) => {
                     <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 }}>
                         <ActivityIndicator size="small" color={AppColors.primary} />
                         <Text style={styles.activityText}>
-                            Usando <Text style={styles.bold}>{currentTool || 'AI'}</Text>...
+                            {t('tasks.usingTool', { tool: currentTool || 'AI' })}
                         </Text>
                     </View>
                 </Animated.View>
@@ -341,19 +343,19 @@ export const TasksView = ({ tab }: Props) => {
                         style={[styles.tab, activeTab === 'plan' && styles.activeTab]}
                         onPress={() => setActiveTab('plan')}
                     >
-                        <Text style={[styles.tabLabel, activeTab === 'plan' && styles.activeTabLabel]}>Piano</Text>
+                        <Text style={[styles.tabLabel, activeTab === 'plan' && styles.activeTabLabel]}>{t('tasks.tabs.plan')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[styles.tab, activeTab === 'logs' && styles.activeTab]}
                         onPress={() => setActiveTab('logs')}
                     >
-                        <Text style={[styles.tabLabel, activeTab === 'logs' && styles.activeTabLabel]}>Log Eventi</Text>
+                        <Text style={[styles.tabLabel, activeTab === 'logs' && styles.activeTabLabel]}>{t('tasks.tabs.logs')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[styles.tab, activeTab === 'files' && styles.activeTab]}
                         onPress={() => setActiveTab('files')}
                     >
-                        <Text style={[styles.tabLabel, activeTab === 'files' && styles.activeTabLabel]}>File</Text>
+                        <Text style={[styles.tabLabel, activeTab === 'files' && styles.activeTabLabel]}>{t('tasks.tabs.files')}</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -394,7 +396,7 @@ export const TasksView = ({ tab }: Props) => {
                             />
                         ) : null}
                         <View style={{ padding: 20 }}>
-                            <Text style={styles.summaryTitle}>Riepilogo Finale</Text>
+                            <Text style={styles.summaryTitle}>{t('tasks.finalSummary')}</Text>
                             <Text style={styles.summaryText}>{summary}</Text>
                         </View>
                     </View>

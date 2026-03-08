@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../theme/colors';
 
 interface PlanStep {
@@ -40,6 +41,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
   onApprove,
   onReject,
 }) => {
+  const { t } = useTranslation(['terminal', 'common']);
   if (!plan && !planContent) return null;
 
   const renderModalContent = () => (
@@ -50,7 +52,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
           <View style={styles.iconContainer}>
             <Ionicons name="list-outline" size={22} color={AppColors.primary} />
           </View>
-          <Text style={styles.title}>Execution Plan</Text>
+          <Text style={styles.title}>{t('terminal:agent.executionPlan')}</Text>
         </View>
         <TouchableOpacity onPress={onReject} style={styles.closeButton}>
           <Ionicons name="close" size={24} color={AppColors.white.w60} />
@@ -75,7 +77,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
                 <View style={styles.metadataItem}>
                   <Ionicons name="document-text-outline" size={14} color={AppColors.white.w60} />
                   <Text style={styles.metadataText}>
-                    {plan.estimated_files} file{plan.estimated_files !== 1 ? 's' : ''}
+                    {t('terminal:agent.estimatedFiles', { count: plan.estimated_files })}
                   </Text>
                 </View>
               )}
@@ -104,7 +106,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
 
                   {step.files && step.files.length > 0 && (
                     <View style={styles.filesContainer}>
-                      <Text style={styles.filesLabel}>Files:</Text>
+                      <Text style={styles.filesLabel}>{t('common:files')}:</Text>
                       {step.files.map((file, fileIndex) => (
                         <View key={fileIndex} style={styles.fileItem}>
                           <Ionicons name="document-outline" size={12} color={AppColors.primary} />
@@ -132,7 +134,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
           activeOpacity={0.7}
         >
           <Ionicons name="close-circle-outline" size={20} color={AppColors.error} />
-          <Text style={[styles.buttonText, styles.rejectButtonText]}>Reject</Text>
+          <Text style={[styles.buttonText, styles.rejectButtonText]}>{t('terminal:agent.reject')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -141,7 +143,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
           activeOpacity={0.7}
         >
           <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
-          <Text style={[styles.buttonText, styles.approveButtonText]}>Approve & Execute</Text>
+          <Text style={[styles.buttonText, styles.approveButtonText]}>{t('terminal:agent.approveAndExecute')}</Text>
         </TouchableOpacity>
       </View>
     </>

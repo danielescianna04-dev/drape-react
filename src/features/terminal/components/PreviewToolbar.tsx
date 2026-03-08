@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 export type ViewportMode = 'mobile' | 'desktop';
 
@@ -27,6 +28,7 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
   viewportMode,
   onViewportChange,
 }) => {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [editPath, setEditPath] = useState('/');
   const inputRef = useRef<TextInput>(null);
@@ -83,7 +85,7 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
           onPress={onClose}
           style={styles.closeButton}
           activeOpacity={0.7}
-          accessibilityLabel="Chiudi anteprima"
+          accessibilityLabel={t('terminal:toolbar.closePreview')}
           accessibilityRole="button"
         >
           <Ionicons name="close" size={18} color="rgba(255, 255, 255, 0.7)" />
@@ -122,7 +124,7 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
           onPress={onRefresh}
           style={styles.refreshButton}
           activeOpacity={0.7}
-          accessibilityLabel="Ricarica anteprima"
+          accessibilityLabel={t('terminal:toolbar.reloadPreview')}
           accessibilityRole="button"
         >
           <Ionicons name="refresh" size={16} color="rgba(255, 255, 255, 0.7)" />
@@ -133,7 +135,7 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
           onPress={() => onViewportChange(viewportMode === 'mobile' ? 'desktop' : 'mobile')}
           style={[styles.viewportButton, viewportMode === 'desktop' && styles.viewportButtonActive]}
           activeOpacity={0.7}
-          accessibilityLabel={viewportMode === 'mobile' ? 'Visualizza desktop' : 'Visualizza mobile'}
+          accessibilityLabel={viewportMode === 'mobile' ? t('terminal:toolbar.viewDesktop') : t('terminal:toolbar.viewMobile')}
           accessibilityRole="button"
         >
           <Ionicons
@@ -148,7 +150,7 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
           onPress={onPublish}
           style={[styles.publishButton, existingPublish && styles.publishButtonUpdate]}
           activeOpacity={0.7}
-          accessibilityLabel={existingPublish ? "Aggiorna sito pubblicato" : "Pubblica sito"}
+          accessibilityLabel={existingPublish ? t('terminal:toolbar.updatePublishedSite') : t('terminal:toolbar.publishSite')}
           accessibilityRole="button"
         >
           <Ionicons name={existingPublish ? "cloud-done-outline" : "cloud-upload-outline"} size={15} color="#fff" />

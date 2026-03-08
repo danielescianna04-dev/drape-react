@@ -7,6 +7,7 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { AppColors } from '../theme/colors';
 import { IconButton } from './atoms';
 import * as ImagePicker from 'expo-image-picker';
+import { useTranslation } from 'react-i18next';
 
 export interface ChatImage {
   uri: string;
@@ -40,7 +41,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   value,
   onChangeText,
   onSend,
-  placeholder = 'Scrivi un messaggio...',
+  placeholder,
   disabled = false,
   showTopBar = true,
   modelName = 'Llama 3.1 8B',
@@ -51,6 +52,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   forcedMode = null,
   leftAccessory,
 }) => {
+  const { t } = useTranslation();
   const [selectedImages, setSelectedImages] = useState<ChatImage[]>([]);
   const inputRef = useRef<TextInput>(null);
 
@@ -66,11 +68,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert(
-          'Permesso necessario',
-          'È necessario il permesso per accedere alla galleria',
+          t('common:galleryPermissionTitle'),
+          t('common:galleryPermissionRequired'),
           [
-            { text: 'Annulla', style: 'cancel' },
-            { text: 'Impostazioni', onPress: () => Linking.openSettings() }
+            { text: t('common:cancel'), style: 'cancel' },
+            { text: t('common:openSettings'), onPress: () => Linking.openSettings() }
           ]
         );
         return;
@@ -148,7 +150,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   isTerminalMode && styles.modeButtonActive,
                   forcedMode === 'terminal' && styles.modeButtonForced
                 ]}
-                accessibilityLabel="Modalità terminale"
+                accessibilityLabel={t('common:terminalModeLabel')}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isTerminalMode }}
               >
@@ -165,7 +167,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   !isTerminalMode && styles.modeButtonActive,
                   forcedMode === 'ai' && styles.modeButtonForced
                 ]}
-                accessibilityLabel="Modalità AI"
+                accessibilityLabel={t('common:aiModeLabel')}
                 accessibilityRole="button"
                 accessibilityState={{ selected: !isTerminalMode }}
               >
@@ -182,9 +184,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <TouchableOpacity
             style={styles.modelSelector}
             onPress={onModelPress}
-            accessibilityLabel={`Seleziona modello AI: ${modelName}`}
+            accessibilityLabel={t('common:selectAiModelLabel', { model: modelName })}
             accessibilityRole="button"
-            accessibilityHint="Apri menu di selezione modello"
+            accessibilityHint={t('common:selectAiModelHint')}
           >
             <Text style={styles.modelText}>{modelName}</Text>
             <Ionicons name="chevron-down" size={12} color="#666" />
@@ -203,7 +205,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   style={styles.imageRemoveButton}
                   onPress={() => removeImage(index)}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  accessibilityLabel="Rimuovi immagine"
+                  accessibilityLabel={t('common:removeImage')}
                   accessibilityRole="button"
                 >
                   <Ionicons name="close-circle" size={20} color="#fff" />
@@ -238,9 +240,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           color={selectedImages.length > 0 ? AppColors.primary : "#8A8A8A"}
           onPress={pickImage}
           style={styles.toolsButton}
-          accessibilityLabel="Allega immagine"
-          accessibilityRole="button"
-          accessibilityHint="Seleziona immagine dalla galleria"
+          accessibilityLabel={t('common:attachImage')}
         />
 
         {/* Input Field */}
@@ -250,7 +250,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           value={value}
           onChangeText={onChangeText}
           onKeyPress={handleKeyPress}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t('common:writeMessage')}
           placeholderTextColor="#6E7681"
           multiline
           maxLength={5000}
@@ -260,8 +260,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           editable={!disabled}
           blurOnSubmit={false}
           enablesReturnKeyAutomatically={false}
-          accessibilityLabel="Campo messaggio"
-          accessibilityHint="Scrivi un messaggio per l'AI. Usa il pulsante invia per inviare."
+          accessibilityLabel={t('common:messageFieldLabel')}
+          accessibilityHint={t('common:messageFieldHint')}
         />
 
         {/* Send Button */}
@@ -270,7 +270,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           disabled={(!value.trim() && selectedImages.length === 0) || disabled || isExecuting}
           style={styles.sendButton}
           activeOpacity={0.7}
-          accessibilityLabel="Invia messaggio"
+          accessibilityLabel={t('terminal:chat.sendMessage')}
           accessibilityRole="button"
           accessibilityState={{ disabled: (!value.trim() && selectedImages.length === 0) || disabled || isExecuting }}
         >

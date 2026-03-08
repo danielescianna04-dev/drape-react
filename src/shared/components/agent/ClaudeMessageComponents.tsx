@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -38,6 +39,7 @@ interface ChatMessageComponentProps {
 }
 
 export function ChatMessageComponent({ message }: ChatMessageComponentProps) {
+  const { t } = useTranslation('terminal');
   const isUser = message.role === 'user';
   const backgroundColor = isUser ? '#2563EB' : colors.backgroundDepth2; // blue-600 : slate-700
   const textColor = isUser ? '#FFFFFF' : colors.textPrimary;
@@ -46,7 +48,7 @@ export function ChatMessageComponent({ message }: ChatMessageComponentProps) {
     <MessageContainer alignment={isUser ? 'right' : 'left'} backgroundColor={backgroundColor}>
       <View style={styles.chatHeader}>
         <Text style={[styles.chatRole, { color: isUser ? '#DBEAFE' : colors.textSecondary }]}>
-          {isUser ? 'User' : 'Claude'}
+          {isUser ? t('agent.user') : t('agent.claude')}
         </Text>
         <Text style={[styles.timestamp, { color: isUser ? '#BFDBFE' : colors.textTertiary }]}>
           {formatTimestamp(message.timestamp)}
@@ -83,6 +85,7 @@ interface ToolResultMessageComponentProps {
 }
 
 export function ToolResultMessageComponent({ message }: ToolResultMessageComponentProps) {
+  const { t } = useTranslation('terminal');
   let displayContent = message.content;
   let previewSummary: string | undefined;
 
@@ -96,9 +99,9 @@ export function ToolResultMessageComponent({ message }: ToolResultMessageCompone
     const stdout = message.toolUseResult?.stdout as string | undefined;
     const stderr = message.toolUseResult?.stderr as string | undefined;
     if (stderr?.trim()) {
-      previewSummary = 'Error';
+      previewSummary = t('agent.status.error');
     } else if (stdout) {
-      previewSummary = 'Success';
+      previewSummary = t('agent.status.success');
     }
   }
 
@@ -128,9 +131,10 @@ interface ThinkingMessageComponentProps {
 }
 
 export function ThinkingMessageComponent({ message }: ThinkingMessageComponentProps) {
+  const { t } = useTranslation('terminal');
   return (
     <CollapsibleDetails
-      label="Claude's Reasoning"
+      label={t('agent.reasoning')}
       details={message.content}
       badge="thinking"
       icon={<Text style={styles.thinkingIcon}>💭</Text>}
@@ -152,6 +156,7 @@ interface TodoMessageComponentProps {
 }
 
 export function TodoMessageComponent({ message }: TodoMessageComponentProps) {
+  const { t } = useTranslation('terminal');
   const getStatusIcon = (status: TodoItem['status']) => {
     switch (status) {
       case 'completed':
@@ -185,7 +190,7 @@ export function TodoMessageComponent({ message }: TodoMessageComponentProps) {
           <View style={styles.todoIcon}>
             <Text style={styles.todoIconText}>📋</Text>
           </View>
-          <Text style={[styles.todoTitle, { color: '#B45309' }]}>Todo List Updated</Text>
+          <Text style={[styles.todoTitle, { color: '#B45309' }]}>{t('agent.todoListUpdated')}</Text>
         </View>
         <Text style={[styles.timestamp, { color: '#D97706' }]}>
           {formatTimestamp(message.timestamp)}
@@ -211,7 +216,7 @@ export function TodoMessageComponent({ message }: TodoMessageComponentProps) {
       </View>
 
       <Text style={[styles.todoProgress, { color: '#B45309' }]}>
-        {completedCount} of {message.todos.length} completed
+        {t('agent.todoProgress', { completed: completedCount, total: message.todos.length })}
       </Text>
     </MessageContainer>
   );
@@ -224,6 +229,7 @@ interface PlanMessageComponentProps {
 }
 
 export function PlanMessageComponent({ message }: PlanMessageComponentProps) {
+  const { t } = useTranslation('terminal');
   return (
     <MessageContainer alignment="left" backgroundColor="rgba(59, 130, 246, 0.1)">
       <View style={styles.planHeader}>
@@ -231,7 +237,7 @@ export function PlanMessageComponent({ message }: PlanMessageComponentProps) {
           <View style={styles.planIcon}>
             <Text style={styles.planIconText}>📋</Text>
           </View>
-          <Text style={[styles.planTitle, { color: '#1E40AF' }]}>Ready to code?</Text>
+          <Text style={[styles.planTitle, { color: '#1E40AF' }]}>{t('agent.readyToCode')}</Text>
         </View>
         <Text style={[styles.timestamp, { color: '#2563EB' }]}>
           {formatTimestamp(message.timestamp)}
@@ -239,7 +245,7 @@ export function PlanMessageComponent({ message }: PlanMessageComponentProps) {
       </View>
 
       <View style={styles.planContent}>
-        <Text style={[styles.planLabel, { color: '#1E3A8A' }]}>Here is Claude's plan:</Text>
+        <Text style={[styles.planLabel, { color: '#1E3A8A' }]}>{t('agent.hereIsPlan')}</Text>
         <View style={styles.planBox}>
           <Text style={[styles.planText, { color: '#1E3A8A' }]}>{message.plan}</Text>
         </View>
@@ -251,6 +257,7 @@ export function PlanMessageComponent({ message }: PlanMessageComponentProps) {
 // ==================== LoadingComponent ====================
 
 export function LoadingComponent() {
+  const { t } = useTranslation('terminal');
   const rotation = useSharedValue(0);
 
   useEffect(() => {
@@ -272,10 +279,10 @@ export function LoadingComponent() {
   return (
     <MessageContainer alignment="left" backgroundColor={colors.backgroundDepth2}>
       <View style={styles.loadingContainer}>
-        <Text style={[styles.loadingRole, { color: colors.textSecondary }]}>Claude</Text>
+        <Text style={[styles.loadingRole, { color: colors.textSecondary }]}>{t('agent.claude')}</Text>
         <View style={styles.loadingContent}>
           <Animated.View style={[styles.spinner, animatedStyle]} />
-          <Text style={[styles.loadingText, { color: colors.textPrimary }]}>Thinking...</Text>
+          <Text style={[styles.loadingText, { color: colors.textPrimary }]}>{t('agent.thinking')}</Text>
         </View>
       </View>
     </MessageContainer>

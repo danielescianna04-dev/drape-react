@@ -265,7 +265,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       addTab({
         id: 'env-vars',
         type: 'envVars',
-        title: 'Variabili Ambiente',
+        title: 'Environment Variables',
         data: {},
       });
     }
@@ -281,7 +281,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       addTab({
         id: 'shell',
         type: 'shell' as any,
-        title: 'Log',
+        title: 'Logs',
         data: {},
       });
     }

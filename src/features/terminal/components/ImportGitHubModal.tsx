@@ -18,7 +18,7 @@ interface Props {
 }
 
 export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = false }: Props) => {
-  const { t } = useTranslation(['terminal']);
+  const { t } = useTranslation(['terminal', 'common']);
   const [repoUrl, setRepoUrl] = useState('');
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const modalOffset = useRef(new Animated.Value(0)).current;
@@ -203,18 +203,18 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
             <Ionicons name="logo-github" size={24} color={AppColors.white.full} />
           </LinearGradient>
         </View>
-        <Text style={styles.title}>Import from GitHub</Text>
+        <Text style={styles.title}>{t('terminal:connectRepo.connectToGitHub')}</Text>
       </View>
 
       {/* Input section */}
       <View style={styles.inputSection}>
-        <Text style={styles.label}>GitHub URL</Text>
+        <Text style={styles.label}>{t('terminal:connectRepo.enterUrl')}</Text>
         <View style={styles.inputContainer}>
           <TextInput
             style={styles.input}
             value={String(repoUrl || '')}
             onChangeText={(text) => setRepoUrl(String(text || ''))}
-            placeholder="https://github.com/username/repository"
+            placeholder={t('terminal:connectRepo.urlPlaceholder')}
             placeholderTextColor={AppColors.white.w35}
             autoCapitalize="none"
             autoCorrect={false}
@@ -245,7 +245,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
           disabled={isLoading}
           activeOpacity={0.8}
         >
-          <Text style={styles.cancelText}>Cancel</Text>
+          <Text style={styles.cancelText}>{t('common:cancel')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -267,7 +267,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
             {isLoading ? (
               <ActivityIndicator color={AppColors.white.full} />
             ) : (
-              <Text style={styles.importText}>Import</Text>
+              <Text style={styles.importText}>{t('common:create', { defaultValue: 'Import' })}</Text>
             )}
           </LinearGradient>
         </TouchableOpacity>

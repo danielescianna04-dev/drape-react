@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -32,6 +33,7 @@ export const AgentToolExecution: React.FC<AgentToolExecutionProps> = ({
   toolCalls,
   isThinking = false,
 }) => {
+  const { t } = useTranslation('terminal');
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const completedCount = toolCalls.filter(t => t.status === 'success').length;
   const hasResults = completedCount > 0;
@@ -45,11 +47,11 @@ export const AgentToolExecution: React.FC<AgentToolExecutionProps> = ({
         <View style={styles.headerLeft}>
           <Ionicons name="construct" size={18} color={colors.textSecondary} />
           <Text style={styles.headerTitle}>
-            Tool Invocations
+            {t('agent.toolInvocations')}
           </Text>
           {hasResults && (
             <Text style={styles.headerSubtitle}>
-              ({completedCount} tool{completedCount !== 1 ? 's' : ''} used)
+              {t('agent.toolsUsed', { count: completedCount })}
             </Text>
           )}
         </View>
@@ -85,6 +87,7 @@ interface ToolCallCardProps {
 }
 
 const ToolCallCard: React.FC<ToolCallCardProps> = ({ tool, isExpanded, onToggle }) => {
+  const { t } = useTranslation('terminal');
   const expandAnimation = useSharedValue(0);
   const [showDetails, setShowDetails] = useState(false);
 
@@ -186,14 +189,14 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ tool, isExpanded, onToggle 
         <Animated.View style={[styles.toolDetails, expandStyle]}>
           {/* Parameters Section */}
           <View style={styles.detailSection}>
-            <Text style={styles.sectionLabel}>Parameters:</Text>
+            <Text style={styles.sectionLabel}>{t('agent.parameters')}</Text>
             <JsonCodeBlock code={tool.args} />
           </View>
 
           {/* Result Section */}
           {tool.result !== undefined && (
             <View style={styles.detailSection}>
-              <Text style={styles.sectionLabel}>Result:</Text>
+              <Text style={styles.sectionLabel}>{t('agent.result')}</Text>
               <JsonCodeBlock code={tool.result} />
             </View>
           )}
@@ -202,7 +205,7 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ tool, isExpanded, onToggle 
           <View style={styles.statusBadge}>
             <View style={[styles.statusDot, { backgroundColor: getStatusColor() }]} />
             <Text style={[styles.statusText, { color: getStatusColor() }]}>
-              {tool.status.toUpperCase()}
+              {t(`agent.status.${tool.status}`)}
             </Text>
           </View>
         </Animated.View>

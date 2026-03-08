@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Dimensions, Easing } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../shared/theme/colors';
 import { DrapeLogo } from '../../shared/components/icons';
@@ -10,6 +11,7 @@ const { width, height } = Dimensions.get('window');
  * Premium splash screen — clean, cinematic entrance
  */
 export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
+  const { t } = useTranslation('common');
   // Icon
   const iconScale = useRef(new Animated.Value(0)).current;
   const iconOpacity = useRef(new Animated.Value(0)).current;
@@ -171,7 +173,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
           opacity: tagOpacity,
           transform: [{ translateY: tagY }],
         }]}>
-          <Text style={styles.tagline}>AI-Powered Mobile IDE</Text>
+          <Text style={styles.tagline}>{t('splash.tagline')}</Text>
           {/* Shimmer overlay */}
           <Animated.View style={[styles.shimmer, { transform: [{ translateX: shimmerX }] }]}>
             <LinearGradient
@@ -195,7 +197,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
             <Text style={styles.versionText}>v2.0.2</Text>
           </View>
           <View style={styles.bottomDot} />
-          <Text style={styles.bottomText}>Built for developers</Text>
+          <Text style={styles.bottomText}>{t('splash.builtForDevelopers')}</Text>
         </View>
       </Animated.View>
     </Animated.View>

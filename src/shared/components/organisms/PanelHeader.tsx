@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../theme/colors';
 import { IconButton } from '../atoms';
 
@@ -31,6 +32,8 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
   rightActions,
   style,
 }) => {
+  const { t } = useTranslation('common');
+
   return (
     <View style={[styles.header, style]}>
       <View style={styles.headerLeft}>
@@ -45,7 +48,7 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
           color="#FFFFFF"
           onPress={onClose}
           style={styles.closeButton}
-          accessibilityLabel="Close panel"
+          accessibilityLabel={t('close')}
         />
       </View>
     </View>

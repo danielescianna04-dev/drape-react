@@ -10,6 +10,7 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { githubTokenService, GitHubAccount } from '../../../core/github/githubTokenService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { AppColors } from '../../../shared/theme/colors';
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export const GitPanel = ({ onClose }: Props) => {
+  const { t } = useTranslation(['terminal', 'common']);
   const [accounts, setAccounts] = useState<GitHubAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -63,19 +65,19 @@ export const GitPanel = ({ onClose }: Props) => {
 
   const handleDeleteAccount = (account: GitHubAccount) => {
     Alert.alert(
-      'Rimuovi Account',
-      `Sei sicuro di voler rimuovere l'account ${account.username}?`,
+      t('terminal:git.removeAccount'),
+      t('terminal:git.removeAccountConfirm', { account: account.username }),
       [
-        { text: 'Annulla', style: 'cancel' },
+        { text: t('common:cancel'), style: 'cancel' },
         {
-          text: 'Rimuovi',
+          text: t('common:remove'),
           style: 'destructive',
           onPress: async () => {
             try {
               await githubTokenService.deleteToken(account.owner, userId);
               loadAccounts();
             } catch (error) {
-              Alert.alert('Errore', 'Impossibile rimuovere l\'account');
+              Alert.alert(t('common:error'), t('terminal:git.unableToRemoveAccount'));
             }
           },
         },
@@ -95,10 +97,10 @@ export const GitPanel = ({ onClose }: Props) => {
         await githubTokenService.saveToken(validation.username, token, userId);
         loadAccounts();
       } else {
-        Alert.alert('Errore', 'Token non valido');
+        Alert.alert(t('common:error'), t('common:invalidToken'));
       }
     } catch (error) {
-      Alert.alert('Errore', 'Impossibile salvare l\'account');
+      Alert.alert(t('common:error'), t('terminal:git.unableToSaveAccount'));
     }
   };
 
@@ -108,9 +110,9 @@ export const GitPanel = ({ onClose }: Props) => {
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const months = Math.floor(days / 30);
 
-    if (months > 0) return `${months}m fa`;
-    if (days > 0) return `${days}g fa`;
-    return 'oggi';
+    if (months > 0) return t('terminal:git.monthsAgo', { count: months });
+    if (days > 0) return t('terminal:chat.daysAgo', { count: days });
+    return t('terminal:git.today');
   };
 
   const renderSkeletonCard = (index: number) => {
@@ -159,7 +161,7 @@ export const GitPanel = ({ onClose }: Props) => {
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <Ionicons name="logo-github" size={18} color={AppColors.primary} />
-          <Text style={styles.headerTitle}>Git</Text>
+          <Text style={styles.headerTitle}>{t('terminal:git.title')}</Text>
         </View>
         <TouchableOpacity
           style={styles.addButton}
@@ -182,7 +184,7 @@ export const GitPanel = ({ onClose }: Props) => {
           </>
         ) : accounts.length > 0 ? (
           <>
-            <Text style={styles.sectionTitle}>Account collegati</Text>
+            <Text style={styles.sectionTitle}>{t('terminal:git.connectedAccounts')}</Text>
             {accounts.map(renderAccountCard)}
           </>
         ) : (
@@ -190,9 +192,9 @@ export const GitPanel = ({ onClose }: Props) => {
             <View style={styles.emptyIcon}>
               <Ionicons name="logo-github" size={32} color="rgba(255,255,255,0.15)" />
             </View>
-            <Text style={styles.emptyText}>Nessun account</Text>
+            <Text style={styles.emptyText}>{t('terminal:git.noConnectedAccounts')}</Text>
             <Text style={styles.emptySubtext}>
-              Aggiungi un account GitHub per i repository privati
+              {t('terminal:git.addAccountToAccessPrivate')}
             </Text>
             <TouchableOpacity
               style={styles.emptyButton}
@@ -200,7 +202,7 @@ export const GitPanel = ({ onClose }: Props) => {
               onPress={handleAddAccount}
             >
               <Ionicons name="add" size={16} color="#fff" />
-              <Text style={styles.emptyButtonText}>Aggiungi</Text>
+              <Text style={styles.emptyButtonText}>{t('terminal:git.addAccount')}</Text>
             </TouchableOpacity>
           </View>
         )}

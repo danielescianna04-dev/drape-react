@@ -53,7 +53,7 @@ interface GitStatus {
 }
 
 export const GitHubView = ({ tab }: Props) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation(['terminal', 'common']);
   const [activeSection, setActiveSection] = useState<'commits' | 'branches' | 'changes'>('commits');
   const [gitAccounts, setGitAccounts] = useState<GitAccount[]>([]);
   const [linkedAccount, setLinkedAccount] = useState<GitAccount | null>(null);
@@ -303,7 +303,7 @@ export const GitHubView = ({ tab }: Props) => {
 
   const handleGitAction = async (action: 'pull' | 'push' | 'fetch') => {
     if (!currentWorkstation?.id) {
-      Alert.alert('Errore', 'Nessun progetto aperto');
+      Alert.alert(t('common:error'), t('terminal:git.noActiveWorkspace'));
       return;
     }
 
@@ -312,7 +312,7 @@ export const GitHubView = ({ tab }: Props) => {
     const tokenData = await gitAccountService.getTokenForRepo(userId, repoUrl);
 
     if (!tokenData) {
-      Alert.alert('Errore', 'Collega un account Git per eseguire questa azione');
+      Alert.alert(t('common:error'), t('terminal:git.authRequiredForAction', { action: t(`terminal:git.${action}`) }));
       return;
     }
 
@@ -330,14 +330,14 @@ export const GitHubView = ({ tab }: Props) => {
 
       const result = await response.json();
       if (result.success) {
-        Alert.alert('Successo', `${action.charAt(0).toUpperCase() + action.slice(1)} completato`);
+        Alert.alert(t('common:success'), t('terminal:git.actionCompleted', { action: t(`terminal:git.${action}`) }));
         await loadGitData();
       } else {
-        Alert.alert('Errore', result.message || `Errore durante ${action}`);
+        Alert.alert(t('common:error'), result.message || t('terminal:git.actionError', { action: t(`terminal:git.${action}`) }));
       }
     } catch (error) {
       console.error(`Git ${action} error:`, error);
-      Alert.alert('Errore', `Impossibile eseguire ${action}`);
+      Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action: t(`terminal:git.${action}`) }));
     } finally {
       setActionLoading(null);
     }
@@ -346,12 +346,12 @@ export const GitHubView = ({ tab }: Props) => {
   // Handle commit
   const handleCommit = async () => {
     if (!currentWorkstation?.id) {
-      Alert.alert('Errore', 'Nessun progetto aperto');
+      Alert.alert(t('common:error'), t('terminal:git.noActiveWorkspace'));
       return;
     }
 
     if (!commitMessage.trim()) {
-      Alert.alert('Errore', 'Inserisci un messaggio di commit');
+      Alert.alert(t('common:error'), t('terminal:git.enterCommitMessage'));
       return;
     }
 
@@ -385,12 +385,12 @@ export const GitHubView = ({ tab }: Props) => {
 
   const handleDeleteAccount = (account: GitAccount) => {
     Alert.alert(
-      'Rimuovi Account',
-      `Sei sicuro di voler rimuovere l'account ${account.username}?`,
+      t('terminal:git.removeAccount'),
+      t('terminal:git.removeAccountConfirm', { account: account.username }),
       [
-        { text: 'Annulla', style: 'cancel' },
+        { text: t('common:cancel'), style: 'cancel' },
         {
-          text: 'Rimuovi',
+          text: t('common:remove'),
           style: 'destructive',
           onPress: async () => {
             await gitAccountService.deleteAccount(account, userId);
@@ -412,13 +412,13 @@ export const GitHubView = ({ tab }: Props) => {
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(hours / 24);
 
-    if (hours < 1) return 'Adesso';
-    if (hours < 24) return `${hours}h fa`;
-    if (days < 7) return `${days}g fa`;
-    return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+    if (hours < 1) return t('terminal:chat.justNow');
+    if (hours < 24) return t('terminal:chat.hoursAgo', { count: hours });
+    if (days < 7) return t('terminal:chat.daysAgo', { count: days });
+    return d.toLocaleDateString(i18n.language?.startsWith('it') ? 'it-IT' : 'en-US', { day: 'numeric', month: 'short' });
   };
 
-  const projectName = currentWorkstation?.name || 'Progetto';
+  const projectName = currentWorkstation?.name || t('common:project');
   const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
 
   // Get repo info from URL
@@ -478,7 +478,7 @@ export const GitHubView = ({ tab }: Props) => {
             ) : (
               <>
                 <Ionicons name="person-add-outline" size={14} color="rgba(255,255,255,0.5)" />
-                <Text style={styles.accountPlaceholder}>Collega account</Text>
+                <Text style={styles.accountPlaceholder}>{t('terminal:git.linkAccount')}</Text>
               </>
             )}
             <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.4)" />
@@ -532,9 +532,9 @@ export const GitHubView = ({ tab }: Props) => {
         {/* Tabs - inline */}
         <View style={styles.tabsRow}>
           {[
-            { key: 'commits', label: 'Commits' },
-            { key: 'branches', label: 'Branch' },
-            { key: 'changes', label: 'Changes' },
+            { key: 'commits', label: t('common:commits') },
+            { key: 'branches', label: t('terminal:git.branch') },
+            { key: 'changes', label: t('terminal:git.changes') },
           ].map((item) => (
             <TouchableOpacity
               key={item.key}
@@ -573,7 +573,7 @@ export const GitHubView = ({ tab }: Props) => {
     const pickerContent = (
       <View style={styles.pickerInner}>
         <View style={styles.pickerHeader}>
-          <Text style={styles.pickerTitle}>Seleziona Account</Text>
+          <Text style={styles.pickerTitle}>{t('terminal:git.selectAccount')}</Text>
           <TouchableOpacity onPress={() => setShowAccountPicker(false)}>
             <Ionicons name="close" size={20} color="rgba(255,255,255,0.5)" />
           </TouchableOpacity>
@@ -588,7 +588,7 @@ export const GitHubView = ({ tab }: Props) => {
               <View style={[styles.pickerItemAvatar, { backgroundColor: 'rgba(255,77,77,0.1)' }]}>
                 <Ionicons name="unlink" size={16} color="#ff4d4d" />
               </View>
-              <Text style={[styles.pickerItemText, { color: '#ff4d4d' }]}>Scollega account</Text>
+              <Text style={[styles.pickerItemText, { color: '#ff4d4d' }]}>{t('terminal:git.removeAccount')}</Text>
             </TouchableOpacity>
           )}
 
@@ -629,7 +629,7 @@ export const GitHubView = ({ tab }: Props) => {
             <View style={[styles.pickerItemAvatar, { backgroundColor: `${AppColors.primary}20` }]}>
               <Ionicons name="add" size={16} color={AppColors.primary} />
             </View>
-            <Text style={[styles.pickerItemText, { color: AppColors.primary }]}>Aggiungi nuovo account</Text>
+            <Text style={[styles.pickerItemText, { color: AppColors.primary }]}>{t('terminal:git.addAccount')}</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -669,16 +669,16 @@ export const GitHubView = ({ tab }: Props) => {
       {gitLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={AppColors.primary} />
-          <Text style={styles.loadingText}>Caricamento commits...</Text>
+          <Text style={styles.loadingText}>{t('terminal:git.loadingCommits')}</Text>
         </View>
       ) : commits.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="git-commit" size={48} color="rgba(255,255,255,0.2)" />
-          <Text style={styles.emptyText}>Nessun commit trovato</Text>
+          <Text style={styles.emptyText}>{t('terminal:git.noCommitsFound')}</Text>
         </View>
       ) : (
         <>
-          <Text style={styles.sectionTitle}>{commits.length} commit</Text>
+          <Text style={styles.sectionTitle}>{t('terminal:git.recentCommits', { count: commits.length })}</Text>
           {commits.map((commit, index) => {
             const commitContent = (
               <View style={styles.commitRowInner}>
@@ -763,7 +763,7 @@ export const GitHubView = ({ tab }: Props) => {
   // Branches list
   const renderBranches = () => (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Local Branches</Text>
+      <Text style={styles.sectionTitle}>{t('terminal:git.branch')} Local</Text>
       {branches.filter(b => !b.isRemote).map((branch) => {
         const branchContent = (
           <View style={styles.branchRowInner}>
@@ -816,7 +816,7 @@ export const GitHubView = ({ tab }: Props) => {
 
       {branches.some(b => b.isRemote) && (
         <>
-          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Remote Branches</Text>
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>{t('terminal:git.branch')} Remote</Text>
           {branches.filter(b => b.isRemote).map((branch) => {
             const remoteContent = (
               <View style={styles.branchRowInner}>
@@ -857,18 +857,18 @@ export const GitHubView = ({ tab }: Props) => {
       {/* Commit Section - show when there are changes */}
       {hasChanges && (
         <View style={styles.commitSection}>
-          <Text style={styles.sectionTitle}>Crea Commit</Text>
+          <Text style={styles.sectionTitle}>{t('terminal:git.createCommit')}</Text>
           <View style={styles.commitInputContainer}>
             <Input
               value={commitMessage}
               onChangeText={setCommitMessage}
-              placeholder="Messaggio di commit..."
+              placeholder={t('terminal:git.commitMessagePlaceholder')}
               multiline
               numberOfLines={2}
               style={{ marginBottom: 10 }}
             />
             <Button
-              label={actionLoading === 'commit' ? "" : "Commit"}
+              label={actionLoading === 'commit' ? '' : t('terminal:git.commit')}
               onPress={handleCommit}
               disabled={!commitMessage.trim() || actionLoading === 'commit'}
               variant="primary"
@@ -881,7 +881,7 @@ export const GitHubView = ({ tab }: Props) => {
         <>
           {gitStatus.staged.length > 0 && (
             <>
-              <Text style={styles.sectionTitle}>Staged Changes ({gitStatus.staged.length})</Text>
+              <Text style={styles.sectionTitle}>{t('terminal:git.staged')} ({gitStatus.staged.length})</Text>
               {gitStatus.staged.map((file) => {
                 const fileContent = (
                   <View style={styles.fileRowInner}>
@@ -914,7 +914,7 @@ export const GitHubView = ({ tab }: Props) => {
           {gitStatus.modified.length > 0 && (
             <>
               <Text style={[styles.sectionTitle, gitStatus.staged.length > 0 && { marginTop: 20 }]}>
-                Modified ({gitStatus.modified.length})
+                {t('terminal:git.modified')} ({gitStatus.modified.length})
               </Text>
               {gitStatus.modified.map((file) => {
                 const fileContent = (
@@ -948,7 +948,7 @@ export const GitHubView = ({ tab }: Props) => {
           {gitStatus.untracked.length > 0 && (
             <>
               <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
-                Untracked ({gitStatus.untracked.length})
+                {t('terminal:git.untracked')} ({gitStatus.untracked.length})
               </Text>
               {gitStatus.untracked.map((file) => {
                 const fileContent = (
@@ -982,15 +982,15 @@ export const GitHubView = ({ tab }: Props) => {
           {gitStatus.staged.length === 0 && gitStatus.modified.length === 0 && gitStatus.untracked.length === 0 && (
             <View style={styles.emptyState}>
               <Ionicons name="checkmark-circle" size={48} color="#00D084" />
-              <Text style={styles.emptyText}>Working tree clean</Text>
-              <Text style={styles.emptySubtext}>Nessuna modifica da committare</Text>
+              <Text style={styles.emptyText}>{t('terminal:git.noChanges')}</Text>
+              <Text style={styles.emptySubtext}>{t('terminal:git.status')}</Text>
             </View>
           )}
         </>
       ) : (
         <View style={styles.emptyState}>
           <Ionicons name="document-text-outline" size={48} color="rgba(255,255,255,0.2)" />
-          <Text style={styles.emptyText}>Nessun dato disponibile</Text>
+          <Text style={styles.emptyText}>{t('common:noData', { defaultValue: 'No data available' })}</Text>
         </View>
       )}
     </View>
@@ -999,15 +999,15 @@ export const GitHubView = ({ tab }: Props) => {
   // Account section - Global accounts (multi-provider like Fork)
   const renderAccount = () => (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Account Git Collegati</Text>
+      <Text style={styles.sectionTitle}>{t('terminal:git.accountsTitle')}</Text>
 
       <View style={styles.accountsList}>
         {gitAccounts.length === 0 ? (
           <View style={styles.noAccountCard}>
             <Ionicons name="git-network-outline" size={40} color="rgba(255,255,255,0.2)" />
-            <Text style={styles.noAccountText}>Nessun account collegato</Text>
+            <Text style={styles.noAccountText}>{t('terminal:git.noConnectedAccounts')}</Text>
             <Text style={styles.noAccountSubtext}>
-              Collega un account per push, pull e accesso ai repository privati
+              {t('terminal:git.addAccountToAccessPrivate')}
             </Text>
           </View>
         ) : (
@@ -1056,7 +1056,7 @@ export const GitHubView = ({ tab }: Props) => {
           onPress={() => setShowAddAccountModal(true)}
         >
           <Ionicons name="add-circle-outline" size={20} color={AppColors.primary} />
-          <Text style={styles.addAccountBtnText}>Aggiungi Account</Text>
+          <Text style={styles.addAccountBtnText}>{t('terminal:git.addAccount')}</Text>
         </TouchableOpacity>
       </View>
     </View>

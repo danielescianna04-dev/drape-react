@@ -266,7 +266,7 @@ export const PreviewStartScreen: React.FC<{
             <View style={styles.devInfoRow}>
               <Text style={styles.devInfoLabel}>{t('terminal:preview.environment')}</Text>
               <View style={styles.devEnvBadge}>
-                <Text style={styles.devEnvBadgeText}>development</Text>
+                <Text style={styles.devEnvBadgeText}>{t('terminal:preview.dock.development')}</Text>
               </View>
             </View>
           </View>
@@ -289,7 +289,7 @@ export const PreviewStartScreen: React.FC<{
               ) : (
                 <>
                   <Ionicons name="play" size={18} color="#fff" style={{ marginLeft: 2 }} />
-                  <Text style={styles.devStartBtnText}>Avvia Anteprima</Text>
+                  <Text style={styles.devStartBtnText}>{t('terminal:preview.startPreview')}</Text>
                 </>
               )}
             </LinearGradient>
@@ -299,7 +299,7 @@ export const PreviewStartScreen: React.FC<{
       </Reanimated.View>
 
       {/* macOS Dock */}
-      <MacDock />
+      <MacDock t={t} />
     </View>
   );
 };
@@ -496,7 +496,7 @@ export const PreviewLoadingScreen: React.FC<{
                 <View style={[styles.terminalLight, styles.terminalLightYellow]} />
                 <View style={[styles.terminalLight, styles.terminalLightGreen]} />
               </View>
-              <Text style={styles.terminalTitle}>drape — bash</Text>
+              <Text style={styles.terminalTitle}>{t('terminal:preview.dock.terminalWindowTitle')}</Text>
             </View>
 
             {/* Terminal Body with Logs */}
@@ -555,7 +555,7 @@ export const PreviewLoadingScreen: React.FC<{
       </View>
 
       {/* macOS Dock */}
-      <MacDock />
+      <MacDock t={t} />
     </View>
   );
 };
@@ -593,7 +593,7 @@ const ErrorContent: React.FC<{
         <View style={styles.errorLogContainer}>
           <View style={styles.errorLogHeader}>
             <Ionicons name="terminal" size={12} color="rgba(255,255,255,0.4)" />
-            <Text style={styles.errorLogHeaderText}>Log</Text>
+            <Text style={styles.errorLogHeaderText}>{t('terminal:preview.dock.log')}</Text>
           </View>
           <ScrollView style={styles.errorLogScroll} nestedScrollEnabled>
             {errorLines.map((line, i) => (
@@ -631,14 +631,14 @@ const ErrorContent: React.FC<{
 };
 
 // ============ SHARED: macOS Dock ============
-const MacDock: React.FC = () => {
+const MacDock: React.FC<{ t: ReturnType<typeof useTranslation>['t'] }> = ({ t }) => {
   const [openApp, setOpenApp] = React.useState<string | null>(null);
 
   const dockApps = [
     { id: 'safari', icon: 'compass-outline', label: 'Safari', color1: '#3B82F6', color2: '#1D4ED8' },
-    { id: 'terminal', icon: 'terminal', label: 'Terminale', color1: '#2D2D2D', color2: '#111111', active: true },
-    { id: 'security', icon: 'shield-half-outline', label: 'Privacy', color1: '#6366F1', color2: '#4338CA' },
-    { id: 'ai', icon: 'sparkles', label: 'AI Assistant', color1: '#A855F7', color2: '#7C3AED' },
+    { id: 'terminal', icon: 'terminal', label: t('terminal:preview.dock.terminal'), color1: '#2D2D2D', color2: '#111111', active: true },
+    { id: 'security', icon: 'shield-half-outline', label: t('terminal:preview.dock.privacy'), color1: '#6366F1', color2: '#4338CA' },
+    { id: 'ai', icon: 'sparkles', label: t('terminal:preview.aiAssistant'), color1: '#A855F7', color2: '#7C3AED' },
   ];
 
   return (
@@ -667,10 +667,10 @@ const MacDock: React.FC = () => {
                 color="rgba(255,255,255,0.15)"
               />
               <Text style={styles.fakeAppText}>
-                {openApp === 'safari' ? 'Navigazione non disponibile' :
+                {openApp === 'safari' ? t('terminal:preview.dock.navigationUnavailable') :
                  openApp === 'terminal' ? '$ _' :
-                 openApp === 'security' ? 'Nessuna minaccia rilevata' :
-                 'AI Assistant pronto'}
+                 openApp === 'security' ? t('terminal:preview.dock.noThreats') :
+                 t('terminal:preview.aiAssistantReady')}
               </Text>
             </View>
           </Reanimated.View>

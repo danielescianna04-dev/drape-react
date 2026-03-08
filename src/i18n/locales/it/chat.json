@@ -23,5 +23,18 @@
     "beforeCompaction": "Compattazione automatica al {{threshold}}%.\nManca il {{remaining}}% prima del riassunto.",
     "compactionActive": "Compattazione attiva — i messaggi vecchi vengono riassunti automaticamente.",
     "window": "Finestra: {{size}}K token"
+  },
+  "composer": {
+    "scrollToBottom": "Torna in basso",
+    "photoPickerTitle": "Seleziona foto da dispositivo",
+    "photoPickerSubtitle": "Apri la libreria foto completa",
+    "allPhotos": "Tutte le foto",
+    "selectPhotos": "Seleziona {{count}} foto",
+    "selectPhotosPlural": "Seleziona {{count}} foto",
+    "maxImagesTitle": "Limite raggiunto",
+    "maxImagesMessage": "Puoi aggiungere massimo 4 immagini",
+    "maxImagesTotalMessage": "Puoi selezionare massimo 4 immagini in totale",
+    "maxImagesPartialMessage": "Aggiunte solo {{count}} immagini. Massimo 4 immagini totali.",
+    "unknownError": "Errore sconosciuto"
   }
 }

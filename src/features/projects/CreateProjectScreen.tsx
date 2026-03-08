@@ -249,7 +249,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
                   const pName = task.result.projectName || projectName.trim();
                   if (liveActivityService.isActivityActive()) {
-                    liveActivityService.endWithSuccess(pName, 'Creato!').catch(() => {});
+                    liveActivityService.endWithSuccess(pName, t('alerts.projectCreated')).catch(() => {});
                   }
 
                   setTimeout(() => {
@@ -261,7 +261,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
                 } else if (task.status === 'failed') {
                   activeTaskIdRef.current = null;
                   liveActivityService.endPreviewActivity().catch(() => {});
-                  Alert.alert('Errore', task.error || 'Creazione fallita');
+                  Alert.alert(t('common:error'), task.error || t('alerts.creationFailed'));
                   setIsCreating(false);
                   setCreationTask(null);
                   return;
@@ -290,11 +290,11 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     // End Live Activity with success + notification
     const pName = result.projectName || projectName.trim();
     if (liveActivityService.isActivityActive()) {
-      liveActivityService.endWithSuccess(pName, 'Creato!').catch((err) => console.warn('[Project] Failed to end live activity:', err?.message || err));
+      liveActivityService.endWithSuccess(pName, t('alerts.projectCreated')).catch((err) => console.warn('[Project] Failed to end live activity:', err?.message || err));
     }
     liveActivityService.sendNotification(
-      'Progetto creato!',
-      `${pName} e' pronto`,
+      t('alerts.projectCreated'),
+      t('alerts.projectReady', { name: pName }),
       { type: 'project_created', projectId: result.projectId || '' }
     ).catch((err) => console.warn('[Project] Failed to send notification:', err?.message || err));
 
@@ -369,7 +369,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   function handleAgentError(error: string) {
     console.error('[CreateProject] Agent error:', error);
     liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
-    Alert.alert('Errore', `Impossibile creare il progetto: ${error}`);
+    Alert.alert(t('common:error'), t('alerts.creationErrorWithMessage', { error }));
     setIsCreating(false);
     resetStream();
   }
@@ -415,7 +415,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           if (task.status === 'running') {
             liveActivityService.updatePreviewActivity({
               remainingSeconds: Math.max(0, Math.round(120 * (1 - (task.progress || 0) / 100))),
-              currentStep: task.step || task.message || 'Creazione...',
+              currentStep: task.step || task.message || t('alerts.creatingProject'),
               progress: (task.progress || 0) / 100,
             }).catch(() => {});
           }
@@ -442,11 +442,11 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
             const pName = task.result.projectName || projectName.trim();
             if (liveActivityService.isActivityActive()) {
-              liveActivityService.endWithSuccess(pName, 'Creato!').catch(() => {});
+              liveActivityService.endWithSuccess(pName, t('alerts.projectCreated')).catch(() => {});
             }
             liveActivityService.sendNotification(
-              'Progetto creato!',
-              `${pName} e' pronto`,
+              t('alerts.projectCreated'),
+              t('alerts.projectReady', { name: pName }),
               { type: 'project_created', projectId: task.result.projectId || '' }
             ).catch(() => {});
 
@@ -462,7 +462,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
             }
             activeTaskIdRef.current = null;
             liveActivityService.endPreviewActivity().catch(() => {});
-            Alert.alert('Errore', task.error || 'Creazione fallita');
+            Alert.alert(t('common:error'), task.error || t('alerts.creationFailed'));
             setIsCreating(false);
             setCreationTask(null);
           }
@@ -478,7 +478,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           setIsCreating(false);
           setCreationTask(null);
           liveActivityService.endPreviewActivity().catch(() => {});
-          Alert.alert('Errore', 'Connessione persa durante la creazione. Riprova.');
+          Alert.alert(t('common:error'), t('alerts.creationConnectionLost'));
         }
       }
     }, 900);
@@ -539,7 +539,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       setStep(2);
     } else if (step === 2) {
       if (!selectedLanguage) {
-        Alert.alert('Attenzione', 'Seleziona un linguaggio');
+        Alert.alert(t('common:warning'), t('alerts.selectLanguage'));
         return;
       }
       Keyboard.dismiss();
@@ -625,14 +625,14 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     // Start Live Activity (Dynamic Island)
     liveActivityService.startPreviewActivity(projectName.trim(), {
       remainingSeconds: 180,
-      currentStep: 'Creazione con AI...',
+        currentStep: t('alerts.creatingWithAi'),
       progress: 0,
     }, 'create').catch((err) => console.warn('[Project] Failed to start live activity:', err?.message || err));
 
     try {
       const userId = useAuthStore.getState().user?.uid;
       if (!userId) {
-        Alert.alert('Errore', 'Devi essere loggato per creare un progetto');
+        Alert.alert(t('common:error'), t('alerts.loginRequired'));
         setIsCreating(false);
         return;
       }
@@ -663,7 +663,13 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           return;
         }
         if (result.error === 'STORAGE_LIMIT_EXCEEDED') {
-          Alert.alert('Spazio esaurito', `Hai usato ${result.limits?.usedMb || 0}MB su ${result.limits?.maxStorageMb || 500}MB disponibili.\nElimina progetti o passa a un piano superiore.`);
+          Alert.alert(
+            t('alerts.storageLimitTitle'),
+            t('alerts.storageLimitMessage', {
+              used: result.limits?.usedMb || 0,
+              max: result.limits?.maxStorageMb || 500,
+            })
+          );
           setIsCreating(false);
           liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
           return;
@@ -681,7 +687,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     } catch (error: any) {
       console.error('[CreateProject] Error starting agent:', error);
       liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
-      Alert.alert('Errore', 'Impossibile avviare l\'agente. Riprova.');
+      Alert.alert(t('common:error'), t('alerts.unableToStartAgent'));
       setIsCreating(false);
       resetStream();
     }
@@ -690,19 +696,19 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   // Old creation system (fallback)
   const startOldCreation = async () => {
     setIsCreating(true);
-    setCreationTask({ status: 'running', progress: 0, message: 'Starting...', step: 'Initializing' });
+    setCreationTask({ status: 'running', progress: 0, message: t('common:loading'), step: t('alerts.creatingProject') });
 
     // Start Live Activity (Dynamic Island)
     liveActivityService.startPreviewActivity(projectName.trim(), {
       remainingSeconds: 120,
-      currentStep: 'Creazione progetto...',
+      currentStep: t('alerts.creatingProject'),
       progress: 0,
     }, 'create').catch((err) => console.warn('[Project] Failed to start live activity:', err?.message || err));
 
     try {
       const userId = useAuthStore.getState().user?.uid;
       if (!userId) {
-        Alert.alert('Errore', 'Devi essere loggato per creare un progetto');
+        Alert.alert(t('common:error'), t('alerts.loginRequired'));
         setIsCreating(false);
         setCreationTask(null);
         return;
@@ -735,7 +741,13 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           return;
         }
         if (result.error === 'STORAGE_LIMIT_EXCEEDED') {
-          Alert.alert('Spazio esaurito', `Hai usato ${result.limits?.usedMb || 0}MB su ${result.limits?.maxStorageMb || 500}MB disponibili.\nElimina progetti o passa a un piano superiore.`);
+          Alert.alert(
+            t('alerts.storageLimitTitle'),
+            t('alerts.storageLimitMessage', {
+              used: result.limits?.usedMb || 0,
+              max: result.limits?.maxStorageMb || 500,
+            })
+          );
           setIsCreating(false);
           setCreationTask(null);
           liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
@@ -753,7 +765,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     } catch (error) {
       console.error('Error creating project:', error);
       liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
-      Alert.alert('Errore', 'Impossibile creare il progetto. Riprova.');
+      Alert.alert(t('common:error'), t('alerts.unableToCreateProject'));
       setIsCreating(false);
       setCreationTask(null);
     }

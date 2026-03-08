@@ -13,6 +13,7 @@ import { Tab, useTabStore } from '../../../../core/tabs/tabStore';
 import { useUIStore } from '../../../../core/terminal/uiStore';
 import { TerminalItemType } from '../../../../shared/types';
 import { usePreviewLogs } from '../../../../hooks/api/usePreviewLogs';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   tab: Tab;
@@ -119,6 +120,7 @@ function isToolItem(item: any): boolean {
 }
 
 export const ShellView = ({ tab }: Props) => {
+  const { t } = useTranslation('terminal');
   const insets = useSafeAreaInsets();
   const { currentWorkstation } = useTerminalStore();
   const flatListRef = useRef<FlatList>(null);
@@ -131,7 +133,7 @@ export const ShellView = ({ tab }: Props) => {
   const [timeFilter, setTimeFilter] = useState<LogTimeFilter>('all');
 
   const topPadding = insets.top + 38;
-  const projectName = currentWorkstation?.name || 'Progetto';
+  const projectName = currentWorkstation?.name || t('common:project');
 
   // Get preview token and project ID for live log streaming
   const projectId = currentWorkstation?.projectId || currentWorkstation?.id;
@@ -445,7 +447,7 @@ export const ShellView = ({ tab }: Props) => {
       <Animated.View entering={FadeIn.duration(200)} style={styles.topBar}>
         <View style={styles.topBarLeft}>
           <Ionicons name="receipt-outline" size={16} color="rgba(255,255,255,0.4)" />
-          <Text style={styles.topBarTitle}>Log</Text>
+          <Text style={styles.topBarTitle}>{t('shellView.log')}</Text>
           <Text style={styles.topBarProject}>{projectName}</Text>
         </View>
         <View style={styles.topBarRight}>
@@ -460,7 +462,7 @@ export const ShellView = ({ tab }: Props) => {
               color={isAutoFollowPaused ? '#fbbf24' : '#4ade80'}
             />
             <Text style={[styles.followToggleText, isAutoFollowPaused && styles.followToggleTextPaused]}>
-              {isAutoFollowPaused ? 'PAUSA' : 'AUTO'}
+              {isAutoFollowPaused ? t('shellView.pause') : t('shellView.auto')}
             </Text>
           </TouchableOpacity>
           {logCount > 0 && (
@@ -482,15 +484,15 @@ export const ShellView = ({ tab }: Props) => {
         <TextInput
           value={searchQuery}
           onChangeText={setSearchQuery}
-          placeholder="Cerca log, errori o tool..."
+          placeholder={t('shellView.searchPlaceholder')}
           placeholderTextColor="rgba(255,255,255,0.3)"
           style={styles.searchInput}
         />
         <View style={styles.filterRow}>
           {([
-            { key: 'all', label: 'Tutto' },
-            { key: 'error', label: 'Error' },
-            { key: 'tool', label: 'Tool' },
+            { key: 'all', label: t('common:all') },
+            { key: 'error', label: t('common:error') },
+            { key: 'tool', label: t('shellView.tool') },
           ] as { key: LogKindFilter; label: string }[]).map((chip) => (
             <TouchableOpacity
               key={chip.key}
@@ -504,7 +506,7 @@ export const ShellView = ({ tab }: Props) => {
             </TouchableOpacity>
           ))}
           {([
-            { key: 'all', label: 'Sempre' },
+            { key: 'all', label: t('shellView.always') },
             { key: '5m', label: '5m' },
             { key: '30m', label: '30m' },
             { key: '2h', label: '2h' },
@@ -527,11 +529,11 @@ export const ShellView = ({ tab }: Props) => {
       {!hasItems ? (
         <View style={styles.emptyState}>
           <Ionicons name="terminal-outline" size={48} color="rgba(255,255,255,0.06)" />
-          <Text style={styles.emptyTitle}>{hasAnyItems ? 'Nessun risultato' : 'Nessun log'}</Text>
+          <Text style={styles.emptyTitle}>{hasAnyItems ? t('common:noResults') : t('shellView.noLogs')}</Text>
           <Text style={styles.emptySubtitle}>
             {hasAnyItems && hasActiveFilters
-              ? 'Modifica i filtri per vedere altre voci'
-              : "I log del container e i comandi\ndell'IA appariranno qui"}
+              ? t('shellView.changeFilters')
+              : t('shellView.emptyState')}
           </Text>
         </View>
       ) : (

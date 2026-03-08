@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 
 interface LoadingCardProps {
@@ -20,6 +21,7 @@ export const LoadingCard: React.FC<LoadingCardProps> = ({
   status,
   showDots = false,
 }) => {
+  const { t } = useTranslation('common');
   const [dotCount, setDotCount] = useState(1);
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export const LoadingCard: React.FC<LoadingCardProps> = ({
       </View>
       <View style={styles.body}>
         <View style={styles.row}>
-          <Text style={styles.label}>STATUS</Text>
+          <Text style={styles.label}>{t('status')}</Text>
           <Text style={styles.status}>
             {status}
             {showDots && '.'.repeat(dotCount)}

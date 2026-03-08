@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { AppColors } from '../../theme/colors';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 export interface Plan {
     title: string;
@@ -41,6 +42,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
     onReject,
     onClose,
 }) => {
+    const { t } = useTranslation('common');
     if (!plan) return null;
 
     return (
@@ -68,7 +70,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
                                     color={AppColors.primary}
                                 />
                             </View>
-                            <Text style={styles.title}>Piano di Esecuzione</Text>
+                            <Text style={styles.title}>{t('planApproval.title')}</Text>
                         </View>
                         <TouchableOpacity
                             onPress={onClose}
@@ -94,8 +96,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
                                     color={AppColors.white.w60}
                                 />
                                 <Text style={styles.metaText}>
-                                    {plan.estimated_files} file
-                                    {plan.estimated_files !== 1 ? 's' : ''}
+                                    {t('planApproval.filesCount', { count: plan.estimated_files })}
                                 </Text>
                             </View>
                         )}
@@ -115,7 +116,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
 
                     {/* Steps List */}
                     <ScrollView style={styles.stepsContainer} showsVerticalScrollIndicator={true}>
-                        <Text style={styles.sectionTitle}>Passaggi da eseguire:</Text>
+                        <Text style={styles.sectionTitle}>{t('planApproval.steps')}</Text>
                         {plan.steps.map((step, index) => (
                             <View key={index} style={styles.stepItem}>
                                 <View style={styles.stepNumber}>
@@ -134,7 +135,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
                             activeOpacity={0.7}
                         >
                             <Ionicons name="close-circle-outline" size={20} color="#fff" />
-                            <Text style={styles.actionButtonText}>Rifiuta</Text>
+                            <Text style={styles.actionButtonText}>{t('planApproval.reject')}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -143,7 +144,7 @@ export const PlanApprovalModal: React.FC<Props> = ({
                             activeOpacity={0.7}
                         >
                             <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                            <Text style={styles.actionButtonText}>Approva Piano</Text>
+                            <Text style={styles.actionButtonText}>{t('planApproval.approve')}</Text>
                         </TouchableOpacity>
                     </View>
                 </Pressable>

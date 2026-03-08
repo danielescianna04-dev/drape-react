@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Dimensions
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 
 const { width, height } = Dimensions.get('window');
@@ -11,8 +12,8 @@ export type TabType = 'chat' | 'terminal' | 'github' | 'browser' | 'file' | 'pre
 
 interface TabTypeOption {
   type: TabType;
-  title: string;
-  description: string;
+  titleKey: string;
+  descriptionKey: string;
   icon: keyof typeof Ionicons.glyphMap;
   gradient: string[];
 }
@@ -20,43 +21,43 @@ interface TabTypeOption {
 const tabTypes: TabTypeOption[] = [
   {
     type: 'chat',
-    title: 'Chat AI',
-    description: 'Conversa con l\'intelligenza artificiale',
+    titleKey: 'tabSelector.types.chat.title',
+    descriptionKey: 'tabSelector.types.chat.description',
     icon: 'chatbubbles',
     gradient: ['rgba(139, 124, 246, 0.2)', 'rgba(139, 124, 246, 0.05)'],
   },
   {
     type: 'terminal',
-    title: 'Terminal',
-    description: 'Esegui comandi nel terminale',
+    titleKey: 'tabSelector.types.terminal.title',
+    descriptionKey: 'tabSelector.types.terminal.description',
     icon: 'terminal',
     gradient: ['rgba(0, 208, 132, 0.2)', 'rgba(0, 208, 132, 0.05)'],
   },
   {
     type: 'github',
-    title: 'GitHub',
-    description: 'Gestisci repository e commit',
+    titleKey: 'tabSelector.types.github.title',
+    descriptionKey: 'tabSelector.types.github.description',
     icon: 'logo-github',
     gradient: ['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.05)'],
   },
   {
     type: 'browser',
-    title: 'Browser',
-    description: 'Naviga sul web',
+    titleKey: 'tabSelector.types.browser.title',
+    descriptionKey: 'tabSelector.types.browser.description',
     icon: 'globe',
     gradient: ['rgba(74, 144, 226, 0.2)', 'rgba(74, 144, 226, 0.05)'],
   },
   {
     type: 'preview',
-    title: 'Preview',
-    description: 'Anteprima live dell\'app',
+    titleKey: 'tabSelector.types.preview.title',
+    descriptionKey: 'tabSelector.types.preview.description',
     icon: 'eye',
     gradient: ['rgba(255, 107, 107, 0.2)', 'rgba(255, 107, 107, 0.05)'],
   },
   {
     type: 'file',
-    title: 'File',
-    description: 'Apri un file del progetto',
+    titleKey: 'tabSelector.types.file.title',
+    descriptionKey: 'tabSelector.types.file.description',
     icon: 'document-text',
     gradient: ['rgba(255, 165, 0, 0.2)', 'rgba(255, 165, 0, 0.05)'],
   },
@@ -81,6 +82,7 @@ interface Props {
 }
 
 export const TabTypeSelector = ({ visible, onClose, onSelectType }: Props) => {
+  const { t } = useTranslation('terminal');
   const handleSelect = (type: TabType) => {
     onSelectType(type);
     onClose();
@@ -104,7 +106,7 @@ export const TabTypeSelector = ({ visible, onClose, onSelectType }: Props) => {
           <TouchableOpacity activeOpacity={1}>
             {/* Header */}
             <View style={styles.header}>
-              <Text style={styles.title}>Nuova Scheda</Text>
+              <Text style={styles.title}>{t('tabSelector.title')}</Text>
               <TouchableOpacity onPress={onClose} style={styles.closeButton}>
                 <View style={styles.closeButtonCircle}>
                   <Ionicons name="close" size={18} color="#8E8E93" />
@@ -128,9 +130,9 @@ export const TabTypeSelector = ({ visible, onClose, onSelectType }: Props) => {
                     <View style={styles.iconContainer}>
                       <Ionicons name={tabType.icon} size={32} color={getIconColor(tabType.type)} />
                     </View>
-                    <Text style={styles.cardTitle}>{tabType.title}</Text>
+                    <Text style={styles.cardTitle}>{t(tabType.titleKey)}</Text>
                     <Text style={styles.cardDescription} numberOfLines={2}>
-                      {tabType.description}
+                      {t(tabType.descriptionKey)}
                     </Text>
                   </LinearGradient>
                 </TouchableOpacity>

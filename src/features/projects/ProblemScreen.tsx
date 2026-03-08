@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../shared/theme/colors';
 import { ChatInput } from '../../shared/components/ChatInput';
 
@@ -13,39 +14,39 @@ interface ProblemCardData {
   color: string;
 }
 
-const problemCards: ProblemCardData[] = [
-  {
-    id: '1',
-    icon: 'desktop',
-    title: 'Desktop Dependency',
-    description: 'Gli IDE attuali (VS Code, Cursor, Warp) sono progettati per desktop. Il mobile manca di un\'esperienza fluida per lo sviluppo professionale.',
-    color: '#8B7CF6',
-  },
-  {
-    id: '2',
-    icon: 'cube',
-    title: 'AI Frammentata',
-    description: 'Developer devono usare tool separati per GPT-5, Claude 4.5, Gemini Pro 2.5. Nessuna integrazione nativa in ambiente mobile.',
-    color: '#6F5CFF',
-  },
-  {
-    id: '3',
-    icon: 'phone-portrait',
-    title: 'Produttività Persa',
-    description: '68% dei developer usano smartphone per >3h/giorno, ma solo per task minori. Manca piattaforma seria per coding mobile.',
-    color: '#5946D6',
-  },
-  {
-    id: '4',
-    icon: 'alert-circle',
-    title: 'Emergenze Bloccanti',
-    description: 'Production down mentre sei fuori casa? Debug urgente? Impossibile aprire laptop ovunque. Mobile = zero opzioni professionali.',
-    color: '#4834B8',
-  },
-];
-
 export const ProblemScreen = () => {
+  const { t } = useTranslation(['projects', 'chat']);
   const [message, setMessage] = useState('');
+  const problemCards: ProblemCardData[] = [
+    {
+      id: '1',
+      icon: 'desktop',
+      title: t('projects:problem.cards.desktop.title'),
+      description: t('projects:problem.cards.desktop.description'),
+      color: '#8B7CF6',
+    },
+    {
+      id: '2',
+      icon: 'cube',
+      title: t('projects:problem.cards.ai.title'),
+      description: t('projects:problem.cards.ai.description'),
+      color: '#6F5CFF',
+    },
+    {
+      id: '3',
+      icon: 'phone-portrait',
+      title: t('projects:problem.cards.productivity.title'),
+      description: t('projects:problem.cards.productivity.description'),
+      color: '#5946D6',
+    },
+    {
+      id: '4',
+      icon: 'alert-circle',
+      title: t('projects:problem.cards.emergency.title'),
+      description: t('projects:problem.cards.emergency.description'),
+      color: '#4834B8',
+    },
+  ];
 
   const handleSend = () => {
     if (message.trim()) {
@@ -66,7 +67,7 @@ export const ProblemScreen = () => {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Il Problema</Text>
+        <Text style={styles.headerTitle}>{t('projects:problem.title')}</Text>
       </View>
 
       {/* Scrollable content */}
@@ -101,7 +102,7 @@ export const ProblemScreen = () => {
         value={message}
         onChangeText={setMessage}
         onSend={handleSend}
-        placeholder="Scrivi un messaggio..."
+        placeholder={t('chat:composer.messagePlaceholder')}
         showTopBar={false}
       />
     </KeyboardAvoidingView>

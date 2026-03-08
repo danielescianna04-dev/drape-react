@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -25,6 +26,7 @@ export const AgentThinking: React.FC<AgentThinkingProps> = ({
   currentTool,
   message,
 }) => {
+  const { t } = useTranslation('terminal');
   const pulseAnim = useSharedValue(1);
   const dotAnim1 = useSharedValue(0);
   const dotAnim2 = useSharedValue(0);
@@ -104,7 +106,7 @@ export const AgentThinking: React.FC<AgentThinkingProps> = ({
       {/* Content */}
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Thinking</Text>
+          <Text style={styles.title}>{t('agent.thinking')}</Text>
           <View style={styles.dots}>
             <Animated.View style={[styles.dot, dot1Style]} />
             <Animated.View style={[styles.dot, dot2Style]} />
@@ -113,7 +115,7 @@ export const AgentThinking: React.FC<AgentThinkingProps> = ({
         </View>
 
         {iteration !== undefined && (
-          <Text style={styles.iteration}>Iteration {iteration}</Text>
+          <Text style={styles.iteration}>{t('agent.iteration', { count: iteration })}</Text>
         )}
 
         {currentTool && (

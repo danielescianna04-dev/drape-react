@@ -6,6 +6,7 @@ import { useChatEngine, type ChatEngineMessage } from '../../../hooks/engine/use
 import { useChatStore } from '../../../core/terminal/chatStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
 import type { AIMessage } from '../components/PreviewAIChat';
+import i18next from 'i18next';
 
 // ── Engine → AIMessage mapping ───────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ interface UsePreviewChatParams {
 
 const MAX_LOCAL_HISTORY_MESSAGES = 200;
 const PREVIEW_CONFIRMATION_RE = /^(vai|va bene|ok|okay|procedi|prosegui|continua|fallo|fai tu|yes|yep|go ahead|do it)$/i;
+const PREVIEW_CONTEXTUAL_FOLLOW_UP_RE = /^(start|avvia|inizia|parti|comincia|procedi|continua|vai|fallo|fai tu|ok|okay|yes|yep|go ahead|do it|same|uguale|come prima|undo|annulla|ripristina)$/i;
 
 type PreviewSelectedElement = {
   selector: string;
@@ -54,6 +56,8 @@ type PendingPreviewAction = {
   element: PreviewSelectedElement;
   request: string;
 };
+
+type PreviewPromptLanguage = 'it' | 'en';
 
 function buildConversationHistory(messages: AIMessage[]): Array<{ role: 'user' | 'assistant'; content: string }> {
   return messages
@@ -73,6 +77,27 @@ function summarizeSelectedElement(element: PreviewSelectedElement): string {
   return `selector="${element.selector}" tag="${element.tag || ''}" class="${element.className || ''}" id="${element.id || ''}" text="${(element.text || '').slice(0, 140)}"`;
 }
 
+function detectPreviewPromptLanguage(message: string): PreviewPromptLanguage {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) return 'en';
+
+  const italianHints = [
+    'ciao', 'come', 'fai', 'fallo', 'rosso', 'uguale', 'prima', 'annulla', 'ripristina',
+    'rendi', 'metti', 'cambia', 'porta', 'riporta', 'puoi', 'potresti', 'riesci', 'questo',
+    'quello', 'gli', 'altri', 'header', 'titolo', 'bottone'
+  ];
+  const englishHints = [
+    'make', 'this', 'that', 'same', 'start', 'undo', 'restore', 'revert', 'header', 'button',
+    'title', 'change', 'set', 'turn', 'bring', 'move', 'keep', 'match', 'render', 'fix',
+    'can you', 'could you', 'please', 'floating', 'sticky'
+  ];
+
+  const italianScore = italianHints.filter(token => normalized.includes(token)).length;
+  const englishScore = englishHints.filter(token => normalized.includes(token)).length;
+
+  return englishScore > italianScore ? 'en' : 'it';
+}
+
 function isQuestionLikeMessage(message: string): boolean {
   const normalized = message.trim().toLowerCase();
   if (!normalized) return false;
@@ -85,35 +110,109 @@ function isQuestionLikeMessage(message: string): boolean {
 function buildSelectedElementPrompt(element: PreviewSelectedElement, userMessage: string): string {
   const elementSummary = summarizeSelectedElement(element);
   const normalized = userMessage.trim();
+  const language = detectPreviewPromptLanguage(userMessage);
 
   if (isQuestionLikeMessage(normalized)) {
-    return [
-      'L’utente ha selezionato un elemento nella preview.',
-      `Elemento selezionato: ${elementSummary}`,
-      `Richiesta: ${normalized}`,
-      'Rispondi rispetto a QUESTO elemento selezionato. Se l’utente chiede una modifica, applicala; se sta chiedendo una spiegazione, rispondi in modo utile senza perdere il contesto dell’elemento.',
-    ].join('\n');
+    return language === 'it'
+      ? [
+          'L’utente ha selezionato un elemento nella preview.',
+          `Elemento selezionato: ${elementSummary}`,
+          `Richiesta: ${normalized}`,
+          'Rispondi rispetto a QUESTO elemento selezionato. Se l’utente chiede una modifica, applicala; se sta chiedendo una spiegazione, rispondi in modo utile senza perdere il contesto dell’elemento.',
+          'Rispondi in italiano.',
+        ].join('\n')
+      : [
+          'The user selected an element in the preview.',
+          `Selected element: ${elementSummary}`,
+          `Request: ${normalized}`,
+          'Respond about THIS selected element. If the user is asking for a change, apply it; if the user is asking for an explanation, answer helpfully without losing the element context.',
+          'Reply in English.',
+        ].join('\n');
   }
 
-  return [
-    'L’utente ha selezionato un elemento specifico nella preview e vuole che tu modifichi PROPRIO quello.',
-    `Elemento selezionato: ${elementSummary}`,
-    `Modifica richiesta: ${normalized}`,
-    'Interpreta la richiesta come un’azione da eseguire subito sul codice del progetto.',
-    'Non limitarti a descrivere il piano: usa i tool e applica direttamente la modifica.',
-    'Se la richiesta è breve o implicita, assumila come modifica visuale/di stile dell’elemento selezionato.',
-    'Se il testo è un colore come "red", applicalo in modo sensato all’elemento selezionato (di solito text color, altrimenti background/accento a seconda del tipo di elemento).',
-  ].join('\n');
+  return language === 'it'
+    ? [
+        'L’utente ha selezionato un elemento specifico nella preview e vuole che tu modifichi PROPRIO quello.',
+        `Elemento selezionato: ${elementSummary}`,
+        `Modifica richiesta: ${normalized}`,
+        'Interpreta la richiesta come un’azione da eseguire subito sul codice del progetto.',
+        'Non limitarti a descrivere il piano: usa i tool e applica direttamente la modifica.',
+        'Se la richiesta è breve o implicita, assumila come modifica visuale/di stile dell’elemento selezionato.',
+        'Se il testo è un colore come "red", applicalo in modo sensato all’elemento selezionato (di solito text color, altrimenti background/accento a seconda del tipo di elemento).',
+        'Rispondi in italiano.',
+      ].join('\n')
+    : [
+        'The user selected a specific element in the preview and wants you to modify THAT exact element.',
+        `Selected element: ${elementSummary}`,
+        `Requested change: ${normalized}`,
+        'Interpret the request as an action to execute immediately on the project code.',
+        'Do not just describe the plan: use tools and apply the change directly.',
+        'If the request is short or implicit, treat it as a visual or styling change for the selected element.',
+        'If the text is a color like "red", apply it sensibly to the selected element (usually text color, otherwise background or accent depending on the element type).',
+        'Reply in English.',
+      ].join('\n');
 }
 
 function buildConfirmationPrompt(action: PendingPreviewAction): string {
-  return [
-    'L’utente sta confermando di procedere con una modifica già riferita a un elemento selezionato nella preview.',
-    `Elemento selezionato: ${summarizeSelectedElement(action.element)}`,
-    `Richiesta già data: ${action.request}`,
-    'Procedi ORA con la modifica sul codice usando i tool.',
-    'Non fare solo una descrizione o un nuovo piano.',
-  ].join('\n');
+  const language = detectPreviewPromptLanguage(action.request);
+  return language === 'it'
+    ? [
+        'L’utente sta confermando di procedere con una modifica già riferita a un elemento selezionato nella preview.',
+        `Elemento selezionato: ${summarizeSelectedElement(action.element)}`,
+        `Richiesta già data: ${action.request}`,
+        'Procedi ORA con la modifica sul codice usando i tool.',
+        'Non fare solo una descrizione o un nuovo piano.',
+        'Rispondi in italiano.',
+      ].join('\n')
+    : [
+        'The user is confirming that you should proceed with a change already tied to a selected preview element.',
+        `Selected element: ${summarizeSelectedElement(action.element)}`,
+        `Previous request: ${action.request}`,
+        'Proceed NOW with the code change using tools.',
+        'Do not only describe the plan or restate the request.',
+        'Reply in English.',
+      ].join('\n');
+}
+
+function isContextualFollowUpMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) return false;
+  if (PREVIEW_CONTEXTUAL_FOLLOW_UP_RE.test(normalized)) return true;
+
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  if (wordCount > 5) return false;
+
+  const hasQuestion = normalized.includes('?');
+  if (hasQuestion && !/^(same|uguale|come prima|come gli altri|like the others)\b/i.test(normalized)) {
+    return false;
+  }
+
+  return /^(make|set|put|use|change|turn|bring|move|keep|match|render|restore|revert|fix|fai|rendi|metti|usa|cambia|porta|riporta|mantieni|allinea|sistema|ripristina|fallo)\b/i.test(normalized);
+}
+
+function buildContextualFollowUpPrompt(action: PendingPreviewAction, userMessage: string): string {
+  const language = detectPreviewPromptLanguage(userMessage);
+  return language === 'it'
+    ? [
+        'L’utente sta inviando un follow-up breve nella preview chat.',
+        `Elemento selezionato o ultimo target attivo: ${summarizeSelectedElement(action.element)}`,
+        `Ultima richiesta concreta su questo elemento: ${action.request}`,
+        `Nuovo follow-up dell’utente: ${userMessage.trim()}`,
+        'Interpreta il nuovo messaggio usando il contesto recente della conversazione, i tool_result già presenti e l’ultima modifica discussa su questo elemento.',
+        'Se il follow-up implica di procedere, continuare, rifare, annullare o allineare la modifica, agisci subito con i tool sul codice.',
+        'Non trattare questo messaggio come una richiesta standalone priva di contesto.',
+        'Rispondi in italiano.',
+      ].join('\n')
+    : [
+        'The user is sending a short follow-up in the preview chat.',
+        `Selected element or last active target: ${summarizeSelectedElement(action.element)}`,
+        `Last concrete request for this element: ${action.request}`,
+        `New user follow-up: ${userMessage.trim()}`,
+        'Interpret the new message using the recent conversation context, any existing tool results, and the last change discussed for this element.',
+        'If the follow-up means proceed, continue, redo, undo, restore, or align the change, act immediately with tools on the code.',
+        'Do not treat this message as a standalone request with no context.',
+        'Reply in English.',
+      ].join('\n');
 }
 
 export function usePreviewChat({ currentWorkstationId, currentWorkstationName, webViewRef }: UsePreviewChatParams) {
@@ -274,6 +373,8 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
       }
     } else if (isConfirmationOnly && pendingPreviewActionRef.current) {
       prompt = buildConfirmationPrompt(pendingPreviewActionRef.current);
+    } else if (pendingPreviewActionRef.current && isContextualFollowUpMessage(userMessage)) {
+      prompt = buildContextualFollowUpPrompt(pendingPreviewActionRef.current, userMessage);
     }
 
     const newUserMsg: AIMessage = {
@@ -550,7 +651,7 @@ const INSPECT_MODE_JS = `
     tooltip.style.background = 'rgba(139, 124, 246, 0.85)';
     tooltip.style.backdropFilter = 'blur(20px)';
     tooltip.style.webkitBackdropFilter = 'blur(20px)';
-    tooltip.textContent = '✓ Selezionato';
+    tooltip.textContent = ${JSON.stringify(`✓ ${i18next.t('terminal:preview.elementSelected')}`)};
 
     window.ReactNativeWebView?.postMessage(JSON.stringify({
       type: 'ELEMENT_SELECTED',

@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../../shared/theme/colors';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -25,6 +26,7 @@ type DeviceType = 'mobile' | 'tablet' | 'desktop';
 type Orientation = 'portrait' | 'landscape';
 
 export const PreviewView = ({ tab }: Props) => {
+  const { t } = useTranslation('terminal');
   const [device, setDevice] = useState<DeviceType>('mobile');
   const [orientation, setOrientation] = useState<Orientation>('portrait');
   const [showGrid, setShowGrid] = useState(false);
@@ -100,7 +102,7 @@ export const PreviewView = ({ tab }: Props) => {
     setTimeout(() => {
       const aiResponse: ChatMessage = {
         id: (Date.now() + 1).toString(),
-        text: "Sto analizzando la tua richiesta. Modifico il codice...",
+        text: t('previewView.mockAiResponse'),
         isUser: false,
         timestamp: new Date(),
       };
@@ -253,7 +255,7 @@ export const PreviewView = ({ tab }: Props) => {
       <View style={styles.chatInner}>
         <View style={styles.chatHeader}>
           <Ionicons name="chatbubbles" size={18} color={AppColors.primary} />
-          <Text style={styles.chatHeaderText}>Chiedi modifiche all'AI</Text>
+          <Text style={styles.chatHeaderText}>{t('previewView.askAiChanges')}</Text>
         </View>
 
         <FlatList
@@ -277,7 +279,7 @@ export const PreviewView = ({ tab }: Props) => {
                 <View style={styles.chatInputInner}>
                   <TextInput
                     style={styles.chatInput}
-                    placeholder="Descrivi le modifiche..."
+                    placeholder={t('previewView.describeChanges')}
                     placeholderTextColor="#666"
                     value={inputText}
                     onChangeText={setInputText}
@@ -297,7 +299,7 @@ export const PreviewView = ({ tab }: Props) => {
               <View style={styles.chatInputInner}>
                 <TextInput
                   style={styles.chatInput}
-                  placeholder="Descrivi le modifiche..."
+                  placeholder={t('previewView.describeChanges')}
                   placeholderTextColor="#666"
                   value={inputText}
                   onChangeText={setInputText}
@@ -344,7 +346,7 @@ export const PreviewView = ({ tab }: Props) => {
           <TouchableOpacity onPress={exitDesignMode} style={styles.exitButton}>
             <Ionicons name="close" size={20} color="#fff" />
           </TouchableOpacity>
-          <Text style={styles.designModeTitle}>Design Mode</Text>
+          <Text style={styles.designModeTitle}>{t('previewView.designMode')}</Text>
           <View style={styles.exitButton}>
             <Ionicons name="sparkles" size={20} color={AppColors.primary} />
           </View>
@@ -359,7 +361,7 @@ export const PreviewView = ({ tab }: Props) => {
         <View style={styles.infoBar}>
           <View style={styles.infoLeft}>
             <View style={[styles.statusDot, { backgroundColor: '#00D084' }]} />
-            <Text style={styles.infoText}>Live Preview</Text>
+            <Text style={styles.infoText}>{t('previewView.livePreview')}</Text>
           </View>
           <Text style={styles.dimensionsText}>
             {dimensions.width} × {dimensions.height}
@@ -428,7 +430,7 @@ export const PreviewView = ({ tab }: Props) => {
           {!designMode && (
             <View style={styles.pinchHint}>
               <Ionicons name="contract-outline" size={16} color="#999" />
-              <Text style={styles.pinchHintText}>Pizzica per la modalità design</Text>
+              <Text style={styles.pinchHintText}>{t('previewView.pinchHint')}</Text>
             </View>
           )}
         </Animated.View>
