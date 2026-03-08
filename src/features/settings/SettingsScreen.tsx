@@ -95,7 +95,7 @@ interface Props {
   initialPlanIndex?: number;
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.84;
 const GAP = 12;
 const SNAP_INTERVAL = CARD_WIDTH + GAP;
@@ -487,6 +487,14 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
   const renderPlanSelection = () => {
     // Get localized prices from App Store (fallback to hardcoded)
+    const getCurrencySymbol = (currency?: string): string => {
+      if (currency === 'EUR') return '€';
+      if (currency === 'USD') return '$';
+      if (currency === 'GBP') return '£';
+      if (currency === 'JPY') return '¥';
+      return currency || '€';
+    };
+
     const getPrice = (productId: string, fallback: string): string => {
       const product = iapProducts.find(p => p.productId === productId);
       return product?.localizedPrice || fallback;
@@ -496,15 +504,22 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       const product = iapProducts.find(p => p.productId === productId);
       if (!product?.introductoryPrice) return undefined;
       // Format: introductoryPrice is the raw amount (e.g. "5.99")
-      const currency = product.currency === 'EUR' ? '€' : product.currency === 'USD' ? '$' : product.currency || '€';
-      return `${currency}${product.introductoryPrice}`;
+      return `${getCurrencySymbol(product.currency)}${product.introductoryPrice}`;
     };
+
+    const currentCyclePaidProduct = iapProducts.find((p) =>
+      billingCycle === 'monthly'
+        ? p.productId === IAP_PRODUCT_IDS.GO_MONTHLY || p.productId === IAP_PRODUCT_IDS.PRO_MONTHLY
+        : p.productId === IAP_PRODUCT_IDS.GO_YEARLY || p.productId === IAP_PRODUCT_IDS.PRO_YEARLY
+    );
+
+    const freePlanPrice = `${getCurrencySymbol(currentCyclePaidProduct?.currency)}0`;
 
     const plans = [
       {
         id: 'free',
         name: t('plans.free.name'),
-        price: '€0',
+        price: freePlanPrice,
         introPrice: undefined as string | undefined,
         description: t('plans.free.description'),
         features: t('plans.free.features', { returnObjects: true }) as string[],
@@ -574,66 +589,67 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         <ScrollView
           style={styles.content}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+          contentContainerStyle={styles.plansContentContainer}
         >
-          <Animated.View style={[styles.planSelectionHero, {
-            opacity: planHeaderAnim,
-            transform: [{ translateY: planHeaderAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
-          }]}>
-            <Text style={styles.plansMainTitle}>{t('plans.elevateTitle')}</Text>
-            <Text style={styles.plansSubtitleSmall}>{t('plans.elevateDesc')}</Text>
-          </Animated.View>
+          <View style={styles.plansFirstFold}>
+            <Animated.View style={[styles.planSelectionHero, {
+              opacity: planHeaderAnim,
+              transform: [{ translateY: planHeaderAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
+            }]}>
+              <Text style={styles.plansMainTitle}>{t('plans.elevateTitle')}</Text>
+              <Text style={styles.plansSubtitleSmall}>{t('plans.elevateDesc')}</Text>
+            </Animated.View>
 
-          {/* Billing Switcher */}
-          <Animated.View style={[styles.pricingToggleContainer, {
-            opacity: planToggleAnim,
-            transform: [{ translateY: planToggleAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
-          }]}>
-            <TouchableOpacity
-              style={[styles.pricingOption, billingCycle === 'monthly' && styles.pricingOptionActive]}
-              onPress={() => { trackBillingCycleChange('monthly'); setBillingCycle('monthly'); }}
-            >
-              <Text style={[styles.pricingOptionText, billingCycle === 'monthly' && styles.pricingOptionTextActive]}>{t('plans.monthly')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.pricingOption, billingCycle === 'yearly' && styles.pricingOptionActive]}
-              onPress={() => { trackBillingCycleChange('yearly'); setBillingCycle('yearly'); }}
-            >
-              <Text style={[styles.pricingOptionText, billingCycle === 'yearly' && styles.pricingOptionTextActive]}>{t('plans.yearly')}</Text>
-              <View style={styles.yearlySavings}>
-                <Text style={styles.yearlySavingsText}>-20%</Text>
-              </View>
-            </TouchableOpacity>
-          </Animated.View>
+            {/* Billing Switcher */}
+            <Animated.View style={[styles.pricingToggleContainer, {
+              opacity: planToggleAnim,
+              transform: [{ translateY: planToggleAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+            }]}>
+              <TouchableOpacity
+                style={[styles.pricingOption, billingCycle === 'monthly' && styles.pricingOptionActive]}
+                onPress={() => { trackBillingCycleChange('monthly'); setBillingCycle('monthly'); }}
+              >
+                <Text style={[styles.pricingOptionText, billingCycle === 'monthly' && styles.pricingOptionTextActive]}>{t('plans.monthly')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pricingOption, billingCycle === 'yearly' && styles.pricingOptionActive]}
+                onPress={() => { trackBillingCycleChange('yearly'); setBillingCycle('yearly'); }}
+              >
+                <Text style={[styles.pricingOptionText, billingCycle === 'yearly' && styles.pricingOptionTextActive]}>{t('plans.yearly')}</Text>
+                <View style={styles.yearlySavings}>
+                  <Text style={styles.yearlySavingsText}>-20%</Text>
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
 
-          <Animated.View style={{
-            opacity: planCardsAnim,
-            transform: [
-              { translateY: planCardsAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) },
-              { scale: planCardsAnim.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }) },
-            ],
-          }}>
-          <ScrollView
-            ref={planScrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            directionalLockEnabled
-            nestedScrollEnabled
-            pagingEnabled={false}
-            snapToInterval={SNAP_INTERVAL}
-            decelerationRate="fast"
-            contentContainerStyle={styles.plansScrollContent}
-            scrollEventThrottle={16}
-            removeClippedSubviews={false}
-            onScroll={(e) => {
-              const x = e.nativeEvent.contentOffset.x;
-              const index = Math.round(x / SNAP_INTERVAL);
-              if (index >= 0 && index <= 2 && index !== visiblePlanIndex) {
-                setVisiblePlanIndex(index);
-              }
-            }}
-          >
-            {plans.map((plan, idx) => {
+            <Animated.View style={{
+              opacity: planCardsAnim,
+              transform: [
+                { translateY: planCardsAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) },
+                { scale: planCardsAnim.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }) },
+              ],
+            }}>
+            <ScrollView
+              ref={planScrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              directionalLockEnabled
+              nestedScrollEnabled
+              pagingEnabled={false}
+              snapToInterval={SNAP_INTERVAL}
+              decelerationRate="fast"
+              contentContainerStyle={styles.plansScrollContent}
+              scrollEventThrottle={16}
+              removeClippedSubviews={false}
+              onScroll={(e) => {
+                const x = e.nativeEvent.contentOffset.x;
+                const index = Math.round(x / SNAP_INTERVAL);
+                if (index >= 0 && index <= 2 && index !== visiblePlanIndex) {
+                  setVisiblePlanIndex(index);
+                }
+              }}
+            >
+              {plans.map((plan, idx) => {
               // "Piano Attuale" — exact product match if available, fallback to plan name
               const isExactCurrent = plan.id === 'free'
                 ? (currentPlan === 'free')
@@ -643,19 +659,26 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
               const cardContent = (
                 <>
+                  <LinearGradient
+                    colors={[`${plan.color}22`, 'rgba(255,255,255,0.01)', 'transparent']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.planCardTopGlow}
+                  />
+
                   {plan.isPopular && (
-                    <LinearGradient
-                      colors={[plan.color, '#F472B6']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.featuredBadge}
-                    >
+                    <View style={styles.featuredBadge}>
+                      <Ionicons name="sparkles" size={10} color="rgba(255,255,255,0.72)" />
                       <Text style={styles.featuredBadgeText}>{t('plans.recommended')}</Text>
-                    </LinearGradient>
+                    </View>
                   )}
 
                   <View style={styles.planHeaderNew}>
-                    <View>
+                    <View style={styles.planTitleBlock}>
+                      <View style={[styles.planTierPill, { borderColor: `${plan.color}40`, backgroundColor: `${plan.color}12` }]}>
+                        <View style={[styles.planTierDot, { backgroundColor: plan.color }]} />
+                        <Text style={[styles.planTierPillText, { color: plan.color }]}>{plan.name}</Text>
+                      </View>
                       <Text style={styles.planNameSmall}>{plan.name}</Text>
                       <Text style={styles.planDescriptionSmall}>{plan.description}</Text>
                     </View>
@@ -684,12 +707,18 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                     <Text style={styles.introLabel}>{t('plans.firstMonth')}</Text>
                   )}
 
+                  {!plan.introPrice && plan.id !== 'free' && billingCycle === 'yearly' && (
+                    <Text style={styles.planMicroNote}>{t('plans.save20')}</Text>
+                  )}
+
                   <View style={styles.planDividerNew} />
 
                   <View style={styles.featuresList}>
                     {plan.features.map((f, i) => (
                       <View key={i} style={styles.featureItemNew}>
-                        <View style={[styles.featureMark, { backgroundColor: visiblePlanIndex === idx ? plan.color : 'rgba(255,255,255,0.2)' }]} />
+                        <View style={[styles.featureMarkWrap, { backgroundColor: `${plan.color}16`, borderColor: `${plan.color}30` }]}>
+                          <View style={[styles.featureMark, { backgroundColor: visiblePlanIndex === idx ? plan.color : 'rgba(255,255,255,0.2)' }]} />
+                        </View>
                         <Text style={styles.featureLabel}>{f}</Text>
                       </View>
                     ))}
@@ -700,7 +729,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                       styles.planActionBtn,
                       isExactCurrent
                         ? { backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }
-                        : { backgroundColor: plan.color },
+                        : { backgroundColor: plan.color, shadowColor: plan.color, shadowOpacity: 0.35, shadowRadius: 18, shadowOffset: { width: 0, height: 10 } },
                       isPurchasing && plan.id !== 'free' && !isExactCurrent && { opacity: 0.6 },
                     ]}
                     disabled={isExactCurrent || plan.id === 'free' || isPurchasing}
@@ -718,50 +747,54 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 </>
               );
 
-              return (
-              <View key={plan.id} style={styles.planCardNewWrapper}>
-                {isLiquidGlassSupported ? (
-                  <LiquidGlassView
-                    style={[
-                      styles.planCardLiquid,
-                      visiblePlanIndex === idx && { borderColor: `${plan.color}40`, borderWidth: 1 }
-                    ]}
-                    interactive={true}
-                    effect="regular"
-                    colorScheme="dark"
-                  >
-                    {cardContent}
-                  </LiquidGlassView>
-                ) : (
-                  <View style={[
-                    styles.planCardNew,
-                    visiblePlanIndex === idx && { borderColor: `${plan.color}40`, backgroundColor: 'rgba(255,255,255,0.04)' }
-                  ]}>
-                    {cardContent}
-                  </View>
-                )}
-              </View>
-              );
-            })}
-          </ScrollView>
-          </Animated.View>
+                return (
+                <View key={plan.id} style={styles.planCardNewWrapper}>
+                  {isLiquidGlassSupported ? (
+                    <LiquidGlassView
+                      style={[
+                        styles.planCardLiquid,
+                        visiblePlanIndex === idx && { borderColor: `${plan.color}40`, borderWidth: 1 }
+                      ]}
+                      interactive={true}
+                      effect="regular"
+                      colorScheme="dark"
+                    >
+                      {cardContent}
+                    </LiquidGlassView>
+                  ) : (
+                    <View style={[
+                      styles.planCardNew,
+                      visiblePlanIndex === idx && { borderColor: `${plan.color}40`, backgroundColor: 'rgba(255,255,255,0.04)' }
+                    ]}>
+                      {cardContent}
+                    </View>
+                  )}
+                </View>
+                );
+              })}
+            </ScrollView>
+            </Animated.View>
 
-          {/* Dots */}
-          <Animated.View style={[styles.dotsRow, {
-            opacity: planFooterAnim,
-          }]}>
-            {plans.map((_, i) => (
-              <View key={i} style={[styles.planDot, visiblePlanIndex === i && styles.planDotActive]} />
-            ))}
-          </Animated.View>
+            {/* Dots */}
+            <Animated.View style={[styles.dotsRow, {
+              opacity: planFooterAnim,
+            }]}>
+              {plans.map((_, i) => (
+                <View key={i} style={[styles.planDot, visiblePlanIndex === i && styles.planDotActive]} />
+              ))}
+            </Animated.View>
+          </View>
 
           <Animated.View style={{ opacity: planFooterAnim, alignItems: 'center' }}>
+            <View style={styles.restoreBlock}>
+              <Text style={styles.restoreCaption}>{t('plans.secureTransactions')}</Text>
+            </View>
             <TouchableOpacity
               onPress={() => { trackRestorePurchases(); restorePurchases(); }}
               disabled={isRestoring}
-              style={{ paddingVertical: 12 }}
+              style={styles.restoreButton}
             >
-              <Text style={{ color: AppColors.primary, fontSize: 13, fontWeight: '600' }}>
+              <Text style={styles.restoreButtonText}>
                 {isRestoring ? t('plans.restoring') : t('plans.restorePurchases')}
               </Text>
             </TouchableOpacity>
@@ -1258,32 +1291,40 @@ const styles = StyleSheet.create({
   },
   planSelectionHero: {
     alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 24,
+    marginTop: 6,
+    marginBottom: 16,
   },
   plansMainTitle: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '800',
     color: '#fff',
     letterSpacing: -0.5,
   },
   plansSubtitleSmall: {
-    fontSize: 13,
+    fontSize: 12,
     color: 'rgba(255,255,255,0.4)',
     textAlign: 'center',
-    marginTop: 8,
-    paddingHorizontal: 40,
-    lineHeight: 18,
+    marginTop: 6,
+    paddingHorizontal: 54,
+    lineHeight: 17,
   },
   pricingToggleContainer: {
     flexDirection: 'row',
     alignSelf: 'center',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 14,
-    padding: 3,
-    marginBottom: 30,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 16,
+    padding: 4,
+    marginBottom: 18,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.05)',
+  },
+  plansContentContainer: {
+    paddingBottom: 32,
+  },
+  plansFirstFold: {
+    minHeight: SCREEN_HEIGHT - 210,
+    justifyContent: 'space-between',
+    paddingTop: 8,
   },
   pricingOption: {
     flexDirection: 'row',
@@ -1332,7 +1373,7 @@ const styles = StyleSheet.create({
   },
   planCardNewWrapper: {
     width: CARD_WIDTH,
-    minHeight: 488,
+    minHeight: 430,
     marginRight: GAP,
   },
   planCardLiquid: {
@@ -1342,60 +1383,103 @@ const styles = StyleSheet.create({
     padding: 24,
     overflow: 'hidden',
   },
+  planCardTopGlow: {
+    position: 'absolute',
+    top: -10,
+    left: -20,
+    right: -20,
+    height: 170,
+    borderRadius: 40,
+  },
   featuredBadge: {
     position: 'absolute',
-    top: 0,
-    right: 30,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderBottomLeftRadius: 10,
-    borderBottomRightRadius: 10,
+    top: 18,
+    right: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   featuredBadgeText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#fff',
-    letterSpacing: 0.5,
+    fontSize: 10,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.72)',
+    letterSpacing: 0.4,
   },
   planHeaderNew: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 20,
+    marginBottom: 14,
+  },
+  planTitleBlock: {
+    flexShrink: 1,
+    paddingTop: 10,
+  },
+  planTierPill: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  planTierDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  planTierPillText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
   planNameSmall: {
-    fontSize: 20,
+    fontSize: 23,
     fontWeight: '800',
     color: '#fff',
-    marginBottom: 2,
+    marginBottom: 4,
+    letterSpacing: -0.5,
   },
   planDescriptionSmall: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.35)',
-    maxWidth: '85%',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.48)',
+    maxWidth: '88%',
+    lineHeight: 18,
   },
   activeIndicator: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 10,
   },
   priceRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 4,
-    marginBottom: 4,
+    marginBottom: 2,
+    minHeight: 46,
   },
   priceTextLarge: {
-    fontSize: 34,
+    fontSize: 36,
     fontWeight: '800',
     color: '#fff',
-    letterSpacing: -0.5,
+    letterSpacing: -1,
   },
   pricePeriod: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.25)',
+    color: 'rgba(255,255,255,0.34)',
     fontWeight: '600',
   },
   introOriginalPrice: {
@@ -1407,34 +1491,50 @@ const styles = StyleSheet.create({
   },
   introLabel: {
     fontSize: 12,
-    color: '#10B981',
+    color: 'rgba(255,255,255,0.58)',
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  planMicroNote: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.34)',
     fontWeight: '700',
     marginBottom: 8,
   },
   planDividerNew: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    marginVertical: 20,
+    marginVertical: 16,
   },
   featuresList: {
     flex: 1,
-    gap: 12,
-    marginBottom: 24,
+    gap: 10,
+    marginBottom: 18,
   },
   featureItemNew: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
+  featureMarkWrap: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
   featureMark: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   featureLabel: {
+    flex: 1,
     fontSize: 13,
-    color: 'rgba(255,255,255,0.5)',
-    fontWeight: '500',
+    color: 'rgba(255,255,255,0.72)',
+    fontWeight: '600',
+    lineHeight: 18,
   },
   planActionBtn: {
     height: 48,
@@ -1451,8 +1551,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 6,
-    marginTop: 20,
-    marginBottom: 10,
+    marginTop: 14,
+    marginBottom: 14,
   },
   planDot: {
     width: 5,
@@ -1464,11 +1564,32 @@ const styles = StyleSheet.create({
     backgroundColor: AppColors.primary,
     width: 12,
   },
+  restoreBlock: {
+    width: '100%',
+    paddingHorizontal: 28,
+    marginBottom: 6,
+  },
+  restoreCaption: {
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.3)',
+  },
+  restoreButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginTop: 2,
+  },
+  restoreButtonText: {
+    color: AppColors.primary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
   legalNotice: {
     fontSize: 11,
     color: 'rgba(255,255,255,0.2)',
     textAlign: 'center',
-    marginTop: 10,
+    marginTop: 12,
     paddingHorizontal: 30,
     lineHeight: 16,
   },

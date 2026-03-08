@@ -12,7 +12,6 @@ import { MultitaskingPanel } from './MultitaskingPanel';
 import { VerticalCardSwitcher } from './VerticalCardSwitcher';
 import { ContentRenderer } from './ContentRenderer';
 import { TabBar } from './TabBar';
-import { SettingsPanel } from './SettingsPanel';
 import { ChatPanel } from './ChatPanel';
 import { PreviewPanel } from './PreviewPanel';
 import { GitPanel } from './GitPanel';
@@ -28,7 +27,7 @@ import { config } from '../../../config/config';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
 import { trackPanelOpen, trackPanelClose, trackGridButton } from '../../../core/services/analyticsService';
 
-type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | 'git' | 'terminal' | null;
+type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'preview' | 'git' | 'terminal' | null;
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const PILL_HEIGHT = 64;
@@ -229,7 +228,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       case 'files': return 'folder';
       case 'chat': return 'chatbubbles';
       case 'multitasking': return 'grid-outline';
-      case 'settings': return 'settings';
       case 'tasks': return 'list-circle';
       default: return 'folder';
     }
@@ -480,9 +478,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
             <Animated.View entering={FadeInDown.delay(600).duration(500)}>
               <IconButton iconName="exit-outline" size={24} color={AppColors.icon.default} onPress={onExit} accessibilityLabel="Exit" />
             </Animated.View>
-            <Animated.View entering={FadeInDown.delay(700).duration(500)}>
-              <IconButton iconName="settings" size={24} color={AppColors.icon.default} onPress={() => togglePanel('settings')} isActive={activePanel === 'settings'} activeColor={AppColors.primary} accessibilityLabel="Settings panel" />
-            </Animated.View>
           </View>
         </Animated.View>
       </GestureDetector>
@@ -499,7 +494,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         <Animated.View style={[styles.panelsContainer, panelAnimatedStyle]} pointerEvents="box-none">
           {renderedPanel === 'files' && <Sidebar onClose={handleClosePanel} onOpenAllProjects={onOpenAllProjects} onHidePreview={() => setShowPreviewPanel(false)} />}
           {renderedPanel === 'chat' && <ChatPanel onClose={handleClosePanel} onHidePreview={() => setShowPreviewPanel(false)} />}
-          {renderedPanel === 'settings' && <SettingsPanel onClose={handleClosePanel} />}
           {renderedPanel === 'git' && <GitPanel onClose={handleClosePanel} />}
         </Animated.View>
 

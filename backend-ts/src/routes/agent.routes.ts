@@ -40,6 +40,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     images,
     thinkingLevel,
     plan,
+    previewContext,
   } = req.body;
 
   const userId = req.userId || 'anonymous';
@@ -171,6 +172,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
       conversationHistory: conversationHistory || [],
       thinkingLevel,
       executionPlan: mode === 'execute' ? plan : undefined,
+      previewContext: previewContext || null,
       userId,
       userPlan,
     });

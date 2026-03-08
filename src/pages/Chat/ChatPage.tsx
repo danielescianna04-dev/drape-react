@@ -52,7 +52,7 @@ import { useFileHistoryStore } from '../../core/history/fileHistoryStore';
 import { UndoRedoBar } from '../../features/terminal/components/UndoRedoBar';
 import { useAgentStream } from '../../hooks/api/useAgentStream';
 import { useChatEngine, type ChatEngineMessage } from '../../hooks/engine/useChatEngine';
-import { stripToolCallXml } from '../../shared/utils/stripToolCallXml';
+import { sanitizeAgentText } from '../../shared/utils/sanitizeAgentText';
 import { useAgentStore } from '../../core/agent/agentStore';
 import { useFileCacheStore } from '../../core/cache/fileCacheStore';
 // PlanApprovalModal removed - plans now shown inline in chat
@@ -95,15 +95,6 @@ const AI_MODELS = [
   { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'minimal', 'low', 'medium', 'high'] },
 ];
 
-// Thinking level labels for display
-const THINKING_LEVEL_LABELS: Record<string, string> = {
-  none: 'Off',
-  minimal: 'Minimo',
-  low: 'Basso',
-  medium: 'Medio',
-  high: 'Alto',
-};
-
 interface ChatPageProps {
   tab?: Tab;
   isCardMode: boolean;
@@ -113,6 +104,13 @@ interface ChatPageProps {
 
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
   const { t } = useTranslation('chat');
+  const thinkingLevelLabels = useMemo<Record<string, string>>(() => ({
+    none: t('terminal:chat.reasoningLevels.off'),
+    minimal: t('terminal:chat.reasoningLevels.minimal'),
+    low: t('terminal:chat.reasoningLevels.low'),
+    medium: t('terminal:chat.reasoningLevels.medium'),
+    high: t('terminal:chat.reasoningLevels.high'),
+  }), [t]);
   // Use custom hooks for state management and UI concerns
   const chatState = useChatState(isCardMode);
 
@@ -615,7 +613,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       case 'budget_exceeded':
         return { content: '__BUDGET_EXCEEDED__', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp };
       case 'completion':
-        return { content: msg.content || '', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isAgentMessage: true };
+        return { content: msg.content || '', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isAgentMessage: true, isCompletion: true };
       default:
         return { content: msg.content || '', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp };
     }
@@ -1166,6 +1164,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
 
     for (const msg of curr) {
+      if (msg.type === 'completion') continue;
       const prevMsg = prevMap.get(msg.id);
 
       if (!prevMsg && !idMap.has(msg.id)) {
@@ -2523,7 +2522,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
                     // Function to update UI with content (strip any raw XML tool call markup)
                     const updateContent = () => {
-                      const cleanContent = stripToolCallXml(streamedContent);
+                      const cleanContent = sanitizeAgentText(streamedContent);
                       useTabStore.setState((state) => ({
                         tabs: state.tabs.map(t =>
                           t.id === tab.id
@@ -2626,7 +2625,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             }
 
             // Clean the AI message by removing tool call syntax (keep only before part)
-            const cleanedContent = ToolService.removeToolCallsFromText(beforeToolCall);
+            const cleanedContent = sanitizeAgentText(ToolService.removeToolCallsFromText(beforeToolCall));
 
             // Update the AI message to show only the part before tool call
             useTabStore.setState((state) => ({
@@ -2706,7 +2705,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
             // Add the text that came after the tool call (AI's response after tool execution)
             if (afterToolCall) {
-              const cleanedAfterToolCall = ToolService.removeToolCallsFromText(afterToolCall);
+              const cleanedAfterToolCall = sanitizeAgentText(ToolService.removeToolCallsFromText(afterToolCall));
               if (cleanedAfterToolCall.trim()) {
                 addTerminalItem({
                   id: (Date.now() + Math.random()).toString(),
@@ -2719,7 +2718,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
             // Update streamedContent for conversation history
             // Include both before and after tool call text, but not the tool output
-            streamedContent = cleanedContent + (afterToolCall ? '\n' + ToolService.removeToolCallsFromText(afterToolCall) : '');
+            streamedContent = cleanedContent + (afterToolCall ? '\n' + sanitizeAgentText(ToolService.removeToolCallsFromText(afterToolCall)) : '');
 
             // Reset flag after processing
             isProcessingToolsRef.current = false;
@@ -2727,7 +2726,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         }
 
         // Update conversation history with both user message and AI response
-        setConversationHistory([...conversationHistory, userMessage, streamedContent]);
+        setConversationHistory([...conversationHistory, userMessage, sanitizeAgentText(streamedContent)]);
       }
     } catch (error) {
       console.error('❌ [ChatPage] AI request failed:', error);
@@ -3500,7 +3499,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                                     styles.thinkingLevelChipText,
                                     isSelected && styles.thinkingLevelChipTextActive
                                   ]}>
-                                    {THINKING_LEVEL_LABELS[level] || level}
+                                    {thinkingLevelLabels[level] || level}
                                   </SafeText>
                                 </TouchableOpacity>
                               );

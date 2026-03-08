@@ -94,7 +94,7 @@ interface UseAgentStreamReturn {
   currentPrompt: string | null;
   currentProjectId: string | null;
   currentModel: string | null;
-  start: (prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string) => void;
+  start: (prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string, previewContext?: any) => void;
   startExecuting: () => void;
   stop: () => void;
   reset: () => void;
@@ -144,6 +144,7 @@ export function useAgentStream(
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [currentConversationHistory, setCurrentConversationHistory] = useState<any[]>([]);
   const [currentThinkingLevel, setCurrentThinkingLevel] = useState<string | null>(null);
+  const [currentPreviewContext, setCurrentPreviewContext] = useState<any>(null);
 
   // Refs for connection management
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -159,6 +160,7 @@ export function useAgentStream(
     conversationHistory?: any[];
     images?: any[];
     thinkingLevel?: string;
+    previewContext?: any;
   } | null>(null);
   const maxReconnectAttempts = 5;
 
@@ -278,7 +280,7 @@ export function useAgentStream(
    * Connect to SSE endpoint using EventSource POST - sends full conversation history
    * Implements Claude Code style unlimited context via POST body
    */
-  const connect = useCallback(async (prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string) => {
+  const connect = useCallback(async (prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string, previewContext?: any) => {
     if (!enabled) return;
     if (isConnectingRef.current) return;
 
@@ -295,6 +297,7 @@ export function useAgentStream(
       conversationHistory: conversationHistory || [],
       images: images || [],
       thinkingLevel,
+      previewContext: previewContext || undefined,
     };
     shouldResumeOnReconnectRef.current = false;
     if (reconnectTimeoutRef.current) {
@@ -336,6 +339,7 @@ export function useAgentStream(
           conversationHistory: conversationHistory || [], // Send ALL history, no limits
           images: images || [], // Send images for multimodal support
           thinkingLevel: thinkingLevel || null, // Gemini 3 thinking level
+          previewContext: previewContext || undefined,
           userId: useAuthStore.getState().user?.uid || useTerminalStore.getState().userId || null,
           userPlan: useAuthStore.getState().user?.plan || 'free',
         }),
@@ -428,7 +432,7 @@ export function useAgentStream(
             }
             reconnectTimeoutRef.current = setTimeout(() => {
               reconnectAttemptsRef.current++;
-              connect(prompt, projectId, model, conversationHistory, images, thinkingLevel);
+              connect(prompt, projectId, model, conversationHistory, images, thinkingLevel, previewContext);
             }, delay);
           }
           return;
@@ -487,7 +491,7 @@ export function useAgentStream(
   /**
    * Start agent execution
    */
-  const start = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string) => {
+  const start = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string, previewContext?: any) => {
     // Reset state
     eventsRef.current = [];
     setEventsVersion(0);
@@ -504,10 +508,11 @@ export function useAgentStream(
     setCurrentModel(model || null);
     setCurrentConversationHistory(conversationHistory || []);
     setCurrentThinkingLevel(thinkingLevel || null);
+    setCurrentPreviewContext(previewContext || null);
     shouldResumeOnReconnectRef.current = false;
 
     // Connect with selected model, conversation history, images, and thinking level
-    connect(prompt, projectId, model, conversationHistory, images, thinkingLevel);
+    connect(prompt, projectId, model, conversationHistory, images, thinkingLevel, previewContext);
   }, [mode, connect, getAgentStore]);
 
   /**
@@ -541,6 +546,7 @@ export function useAgentStream(
       conversationHistory: currentConversationHistory,
       images: [],
       thinkingLevel: currentThinkingLevel || undefined,
+      previewContext: currentPreviewContext || undefined,
     };
 
     const authToken = await getAuthToken();
@@ -560,6 +566,7 @@ export function useAgentStream(
         conversationHistory: currentConversationHistory,
         images: [],
         thinkingLevel: currentThinkingLevel,
+        previewContext: currentPreviewContext || undefined,
         userId: useAuthStore.getState().user?.uid || useTerminalStore.getState().userId || null,
         userPlan: useAuthStore.getState().user?.plan || 'free',
       }),
@@ -623,7 +630,7 @@ export function useAgentStream(
       setError(errorMsg);
       onError?.(errorMsg);
     });
-  }, [currentPrompt, currentProjectId, currentModel, currentConversationHistory, currentThinkingLevel, plan, handleEvent, getAgentStore, onError, setRunningState]);
+  }, [currentPrompt, currentProjectId, currentModel, currentConversationHistory, currentThinkingLevel, currentPreviewContext, plan, handleEvent, getAgentStore, onError, setRunningState]);
 
   /**
    * Stop agent execution
@@ -648,6 +655,7 @@ export function useAgentStream(
     setCurrentModel(null);
     setCurrentConversationHistory([]);
     setCurrentThinkingLevel(null);
+    setCurrentPreviewContext(null);
     lastConnectPayloadRef.current = null;
     shouldResumeOnReconnectRef.current = false;
     isConnectingRef.current = false;
@@ -680,6 +688,7 @@ export function useAgentStream(
         payload.conversationHistory,
         payload.images,
         payload.thinkingLevel,
+        payload.previewContext,
       );
     });
 

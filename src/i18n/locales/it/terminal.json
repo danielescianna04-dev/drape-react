@@ -460,6 +460,13 @@
       "thinking": "Ragionamento",
       "executing": "Esecuzione"
     },
+    "subAgent": {
+      "explore": "Esplorazione codebase",
+      "plan": "Pianificazione implementazione",
+      "general": "Elaborazione task",
+      "bash": "Esecuzione comando",
+      "default": "Esecuzione sub-agent"
+    },
     "event": {
       "started": "avviato",
       "completed": "completato",
@@ -558,6 +565,13 @@
   "chat": {
     "thinking": "Ragionando",
     "aiReasoning": "Ragionamento AI",
+    "reasoningLevels": {
+      "off": "Off",
+      "minimal": "Minimo",
+      "low": "Basso",
+      "medium": "Medio",
+      "high": "Alto"
+    },
     "sendMessage": "Invia messaggio",
     "messagePlaceholder": "Scrivi un messaggio...",
     "stopGenerating": "Interrompi",

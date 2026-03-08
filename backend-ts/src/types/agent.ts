@@ -16,6 +16,7 @@ export interface AgentOptions {
   images?: string[];
   thinkingLevel?: string; // Gemini 3 thinking level: minimal, low, medium, high
   executionPlan?: any;
+  previewContext?: any;
 }
 
 export interface ToolDefinition {

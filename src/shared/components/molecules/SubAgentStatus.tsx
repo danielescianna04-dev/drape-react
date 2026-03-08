@@ -5,6 +5,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../theme/colors';
 
 interface SubAgent {
@@ -21,6 +22,8 @@ interface Props {
 }
 
 export const SubAgentStatus: React.FC<Props> = ({ subAgent }) => {
+    const { t } = useTranslation('terminal');
+
     if (!subAgent) {
         return null;
     }
@@ -58,15 +61,15 @@ export const SubAgentStatus: React.FC<Props> = ({ subAgent }) => {
     const getAgentLabel = (type: string) => {
         switch (type) {
             case 'explore':
-                return 'Exploring codebase';
+                return t('agent.subAgent.explore');
             case 'plan':
-                return 'Planning implementation';
+                return t('agent.subAgent.plan');
             case 'general':
-                return 'Processing task';
+                return t('agent.subAgent.general');
             case 'bash':
-                return 'Executing command';
+                return t('agent.subAgent.bash');
             default:
-                return 'Running sub-agent';
+                return t('agent.subAgent.default');
         }
     };
 

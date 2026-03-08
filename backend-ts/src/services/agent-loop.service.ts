@@ -40,6 +40,16 @@ const AI_PRICING: Record<string, { input: number; output: number; cachedInput: n
   'llama-3.1-8b':            { input: 0.05,  output: 0.08,  cachedInput: 0.01 },
 };
 
+type PreviewContext = {
+  source?: 'preview';
+  mode?: 'selected-element' | 'selected-element-question' | 'follow-up' | 'general-edit';
+  language?: 'it' | 'en';
+  currentRequest?: string;
+  shouldPreferExecution?: boolean;
+  elementSummary?: string;
+  previousRequest?: string;
+} | null;
+
 function calculateCostEur(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {
   const pricing = AI_PRICING[model] || AI_PRICING['gemini-3-flash'];
   const nonCachedInput = Math.max(0, inputTokens - cachedTokens);
@@ -60,6 +70,7 @@ export class AgentLoop {
   private userId: string | null;
   private userPlan: string;
   private executionPlan: any | null;
+  private previewContext: PreviewContext = null;
   private filesCreated: string[] = [];
   private filesModified: string[] = [];
   private session: Session | null = null;
@@ -108,6 +119,7 @@ export class AgentLoop {
     this.userId = options.userId || null;
     this.userPlan = options.userPlan || 'free';
     this.executionPlan = options.executionPlan || null;
+    this.previewContext = options.previewContext || null;
     this.conversationHistory = this.sanitizeConversationHistory(options.conversationHistory || []);
   }
 
@@ -167,6 +179,57 @@ export class AgentLoop {
     }
 
     return sanitized;
+  }
+
+  private messageTextContent(message: ChatMessage): string {
+    if (!message?.content) return '';
+    if (typeof message.content === 'string') return message.content;
+    return message.content
+      .filter((block): block is Extract<ContentBlock, { type: 'text' | 'tool_result' }> =>
+        block.type === 'text' || block.type === 'tool_result'
+      )
+      .map((block) => (block.type === 'text' ? block.text : block.content))
+      .join('\n');
+  }
+
+  private historyContainsText(pattern: string): boolean {
+    return this.conversationHistory.some((msg) => this.messageTextContent(msg).includes(pattern));
+  }
+
+  private buildPreviewContextDirective(): string {
+    if (!this.previewContext || this.previewContext.source !== 'preview') {
+      return '';
+    }
+
+    const language = this.previewContext.language === 'it' ? 'it' : 'en';
+    const replyRule = language === 'it'
+      ? 'Reply entirely in Italian.'
+      : 'Reply entirely in English.';
+    const lines = language === 'it'
+      ? [
+          '## Preview Context',
+          'L’utente sta scrivendo dalla live preview del progetto.',
+          this.previewContext.elementSummary ? `Elemento/target corrente: ${this.previewContext.elementSummary}` : 'Il target è l’interfaccia attualmente visibile in preview.',
+          this.previewContext.previousRequest ? `Richiesta precedente rilevante: ${this.previewContext.previousRequest}` : '',
+          `Richiesta attuale: ${this.previewContext.currentRequest || ''}`,
+          this.previewContext.shouldPreferExecution
+            ? 'Questa è una richiesta operativa sulla UI. Se la modifica è concreta, usa i tool e cambia davvero il codice invece di fermarti a descrivere il piano.'
+            : 'Usa questo contesto per rispondere rispetto all’elemento o alla preview corrente.',
+          replyRule,
+        ]
+      : [
+          '## Preview Context',
+          'The user is chatting from the live project preview.',
+          this.previewContext.elementSummary ? `Current element/target: ${this.previewContext.elementSummary}` : 'The target is the currently visible UI in the preview.',
+          this.previewContext.previousRequest ? `Relevant previous request: ${this.previewContext.previousRequest}` : '',
+          `Current request: ${this.previewContext.currentRequest || ''}`,
+          this.previewContext.shouldPreferExecution
+            ? 'This is an operational UI request. If the change is concrete, use tools and modify the real code instead of only describing the plan.'
+            : 'Use this context to answer about the current element or preview.',
+          replyRule,
+        ];
+
+    return `\n\n${lines.filter(Boolean).join('\n')}\n`;
   }
 
   /**
@@ -247,10 +310,17 @@ export class AgentLoop {
       let shouldContinue = true;
       let consecutiveSameToolCount = 0;
       let lastToolSignature = ''; // Track tool name + key input to detect actual loops
+      const hasPreviewExecutionContext =
+        !!this.previewContext?.shouldPreferExecution
+        || !!this.previewContext?.mode
+        || this.historyContainsText('[PreviewContext:selected-element]')
+        || this.historyContainsText('[PreviewContext:follow-up]')
+        || this.historyContainsText('[PreviewContext:general-edit]');
       const isPreviewElementExecutionPrompt =
         prompt.includes('L’utente ha selezionato un elemento specifico nella preview e vuole che tu modifichi PROPRIO quello.')
         || prompt.includes('L’utente sta confermando di procedere con una modifica già riferita a un elemento selezionato nella preview.')
-        || prompt.includes('L’utente sta inviando un follow-up breve nella preview chat.');
+        || prompt.includes('L’utente sta inviando un follow-up breve nella preview chat.')
+        || hasPreviewExecutionContext;
       let previewExecutionNudgeCount = 0;
       while (shouldContinue && this.iterationCount < this.maxIterations) {
         this.iterationCount++;
@@ -948,12 +1018,12 @@ export class AgentLoop {
             fullText.trim().length > 0
           ) {
             previewExecutionNudgeCount++;
-            log.warn('[AgentLoop] Preview selected-element request returned text without tools. Nudging execution.');
+            log.warn('[AgentLoop] Preview execution request returned text without tools. Nudging execution.');
             this.pushMessage({
               role: 'user',
               content: [{
                 type: 'text',
-                text: 'Agisci adesso sul codice usando i tool. Leggi il file rilevante, modifica l’elemento selezionato nella preview e applica davvero la richiesta dell’utente. Non descrivere di nuovo il piano.',
+                text: 'Act now on the project code using tools. Read the relevant file, apply the requested change to the current preview UI, and make the real code changes. Do not only restate or describe the plan.',
               }],
             });
             shouldContinue = true;
@@ -1168,7 +1238,9 @@ export class AgentLoop {
 
     // Detect user language and add explicit directive
     let languageDirective = '';
-    if (userPrompt) {
+    if (this.previewContext?.language === 'it') {
+      languageDirective = `\n\n## LANGUAGE: ITALIAN\nThe user is writing in Italian. You MUST respond ENTIRELY in Italian. Every text output, todo item, explanation, and completion message MUST be in Italian. Do NOT use English.\n`;
+    } else if (userPrompt) {
       // Simple heuristic: check for common Italian/Spanish/French/German words
       const lowerPrompt = userPrompt.toLowerCase();
       const italianMarkers = ['fammi', 'crea', 'aggiungi', 'modifica', 'scrivi', 'fai', 'voglio', 'vorrei', 'puoi', 'come', 'cosa', 'perché', 'anche', 'questo', 'quello', 'sono', 'della', 'delle', 'nella', 'pagina', 'sito', 'nuovo', 'nuova', 'eventi', 'con', 'per', 'una', 'che', 'gli', 'dai', 'alla'];
@@ -1187,7 +1259,9 @@ export class AgentLoop {
 `;
     }
 
-    return basePrompt + languageDirective + modelDirective + projectRules + memoryContext + projectContext + sessionInfo + this.buildExecutionPlanContext();
+    const previewContextDirective = this.buildPreviewContextDirective();
+
+    return basePrompt + languageDirective + modelDirective + projectRules + memoryContext + projectContext + sessionInfo + previewContextDirective + this.buildExecutionPlanContext();
   }
 
   /**

@@ -8,7 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import { TodoList } from '../../../shared/components/molecules/TodoList';
-import { stripToolCallXml } from '../../../shared/utils/stripToolCallXml';
+import { sanitizeAgentText } from '../../../shared/utils/sanitizeAgentText';
 import Svg, { Circle } from 'react-native-svg';
 import { AnthropicIcon, GoogleIcon, OpenAIIcon } from '../../../shared/components/icons';
 import { useUIStore } from '../../../core/terminal/uiStore';
@@ -31,25 +31,11 @@ const THINKING_LEVEL_LABELS: Record<string, string> = {
 
 /** Strip markdown code blocks and truncate for the compact preview chat overlay. */
 function cleanPreviewText(text: string): string {
-  if (!text) return text;
-  let cleaned = stripToolCallXml(text);
-  // Remove Gemini-style pseudo tool narration that sometimes leaks as plain text
-  cleaned = cleaned.replace(/^\s*\[Uses [^\]]+\]\s*$/gim, '');
-  cleaned = cleaned.replace(/^\s*Summary:\s*/gim, '');
-  // Remove leaked tool invocation blocks rendered as plain text instead of structured tool events
-  cleaned = cleaned.replace(/^\s*(?:todo_write|signal_completion|edit_file|write_file|multi_edit_file|run_command)\(\{[\s\S]*?\n\}\)\s*$/gim, '');
-  // Replace fenced code blocks (```...```) with a short label
-  cleaned = cleaned.replace(/```[\s\S]*?```/g, '[code]');
-  // Replace inline backtick spans that look like full lines of code (>60 chars)
-  cleaned = cleaned.replace(/`[^`]{60,}`/g, '[code]');
-  // Collapse multiple consecutive [code] markers
-  cleaned = cleaned.replace(/(\[code\]\s*){2,}/g, '[code] ');
-  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
-  return cleaned.trim();
+  return sanitizeAgentText(text, { compact: true, plainText: true });
 }
 
 export interface AIMessage {
-  type: 'text' | 'tool_start' | 'tool_result' | 'user' | 'thinking' | 'budget_exceeded' | 'context_compacted';
+  type: 'text' | 'tool_start' | 'tool_result' | 'user' | 'thinking' | 'completion' | 'budget_exceeded' | 'context_compacted';
   isCompacting?: boolean;
   content: string;
   tool?: string;
@@ -562,7 +548,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                       if (msg.type === 'thinking' && !msg.content?.trim() && !msg.isThinking) return null;
                       if (msg.type === 'text' && !msg.content?.trim()) return null;
                       // Skip text messages that are only code (no explanation)
-                      if (msg.type === 'text' && cleanPreviewText(msg.content).replace(/\[code\]/g, '').trim() === '') return null;
+                      if (msg.type === 'text' && !cleanPreviewText(msg.content).trim()) return null;
                       if (msg.type === 'user') {
                         return (
                           <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 10, alignItems: 'flex-end' }]}>
@@ -596,6 +582,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                           </View>
                         );
                       }
+                      if (msg.type === 'completion') return null;
                       if (msg.type === 'context_compacted') {
                         return (
                           <View key={index} style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 4, marginHorizontal: 4, gap: 6 }}>

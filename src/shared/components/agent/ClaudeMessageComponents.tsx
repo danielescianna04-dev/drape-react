@@ -24,9 +24,9 @@ import type {
 const colors = AppColors.dark;
 
 // Helper to format timestamp
-const formatTimestamp = (timestamp: number): string => {
+const formatTimestamp = (timestamp: number, language?: string): string => {
   const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', {
+  return date.toLocaleTimeString(language || undefined, {
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -39,7 +39,7 @@ interface ChatMessageComponentProps {
 }
 
 export function ChatMessageComponent({ message }: ChatMessageComponentProps) {
-  const { t } = useTranslation('terminal');
+  const { t, i18n } = useTranslation('terminal');
   const isUser = message.role === 'user';
   const backgroundColor = isUser ? '#2563EB' : colors.backgroundDepth2; // blue-600 : slate-700
   const textColor = isUser ? '#FFFFFF' : colors.textPrimary;
@@ -51,7 +51,7 @@ export function ChatMessageComponent({ message }: ChatMessageComponentProps) {
           {isUser ? t('agent.user') : t('agent.claude')}
         </Text>
         <Text style={[styles.timestamp, { color: isUser ? '#BFDBFE' : colors.textTertiary }]}>
-          {formatTimestamp(message.timestamp)}
+          {formatTimestamp(message.timestamp, i18n.language)}
         </Text>
       </View>
       <Text style={[styles.chatContent, { color: textColor }]}>{message.content}</Text>
@@ -136,7 +136,7 @@ export function ThinkingMessageComponent({ message }: ThinkingMessageComponentPr
     <CollapsibleDetails
       label={t('agent.reasoning')}
       details={message.content}
-      badge="thinking"
+      badge={t('agent.thinking')}
       icon={<Text style={styles.thinkingIcon}>💭</Text>}
       colorScheme={{
         header: '#7C3AED', // purple-700
@@ -156,7 +156,7 @@ interface TodoMessageComponentProps {
 }
 
 export function TodoMessageComponent({ message }: TodoMessageComponentProps) {
-  const { t } = useTranslation('terminal');
+  const { t, i18n } = useTranslation('terminal');
   const getStatusIcon = (status: TodoItem['status']) => {
     switch (status) {
       case 'completed':
@@ -193,7 +193,7 @@ export function TodoMessageComponent({ message }: TodoMessageComponentProps) {
           <Text style={[styles.todoTitle, { color: '#B45309' }]}>{t('agent.todoListUpdated')}</Text>
         </View>
         <Text style={[styles.timestamp, { color: '#D97706' }]}>
-          {formatTimestamp(message.timestamp)}
+          {formatTimestamp(message.timestamp, i18n.language)}
         </Text>
       </View>
 
@@ -229,7 +229,7 @@ interface PlanMessageComponentProps {
 }
 
 export function PlanMessageComponent({ message }: PlanMessageComponentProps) {
-  const { t } = useTranslation('terminal');
+  const { t, i18n } = useTranslation('terminal');
   return (
     <MessageContainer alignment="left" backgroundColor="rgba(59, 130, 246, 0.1)">
       <View style={styles.planHeader}>
@@ -240,7 +240,7 @@ export function PlanMessageComponent({ message }: PlanMessageComponentProps) {
           <Text style={[styles.planTitle, { color: '#1E40AF' }]}>{t('agent.readyToCode')}</Text>
         </View>
         <Text style={[styles.timestamp, { color: '#2563EB' }]}>
-          {formatTimestamp(message.timestamp)}
+          {formatTimestamp(message.timestamp, i18n.language)}
         </Text>
       </View>
 

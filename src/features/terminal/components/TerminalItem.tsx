@@ -1545,6 +1545,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                         delayLongPress={300}
                       >
                         <View>
+                          <>
                           {/* Show thinking content in gray before the main response */}
                           {item.thinkingContent && (
                             <Text style={styles.thinkingStreamText}>{item.thinkingContent}</Text>
@@ -1575,6 +1576,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                               />
                             </TouchableOpacity>
                           </View>
+                          </>
                         </View>
                       </TouchableOpacity>
                     )}

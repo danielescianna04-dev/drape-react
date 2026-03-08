@@ -28,6 +28,7 @@ export interface TerminalItem {
   isExecuting?: boolean; // Show pulsing animation for tool being executed
   costEur?: number; // Cost of AI response in EUR
   tokensUsed?: { input: number; output: number }; // Tokens used for this response
+  isCompletion?: boolean; // Compact "done" row for agent completion
   images?: {
     uri: string;
     base64?: string;

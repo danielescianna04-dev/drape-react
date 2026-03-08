@@ -11,6 +11,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { AgentToolEvent } from '../api/useAgentStream';
+import { sanitizeAgentText } from '../../shared/utils/sanitizeAgentText';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -89,6 +90,8 @@ export function useChatEngine(
   /** Tracks whether ANY text_delta was processed in the current agent run.
    *  Used to suppress duplicate completion messages when text was already streamed. */
   const hadStreamedTextRef = useRef(false);
+  /** Tracks whether the current run executed at least one tool. */
+  const hadToolActivityRef = useRef(false);
   /** The ID of the last text message created from text_delta, survives tool_start clearing currentMessageIdRef. */
   const lastStreamedMsgIdRef = useRef<string | null>(null);
 
@@ -164,11 +167,17 @@ export function useChatEngine(
     // history persists across messages, so the percentage should only update
     // from backend usage events, not be zeroed on every message send.
     hadStreamedTextRef.current = false;
+    hadToolActivityRef.current = false;
     lastStreamedMsgIdRef.current = null;
     if (gapTimerRef.current) { clearTimeout(gapTimerRef.current); gapTimerRef.current = null; }
     if (textFlushRafRef.current) { cancelAnimationFrame(textFlushRafRef.current); textFlushRafRef.current = null; }
     pendingTextFlushRef.current = false;
   }, []);
+
+  useEffect(() => {
+    hadStreamedTextRef.current = false;
+    hadToolActivityRef.current = false;
+  }, [eventsVersion]);
 
   // ─ Event processing ───────────────────────────────────────────────────────
 
@@ -313,6 +322,7 @@ export function useChatEngine(
       if (event.type === 'tool_start' && event.tool) {
         // Skip signal_completion and ask_user_question from visible UI
         if (event.tool === 'signal_completion' || event.tool === 'ask_user_question') continue;
+        hadToolActivityRef.current = true;
 
         const input = event.input || {};
         setActiveTools(prev => [...prev, event.tool!]);
@@ -322,7 +332,7 @@ export function useChatEngine(
         if (pendingTextFlushRef.current) {
           if (textFlushRafRef.current) { cancelAnimationFrame(textFlushRafRef.current); textFlushRafRef.current = null; }
           pendingTextFlushRef.current = false;
-          const flushContent = streamingContentRef.current;
+          const flushContent = sanitizeAgentText(streamingContentRef.current);
           const flushMsgId = currentMessageIdRef.current;
           if (flushMsgId && flushContent) {
             setMessages(prev => {
@@ -372,6 +382,7 @@ export function useChatEngine(
       // ── TOOL_INPUT ──────────────────────────────────────────────────────
       if (event.type === 'tool_input' && event.tool) {
         if (event.tool === 'signal_completion' || event.tool === 'ask_user_question') continue;
+        hadToolActivityRef.current = true;
         const input = event.input || {};
         // Merge input into existing tool_start message
         setActiveTools(prev => prev.includes(event.tool!) ? prev : [...prev, event.tool!]);
@@ -412,32 +423,13 @@ export function useChatEngine(
         // ask_user_question: skip from visible UI (question shown inline in text)
         if (event.tool === 'ask_user_question') continue;
 
-        // signal_completion: only surface it if the agent never streamed visible text.
+        // signal_completion: do not create a separate visible message.
+        // The user should only see the main assistant text plus tool rows.
         if (event.tool === 'signal_completion') {
-          let completionMessage = '';
-          try {
-            const inp = typeof event.input === 'string' ? JSON.parse(event.input) : event.input;
-            completionMessage = inp?.result || '';
-          } catch { /* ignore */ }
-
-          if (completionMessage && !hadStreamedTextRef.current) {
-            setMessages(prev => {
-              const last = prev[prev.length - 1];
-              if (last && (last.type === 'text' || last.type === 'completion') && last.content === completionMessage) {
-                return prev;
-              }
-
-              return [...prev, {
-                id: `completion-${Date.now()}`,
-                type: 'completion',
-                content: completionMessage,
-                isAgentMessage: true,
-                timestamp: new Date(),
-              }];
-            });
-          }
           continue;
         }
+
+        hadToolActivityRef.current = true;
 
         // Mark the matching tool_start as complete
         const result = event.result ?? (event as any).output;
@@ -477,6 +469,8 @@ export function useChatEngine(
 
       // ── TOOL_ERROR ──────────────────────────────────────────────────────
       if (event.type === 'tool_error' && event.tool) {
+        if (event.tool === 'signal_completion' || event.tool === 'ask_user_question') continue;
+        hadToolActivityRef.current = true;
         // Remove only ONE instance (parallel tools of same type add multiple)
         setActiveTools(prev => {
           const idx = prev.indexOf(event.tool!);
@@ -539,9 +533,9 @@ export function useChatEngine(
           textFlushRafRef.current = requestAnimationFrame(() => {
             pendingTextFlushRef.current = false;
             textFlushRafRef.current = null;
-            const content = streamingContentRef.current;
+            const content = sanitizeAgentText(streamingContentRef.current);
             const msgId = currentMessageIdRef.current;
-            if (!msgId) return;
+            if (!msgId || !content) return;
 
             setMessages(prev => {
               // Remove gap-thinking placeholders in the same update
@@ -579,7 +573,8 @@ export function useChatEngine(
           content = raw.text || raw.content || raw.message || JSON.stringify(raw);
         }
         if (!content || !String(content).trim()) continue;
-        content = String(content);
+        content = sanitizeAgentText(String(content));
+        if (!content.trim()) continue;
 
         // Remove visual gap-thinking placeholders before appending/merging text messages.
         setMessages(prev => prev.filter(m => !m.id.startsWith('engine-thinking-gap-')));
@@ -708,7 +703,7 @@ export function useChatEngine(
         if (pendingTextFlushRef.current) {
           if (textFlushRafRef.current) { cancelAnimationFrame(textFlushRafRef.current); textFlushRafRef.current = null; }
           pendingTextFlushRef.current = false;
-          const flushContent = streamingContentRef.current;
+          const flushContent = sanitizeAgentText(streamingContentRef.current);
           const flushMsgId = currentMessageIdRef.current || lastStreamedMsgIdRef.current;
           if (flushMsgId && flushContent) {
             setMessages(prev => {
@@ -725,21 +720,6 @@ export function useChatEngine(
 
         setIsLoading(false);
         setActiveTools([]);
-
-        // Append completion text ONLY if no text was ever streamed in this agent run.
-        // When the AI streams text via text_delta and then calls signal_completion,
-        // the tool_start handler clears currentMessageIdRef, making the old check
-        // think there was no streaming. hadStreamedTextRef persists across tool calls.
-        const completionResult = (event as any).result;
-        if (completionResult && typeof completionResult === 'string' && completionResult.trim() && !hadStreamedTextRef.current) {
-          setMessages(prev => [...prev, {
-            id: `completion-${Date.now()}`,
-            type: 'completion',
-            content: completionResult,
-            isAgentMessage: true,
-            timestamp: new Date(),
-          }]);
-        }
 
         // Attach cost to the streamed text message (use lastStreamedMsgIdRef as fallback
         // since tool_start clears currentMessageIdRef)
