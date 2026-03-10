@@ -95,12 +95,12 @@ export const Scene2Problem: React.FC = () => {
               <span
                 style={{
                   display: "inline-block",
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
+                  width: 3,
+                  height: 58 * 0.85,
+                  borderRadius: 2,
                   background: Colors.primary,
-                  marginLeft: 4,
-                  boxShadow: "0 0 8px rgba(155,138,255,0.6)",
+                  marginLeft: 2,
+                  boxShadow: "0 0 10px rgba(155,138,255,0.6)",
                 }}
               />
             )}

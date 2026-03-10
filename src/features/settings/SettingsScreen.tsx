@@ -16,7 +16,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { gitAccountService, GitAccount } from '../../core/git/gitAccountService';
+import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useAuthStore } from '../../core/auth/authStore';
 import { useTranslation } from 'react-i18next';

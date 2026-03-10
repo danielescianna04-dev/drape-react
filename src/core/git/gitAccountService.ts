@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import apiClient from '../api/apiClient';
+
 import { collection, doc, setDoc, getDocs, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { encode as btoa, decode as atob } from 'base-64';
@@ -202,67 +202,69 @@ export const gitAccountService = {
 
     const baseUrl = serverUrl || config.apiUrl;
 
+    // Use plain fetch (NOT apiClient) — these are external API calls and
+    // apiClient's interceptor would overwrite the Authorization header with Firebase token
     switch (provider) {
       case 'github':
       case 'github-enterprise': {
-        const response = await apiClient.get(`${baseUrl}/user`, {
+        const res = await fetch(`${baseUrl}/user`, {
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: 'application/vnd.github.v3+json',
           },
         });
+        if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
+        const data = await res.json();
         return {
-          username: response.data.login,
-          displayName: response.data.name,
-          avatarUrl: response.data.avatar_url,
-          email: response.data.email,
+          username: data.login,
+          displayName: data.name,
+          avatarUrl: data.avatar_url,
+          email: data.email,
         };
       }
 
       case 'gitlab':
       case 'gitlab-server': {
-        const response = await apiClient.get(`${baseUrl}/user`, {
-          headers: {
-            'PRIVATE-TOKEN': token,
-          },
+        const res = await fetch(`${baseUrl}/user`, {
+          headers: { 'PRIVATE-TOKEN': token },
         });
+        if (!res.ok) throw new Error(`GitLab API error: ${res.status}`);
+        const data = await res.json();
         return {
-          username: response.data.username,
-          displayName: response.data.name,
-          avatarUrl: response.data.avatar_url,
-          email: response.data.email,
+          username: data.username,
+          displayName: data.name,
+          avatarUrl: data.avatar_url,
+          email: data.email,
         };
       }
 
       case 'bitbucket':
       case 'bitbucket-server': {
-        // Bitbucket uses Basic Auth with username:app_password
-        // Token is stored as "username:app_password"
         const basicAuth = btoa(token);
-        const response = await apiClient.get(`${baseUrl}/user`, {
-          headers: {
-            Authorization: `Basic ${basicAuth}`,
-          },
+        const res = await fetch(`${baseUrl}/user`, {
+          headers: { Authorization: `Basic ${basicAuth}` },
         });
+        if (!res.ok) throw new Error(`Bitbucket API error: ${res.status}`);
+        const data = await res.json();
         return {
-          username: response.data.username || response.data.account_id,
-          displayName: response.data.display_name,
-          avatarUrl: response.data.links?.avatar?.href || '',
-          email: response.data.email,
+          username: data.username || data.account_id,
+          displayName: data.display_name,
+          avatarUrl: data.links?.avatar?.href || '',
+          email: data.email,
         };
       }
 
       case 'gitea': {
-        const response = await apiClient.get(`${baseUrl}/api/v1/user`, {
-          headers: {
-            Authorization: `token ${token}`,
-          },
+        const res = await fetch(`${baseUrl}/api/v1/user`, {
+          headers: { Authorization: `token ${token}` },
         });
+        if (!res.ok) throw new Error(`Gitea API error: ${res.status}`);
+        const data = await res.json();
         return {
-          username: response.data.login,
-          displayName: response.data.full_name,
-          avatarUrl: response.data.avatar_url,
-          email: response.data.email,
+          username: data.login,
+          displayName: data.full_name,
+          avatarUrl: data.avatar_url,
+          email: data.email,
         };
       }
 

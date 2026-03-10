@@ -32,8 +32,12 @@ export const TypingText: React.FC<Props> = ({
   const charsVisible = Math.min(Math.floor(elapsed / speed), text.length);
   const visibleText = text.slice(0, charsVisible);
   const isTyping = charsVisible < text.length && elapsed > 0;
-  // Blink every ~16 frames (~0.53s at 30fps)
-  const cursorVisible = Math.floor(frame / 16) % 2 === 0;
+  // Frame when typing finishes — blink cycle starts from here
+  const typingDoneFrame = startFrame + Math.ceil(text.length * speed);
+  // Blink every ~16 frames, but offset from when typing ends so cursor
+  // stays visible for the first half-cycle (no sudden jump)
+  const framesSinceDone = Math.max(0, frame - typingDoneFrame);
+  const cursorVisible = isTyping || Math.floor(framesSinceDone / 16) % 2 === 0;
 
   return (
     <div
@@ -51,16 +55,16 @@ export const TypingText: React.FC<Props> = ({
       }}
     >
       <span>{visibleText}</span>
-      {showCursor && (isTyping || cursorVisible) && charsVisible > 0 && (
+      {showCursor && cursorVisible && charsVisible > 0 && (
         <span
           style={{
             display: "inline-block",
-            width: fSize * 0.18,
-            height: fSize * 0.18,
-            borderRadius: "50%",
+            width: 3,
+            height: fSize * 0.85,
+            borderRadius: 2,
             background: Colors.primary,
-            marginLeft: 4,
-            boxShadow: "0 0 8px rgba(155,138,255,0.6)",
+            marginLeft: 2,
+            boxShadow: "0 0 10px rgba(155,138,255,0.6)",
             flexShrink: 0,
           }}
         />

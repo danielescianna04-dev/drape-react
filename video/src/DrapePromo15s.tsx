@@ -9,21 +9,21 @@ import { Scene7CTA } from "./scenes/Scene7CTA";
 /**
  * Drape — 15 second YouTube Ad cut (16:9, 1920x1080, 30fps = 450 frames)
  *
- *   Hook:     0:00 - 0:02   (frames 0-59)      60f
- *   Reveal:   0:02 - 0:04.5 (frames 60-134)    75f
- *   Feature:  0:04.5- 0:10.5(frames 135-314)  180f
+ *   Hook:     0:00 - 0:03.3 (frames 0-99)     100f
+ *   Reveal:   0:03.3- 0:05.8(frames 100-174)   75f
+ *   Feature:  0:05.8- 0:10.5(frames 175-314)  140f
  *   CTA:      0:10.5- 0:15  (frames 315-449)  135f
  */
 export const DrapePromo15s: React.FC = () => {
   return (
     <AbsoluteFill style={{ background: Colors.bg }} className="notranslate" translate="no">
-      <Sequence from={0} durationInFrames={60}>
-        <SceneTransition type="out" startFrame={45} durationFrames={15}>
+      <Sequence from={0} durationInFrames={100}>
+        <SceneTransition type="out" startFrame={85} durationFrames={15}>
           <Scene1Hook />
         </SceneTransition>
       </Sequence>
 
-      <Sequence from={60} durationInFrames={75}>
+      <Sequence from={100} durationInFrames={75}>
         <SceneTransition type="in" durationFrames={8}>
           <SceneTransition type="out" startFrame={60} durationFrames={15}>
             <Scene3Reveal />
@@ -31,9 +31,9 @@ export const DrapePromo15s: React.FC = () => {
         </SceneTransition>
       </Sequence>
 
-      <Sequence from={135} durationInFrames={180}>
+      <Sequence from={175} durationInFrames={140}>
         <SceneTransition type="in" durationFrames={10}>
-          <SceneTransition type="out" startFrame={165} durationFrames={15}>
+          <SceneTransition type="out" startFrame={125} durationFrames={15}>
             <Scene4AIFeature />
           </SceneTransition>
         </SceneTransition>

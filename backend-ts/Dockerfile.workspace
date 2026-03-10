@@ -1,0 +1,31 @@
+FROM node:20-alpine
+
+# Install essentials
+RUN apk add --no-cache \
+    git \
+    bash \
+    curl \
+    python3 \
+    make \
+    g++ \
+    openssh-client
+
+# Reuse existing 'node' user (uid 1000, gid 1000) — rename home to /home/coder
+RUN deluser node && \
+    addgroup -g 1000 coder && \
+    adduser -u 1000 -G coder -s /bin/bash -D coder
+
+# Create project directory and cache
+RUN mkdir -p /home/coder/project /home/coder/volumes/pnpm-store /data/cache && \
+    chown -R coder:coder /home/coder /data/cache
+
+# Install pnpm and serve globally (serve is used as default dev server)
+RUN npm install -g pnpm@9 serve
+
+# Copy workspace agent
+COPY workspace-agent.js /usr/local/bin/workspace-agent.js
+
+WORKDIR /home/coder/project
+
+# Start the workspace agent (port 13338)
+CMD ["node", "/usr/local/bin/workspace-agent.js"]

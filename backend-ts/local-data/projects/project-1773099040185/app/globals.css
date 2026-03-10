@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 255, 255, 255;
+  --background-end-rgb: 255, 255, 255;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hero-gradient {
+  background: linear-gradient(180deg, #000 0%, #1d1d1f 100%);
+}
+
+.apple-btn {
+  @apply px-6 py-2 rounded-full font-medium transition-all duration-300 active:scale-95;
+}

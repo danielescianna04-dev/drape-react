@@ -1,8 +1,8 @@
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
-import React, { useState, useEffect } from 'react';
-import { View, Text, Modal, StyleSheet, TouchableOpacity, TextInput, Linking, ActivityIndicator, Platform, Pressable } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, Modal, StyleSheet, TouchableOpacity, TextInput, Linking, ActivityIndicator, Platform, Pressable, AppState } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
@@ -52,41 +52,67 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
     }
   }, [visible]);
 
+  // Single poll attempt — reused by interval and AppState listener
+  const pollResolvedRef = useRef(false);
+
+  const pollOnce = useCallback(async () => {
+    if (!deviceFlow || pollResolvedRef.current) return false;
+
+    try {
+      const response = await apiClient.post(`${API_BASE_URL}/github/poll-device`, {
+        device_code: deviceFlow.device_code,
+        client_id: GITHUB_CLIENT_ID,
+      });
+
+      if (response.data.access_token) {
+        pollResolvedRef.current = true;
+        onAuthenticated(response.data.access_token);
+        return true;
+      } else if (response.data.error === 'authorization_pending' || response.data.error === 'slow_down') {
+        // Expected, continue polling
+      } else if (response.data.error) {
+        pollResolvedRef.current = true;
+        setError(t('settings:gitAuth.errors.errorPrefix', { message: response.data.error_description }));
+        setIsLoading(false);
+        return true;
+      }
+    } catch (err) {
+      // Don't stop polling on transient network errors (app was in background)
+      console.warn('[GitHubAuth] Poll error (will retry):', err);
+    }
+    return false;
+  }, [deviceFlow, onAuthenticated]);
+
   useEffect(() => {
     let intervalId: NodeJS.Timeout | null = null;
+    pollResolvedRef.current = false;
 
     if (step === 'device-flow' && deviceFlow) {
+      // Regular interval polling
       intervalId = setInterval(async () => {
-        try {
-          const response = await apiClient.post(`${API_BASE_URL}/github/poll-device`, {
-            device_code: deviceFlow.device_code,
-            client_id: GITHUB_CLIENT_ID,
-          });
-
-          if (response.data.access_token) {
-            if (intervalId) clearInterval(intervalId);
-            onAuthenticated(response.data.access_token);
-          } else if (response.data.error === 'authorization_pending') {
-            // This is expected, continue polling
-          } else if (response.data.error) {
-            setError(t('settings:gitAuth.errors.errorPrefix', { message: response.data.error_description }));
-            if (intervalId) clearInterval(intervalId);
-            setIsLoading(false);
-          }
-        } catch (err) {
-          setError(t('settings:gitAuth.errors.authError'));
-          if (intervalId) clearInterval(intervalId);
-          setIsLoading(false);
-        }
+        const done = await pollOnce();
+        if (done && intervalId) clearInterval(intervalId);
       }, deviceFlow.interval * 1000);
+
+      // Poll immediately when app returns to foreground (iOS suspends timers in background)
+      const subscription = AppState.addEventListener('change', (nextState) => {
+        if (nextState === 'active' && !pollResolvedRef.current) {
+          pollOnce().then((done) => {
+            if (done && intervalId) clearInterval(intervalId);
+          });
+        }
+      });
+
+      return () => {
+        if (intervalId) clearInterval(intervalId);
+        subscription.remove();
+      };
     }
 
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
+      if (intervalId) clearInterval(intervalId);
     };
-  }, [step, deviceFlow, onAuthenticated]);
+  }, [step, deviceFlow, pollOnce]);
 
   const handleWebBrowserAuth = async () => {
     trackGitAuth('github');

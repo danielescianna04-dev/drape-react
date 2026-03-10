@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Alert,
   Linking,
   Platform,
+  AppState,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
@@ -80,50 +81,78 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
     }
   }, [visible]);
 
-  // Poll for device flow completion
+  // Single poll attempt — reused by interval and AppState listener
+  const pollResolvedRef = useRef(false);
+
+  const pollOnce = useCallback(async () => {
+    if (!deviceFlow || !selectedProvider || pollResolvedRef.current) return;
+
+    try {
+      let pollEndpoint = '';
+      let pollBody: any = {};
+
+      if (selectedProvider === 'github') {
+        pollEndpoint = `${API_BASE_URL}/github/poll-device`;
+        pollBody = { device_code: deviceFlow.device_code, client_id: GITHUB_CLIENT_ID };
+      } else if (selectedProvider === 'gitlab') {
+        pollEndpoint = `${API_BASE_URL}/oauth/gitlab/poll-device`;
+        pollBody = { device_code: deviceFlow.device_code };
+      } else if (selectedProvider === 'bitbucket') {
+        pollEndpoint = `${API_BASE_URL}/oauth/bitbucket/poll-device`;
+        pollBody = { device_code: deviceFlow.device_code };
+      }
+
+      const response = await apiClient.post(pollEndpoint, pollBody);
+
+      if (response.data.access_token) {
+        pollResolvedRef.current = true;
+        handleOAuthSuccess(response.data.access_token);
+        return true; // resolved
+      } else if (response.data.error === 'authorization_pending' || response.data.error === 'slow_down') {
+        // Expected, continue polling
+      } else if (response.data.error) {
+        pollResolvedRef.current = true;
+        setError(t('settings:gitAuth.errors.errorPrefix', { message: response.data.error_description || response.data.error }));
+        setLoading(false);
+        return true; // resolved (with error)
+      }
+    } catch (err: any) {
+      console.error('Poll error:', err);
+    }
+    return false;
+  }, [deviceFlow, selectedProvider]);
+
+  // Poll for device flow completion — interval + AppState foreground trigger
   useEffect(() => {
     let intervalId: NodeJS.Timeout | null = null;
+    pollResolvedRef.current = false;
 
     if (step === 'device-flow' && deviceFlow && selectedProvider) {
+      // Regular interval polling
       intervalId = setInterval(async () => {
-        try {
-          let pollEndpoint = '';
-          let pollBody: any = {};
-
-          if (selectedProvider === 'github') {
-            pollEndpoint = `${API_BASE_URL}/github/poll-device`;
-            pollBody = { device_code: deviceFlow.device_code, client_id: GITHUB_CLIENT_ID };
-          } else if (selectedProvider === 'gitlab') {
-            pollEndpoint = `${API_BASE_URL}/oauth/gitlab/poll-device`;
-            pollBody = { device_code: deviceFlow.device_code };
-          } else if (selectedProvider === 'bitbucket') {
-            pollEndpoint = `${API_BASE_URL}/oauth/bitbucket/poll-device`;
-            pollBody = { device_code: deviceFlow.device_code };
-          }
-
-          const response = await apiClient.post(pollEndpoint, pollBody);
-
-          if (response.data.access_token) {
-            if (intervalId) clearInterval(intervalId);
-            handleOAuthSuccess(response.data.access_token);
-          } else if (response.data.error === 'authorization_pending' || response.data.error === 'slow_down') {
-            // Expected, continue polling
-          } else if (response.data.error) {
-            setError(t('settings:gitAuth.errors.errorPrefix', { message: response.data.error_description || response.data.error }));
-            if (intervalId) clearInterval(intervalId);
-            setLoading(false);
-          }
-        } catch (err: any) {
-          console.error('Poll error:', err);
-          // Don't show error for network issues during polling
-        }
+        const done = await pollOnce();
+        if (done && intervalId) clearInterval(intervalId);
       }, (deviceFlow.interval || 5) * 1000);
+
+      // Also poll immediately when app returns to foreground (iOS suspends timers in background)
+      const subscription = AppState.addEventListener('change', (nextState) => {
+        if (nextState === 'active' && !pollResolvedRef.current) {
+          pollOnce().then((done) => {
+            if (done && intervalId) clearInterval(intervalId);
+          });
+        }
+      });
+
+      return () => {
+        if (intervalId) clearInterval(intervalId);
+        subscription.remove();
+      };
     }
 
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [step, deviceFlow, selectedProvider]);
+  }, [step, deviceFlow, selectedProvider, pollOnce]);
 
   const handleOAuthSuccess = async (accessToken: string) => {
     if (!selectedProvider) return;

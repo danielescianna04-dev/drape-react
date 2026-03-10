@@ -11,9 +11,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import { githubTokenService, GitHubAccount } from '../../../core/github/githubTokenService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { AppColors } from '../../../shared/theme/colors';
+import { gitAccountService, GitAccount } from '../../../core/git/gitAccountService';
 import { GitHubAuthModal } from './GitHubAuthModal';
 
 interface Props {
@@ -22,7 +22,7 @@ interface Props {
 
 export const GitPanel = ({ onClose }: Props) => {
   const { t } = useTranslation(['terminal', 'common']);
-  const [accounts, setAccounts] = useState<GitHubAccount[]>([]);
+  const [accounts, setAccounts] = useState<GitAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
@@ -54,7 +54,7 @@ export const GitPanel = ({ onClose }: Props) => {
   const loadAccounts = async () => {
     try {
       setLoading(true);
-      const accs = await githubTokenService.getAccounts(userId);
+      const accs = await gitAccountService.getAccounts(userId);
       setAccounts(accs);
     } catch (error) {
       console.error('Error loading accounts:', error);
@@ -63,7 +63,7 @@ export const GitPanel = ({ onClose }: Props) => {
     }
   };
 
-  const handleDeleteAccount = (account: GitHubAccount) => {
+  const handleDeleteAccount = (account: GitAccount) => {
     Alert.alert(
       t('terminal:git.removeAccount'),
       t('terminal:git.removeAccountConfirm', { account: account.username }),
@@ -74,7 +74,7 @@ export const GitPanel = ({ onClose }: Props) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await githubTokenService.deleteToken(account.owner, userId);
+              await gitAccountService.deleteAccount(account, userId);
               loadAccounts();
             } catch (error) {
               Alert.alert(t('common:error'), t('terminal:git.unableToRemoveAccount'));
@@ -92,13 +92,8 @@ export const GitPanel = ({ onClose }: Props) => {
   const handleAuthenticated = async (token: string) => {
     setShowAuthModal(false);
     try {
-      const validation = await githubTokenService.validateToken(token);
-      if (validation.valid && validation.username) {
-        await githubTokenService.saveToken(validation.username, token, userId);
-        loadAccounts();
-      } else {
-        Alert.alert(t('common:error'), t('common:invalidToken'));
-      }
+      await gitAccountService.saveAccount('github', token, userId);
+      loadAccounts();
     } catch (error) {
       Alert.alert(t('common:error'), t('terminal:git.unableToSaveAccount'));
     }
@@ -132,7 +127,7 @@ export const GitPanel = ({ onClose }: Props) => {
     );
   };
 
-  const renderAccountCard = (account: GitHubAccount) => (
+  const renderAccountCard = (account: GitAccount) => (
     <View key={account.id} style={styles.accountCard}>
       {account.avatarUrl ? (
         <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
