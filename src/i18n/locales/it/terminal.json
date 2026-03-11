@@ -99,7 +99,13 @@
     "monthsAgo": "{{count}} mesi fa",
     "today": "oggi",
     "shared": "Condiviso",
-    "added": "Aggiunto"
+    "added": "Aggiunto",
+    "viewDiff": "Vedi Diff",
+    "discardChanges": "Scarta Modifiche",
+    "discardSelected": "Scarta Selezionati",
+    "discardConfirm": "Le modifiche a \"{{file}}\" saranno perse definitivamente. Non è possibile annullare.",
+    "discardSelectedConfirm": "Le modifiche a {{count}} file saranno scartate definitivamente. Non è possibile annullare.",
+    "discardError": "Impossibile scartare le modifiche"
   },
   "connectRepo": {
     "title": "Connetti Repository",

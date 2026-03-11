@@ -99,7 +99,13 @@
     "monthsAgo": "{{count}} months ago",
     "today": "today",
     "shared": "Shared",
-    "added": "Added"
+    "added": "Added",
+    "viewDiff": "View Diff",
+    "discardChanges": "Discard Changes",
+    "discardSelected": "Discard Selected",
+    "discardConfirm": "This will permanently lose your changes to \"{{file}}\". This cannot be undone.",
+    "discardSelectedConfirm": "This will permanently discard changes to {{count}} files. This cannot be undone.",
+    "discardError": "Unable to discard changes"
   },
   "connectRepo": {
     "title": "Connect Repository",

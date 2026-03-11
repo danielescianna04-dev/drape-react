@@ -84,6 +84,7 @@
   "untracked": "Untracked",
   "deleted": "Deleted",
   "staged": "Staged",
+  "discard": "Discard",
   "confirmDelete": "Confirm deletion",
   "deleteConfirmMessage": "Are you sure you want to delete \"{{name}}\"?",
   "aiError": "AI Error",

@@ -151,6 +151,10 @@ class FileService {
     }
   }
 
+  clearFileListCache(projectId: string): void {
+    this.fileListCache.delete(projectId);
+  }
+
   async listAllFiles(projectId: string): Promise<Result<FileEntry[]>> {
     // Check cache first (avoids fast-glob scan on every agent message)
     const cached = this.fileListCache.get(projectId);

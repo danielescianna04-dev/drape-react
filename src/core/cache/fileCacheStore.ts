@@ -21,6 +21,7 @@ interface FileCacheState {
 
     // Track last cleared project (for subscriptions)
     lastClearedProject: string | null;
+    lastClearedAt: number;
 
     // Get cached files for a project (returns null if expired)
     getFiles: (projectId: string) => string[] | null;
@@ -56,6 +57,7 @@ export const useFileCacheStore = create<FileCacheState>()(
             cache: {},
             prefetchingProjects: new Set<string>(),
             lastClearedProject: null,
+            lastClearedAt: 0,
 
             getFiles: (projectId: string) => {
                 const entry = get().cache[projectId];
@@ -99,7 +101,7 @@ export const useFileCacheStore = create<FileCacheState>()(
                 set(state => {
                     const newCache = { ...state.cache };
                     delete newCache[projectId];
-                    return { cache: newCache, lastClearedProject: projectId };
+                    return { cache: newCache, lastClearedProject: projectId, lastClearedAt: Date.now() };
                 });
             },
 

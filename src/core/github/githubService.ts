@@ -250,7 +250,7 @@ class GitHubService {
         },
       });
 
-      const commits: GitHubCommit[] = response.data.map((commit: any) => ({
+      const fetchedCommits: GitHubCommit[] = response.data.map((commit: any) => ({
         sha: commit.sha,
         message: commit.commit.message,
         author: {
@@ -268,7 +268,7 @@ class GitHubService {
         url: commit.html_url,
       }));
 
-      return commits;
+      return fetchedCommits;
     } catch (error: any) {
       console.error('Fetch commits error:', error);
       if (error.response?.status === 404) {
@@ -325,7 +325,7 @@ class GitHubService {
     }
   }
   // Get commits using owner and repo directly
-  async getCommits(owner: string, repo: string, token?: string, page = 1, perPage = 30): Promise<GitHubCommit[]> {
+  async getCommits(owner: string, repo: string, token?: string, page = 1, perPage = 30, sha?: string): Promise<GitHubCommit[]> {
     try {
       const authToken = token || await this.getStoredToken();
       const headers: Record<string, string> = {
@@ -340,6 +340,7 @@ class GitHubService {
         params: {
           page,
           per_page: perPage,
+          ...(sha ? { sha } : {}),
         },
       });
 
@@ -393,6 +394,25 @@ class GitHubService {
     }
   }
 
+  async getTags(owner: string, repo: string, token?: string): Promise<{ name: string; sha: string }[]> {
+    try {
+      const authToken = token || await this.getStoredToken();
+      const headers: Record<string, string> = {
+        Accept: 'application/vnd.github.v3+json',
+      };
+      if (authToken) {
+        headers.Authorization = `Bearer ${authToken}`;
+      }
+      const response = await githubAxios.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/tags`, {
+        headers,
+        params: { per_page: 30 },
+      });
+      return (response.data || []).map((t: any) => ({ name: t.name, sha: t.commit?.sha?.substring(0, 7) || '' }));
+    } catch (error) {
+      return [];
+    }
+  }
+
   // Create a new repository
   async createRepository(
     name: string,
@@ -404,29 +424,37 @@ class GitHubService {
     }
   ): Promise<{ success: boolean; repoUrl?: string; error?: string }> {
     try {
-      const response = await apiClient.post(
-        `${GITHUB_API_BASE}/user/repos`,
-        {
+      // Use plain fetch — apiClient's interceptor overwrites Authorization with Firebase token
+      const res = await fetch(`${GITHUB_API_BASE}/user/repos`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           name,
           description: options?.description || '',
           private: options?.isPrivate ?? true,
           auto_init: options?.autoInit ?? true,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/vnd.github.v3+json',
-          },
-        }
-      );
+        }),
+      });
 
+      if (!res.ok) {
+        if (res.status === 422) {
+          return { success: false, error: 'Repository con questo nome esiste già' };
+        }
+        throw new Error(`GitHub API error: ${res.status}`);
+      }
+
+      const data = await res.json();
       return {
         success: true,
-        repoUrl: response.data.html_url,
+        repoUrl: data.html_url,
       };
     } catch (error: any) {
       console.error('Create repository error:', error);
-      if (error.response?.status === 422) {
+      if (error.message?.includes('422')) {
         return { success: false, error: 'Repository con questo nome esiste già' };
       }
       if (error.response?.status === 401) {

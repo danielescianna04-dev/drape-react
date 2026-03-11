@@ -64,9 +64,11 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
 
   // Initialize selectedProjectId and selectedRepoUrl from currentWorkstation if available
   // This ensures they're set correctly even on initial mount (not just on change)
+  // IMPORTANT: always use .id (Firestore doc ID = backend project directory name)
+  // to match the cache key used by GitSheet for invalidation
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => {
     if (currentWorkstationFromStore) {
-      return currentWorkstationFromStore.projectId || currentWorkstationFromStore.id || null;
+      return currentWorkstationFromStore.id || null;
     }
     return null;
   });
@@ -118,7 +120,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
   useEffect(() => {
 
     if (currentWorkstation) {
-      const projectId = currentWorkstation.projectId || currentWorkstation.id;
+      const projectId = currentWorkstation.id;
       // Check both repositoryUrl and githubUrl as the URL can be stored in either
       const repoUrl = currentWorkstation.repositoryUrl || currentWorkstation.githubUrl || '';
 
@@ -180,7 +182,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
 
     // Auth OK or not a git project - open it
     setWorkstation(ws);
-    setSelectedProjectId(ws.projectId || ws.id);
+    setSelectedProjectId(ws.id);
     setSelectedRepoUrl(repoUrl);
   };
 

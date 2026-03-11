@@ -5,6 +5,9 @@
 # =============================================================================
 set -euo pipefail
 
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519_drape}"
+SSH_PORT="${SSH_PORT:-49222}"
+SSH_OPTS="-i ${SSH_KEY} -p ${SSH_PORT}"
 REMOTE="${1:-root@77.42.1.116}"
 REMOTE_DIR="/opt/drape-backend"
 
@@ -12,25 +15,28 @@ echo "🔨 Building TypeScript..."
 npm run build
 
 echo "📦 Syncing to ${REMOTE}:${REMOTE_DIR}..."
-ssh "$REMOTE" "mkdir -p ${REMOTE_DIR}"
+ssh ${SSH_OPTS} "$REMOTE" "mkdir -p ${REMOTE_DIR}"
 
 rsync -avz --delete \
   --exclude node_modules \
   --exclude src \
   --exclude .git \
   --exclude '*.ts' \
-  ./ "${REMOTE}:${REMOTE_DIR}/"
+  --exclude .env \
+  --exclude local-data \
+  --exclude service-account-key.json \
+  ./ -e "ssh ${SSH_OPTS}" "${REMOTE}:${REMOTE_DIR}/"
 
 echo "📥 Installing production deps on server..."
-ssh "$REMOTE" "cd ${REMOTE_DIR} && npm ci --omit=dev"
+ssh ${SSH_OPTS} "$REMOTE" "cd ${REMOTE_DIR} && npm ci --omit=dev"
 
 echo "🔄 Restarting backend..."
-ssh "$REMOTE" "systemctl restart drape-backend"
+ssh ${SSH_OPTS} "$REMOTE" "systemctl restart drape-backend"
 sleep 4
 
-if ! ssh "$REMOTE" "systemctl is-active --quiet drape-backend"; then
+if ! ssh ${SSH_OPTS} "$REMOTE" "systemctl is-active --quiet drape-backend"; then
   echo "❌ Backend process did not start. Check logs:"
-  ssh "$REMOTE" "systemctl status drape-backend --no-pager -n 40 || tail -40 /var/log/drape-backend.log"
+  ssh ${SSH_OPTS} "$REMOTE" "systemctl status drape-backend --no-pager -n 40 || tail -40 /var/log/drape-backend.log"
   exit 1
 fi
 
@@ -41,6 +47,6 @@ if curl -s --max-time 5 https://drape.info/health | grep -q 'ok'; then
   echo "   Logs:  ssh ${REMOTE} 'tail -f /var/log/drape-backend.log'"
 else
   echo "❌ Backend failed to start. Check logs:"
-  ssh "$REMOTE" "tail -20 /var/log/drape-backend.log"
+  ssh ${SSH_OPTS} "$REMOTE" "tail -20 /var/log/drape-backend.log"
   exit 1
 fi

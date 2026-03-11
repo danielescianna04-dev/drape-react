@@ -355,7 +355,7 @@ class WorkspaceService {
     log.info(`[Workspace] Cloning ${repoUrl} to ${projectId}${branch ? ` (branch: ${branch})` : ''}`);
     const branchFlag = branch ? `--branch ${shellEscape(branch)} ` : '';
     const result = await execShell(
-      `git clone --depth 1 ${branchFlag}${shellEscape(cloneUrl)} ${shellEscape(projectDir)}`,
+      `git -c safe.directory='*' clone --depth 1 ${branchFlag}${shellEscape(cloneUrl)} ${shellEscape(projectDir)}`,
       '/tmp',
       120000,
     );

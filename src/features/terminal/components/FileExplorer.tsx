@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, TextInput, Platform, LayoutAnimation, UIManager, Alert, Keyboard, Dimensions, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, TextInput, Platform, LayoutAnimation, UIManager, Alert, Keyboard, Dimensions, Modal, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
@@ -100,12 +100,12 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
   // Subscribe to cache invalidation
   useEffect(() => {
     let isMounted = true;
-    let prevCleared = useFileCacheStore.getState().lastClearedProject;
+    let prevClearedAt = useFileCacheStore.getState().lastClearedAt;
     const unsubscribe = useFileCacheStore.subscribe((state) => {
-      if (state.lastClearedProject !== prevCleared && state.lastClearedProject === projectId) {
+      if (state.lastClearedAt !== prevClearedAt && state.lastClearedProject === projectId) {
         if (isMounted) loadFiles(true);
       }
-      prevCleared = state.lastClearedProject;
+      prevClearedAt = state.lastClearedAt;
     });
     return () => { isMounted = false; unsubscribe(); };
   }, [projectId]);
@@ -682,7 +682,8 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
       if (isRenaming) {
         return (
-          <View key={node.path} style={[styles.fileItem, { paddingLeft: 20 + depth * 16 }]}>
+          <View key={node.path} style={[styles.fileItem, { paddingLeft: 8 + depth * 16 }]}>
+            <View style={{ width: 18 }} />
             <Ionicons name={icon as any} size={16} color={color} style={styles.fileIcon} />
             <TextInput
               ref={renameInputRef}
@@ -701,7 +702,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       }
 
       return (
-        <View key={node.path} ref={(ref) => registerItemRef(node.path, ref)} style={[styles.fileItem, { paddingLeft: 20 + depth * 16 }, isBeingDragged && { opacity: 0.3 }]}>
+        <View key={node.path} ref={(ref) => registerItemRef(node.path, ref)} style={[styles.fileItem, { paddingLeft: 8 + depth * 16 }, isBeingDragged && { opacity: 0.3 }]}>
           <TouchableOpacity
             style={styles.fileRowTappable}
             onPress={() => {
@@ -722,6 +723,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
             delayLongPress={250}
             activeOpacity={0.6}
           >
+            <View style={{ width: 18 }} />
             <Ionicons name={icon as any} size={16} color={color} style={styles.fileIcon} />
             <Text style={styles.fileName} numberOfLines={1}>{node.name}</Text>
           </TouchableOpacity>
@@ -941,7 +943,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
   const renderCreateInput = (depth: number = 0) => {
     if (!creating) return null;
     return (
-      <View style={[styles.createInputRow, { paddingLeft: 20 + depth * 16 }]}>
+      <View style={[styles.createInputRow, { paddingLeft: 8 + depth * 16 }]}>
         <Ionicons
           name={creating === 'folder' ? 'folder-outline' : 'document-outline'}
           size={16} color={AppColors.primary} style={styles.fileIcon}
@@ -952,7 +954,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
           value={newName}
           onChangeText={setNewName}
           onSubmitEditing={handleCreate}
-          onBlur={() => { setCreating(null); setNewName(''); }}
+          onBlur={handleCreate}
           placeholder={creating === 'folder' ? `${t('common:folderName')}...` : `${t('common:selectFile')}...`}
           placeholderTextColor={AppColors.white.w25}
           autoCorrect={false}
@@ -1039,10 +1041,10 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       {searchQuery.trim() ? (
         renderSearchResults()
       ) : (
-        <View style={styles.treeContainer}>
+        <Pressable style={styles.treeContainer} onPress={() => { if (creating) Keyboard.dismiss(); }}>
           {creating && !creatingInFolder && renderCreateInput(0)}
           {buildFileTree.map(node => renderNode(node, 0))}
-        </View>
+        </Pressable>
       )}
 
       {/* Insertion Line */}
@@ -1254,6 +1256,7 @@ const styles = StyleSheet.create({
     color: AppColors.white.w40,
   },
   treeContainer: {
+    flex: 1,
     paddingBottom: 20,
   },
   resultsList: {

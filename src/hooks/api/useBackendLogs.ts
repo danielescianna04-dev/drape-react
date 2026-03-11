@@ -32,6 +32,9 @@ export function useBackendLogs(options: UseBackendLogsOptions = {}) {
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const lastLogIdRef = useRef<number>(0);
+    const reconnectAttemptsRef = useRef<number>(0);
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    const BASE_DELAY = 3000;
 
     const connect = useCallback(async () => {
         if (!enabled) return;
@@ -50,7 +53,7 @@ export function useBackendLogs(options: UseBackendLogsOptions = {}) {
             wsRef.current = ws;
 
             ws.onopen = () => {
-                // Subscribe to backend logs
+                reconnectAttemptsRef.current = 0; // Reset on successful connection
                 ws.send(JSON.stringify({ type: 'subscribe_logs' }));
             };
 
@@ -87,21 +90,27 @@ export function useBackendLogs(options: UseBackendLogsOptions = {}) {
                 }
             };
 
-            ws.onerror = (e) => {
-                console.warn('⚠️ [BackendLogs] WebSocket error');
+            ws.onerror = () => {
+                // Silenced — onclose handles reconnection
             };
 
             ws.onclose = () => {
-                console.warn('⚠️ [BackendLogs] WebSocket connection closed');
                 wsRef.current = null;
+                reconnectAttemptsRef.current += 1;
 
-                // Auto-reconnect after 5 seconds
+                if (reconnectAttemptsRef.current > MAX_RECONNECT_ATTEMPTS) {
+                    console.warn('[BackendLogs] Max reconnect attempts reached, stopping');
+                    return;
+                }
+
+                // Exponential backoff: 3s, 6s, 12s, 24s, 48s
+                const delay = BASE_DELAY * Math.pow(2, reconnectAttemptsRef.current - 1);
                 reconnectTimeoutRef.current = setTimeout(() => {
                     connect();
-                }, 5000);
+                }, delay);
             };
         } catch (e) {
-            console.error('❌ [BackendLogs] Failed to connect:', e);
+            // Connection failed — will retry via onclose
         }
     }, [enabled, addGlobalTerminalLog]);
 
@@ -125,7 +134,7 @@ export function useBackendLogs(options: UseBackendLogsOptions = {}) {
     // Connect on mount
     useEffect(() => {
         if (enabled) {
-            // Small delay to let the app initialize
+            reconnectAttemptsRef.current = 0;
             const timeout = setTimeout(() => {
                 connect();
             }, 1000);

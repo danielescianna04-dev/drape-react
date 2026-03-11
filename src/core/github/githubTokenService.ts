@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import apiClient from '../api/apiClient';
+
 
 const TOKEN_PREFIX = 'github-token-';
 const ACCOUNTS_KEY = 'github-accounts';
@@ -31,15 +31,16 @@ export const githubTokenService = {
 
   async fetchAndSaveAccount(owner: string, token: string, userId: string): Promise<GitHubAccount | null> {
     try {
-      // Fetch user info from GitHub
-      const response = await apiClient.get('https://api.github.com/user', {
+      // Use plain fetch — apiClient's interceptor overwrites Authorization with Firebase token
+      const res = await fetch('https://api.github.com/user', {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github.v3+json',
         },
       });
+      if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
 
-      const userData = response.data;
+      const userData = await res.json();
       const account: GitHubAccount = {
         id: `${userId}-${owner}`,
         username: userData.login,
@@ -154,16 +155,19 @@ export const githubTokenService = {
 
   async validateToken(token: string): Promise<{ valid: boolean; username?: string; avatarUrl?: string }> {
     try {
-      const response = await apiClient.get('https://api.github.com/user', {
+      // Use plain fetch — apiClient's interceptor overwrites Authorization with Firebase token
+      const res = await fetch('https://api.github.com/user', {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github.v3+json',
         },
       });
+      if (!res.ok) return { valid: false };
+      const data = await res.json();
       return {
         valid: true,
-        username: response.data.login,
-        avatarUrl: response.data.avatar_url,
+        username: data.login,
+        avatarUrl: data.avatar_url,
       };
     } catch (error) {
       return { valid: false };

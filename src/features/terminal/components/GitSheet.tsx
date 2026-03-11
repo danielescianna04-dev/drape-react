@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated as RNAnimated, ActivityIndicator, RefreshControl, Linking, Dimensions, Pressable, Modal, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { BlurView } from 'expo-blur';
+import * as Clipboard from 'expo-clipboard';
 import { Button } from '../../../shared/components/atoms/Button';
 import { Input } from '../../../shared/components/atoms/Input';
 import { AppColors } from '../../../shared/theme/colors';
@@ -11,6 +12,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, Fad
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useGitCacheStore } from '../../../core/cache/gitCacheStore';
+import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { config } from '../../../config/config';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
@@ -41,6 +43,8 @@ interface GitCommit {
   isHead: boolean;
   branch?: string;
   url?: string;
+  branches?: string[];
+  tags?: string[];
 }
 
 interface GitBranch {
@@ -75,16 +79,66 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
-  const [currentBranch, setCurrentBranch] = useState<string>('main');
+  const [currentBranch, _setCurrentBranch] = useState<string>('main');
+  // Guard: never allow raw git status lines like "(HEAD detached at abc1234)" as branch name
+  const setCurrentBranch = (branch: string) => {
+    if (!branch || branch.startsWith('(HEAD detached')) return;
+    _setCurrentBranch(branch);
+  };
   const [isGitRepo, setIsGitRepo] = useState(false);
   const [gitLoading, setGitLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [statusRefreshing, setStatusRefreshing] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [commitMessage, setCommitMessage] = useState('');
+  const [commitDescription, setCommitDescription] = useState('');
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showCommitModal, setShowCommitModal] = useState(false);
   const [showCreateBranch, setShowCreateBranch] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
+  const [diffFile, setDiffFile] = useState<string | null>(null);
+  const [diffContent, setDiffContent] = useState<string | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [fileContextMenu, setFileContextMenu] = useState<{
+    y: number;
+    file: string;
+    type: 'modified' | 'untracked' | 'deleted';
+  } | null>(null);
+  const [expandedChangeFolders, setExpandedChangeFolders] = useState<Set<string>>(new Set());
+  const [commitContextMenu, setCommitContextMenu] = useState<{ hash: string; shortHash: string; message: string } | null>(null);
+  const [newBranchFromCommit, setNewBranchFromCommit] = useState<string | null>(null);
+  const [branchFromName, setBranchFromName] = useState('');
+  const [remoteHead, setRemoteHead] = useState<string | null>(null);
+  const [aheadCount, setAheadCount] = useState(0);
+  const [behindCount, setBehindCount] = useState(0);
+  const [isDetachedHead, setIsDetachedHead] = useState(false);
+  const [detachedAt, setDetachedAt] = useState<string | null>(null);
+  const previousBranchRef = useRef<string>('main');
+  const [commitFilesModal, setCommitFilesModal] = useState<{ hash: string; shortHash: string; message: string } | null>(null);
+  const [commitFiles, setCommitFiles] = useState<{ status: string; file: string }[]>([]);
+  const [commitFilesLoading, setCommitFilesLoading] = useState(false);
+  const [commitCollapsedFolders, setCommitCollapsedFolders] = useState<Set<string>>(new Set());
+  const [expandedCommitFile, setExpandedCommitFile] = useState<string | null>(null);
+  const [expandedCommitDiff, setExpandedCommitDiff] = useState<string | null>(null);
+  const [expandedCommitDiffLoading, setExpandedCommitDiffLoading] = useState(false);
+  const [showPushModal, setShowPushModal] = useState(false);
+  const [pushBranch, setPushBranch] = useState<string>('');
+  const [pushRemote, setPushRemote] = useState<string>('origin');
+  const [pushForcePush, setPushForcePush] = useState(false);
+  const [pushTags, setPushTags] = useState(false);
+  const [pushBranchPickerOpen, setPushBranchPickerOpen] = useState(false);
+  const [showPullModal, setShowPullModal] = useState(false);
+  const [pullBranch, setPullBranch] = useState<string>('');
+  const [pullRemote, setPullRemote] = useState<string>('origin');
+  const [pullRebase, setPullRebase] = useState(false);
+  const [pullStash, setPullStash] = useState(false);
+  const [pullBranchPickerOpen, setPullBranchPickerOpen] = useState(false);
+
+  // Branch filter state
+  const [selectedBranchFilter, setSelectedBranchFilter] = useState<string | null>(null);
+  const [filteredCommits, setFilteredCommits] = useState<GitCommit[]>([]);
+  const [branchFilterLoading, setBranchFilterLoading] = useState(false);
+  const [branchCommitsCache, setBranchCommitsCache] = useState<Record<string, GitCommit[]>>({});
 
   const shimmerAnim = useRef(new RNAnimated.Value(0)).current;
   const insets = useSafeAreaInsets();
@@ -111,16 +165,17 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       const isCacheValid = useGitCacheStore.getState().isCacheValid(currentWorkstation.id, 5 * 60 * 1000); // 5 min
 
       if (cachedData && isCacheValid) {
-        // Set all data from cache immediately
+        // Set commits/branches from cache immediately (stable data)
         setCommits(cachedData.commits.map(c => ({ ...c, date: new Date(c.date) })));
         setBranches(cachedData.branches);
         setCurrentBranch(cachedData.currentBranch);
         setIsGitRepo(cachedData.isGitRepo);
-        if (cachedData.status) setGitStatus(cachedData.status);
+        // NOTE: Don't load status from cache — it's too volatile (user edits files between sessions).
+        // Always fetch fresh status from backend.
         setGitLoading(false);
         setLoading(false);
 
-        // Refresh in background silently
+        // Refresh in background (including fresh status)
         loadAccountInfo().then(accounts => loadGitData(accounts || [])).catch((err) => console.warn('[Git] Background refresh failed:', err?.message || err));
         return;
       }
@@ -148,6 +203,35 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       setAccountsLoaded(false);
       isLoadingRef.current = false; // Reset guard when closed
       hasStartedRef.current = false; // Reset so next open triggers load
+      // Reset all sub-modal states to prevent stale overlays blocking touches
+      setCommitContextMenu(null);
+      setNewBranchFromCommit(null);
+      setBranchFromName('');
+      setCommitFilesModal(null);
+      setCommitFiles([]);
+      setCommitFilesLoading(false);
+      setDiffFile(null);
+      setDiffContent(null);
+      setFileContextMenu(null);
+      setShowCommitModal(false);
+      setShowAccountPicker(false);
+      setExpandedCommitFile(null);
+      setExpandedCommitDiff(null);
+      setShowPushModal(false);
+      setShowPullModal(false);
+      setPushBranchPickerOpen(false);
+      setPullBranchPickerOpen(false);
+      setShowCreateBranch(false);
+      setNewBranchName('');
+      setCommitMessage('');
+      setCommitDescription('');
+      setSelectedFiles(new Set());
+      setExpandedChangeFolders(new Set());
+      // Reset branch filter state
+      setSelectedBranchFilter(null);
+      setFilteredCommits([]);
+      setBranchFilterLoading(false);
+      setBranchCommitsCache({});
     }
   }, [visible, currentWorkstation?.id]);
 
@@ -212,6 +296,10 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     const totalStart = Date.now();
     setGitLoading(true);
     setErrorMsg(null);
+    // Reset branch filter on fresh load
+    setSelectedBranchFilter(null);
+    setFilteredCommits([]);
+    setBranchCommitsCache({});
 
     const repoUrl = overrideRepoUrl || currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
     let localCurrentBranch = 'main';
@@ -239,9 +327,10 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
             // Fetch from GitHub API (FAST!)
             const apiStart = Date.now();
-            const [commitsData, branchesData] = await Promise.all([
+            const [commitsData, branchesData, tagsData] = await Promise.all([
               githubService.getCommits(owner, repo, token),
-              githubService.getBranches(owner, repo, token)
+              githubService.getBranches(owner, repo, token),
+              githubService.getTags(owner, repo, token),
             ]);
 
             if (commitsData && commitsData.length > 0) {
@@ -249,19 +338,46 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               // Determine current branch from GitHub default
               localCurrentBranch = branchesData?.find((b: any) => b.name === 'main' || b.name === 'master')?.name || 'main';
 
-              const githubCommits: GitCommit[] = commitsData.map((c: GitHubCommit, index: number) => ({
-                hash: c.sha,
-                shortHash: c.sha.substring(0, 7),
-                message: c.message.split('\n')[0],
-                author: c.author.name,
-                authorEmail: c.author.email,
-                authorAvatar: c.author.avatar_url,
-                authorLogin: c.author.login,
-                date: new Date(c.author.date),
-                isHead: index === 0,
-                branch: index === 0 ? localCurrentBranch : undefined,
-                url: c.url,
-              }));
+              // Build refs map: shortHash -> { branches, tags }
+              const refsMap: Record<string, { branches: string[]; tags: string[] }> = {};
+              if (branchesData) {
+                for (const b of branchesData) {
+                  const sha7 = b.commit?.sha?.substring(0, 7);
+                  if (sha7) {
+                    if (!refsMap[sha7]) refsMap[sha7] = { branches: [], tags: [] };
+                    refsMap[sha7].branches.push(b.name);
+                  }
+                }
+              }
+              if (tagsData) {
+                for (const t of tagsData) {
+                  if (t.sha) {
+                    const tagSha7 = t.sha.substring(0, 7);
+                    if (!refsMap[tagSha7]) refsMap[tagSha7] = { branches: [], tags: [] };
+                    refsMap[tagSha7].tags.push(t.name);
+                  }
+                }
+              }
+
+              const githubCommits: GitCommit[] = commitsData.map((c: GitHubCommit, index: number) => {
+                const sh = c.sha.substring(0, 7);
+                const refs = refsMap[sh];
+                return {
+                  hash: c.sha,
+                  shortHash: sh,
+                  message: c.message.split('\n')[0],
+                  author: c.author.name,
+                  authorEmail: c.author.email,
+                  authorAvatar: c.author.avatar_url,
+                  authorLogin: c.author.login,
+                  date: new Date(c.author.date),
+                  isHead: index === 0,
+                  branch: index === 0 ? localCurrentBranch : undefined,
+                  url: c.url,
+                  branches: refs?.branches,
+                  tags: refs?.tags,
+                };
+              });
 
               setCommits(githubCommits);
               setCurrentBranch(localCurrentBranch);
@@ -314,15 +430,74 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   };
 
   // Separate function for backend fetch (can run in background)
+  const fetchStatusAbortRef = useRef<AbortController | null>(null);
   const fetchBackendStatus = async (currentBranchName: string) => {
     if (!currentWorkstation?.id) return;
+    // Abort any in-flight request to prevent duplicate processing
+    if (fetchStatusAbortRef.current) {
+      fetchStatusAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    fetchStatusAbortRef.current = abortController;
 
+    setStatusRefreshing(true);
     try {
       const authHeaders = await getAuthHeaders();
-      const localResponse = await fetch(`${config.apiUrl}/git/status/${currentWorkstation.id}`, {
-        headers: authHeaders,
-      });
+      const signal = abortController.signal;
+      const [localResponse, branchesResponse, refsResponse] = await Promise.all([
+        fetch(`${config.apiUrl}/git/status/${currentWorkstation.id}`, { headers: authHeaders, signal }),
+        fetch(`${config.apiUrl}/git/branches/${currentWorkstation.id}`, { headers: authHeaders, signal }).catch(() => null),
+        fetch(`${config.apiUrl}/git/refs/${currentWorkstation.id}`, { headers: authHeaders, signal }).catch(() => null),
+      ]);
+
+      if (!localResponse.ok) {
+        console.error(`[GitSheet] Status API error: ${localResponse.status}`);
+        return;
+      }
+
+      // Update branches from backend (includes local branches)
+      if (branchesResponse?.ok) {
+        try {
+          const branchData = await branchesResponse.json();
+          if (branchData.branches && branchData.branches.length > 0) {
+            const backendBranches: GitBranch[] = branchData.branches.map((name: string) => ({
+              name,
+              isCurrent: name === (branchData.current || currentBranchName),
+              isRemote: false,
+            }));
+            setBranches(prev => {
+              // Merge: keep remote-only branches from GitHub, add/update local branches
+              const localNames = new Set(backendBranches.map((b: GitBranch) => b.name));
+              const remoteOnly = prev.filter(b => b.isRemote && !localNames.has(b.name));
+              const merged = [...backendBranches, ...remoteOnly];
+
+              // Update cache with merged branches so they persist across opens
+              const cached = useGitCacheStore.getState().getGitData(currentWorkstation!.id);
+              if (cached) {
+                useGitCacheStore.getState().setGitData(currentWorkstation!.id, {
+                  ...cached,
+                  branches: merged.map(b => ({ name: b.name, isCurrent: b.isCurrent, isRemote: b.isRemote })),
+                });
+              }
+
+              return merged;
+            });
+
+            // Update currentBranch from backend (authoritative)
+            if (branchData.current) {
+              setCurrentBranch(branchData.current);
+            }
+          }
+        } catch { /* ignore parse errors */ }
+      }
+
       const localData = await localResponse.json();
+      console.log('[GitSheet] Backend status response:', JSON.stringify({
+        isGitRepo: localData?.isGitRepo,
+        modified: localData?.changes?.modified?.length,
+        untracked: localData?.changes?.untracked?.length,
+        deleted: localData?.changes?.deleted?.length,
+      }));
 
       if (localData?.isGitRepo) {
         // Update status for Changes tab — backend returns 'changes' object, not 'status'
@@ -336,10 +511,68 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           });
         }
 
+        // Update branch from backend (more accurate than GitHub default guess)
+        if (localData.branch) {
+          setCurrentBranch(localData.branch);
+        }
+
+        // Remote tracking info (for pushed/unpushed distinction)
+        if (localData.remoteHead) setRemoteHead(localData.remoteHead);
+        if (localData.ahead !== undefined) setAheadCount(localData.ahead);
+        if (localData.behind !== undefined) setBehindCount(localData.behind);
+        setIsDetachedHead(!!localData.isDetachedHead);
+        setDetachedAt(localData.detachedAt || null);
+
+        // Merge local commits with existing GitHub commits
+        // Local commits from backend include unpushed commits
+        if (localData.commits && localData.commits.length > 0) {
+          setCommits(prev => {
+            const existingHashes = new Set(prev.map(c => c.shortHash || c.hash?.substring(0, 7)));
+            const localOnly: GitCommit[] = localData.commits
+              .filter((lc: any) => !existingHashes.has(lc.hash?.substring(0, 7)))
+              .map((lc: any) => ({
+                hash: lc.hash,
+                shortHash: lc.hash?.substring(0, 7),
+                message: lc.message,
+                author: '',
+                date: new Date(),
+                isHead: false,
+              }));
+
+            if (localOnly.length > 0) {
+              // Prepend local commits, mark first as HEAD (immutable)
+              const merged = [...localOnly, ...prev].map((c, i) => ({
+                ...c,
+                isHead: i === 0,
+                branch: i === 0 && localData.branch ? localData.branch : (i === 0 ? c.branch : undefined),
+              }));
+              return merged;
+            }
+            return prev;
+          });
+        }
+
+        // Update commits with backend refs (branches + tags per commit)
+        if (refsResponse?.ok) {
+          try {
+            const refsData = await refsResponse.json();
+            if (refsData.refs) {
+              const backendRefs = refsData.refs as Record<string, { branches: string[]; tags: string[] }>;
+              setCommits(prev => prev.map(c => {
+                const r = backendRefs[c.shortHash];
+                if (r) {
+                  return { ...c, branches: r.branches, tags: r.tags };
+                }
+                return c;
+              }));
+            }
+          } catch { /* ignore */ }
+        }
+
         // Update cache with status
-        const cached = useGitCacheStore.getState().getGitData(currentWorkstation.id);
+        const cached = useGitCacheStore.getState().getGitData(currentWorkstation!.id);
         if (cached) {
-          useGitCacheStore.getState().setGitData(currentWorkstation.id, {
+          useGitCacheStore.getState().setGitData(currentWorkstation!.id, {
             ...cached,
             status: changes ? {
               staged: changes.staged || [],
@@ -351,15 +584,136 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         }
       }
     } catch (e: any) {
-      console.warn('⚠️ [GitSheet] Backend status failed:', e.message);
+      if (e.name !== 'AbortError') {
+        console.warn('⚠️ [GitSheet] Backend status failed:', e.message);
+      }
+    } finally {
+      setStatusRefreshing(false);
+      if (fetchStatusAbortRef.current === abortController) {
+        fetchStatusAbortRef.current = null;
+      }
+    }
+  };
+
+  const fetchDiff = async (file: string) => {
+    if (!currentWorkstation?.id) return;
+    setDiffFile(file);
+    setDiffContent(null);
+    setDiffLoading(true);
+    try {
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch(
+        `${config.apiUrl}/git/diff/${currentWorkstation.id}?file=${encodeURIComponent(file)}`,
+        { headers: authHeaders },
+      );
+      const data = await res.json();
+      setDiffContent(data.diff || '');
+    } catch (e: any) {
+      setDiffContent(`Error loading diff: ${e.message}`);
+    } finally {
+      setDiffLoading(false);
+    }
+  };
+
+  const fetchCommitFiles = async (hash: string) => {
+    if (!currentWorkstation?.id) return;
+    setCommitFilesLoading(true);
+    setCommitFiles([]);
+    try {
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch(
+        `${config.apiUrl}/git/commit-files/${currentWorkstation.id}?commit=${encodeURIComponent(hash)}`,
+        { headers: authHeaders },
+      );
+      const data = await res.json();
+      if (data.success) {
+        setCommitFiles(data.files || []);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to load commit files');
+    } finally {
+      setCommitFilesLoading(false);
+    }
+  };
+
+  const fetchCommitDiff = async (commit: string, file: string) => {
+    if (!currentWorkstation?.id) return;
+    setDiffFile(file);
+    setDiffContent(null);
+    setDiffLoading(true);
+    try {
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch(
+        `${config.apiUrl}/git/commit-diff/${currentWorkstation.id}?commit=${encodeURIComponent(commit)}&file=${encodeURIComponent(file)}`,
+        { headers: authHeaders },
+      );
+      const data = await res.json();
+      setDiffContent(data.diff || '');
+    } catch (e: any) {
+      setDiffContent(`Error loading diff: ${e.message}`);
+    } finally {
+      setDiffLoading(false);
     }
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    setSelectedBranchFilter(null);
+    setFilteredCommits([]);
+    isLoadingRef.current = false; // Reset guard so loadGitData can proceed
     await Promise.all([loadAccountInfo(), loadGitData()]);
     setRefreshing(false);
   };
+
+  const handleBranchFilterSelect = useCallback(async (branchName: string | null) => {
+    setSelectedBranchFilter(branchName);
+    if (branchName === null) { setFilteredCommits([]); return; }
+
+    // Check in-memory cache
+    if (branchCommitsCache[branchName]) { setFilteredCommits(branchCommitsCache[branchName]); return; }
+
+    // Fetch from GitHub API with sha parameter
+    const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
+    if (!repoUrl || !repoUrl.includes('github.com')) return;
+    const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+    if (!match) return;
+    const [, owner, repo] = match;
+
+    setBranchFilterLoading(true);
+    try {
+      const accounts = accountsRef.current;
+      const githubAccount = accounts.find(a => a.provider === 'github');
+      let token: string | null = null;
+      if (githubAccount) token = await gitAccountService.getToken(githubAccount, userId);
+
+      const commitsData = await githubService.getCommits(owner, repo, token || undefined, 1, 30, branchName);
+      if (commitsData && commitsData.length > 0) {
+        const branchCommits: GitCommit[] = commitsData.map((c: any, index: number) => ({
+          hash: c.sha,
+          shortHash: c.sha.substring(0, 7),
+          message: c.message.split('\n')[0],
+          author: c.author.name,
+          authorEmail: c.author.email,
+          authorAvatar: c.author.avatar_url,
+          authorLogin: c.author.login,
+          date: new Date(c.author.date),
+          isHead: index === 0,
+          branch: index === 0 ? branchName : undefined,
+          url: c.url,
+        }));
+        setFilteredCommits(branchCommits);
+        setBranchCommitsCache(prev => ({ ...prev, [branchName]: branchCommits }));
+      } else {
+        setFilteredCommits([]);
+      }
+    } catch (err: any) {
+      console.warn(`[GitSheet] Failed to fetch commits for branch ${branchName}:`, err.message);
+      setSelectedBranchFilter(null);
+      setFilteredCommits([]);
+    } finally {
+      setBranchFilterLoading(false);
+    }
+  }, [currentWorkstation, userId, branchCommitsCache]);
 
   const handleGitAction = async (action: 'pull' | 'push' | 'fetch') => {
     trackGitAction(action);
@@ -386,6 +740,16 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       return;
     }
 
+    // Block push/pull in detached HEAD state
+    if ((action === 'push' || action === 'pull') && isDetachedHead) {
+      Alert.alert(
+        'Detached HEAD',
+        'You are in detached HEAD state. Return to a branch before pushing or pulling.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     // Check if user can push to this repo
     if (action === 'push' && !isOwnRepo) {
       Alert.alert(
@@ -397,95 +761,101 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     }
 
     // Check for local changes before pull
-    if (action === 'pull' && allChangedFiles.length > 0) {
-      Alert.alert(
-        t('terminal:git.localChangesDetected'),
-        t('terminal:git.localChangesWarning', { count: allChangedFiles.length }) + '\n\n' + t('terminal:git.whatToDo'),
-        [
-          { text: t('common:cancel'), style: 'cancel' },
-          {
-            text: t('terminal:git.stashSave'),
-            onPress: () => executeGitActionWithStash(action),
-          },
-          {
-            text: t('terminal:git.pullAnyway'),
-            style: 'destructive',
-            onPress: () => executeGitAction(action),
-          },
-        ]
-      );
+    // For pull, open config modal
+    if (action === 'pull') {
+      setPullBranch(currentBranch);
+      setPullRemote('origin');
+      setPullRebase(false);
+      setPullStash(allChangedFiles.length > 0);
+      setPullBranchPickerOpen(false);
+      setShowPullModal(true);
+      return;
+    }
+
+    // For push, open config modal instead of pushing directly
+    if (action === 'push') {
+      const activeBranch = branches.find(b => b.isCurrent)?.name || currentBranch;
+      setPushBranch(activeBranch);
+      setPushRemote('origin');
+      setPushForcePush(false);
+      setPushTags(false);
+      setPushBranchPickerOpen(false);
+      setShowPushModal(true);
       return;
     }
 
     await executeGitAction(action);
   };
 
-  const executeGitActionWithStash = async (action: 'pull' | 'push' | 'fetch') => {
-    setActionLoading(action);
+  const executePush = async () => {
+    setShowPushModal(false);
+    setActionLoading('push');
     try {
       const token = await gitAccountService.getToken(linkedAccount!, userId);
       const authHeaders = await getAuthHeaders();
-
-      // First stash
-      const stashResponse = await fetch(`${config.apiUrl}/git/stash/${currentWorkstation!.id}`, {
+      const response = await fetch(`${config.apiUrl}/git/push/${currentWorkstation!.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...authHeaders,
           'X-Git-Token': token || '',
         },
-        body: JSON.stringify({ action: 'push', message: 'Auto-stash before pull' }),
+        body: JSON.stringify({
+          branch: pushBranch,
+          remote: pushRemote,
+          forcePush: pushForcePush,
+          pushTags,
+          setUpstream: true,
+        }),
       });
-
-      if (!stashResponse.ok) {
-        Alert.alert(t('common:error'), t('terminal:git.stashError'));
-        return;
-      }
-
-      // Then do the action
-      const response = await fetch(`${config.apiUrl}/git/${action}/${currentWorkstation!.id}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders,
-          'X-Git-Token': token || '',
-        },
-      });
-
-      if (response.ok) {
-        // Try to restore stash
-        const popResponse = await fetch(`${config.apiUrl}/git/stash/${currentWorkstation!.id}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...authHeaders,
-            'X-Git-Token': token || '',
-          },
-          body: JSON.stringify({ action: 'pop' }),
-        });
-
-        if (popResponse.ok) {
-          Alert.alert(t('common:success'), t('terminal:git.actionCompletedWithRestore', { action: action.charAt(0).toUpperCase() + action.slice(1) }));
-        } else {
-          Alert.alert(t('common:warning'), t('terminal:git.actionCompletedWithConflict', { action: action.charAt(0).toUpperCase() + action.slice(1) }));
-        }
+      const data = await response.json();
+      if (data.success) {
+        Alert.alert(t('common:success'), 'Push complete');
+        useGitCacheStore.getState().clearCache(currentWorkstation!.id);
+        isLoadingRef.current = false;
         await loadGitData();
       } else {
-        // Restore stash if action failed
-        await fetch(`${config.apiUrl}/git/stash/${currentWorkstation!.id}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...authHeaders,
-            'X-Git-Token': token || '',
-          },
-          body: JSON.stringify({ action: 'pop' }),
-        });
-        const error = await response.json();
-        Alert.alert(t('common:error'), error.message || t('terminal:git.actionError', { action }));
+        Alert.alert(t('common:error'), data.output || data.error || 'Push failed');
       }
-    } catch (error) {
-      Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action }));
+    } catch (e: any) {
+      Alert.alert(t('common:error'), e.message || 'Push failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const executePull = async () => {
+    setShowPullModal(false);
+    setActionLoading('pull');
+    try {
+      const token = await gitAccountService.getToken(linkedAccount!, userId);
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${config.apiUrl}/git/pull/${currentWorkstation!.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+          'X-Git-Token': token || '',
+        },
+        body: JSON.stringify({
+          branch: pullBranch,
+          remote: pullRemote,
+          rebase: pullRebase,
+          stashAndReapply: pullStash,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        Alert.alert(t('common:success'), 'Pull complete');
+        useGitCacheStore.getState().clearCache(currentWorkstation!.id);
+        useFileCacheStore.getState().clearCache(currentWorkstation!.id);
+        isLoadingRef.current = false;
+        await loadGitData();
+      } else {
+        Alert.alert(t('common:error'), data.output || data.error || 'Pull failed');
+      }
+    } catch (e: any) {
+      Alert.alert(t('common:error'), e.message || 'Pull failed');
     } finally {
       setActionLoading(null);
     }
@@ -506,12 +876,13 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         },
       });
 
-      if (response.ok) {
+      const data = await response.json();
+      if (response.ok && data.success) {
         Alert.alert(t('common:success'), t('terminal:git.actionCompleted', { action: action.charAt(0).toUpperCase() + action.slice(1) }));
+        isLoadingRef.current = false;
         await loadGitData();
       } else {
-        const error = await response.json();
-        Alert.alert(t('common:error'), error.message || t('terminal:git.actionError', { action }));
+        Alert.alert(t('common:error'), data.error || data.output || data.message || t('terminal:git.actionError', { action }));
       }
     } catch (error) {
       Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action }));
@@ -524,16 +895,18 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     if (!currentWorkstation?.id) return;
     trackGitCheckout(branchName);
     setActionLoading('checkout');
+    let didStash = false;
     try {
       const authHeaders = await getAuthHeaders();
       const token = linkedAccount ? await gitAccountService.getToken(linkedAccount, userId) : '';
-
-      // 1. Auto-stash local changes
-      await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
-        body: JSON.stringify({ action: 'push', message: `Auto-stash before checkout ${branchName}` }),
-      });
+      if (allChangedFiles.length > 0) {
+        const stashRes = await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
+          body: JSON.stringify({ action: 'push', message: `Auto-stash before checkout ${branchName}` }),
+        });
+        didStash = stashRes.ok;
+      }
 
       // 2. Checkout branch
       const response = await fetch(`${config.apiUrl}/git/checkout/${currentWorkstation.id}`, {
@@ -543,43 +916,68 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       });
 
       if (response.ok) {
-        // 3. Try to restore stash
-        const popResponse = await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
-          body: JSON.stringify({ action: 'pop' }),
-        });
-
-        if (popResponse.ok) {
-          Alert.alert(t('common:success'), t('terminal:git.branchSwitched'));
-        } else {
-          Alert.alert(t('common:success'), t('terminal:git.branchSwitched'));
+        // 3. Restore stash only if we actually stashed something
+        if (didStash) {
+          await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
+            body: JSON.stringify({ action: 'pop' }),
+          });
         }
+        Alert.alert(t('common:success'), t('terminal:git.branchSwitched'));
 
-        // Invalidate cache and reload
+        // Invalidate caches and reload (file tree changes on checkout)
         useGitCacheStore.getState().clearCache(currentWorkstation.id);
+        useFileCacheStore.getState().clearCache(currentWorkstation.id);
         isLoadingRef.current = false;
         await loadGitData();
       } else {
-        // Restore stash if checkout failed
-        await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
-          body: JSON.stringify({ action: 'pop' }),
-        });
+        // Restore stash if checkout failed and we actually stashed
+        if (didStash) {
+          await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
+            body: JSON.stringify({ action: 'pop' }),
+          });
+        }
         const error = await response.json();
         Alert.alert(t('common:error'), error.message || t('terminal:git.actionError', { action: 'checkout' }));
       }
     } catch (error) {
+      // Restore stash if checkout threw an exception
+      if (didStash) {
+        const authHeaders2 = await getAuthHeaders().catch(() => ({}));
+        await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders2 },
+          body: JSON.stringify({ action: 'pop' }),
+        }).catch(() => {});
+      }
       Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action: 'checkout' }));
     } finally {
       setActionLoading(null);
     }
   };
 
+  const isValidBranchName = (name: string): boolean => {
+    // Git branch name rules: no spaces, no ~^:?\*[, no .., no leading/trailing dot or slash, no double slashes
+    if (!name) return false;
+    if (/[\s~^:?*\[\\]/.test(name)) return false;
+    if (name.includes('..')) return false;
+    if (name.startsWith('.') || name.startsWith('/') || name.endsWith('.') || name.endsWith('/') || name.endsWith('.lock')) return false;
+    if (name.includes('//')) return false;
+    if (name.startsWith('-')) return false;
+    return true;
+  };
+
   const handleCreateBranch = async () => {
     const name = newBranchName.trim();
     if (!name || !currentWorkstation?.id) return;
+
+    if (!isValidBranchName(name)) {
+      Alert.alert(t('common:error'), 'Invalid branch name. Avoid spaces, special characters (~^:?*[\\), and sequences like "..".');
+      return;
+    }
 
     setActionLoading('createBranch');
     try {
@@ -609,12 +1007,72 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     }
   };
 
-  // Get all changed files for selection
-  const allChangedFiles = gitStatus ? [
-    ...(gitStatus.modified || []).map(f => ({ file: f, type: 'modified' })),
-    ...(gitStatus.untracked || []).map(f => ({ file: f, type: 'untracked' })),
-    ...(gitStatus.deleted || []).map(f => ({ file: f, type: 'deleted' })),
-  ] : [];
+  // Branch filter: displayCommits returns filtered or all commits
+  const BRANCH_COLORS = ['#9B8AFF', '#3FB950', '#F97316', '#22D3EE', '#F472B6', '#FBBF24'];
+
+  const displayCommits = useMemo(() => {
+    if (selectedBranchFilter === null) return commits;
+    return filteredCommits;
+  }, [selectedBranchFilter, commits, filteredCommits]);
+
+  const branchColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    const local = branches.filter(b => !b.name.startsWith('origin/'));
+    const curIdx = local.findIndex(b => b.isCurrent);
+    if (curIdx >= 0) map[local[curIdx].name] = BRANCH_COLORS[0];
+    let ci = 1;
+    for (const b of local) {
+      if (!map[b.name]) { map[b.name] = BRANCH_COLORS[ci % BRANCH_COLORS.length]; ci++; }
+    }
+    return map;
+  }, [branches]);
+
+  // Pre-compute timeline color per commit in "All" view
+  // Uses branch refs (local or remote) on commits; once a non-current branch is found,
+  // all subsequent commits inherit that color until another branch ref appears
+  const commitTimelineColors = useMemo(() => {
+    const colors: string[] = [];
+    let activeBranch = currentBranch || 'main';
+    for (const c of displayCommits) {
+      // Check for a branch ref that indicates a different branch
+      const localRef = c.branches?.find(b => b !== currentBranch && !b.startsWith('origin/'));
+      const remoteRef = !localRef
+        ? c.branches?.find(b => b.startsWith('origin/') && b !== `origin/${currentBranch}` && b !== 'origin/HEAD')
+        : null;
+      const branchName = localRef || (remoteRef ? remoteRef.replace('origin/', '') : null);
+      // Also check if this commit has current branch ref → switch back
+      const hasCurrentRef = c.branches?.some(b => b === currentBranch || b === `origin/${currentBranch}`);
+      if (hasCurrentRef && !localRef) activeBranch = currentBranch || 'main';
+      else if (branchName) activeBranch = branchName;
+      colors.push(branchColorMap[activeBranch] || BRANCH_COLORS[0]);
+    }
+    return colors;
+  }, [displayCommits, currentBranch, branchColorMap]);
+
+  // Get all changed files for selection (include staged files too — they're still changes)
+  // Deduplicate: a file can appear in multiple categories (e.g. staged + deleted)
+  const allChangedFiles = useMemo(() => {
+    if (!gitStatus) return [];
+    const seen = new Set<string>();
+    const result: { file: string; type: 'modified' | 'untracked' | 'deleted' }[] = [];
+    // Deleted first (highest priority label)
+    for (const f of (gitStatus.deleted || [])) {
+      if (!seen.has(f)) { seen.add(f); result.push({ file: f, type: 'deleted' }); }
+    }
+    // Modified
+    for (const f of (gitStatus.modified || [])) {
+      if (!seen.has(f)) { seen.add(f); result.push({ file: f, type: 'modified' }); }
+    }
+    // Staged (only if not already shown as modified/deleted)
+    for (const f of (gitStatus.staged || [])) {
+      if (!seen.has(f)) { seen.add(f); result.push({ file: f, type: 'modified' }); }
+    }
+    // Untracked
+    for (const f of (gitStatus.untracked || [])) {
+      if (!seen.has(f)) { seen.add(f); result.push({ file: f, type: 'untracked' }); }
+    }
+    return result;
+  }, [gitStatus]);
 
   const toggleFileSelection = (file: string) => {
     setSelectedFiles(prev => {
@@ -636,20 +1094,199 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     }
   };
 
-  const handleCommit = async () => {
+  const handleDiscard = (files: string[]) => {
+    const isMultiple = files.length > 1;
+    const title = isMultiple
+      ? t('terminal:git.discardSelected')
+      : t('terminal:git.discardChanges');
+    const message = isMultiple
+      ? t('terminal:git.discardSelectedConfirm', { count: files.length })
+      : t('terminal:git.discardConfirm', { file: files[0] });
+
+    Alert.alert(title, message, [
+      { text: t('common:cancel'), style: 'cancel' },
+      {
+        text: t('common:discard'),
+        style: 'destructive',
+        onPress: async () => {
+          setActionLoading('discard');
+          try {
+            const authHeaders = await getAuthHeaders();
+            const res = await fetch(
+              `${config.apiUrl}/git/discard/${currentWorkstation!.id}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify({ files }),
+              }
+            );
+            if (res.ok) {
+              setSelectedFiles(prev => {
+                const next = new Set(prev);
+                files.forEach(f => next.delete(f));
+                return next;
+              });
+              isLoadingRef.current = false;
+              await loadGitData();
+            } else {
+              const errBody = await res.json().catch(() => null);
+              const errMsg = errBody?.error || errBody?.message || `HTTP ${res.status}`;
+              console.error('[GitSheet] Discard failed:', res.status, errBody);
+              Alert.alert(t('common:error'), errMsg);
+            }
+          } catch (e: any) {
+            console.error('[GitSheet] Discard error:', e);
+            Alert.alert(t('common:error'), e?.message || t('terminal:git.discardError'));
+          } finally {
+            setActionLoading(null);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleFileMenuAction = (action: 'viewDiff' | 'discard') => {
+    if (!fileContextMenu) return;
+    const { file } = fileContextMenu;
+    setFileContextMenu(null);
+    switch (action) {
+      case 'viewDiff': fetchDiff(file); break;
+      case 'discard': handleDiscard([file]); break;
+    }
+  };
+
+  // Tree view builder for Changes tab
+  interface GitChangeTreeNode {
+    name: string;
+    path: string;
+    type: 'file' | 'folder';
+    changeType?: 'modified' | 'untracked' | 'deleted';
+    children?: GitChangeTreeNode[];
+  }
+
+  const changeFileTree = useMemo((): GitChangeTreeNode[] => {
+    if (allChangedFiles.length === 0) return [];
+
+    const root: GitChangeTreeNode[] = [];
+    allChangedFiles.forEach(({ file, type }) => {
+      // Strip trailing slash (git shows untracked dirs as "dir/")
+      const cleanFile = file.endsWith('/') ? file.slice(0, -1) : file;
+      if (!cleanFile) return;
+      const parts = cleanFile.split('/');
+      let currentLevel = root;
+      let currentPath = '';
+      parts.forEach((part, index) => {
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+        const isFile = index === parts.length - 1;
+        let node = currentLevel.find(n => n.name === part);
+        if (!node) {
+          node = {
+            name: part,
+            path: currentPath,
+            type: isFile ? 'file' : 'folder',
+            changeType: isFile ? type as 'modified' | 'untracked' | 'deleted' : undefined,
+            children: isFile ? undefined : [],
+          };
+          currentLevel.push(node);
+        }
+        if (!isFile && node.children) currentLevel = node.children;
+      });
+    });
+
+    const sortNodes = (nodes: GitChangeTreeNode[]): GitChangeTreeNode[] =>
+      [...nodes].sort((a, b) => {
+        if (a.type === b.type) return a.name.localeCompare(b.name);
+        return a.type === 'folder' ? -1 : 1;
+      }).map(node => ({
+        ...node,
+        children: node.children ? sortNodes(node.children) : undefined,
+      }));
+
+    return sortNodes(root);
+  }, [allChangedFiles]);
+
+  const countFilesRecursive = (node: GitChangeTreeNode): number => {
+    if (node.type === 'file') return 1;
+    return (node.children || []).reduce((sum, c) => sum + countFilesRecursive(c), 0);
+  };
+
+  const renderChangeNode = (node: GitChangeTreeNode, depth: number = 0): React.ReactNode => {
+    if (node.type === 'file') {
+      const statusIcon = node.changeType === 'modified'
+        ? { name: 'create-outline' as const, color: '#f59e0b' }
+        : node.changeType === 'untracked'
+        ? { name: 'add-circle-outline' as const, color: '#22c55e' }
+        : { name: 'trash-outline' as const, color: '#ef4444' };
+
+      return (
+        <View key={node.path} style={[styles.changeItem, { marginLeft: depth * 20 }]}>
+          <TouchableOpacity onPress={() => toggleFileSelection(node.path)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons
+              name={selectedFiles.has(node.path) ? "checkmark-circle" : "ellipse-outline"}
+              size={16}
+              color={selectedFiles.has(node.path) ? AppColors.primary : 'rgba(255,255,255,0.3)'}
+            />
+          </TouchableOpacity>
+          <Ionicons name={statusIcon.name} size={14} color={statusIcon.color} />
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => fetchDiff(node.path)}>
+            <Text style={styles.changeFileName} numberOfLines={1}>{node.name}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={(e) => setFileContextMenu({ y: e.nativeEvent.pageY, file: node.path, type: node.changeType! })}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={{ padding: 4 }}
+          >
+            <Ionicons name="ellipsis-vertical" size={14} color="rgba(255,255,255,0.4)" />
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    // Folders are expanded by default (expanded set tracks collapsed ones)
+    const isExpanded = !expandedChangeFolders.has(node.path);
+    const childCount = countFilesRecursive(node);
+
+    return (
+      <View key={node.path}>
+        <TouchableOpacity
+          style={[styles.changeFolderItem, { marginLeft: depth * 20 }]}
+          onPress={() => {
+            setExpandedChangeFolders(prev => {
+              const next = new Set(prev);
+              // Toggle: add to set = collapsed, remove from set = expanded
+              next.has(node.path) ? next.delete(node.path) : next.add(node.path);
+              return next;
+            });
+          }}
+        >
+          <Ionicons
+            name={isExpanded ? "chevron-down" : "chevron-forward"}
+            size={12}
+            color="rgba(255,255,255,0.4)"
+          />
+          <Ionicons name="folder-outline" size={14} color="rgba(255,255,255,0.5)" />
+          <Text style={styles.changeFolderName}>{node.name}</Text>
+          <Text style={styles.changeFolderCount}>{childCount}</Text>
+        </TouchableOpacity>
+        {isExpanded && node.children?.map(child => renderChangeNode(child, depth + 1))}
+      </View>
+    );
+  };
+
+  const handleCommit = async (): Promise<boolean> => {
     if (!currentWorkstation?.id || !linkedAccount) {
       Alert.alert(t('common:error'), t('terminal:git.authRequiredForCommit'));
-      return;
+      return false;
     }
 
     if (selectedFiles.size === 0) {
       Alert.alert(t('common:error'), t('terminal:git.selectAtLeastOneFile'));
-      return;
+      return false;
     }
 
     if (!commitMessage.trim()) {
       Alert.alert(t('common:error'), t('terminal:git.enterCommitMessage'));
-      return;
+      return false;
     }
 
     trackGitCommit();
@@ -667,21 +1304,119 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         },
         body: JSON.stringify({
           files: Array.from(selectedFiles),
-          message: commitMessage.trim(),
+          message: commitDescription.trim()
+            ? `${commitMessage.trim()}\n\n${commitDescription.trim()}`
+            : commitMessage.trim(),
+          authorName: linkedAccount.displayName || linkedAccount.username,
+          authorEmail: linkedAccount.email || `${linkedAccount.username}@users.noreply.github.com`,
         }),
       });
 
-      if (response.ok) {
+      const result = await response.json();
+      if (response.ok && result.success) {
         Alert.alert(t('common:success'), t('terminal:git.commitSuccess'));
         setCommitMessage('');
+        setCommitDescription('');
         setSelectedFiles(new Set());
+        isLoadingRef.current = false;
         await loadGitData();
+        return true;
       } else {
-        const error = await response.json();
-        Alert.alert(t('common:error'), error.message || t('terminal:git.commitError'));
+        Alert.alert(t('common:error'), result.error || result.output || t('terminal:git.commitError'));
+        return false;
       }
     } catch (error) {
       Alert.alert(t('common:error'), t('terminal:git.unableToCommit'));
+      return false;
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRevertCommit = async (hash: string) => {
+    if (!currentWorkstation?.id || !linkedAccount) return;
+    setActionLoading('revert');
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${config.apiUrl}/git/revert/${currentWorkstation.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          hash,
+          authorName: linkedAccount.displayName || linkedAccount.username,
+          authorEmail: linkedAccount.email || `${linkedAccount.username}@users.noreply.github.com`,
+        }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        Alert.alert('Success', 'Commit reverted');
+        isLoadingRef.current = false;
+        await loadGitData();
+      } else {
+        Alert.alert('Error', result.error || result.output || 'Revert failed');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Revert failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCherryPick = async (hash: string) => {
+    if (!currentWorkstation?.id || !linkedAccount) return;
+    setActionLoading('cherry-pick');
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${config.apiUrl}/git/cherry-pick/${currentWorkstation.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          hash,
+          authorName: linkedAccount.displayName || linkedAccount.username,
+          authorEmail: linkedAccount.email || `${linkedAccount.username}@users.noreply.github.com`,
+        }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        Alert.alert('Success', 'Cherry-pick applied');
+        isLoadingRef.current = false;
+        await loadGitData();
+      } else {
+        Alert.alert('Error', result.error || result.output || 'Cherry-pick failed');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Cherry-pick failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleBranchFromCommit = async (hash: string, branchName: string) => {
+    if (!currentWorkstation?.id) return;
+    if (!isValidBranchName(branchName)) {
+      Alert.alert(t('common:error'), 'Invalid branch name. Avoid spaces, special characters (~^:?*[\\), and sequences like "..".');
+      return;
+    }
+    setActionLoading('branch-from');
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${config.apiUrl}/git/branch-from/${currentWorkstation.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ hash, branchName }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        Alert.alert('Success', `Branch '${branchName}' created`);
+        setNewBranchFromCommit(null);
+        setBranchFromName('');
+        isLoadingRef.current = false;
+        await loadGitData();
+      } else {
+        Alert.alert('Error', result.error || result.output || 'Branch creation failed');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Branch creation failed');
     } finally {
       setActionLoading(null);
     }
@@ -697,10 +1432,22 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 60) return `${diffMins}m fa`;
-    if (diffHours < 24) return `${diffHours}h fa`;
-    if (diffDays < 7) return `${diffDays}g fa`;
-    return dateObj.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return dateObj.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+  };
+
+  // Full date for commit list (e.g. "11 Mar 2026, 00:23")
+  const formatCommitDate = (date: Date | string) => {
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(dateObj.getTime())) return '';
+    const day = dateObj.getDate();
+    const month = dateObj.toLocaleDateString('en-US', { month: 'short' });
+    const year = dateObj.getFullYear();
+    const hours = dateObj.getHours().toString().padStart(2, '0');
+    const mins = dateObj.getMinutes().toString().padStart(2, '0');
+    return `${day} ${month} ${year}, ${hours}:${mins}`;
   };
 
   const SheetContainer = ({ children }: { children: React.ReactNode }) => {
@@ -712,16 +1459,16 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           effect="clear"
           colorScheme="dark"
         >
-          <Pressable style={{ flex: 1 }} onPress={() => { }}>
+          <View style={{ flex: 1 }}>
             {children}
-          </Pressable>
+          </View>
         </LiquidGlassView>
       );
     }
     return (
-      <Pressable style={styles.modalContainer} onPress={() => { }}>
+      <View style={styles.modalContainer}>
         {children}
-      </Pressable>
+      </View>
     );
   };
 
@@ -739,7 +1486,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       statusBarTranslucent
     >
       <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      <View style={styles.backdrop} pointerEvents="box-none">
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <SheetContainer>
           {/* Header */}
           <View style={styles.header}>
@@ -762,9 +1510,26 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           {/* Branch & Actions Row */}
           <View style={styles.branchRow}>
             <View style={styles.branchBadge}>
-              <Ionicons name="git-branch" size={14} color={AppColors.primary} />
-              <Text style={styles.branchText}>{currentBranch}</Text>
+              <Ionicons name="git-branch" size={14} color={isDetachedHead ? '#f59e0b' : AppColors.primary} />
+              <Text style={[styles.branchText, isDetachedHead && { color: '#f59e0b' }]}>{currentBranch}</Text>
             </View>
+            {isDetachedHead && (
+              <View style={styles.detachedPill}>
+                <Text style={styles.detachedPillText}>detached</Text>
+              </View>
+            )}
+            {aheadCount > 0 && (
+              <View style={styles.aheadPill}>
+                <Ionicons name="arrow-up" size={10} color={AppColors.primary} />
+                <Text style={styles.aheadPillText}>{aheadCount}</Text>
+              </View>
+            )}
+            {behindCount > 0 && (
+              <View style={styles.behindPill}>
+                <Ionicons name="arrow-down" size={10} color="#f59e0b" />
+                <Text style={styles.behindPillText}>{behindCount}</Text>
+              </View>
+            )}
             <View style={styles.gitActions}>
               <TouchableOpacity
                 style={styles.gitActionBtn}
@@ -808,11 +1573,26 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               <TouchableOpacity
                 key={section}
                 style={[styles.tab, activeSection === section && styles.tabActive]}
-                onPress={() => { setActiveSection(section); trackGitTabSwitch(section); }}
+                onPress={() => {
+                  setActiveSection(section);
+                  trackGitTabSwitch(section);
+                  // Refresh backend status when switching to Changes tab
+                  if (section === 'changes') fetchBackendStatus(currentBranch);
+                }}
               >
-                <Text style={[styles.tabText, activeSection === section && styles.tabTextActive]}>
-                  {section === 'commits' ? t('git.commit') : section === 'branches' ? t('git.branch') : t('git.changes')}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={[styles.tabText, activeSection === section && styles.tabTextActive]}>
+                    {section === 'commits' ? t('git.commit') : section === 'branches' ? t('git.branch') : t('git.changes')}
+                  </Text>
+                  {section === 'changes' && (statusRefreshing || allChangedFiles.length > 0) && (
+                    <View style={styles.changesBadge}>
+                      {statusRefreshing && allChangedFiles.length === 0
+                        ? <ActivityIndicator size={10} color="#fff" />
+                        : <Text style={styles.changesBadgeText}>{allChangedFiles.length}</Text>
+                      }
+                    </View>
+                  )}
+                </View>
               </TouchableOpacity>
             ))}
           </View>
@@ -822,6 +1602,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             style={styles.content}
             contentContainerStyle={styles.contentContainer}
             showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#fff" />
             }
@@ -836,63 +1618,234 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             ) : activeSection === 'commits' ? (
               <View style={styles.commitsList}>
 
-                {commits.slice(0, 10).map((commit, index) => (
+                {/* Branch filter pills */}
+                {branches.filter(b => !b.name.startsWith('origin/')).length > 1 && (
+                  <View style={styles.branchFilterContainer}>
+                    <TouchableOpacity
+                      style={[styles.branchFilterPill, selectedBranchFilter === null && styles.branchFilterPillActive]}
+                      onPress={() => handleBranchFilterSelect(null)}
+                    >
+                      <Text style={[styles.branchFilterPillText, selectedBranchFilter === null && styles.branchFilterPillTextActive]}>All</Text>
+                    </TouchableOpacity>
+                    {branches.filter(b => !b.name.startsWith('origin/')).slice(0, 15).map(branch => (
+                      <TouchableOpacity
+                        key={branch.name}
+                        style={[
+                          styles.branchFilterPill,
+                          selectedBranchFilter === branch.name && styles.branchFilterPillActive,
+                          branch.isCurrent && selectedBranchFilter !== branch.name && styles.branchFilterPillCurrent,
+                        ]}
+                        onPress={() => handleBranchFilterSelect(branch.name)}
+                      >
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: branchColorMap[branch.name] || 'rgba(255,255,255,0.3)' }} />
+                        <Ionicons name="git-branch" size={11} color={selectedBranchFilter === branch.name ? '#fff' : branch.isCurrent ? AppColors.primary : 'rgba(255,255,255,0.4)'} />
+                        <Text style={[styles.branchFilterPillText, selectedBranchFilter === branch.name && styles.branchFilterPillTextActive]}>{branch.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {/* Branch filter loading */}
+                {branchFilterLoading && (
+                  <View style={{ paddingVertical: 16, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color={AppColors.primary} />
+                  </View>
+                )}
+
+                {/* Detached HEAD — return button */}
+                {isDetachedHead && (
                   <TouchableOpacity
-                    key={commit.hash || index}
-                    style={styles.commitItem}
-                    onPress={() => { if (commit.url) { Linking.openURL(commit.url); trackGitCommitView(); } }}
+                    style={styles.detachedBanner}
+                    onPress={async () => {
+                      if (!currentWorkstation?.id) return;
+                      setActionLoading('checkout');
+                      try {
+                        const authHeaders = await getAuthHeaders();
+                        const response = await fetch(`${config.apiUrl}/git/checkout/${currentWorkstation.id}`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', ...authHeaders },
+                          body: JSON.stringify({ branch: previousBranchRef.current || currentBranch || 'main' }),
+                        });
+                        const result = await response.json();
+                        if (result.success) {
+                          useGitCacheStore.getState().clearCache(currentWorkstation!.id);
+                          useFileCacheStore.getState().clearCache(currentWorkstation!.id);
+                          isLoadingRef.current = false;
+                          await loadGitData();
+                        } else {
+                          Alert.alert('Error', result.output || 'Checkout failed');
+                        }
+                      } catch (e: any) {
+                        Alert.alert('Error', e.message);
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    }}
+                    disabled={!!actionLoading}
                     activeOpacity={0.7}
                   >
+                    <Ionicons name="return-up-back" size={14} color="#f59e0b" />
+                    <Text style={styles.detachedBannerText}>Return to {previousBranchRef.current || currentBranch}</Text>
+                  </TouchableOpacity>
+                )}
+
+                {!branchFilterLoading && displayCommits.slice(0, 10).map((commit, index) => {
+                  // Determine if this is the detached HEAD position
+                  const isDetachedHere = isDetachedHead && detachedAt && commit.shortHash === detachedAt;
+                  // Determine if this commit is pushed by comparing with remoteHead
+                  const isRemoteHead = remoteHead && commit.shortHash === remoteHead;
+                  const isPushed = !remoteHead || (() => {
+                    // If we have remoteHead, all commits at or after remoteHead index are pushed
+                    const remoteIdx = displayCommits.findIndex(c => c.shortHash === remoteHead);
+                    return remoteIdx >= 0 ? index >= remoteIdx : !!commit.authorAvatar;
+                  })();
+
+                  return (
+                  <React.Fragment key={commit.hash || index}>
+                  {/* Full-width origin/branch separator — like Fork */}
+                  {isRemoteHead && !commit.isHead && (selectedBranchFilter === null || selectedBranchFilter === currentBranch) && (
+                    <View style={styles.remoteSeparator}>
+                      <View style={styles.remoteSeparatorLine} />
+                      <View style={styles.remoteSeparatorBadge}>
+                        <Ionicons name="cloud-outline" size={11} color="#22c55e" />
+                        <Text style={styles.remoteSeparatorText}>origin/{currentBranch}</Text>
+                      </View>
+                      <View style={styles.remoteSeparatorLine} />
+                    </View>
+                  )}
+                  <View style={[styles.commitItem, isDetachedHere && styles.commitItemDetachedHere]}>
                     {/* Timeline */}
                     <View style={styles.timeline}>
-                      {index > 0 && <View style={[styles.timelineLine, styles.timelineLineTop]} />}
-                      <View style={[
-                        styles.timelineDot,
-                        commit.isHead && styles.timelineDotHead
-                      ]}>
-                        {commit.isHead && (
-                          <View style={styles.timelineDotInner} />
-                        )}
-                      </View>
-                      {index < Math.min(commits.length - 1, 9) && (
-                        <View style={[styles.timelineLine, styles.timelineLineBottom]} />
-                      )}
+                      {(() => {
+                        const tc = selectedBranchFilter
+                          ? (branchColorMap[selectedBranchFilter] || BRANCH_COLORS[0])
+                          : commitTimelineColors[index] || BRANCH_COLORS[0];
+                        return (
+                          <>
+                            {index > 0 && <View style={[
+                              styles.timelineLine,
+                              styles.timelineLineTop,
+                              !isPushed && styles.timelineLineUnpushed,
+                              tc && { backgroundColor: `${tc}30` },
+                            ]} />}
+                            <View style={[
+                              styles.timelineDot,
+                              commit.isHead && !isDetachedHead && [
+                                styles.timelineDotHead,
+                                tc && { backgroundColor: tc, shadowColor: tc },
+                              ],
+                              isDetachedHere && styles.timelineDotDetached,
+                              !isPushed && !commit.isHead && !isDetachedHere && styles.timelineDotUnpushed,
+                              tc && !commit.isHead && !isDetachedHere && { borderColor: `${tc}99` },
+                            ]}>
+                              {(commit.isHead && !isDetachedHead) && (
+                                <View style={styles.timelineDotInner} />
+                              )}
+                              {isDetachedHere && (
+                                <View style={styles.timelineDotInnerDetached} />
+                              )}
+                            </View>
+                            {index < Math.min(displayCommits.length - 1, 9) && (
+                              <View style={[
+                                styles.timelineLine,
+                                styles.timelineLineBottom,
+                                !isPushed && styles.timelineLineUnpushed,
+                                tc && { backgroundColor: `${tc}30` },
+                              ]} />
+                            )}
+                          </>
+                        );
+                      })()}
                     </View>
 
                     {/* Content */}
                     <View style={styles.commitContent}>
-                      {/* HEAD badges on first line */}
-                      {commit.isHead && (
+                      {/* Badges row: HEAD + branches + tags */}
+                      {(commit.isHead || isDetachedHere || (commit.branches && commit.branches.length > 0) || (commit.tags && commit.tags.length > 0)) && (
                         <View style={styles.commitBadgesRow}>
-                          <View style={styles.branchBadgeInline}>
-                            <Ionicons name="git-branch" size={11} color="#fff" />
-                            <Text style={styles.branchBadgeInlineText}>{currentBranch}</Text>
-                          </View>
-                          <View style={styles.headBadgeInline}>
-                            <Text style={styles.headBadgeInlineText}>HEAD</Text>
-                          </View>
+                          {/* HEAD badge */}
+                          {commit.isHead && !isDetachedHead && (
+                            <>
+                              <View style={styles.branchBadgeInline}>
+                                <Ionicons name="git-branch" size={11} color="#fff" />
+                                <Text style={styles.branchBadgeInlineText}>{currentBranch}</Text>
+                              </View>
+                              <View style={styles.headBadgeInline}>
+                                <Text style={styles.headBadgeInlineText}>HEAD</Text>
+                              </View>
+                            </>
+                          )}
+                          {/* Detached HEAD */}
+                          {isDetachedHere && (
+                            <View style={styles.detachedBadgeInline}>
+                              <Ionicons name="warning-outline" size={10} color="#f59e0b" />
+                              <Text style={styles.detachedBadgeInlineText}>HEAD (detached)</Text>
+                            </View>
+                          )}
+                          {/* origin/branch when HEAD == remoteHead */}
+                          {isRemoteHead && commit.isHead && (
+                            <View style={styles.remoteBadgeInline}>
+                              <Ionicons name="cloud-outline" size={10} color="rgba(255,255,255,0.7)" />
+                              <Text style={styles.remoteBadgeInlineText}>origin/{currentBranch}</Text>
+                            </View>
+                          )}
+                          {/* Other branches pointing to this commit */}
+                          {commit.branches?.filter(b => b !== currentBranch && !b.startsWith('origin/')).map(b => (
+                            <View key={b} style={[styles.branchRefBadge, { borderColor: `${branchColorMap[b] || '#a78bfa'}40` }]}>
+                              <Ionicons name="git-branch" size={10} color={branchColorMap[b] || '#a78bfa'} />
+                              <Text style={[styles.branchRefBadgeText, { color: branchColorMap[b] || '#a78bfa' }]}>{b}</Text>
+                            </View>
+                          ))}
+                          {/* Remote branches (origin/*) — hide origin/HEAD (symref noise) and origin/currentBranch when separator already shown */}
+                          {commit.branches?.filter(b => {
+                            if (!b.startsWith('origin/')) return false;
+                            if (b === 'origin/HEAD') return false; // symref to default branch, redundant
+                            if (isRemoteHead && b === `origin/${currentBranch}`) return false; // already shown as separator or inline badge
+                            return true;
+                          }).map(b => (
+                            <View key={b} style={styles.remoteBadgeInline}>
+                              <Ionicons name="cloud-outline" size={10} color="rgba(255,255,255,0.7)" />
+                              <Text style={styles.remoteBadgeInlineText}>{b}</Text>
+                            </View>
+                          ))}
+                          {/* Tags */}
+                          {commit.tags?.map(tag => (
+                            <View key={tag} style={styles.tagBadge}>
+                              <Ionicons name="pricetag-outline" size={10} color="#22d3ee" />
+                              <Text style={styles.tagBadgeText}>{tag}</Text>
+                            </View>
+                          ))}
                         </View>
                       )}
-                      <Text style={styles.commitMessage} numberOfLines={2}>
+                      <Text style={[styles.commitMessage, !isPushed && styles.commitMessageUnpushed]} numberOfLines={1}>
                         {commit.message}
                       </Text>
                       <View style={styles.commitMeta}>
-                        {commit.authorAvatar ? (
-                          <Image source={{ uri: commit.authorAvatar }} style={styles.commitAvatarSmall} />
+                        {(commit.authorAvatar || linkedAccount?.avatarUrl) ? (
+                          <Image source={{ uri: commit.authorAvatar || linkedAccount?.avatarUrl }} style={styles.commitAvatarSmall} />
                         ) : (
                           <View style={[styles.commitAvatarSmall, styles.commitAvatarPlaceholder]}>
-                            <Text style={styles.commitAvatarTextSmall}>
-                              {commit.author.charAt(0).toUpperCase()}
-                            </Text>
+                            <Ionicons name="person-outline" size={10} color="rgba(255,255,255,0.6)" />
                           </View>
                         )}
-                        <Text style={styles.commitAuthor}>{commit.authorLogin || commit.author}</Text>
+                        <Text style={styles.commitAuthor}>{commit.authorLogin || commit.author || linkedAccount?.username || ''}</Text>
                         <Text style={styles.commitHash}>{commit.shortHash}</Text>
-                        <Text style={styles.commitDate}>{formatDate(commit.date)}</Text>
+                        <Text style={styles.commitDate}>{formatCommitDate(commit.date)}</Text>
                       </View>
                     </View>
-                  </TouchableOpacity>
-                ))}
+
+                    {/* 3-dot menu */}
+                    <TouchableOpacity
+                      style={styles.commitMenuBtn}
+                      onPress={() => setCommitContextMenu({ hash: commit.hash, shortHash: commit.shortHash, message: commit.message })}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="ellipsis-vertical" size={16} color="rgba(255,255,255,0.4)" />
+                    </TouchableOpacity>
+                  </View>
+                  </React.Fragment>
+                  );
+                })}
                 {commits.length === 0 && (
                   <View style={styles.emptyState}>
                     {!repoUrl ? (
@@ -929,9 +1882,9 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                     )}
                   </View>
                 )}
-                {commits.length > 10 && (
+                {displayCommits.length >= 10 && (
                   <TouchableOpacity style={styles.showMoreBtn} onPress={() => { expandToTab(); trackGitCommitView(); }}>
-                    <Text style={styles.showMoreText}>{t('terminal:git.showAllCommits', { count: commits.length })}</Text>
+                    <Text style={styles.showMoreText}>{t('terminal:git.showAllCommits', { count: displayCommits.length })}</Text>
                     <Ionicons name="chevron-forward" size={14} color={AppColors.primary} />
                   </TouchableOpacity>
                 )}
@@ -1018,70 +1971,42 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             ) : (
               <View style={styles.changesContainer}>
-                {allChangedFiles.length > 0 ? (
+                {allChangedFiles.length > 0 || statusRefreshing ? (
                   <>
                     {/* Select All Header */}
                     <TouchableOpacity style={styles.selectAllRow} onPress={() => { toggleSelectAll(); trackGitSelectAll(); }}>
                       <Ionicons
-                        name={selectedFiles.size === allChangedFiles.length ? "checkmark-circle" : "ellipse-outline"}
+                        name={selectedFiles.size === allChangedFiles.length && allChangedFiles.length > 0 ? "checkmark-circle" : "ellipse-outline"}
                         size={18}
-                        color={selectedFiles.size === allChangedFiles.length ? AppColors.primary : 'rgba(255,255,255,0.4)'}
+                        color={selectedFiles.size === allChangedFiles.length && allChangedFiles.length > 0 ? AppColors.primary : 'rgba(255,255,255,0.4)'}
                       />
                       <Text style={styles.selectAllText}>
-                        {selectedFiles.size === allChangedFiles.length ? t('common:deselectAll') : t('common:selectAll')}
+                        {selectedFiles.size === allChangedFiles.length && allChangedFiles.length > 0 ? t('common:deselectAll') : t('common:selectAll')}
                       </Text>
-                      <Text style={styles.selectedCount}>{selectedFiles.size}/{allChangedFiles.length}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        {statusRefreshing && <ActivityIndicator size="small" color="rgba(255,255,255,0.4)" />}
+                        <Text style={styles.selectedCount}>{selectedFiles.size}/{allChangedFiles.length}</Text>
+                      </View>
                     </TouchableOpacity>
 
-                    {/* File List with Checkboxes */}
-                    {(gitStatus?.modified?.length ?? 0) > 0 && (
-                      <View style={styles.changeSection}>
-                        <Text style={styles.changeSectionTitle}>{t('terminal:git.modified')}</Text>
-                        {gitStatus!.modified.map((file) => (
-                          <TouchableOpacity key={`mod-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
-                            <Ionicons
-                              name={selectedFiles.has(file) ? "checkmark-circle" : "ellipse-outline"}
-                              size={16}
-                              color={selectedFiles.has(file) ? AppColors.primary : 'rgba(255,255,255,0.3)'}
-                            />
-                            <Ionicons name="create-outline" size={14} color="#f59e0b" />
-                            <Text style={styles.changeFileName} numberOfLines={1}>{file}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
+                    {/* Bulk Discard */}
+                    {selectedFiles.size > 0 && (
+                      <TouchableOpacity
+                        style={styles.discardSelectedBtn}
+                        onPress={() => handleDiscard(Array.from(selectedFiles))}
+                        disabled={actionLoading === 'discard'}
+                      >
+                        <Ionicons name="trash-outline" size={14} color="#FF6B6B" />
+                        <Text style={styles.discardSelectedText}>
+                          {t('terminal:git.discardSelected')} ({selectedFiles.size})
+                        </Text>
+                      </TouchableOpacity>
                     )}
-                    {(gitStatus?.untracked?.length ?? 0) > 0 && (
-                      <View style={styles.changeSection}>
-                        <Text style={styles.changeSectionTitle}>{t('terminal:git.new')}</Text>
-                        {gitStatus!.untracked.map((file) => (
-                          <TouchableOpacity key={`untracked-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
-                            <Ionicons
-                              name={selectedFiles.has(file) ? "checkmark-circle" : "ellipse-outline"}
-                              size={16}
-                              color={selectedFiles.has(file) ? AppColors.primary : 'rgba(255,255,255,0.3)'}
-                            />
-                            <Ionicons name="add-circle-outline" size={14} color="#22c55e" />
-                            <Text style={styles.changeFileName} numberOfLines={1}>{file}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
-                    {(gitStatus?.deleted?.length ?? 0) > 0 && (
-                      <View style={styles.changeSection}>
-                        <Text style={styles.changeSectionTitle}>{t('common:deleted').toUpperCase()}</Text>
-                        {gitStatus!.deleted.map((file) => (
-                          <TouchableOpacity key={`del-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
-                            <Ionicons
-                              name={selectedFiles.has(file) ? "checkmark-circle" : "ellipse-outline"}
-                              size={16}
-                              color={selectedFiles.has(file) ? AppColors.primary : 'rgba(255,255,255,0.3)'}
-                            />
-                            <Ionicons name="trash-outline" size={14} color="#ef4444" />
-                            <Text style={styles.changeFileName} numberOfLines={1}>{file}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
+
+                    {/* File Tree */}
+                    <View style={styles.changeSection}>
+                      {changeFileTree.map(node => renderChangeNode(node, 0))}
+                    </View>
 
                     {/* Commit Button or Auth Required */}
                     {gitAccounts.length === 0 ? (
@@ -1137,13 +2062,338 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             </TouchableOpacity>
           )}
         </SheetContainer>
-      </Pressable>
+      </View>
 
       <AddGitAccountModal
         visible={showAddAccountModal}
         onClose={() => setShowAddAccountModal(false)}
         onAccountAdded={loadAccountInfo}
       />
+
+      {/* Commit Files Modal — shows file list OR inline diff (no second Modal) */}
+      <Modal
+        visible={commitFilesModal !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (expandedCommitFile) {
+            // Back to file list
+            setExpandedCommitFile(null);
+            setExpandedCommitDiff(null);
+          } else {
+            setCommitFilesModal(null);
+          }
+        }}
+        statusBarTranslucent
+      >
+        <View style={styles.diffModalOverlay}>
+          <View style={styles.diffModalContainer}>
+            {/* Header — switches between file list and diff view */}
+            <View style={styles.diffModalHeader}>
+              {expandedCommitFile ? (
+                <>
+                  <TouchableOpacity
+                    onPress={() => { setExpandedCommitFile(null); setExpandedCommitDiff(null); }}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    style={{ marginRight: 8 }}
+                  >
+                    <Ionicons name="arrow-back" size={20} color="#fff" />
+                  </TouchableOpacity>
+                  <Text style={[styles.diffModalTitle, { flex: 1 }]} numberOfLines={1}>{expandedCommitFile.split('/').pop()}</Text>
+                  <TouchableOpacity onPress={() => { setCommitFilesModal(null); setExpandedCommitFile(null); setExpandedCommitDiff(null); }} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                    <Ionicons name="close" size={20} color="#fff" />
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.diffModalTitle} numberOfLines={1}>{commitFilesModal?.message}</Text>
+                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>{commitFilesModal?.shortHash} · {commitFiles.length} file{commitFiles.length !== 1 ? 's' : ''}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => { setCommitFilesModal(null); setExpandedCommitFile(null); setExpandedCommitDiff(null); }} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                    <Ionicons name="close" size={20} color="#fff" />
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+
+            {expandedCommitFile ? (
+              /* Inline diff view */
+              expandedCommitDiffLoading ? (
+                <View style={styles.diffLoadingContainer}>
+                  <ActivityIndicator size="large" color={AppColors.primary} />
+                </View>
+              ) : (
+                <ScrollView style={styles.diffScroll} horizontal>
+                  <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
+                    {(() => {
+                      let oldLine = 0;
+                      let newLine = 0;
+                      return (expandedCommitDiff || '').split('\n').map((line, i) => {
+                        const isAdd = line.startsWith('+') && !line.startsWith('+++');
+                        const isDel = line.startsWith('-') && !line.startsWith('---');
+                        const isHeader = line.startsWith('@@');
+                        let lineNum = '';
+                        if (isHeader) {
+                          const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)/);
+                          if (match) { oldLine = parseInt(match[1]); newLine = parseInt(match[2]); }
+                        } else if (isAdd) {
+                          lineNum = `${newLine}`;
+                          newLine++;
+                        } else if (isDel) {
+                          lineNum = `${oldLine}`;
+                          oldLine++;
+                        } else if (oldLine > 0) {
+                          lineNum = `${newLine}`;
+                          oldLine++; newLine++;
+                        }
+                        return (
+                          <View
+                            key={i}
+                            style={[
+                              styles.diffLine,
+                              isAdd && styles.diffLineAdd,
+                              isDel && styles.diffLineDel,
+                              isHeader && styles.diffLineHeader,
+                            ]}
+                          >
+                            <Text style={styles.diffLineNum}>{lineNum}</Text>
+                            <Text
+                              style={[
+                                styles.diffLineText,
+                                isAdd && styles.diffLineTextAdd,
+                                isDel && styles.diffLineTextDel,
+                                isHeader && styles.diffLineTextHeader,
+                              ]}
+                            >
+                              {line}
+                            </Text>
+                          </View>
+                        );
+                      });
+                    })()}
+                  </ScrollView>
+                </ScrollView>
+              )
+            ) : commitFilesLoading ? (
+              <View style={styles.diffLoadingContainer}>
+                <ActivityIndicator size="large" color={AppColors.primary} />
+              </View>
+            ) : commitFiles.length === 0 ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>No files changed</Text>
+              </View>
+            ) : (
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
+                {(() => {
+                  // Build tree from commit files
+                  type CfTreeNode = { name: string; path: string; type: 'file' | 'folder'; status?: string; children?: CfTreeNode[] };
+                  const root: CfTreeNode[] = [];
+                  commitFiles.forEach(cf => {
+                    const parts = cf.file.split('/');
+                    let level = root;
+                    let curPath = '';
+                    parts.forEach((part, idx) => {
+                      curPath = curPath ? `${curPath}/${part}` : part;
+                      const isFile = idx === parts.length - 1;
+                      let node = level.find(n => n.name === part);
+                      if (!node) {
+                        node = { name: part, path: curPath, type: isFile ? 'file' : 'folder', status: isFile ? cf.status : undefined, children: isFile ? undefined : [] };
+                        level.push(node);
+                      }
+                      if (!isFile && node.children) level = node.children;
+                    });
+                  });
+                  const sortTree = (nodes: CfTreeNode[]): CfTreeNode[] =>
+                    [...nodes].sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1)
+                      .map(n => ({ ...n, children: n.children ? sortTree(n.children) : undefined }));
+                  const sorted = sortTree(root);
+
+                  const countFiles = (n: CfTreeNode): number => n.type === 'file' ? 1 : (n.children || []).reduce((s, c) => s + countFiles(c), 0);
+
+                  const renderNode = (node: CfTreeNode, depth: number): React.ReactNode => {
+                    if (node.type === 'folder') {
+                      const isExpanded = !commitCollapsedFolders.has(node.path);
+                      return (
+                        <View key={node.path}>
+                          <TouchableOpacity
+                            style={[styles.changeFolderItem, { marginLeft: depth * 16 }]}
+                            onPress={() => setCommitCollapsedFolders(prev => {
+                              const next = new Set(prev);
+                              next.has(node.path) ? next.delete(node.path) : next.add(node.path);
+                              return next;
+                            })}
+                          >
+                            <Ionicons name={isExpanded ? 'chevron-down' : 'chevron-forward'} size={12} color="rgba(255,255,255,0.4)" />
+                            <Ionicons name="folder-outline" size={14} color="rgba(255,255,255,0.5)" />
+                            <Text style={styles.changeFolderName}>{node.name}</Text>
+                            <Text style={styles.changeFolderCount}>{countFiles(node)}</Text>
+                          </TouchableOpacity>
+                          {isExpanded && node.children?.map(c => renderNode(c, depth + 1))}
+                        </View>
+                      );
+                    }
+                    const statusConfig: Record<string, { color: string; icon: string; label: string }> = {
+                      'A': { color: '#22c55e', icon: 'add', label: 'Added' },
+                      'D': { color: '#ef4444', icon: 'remove', label: 'Deleted' },
+                      'M': { color: '#f59e0b', icon: 'create-outline', label: 'Modified' },
+                      'R': { color: '#3b82f6', icon: 'arrow-forward', label: 'Renamed' },
+                      'C': { color: '#8b5cf6', icon: 'copy-outline', label: 'Copied' },
+                    };
+                    const sc = statusConfig[node.status || 'M'] || statusConfig['M'];
+                    return (
+                      <View key={node.path}>
+                        <TouchableOpacity
+                          style={[styles.commitFileItem, { marginLeft: depth * 16 }]}
+                          activeOpacity={0.6}
+                          onPress={async () => {
+                            if (!commitFilesModal) return;
+                            setExpandedCommitFile(node.path);
+                            setExpandedCommitDiff(null);
+                            setExpandedCommitDiffLoading(true);
+                            try {
+                              const authHeaders = await getAuthHeaders();
+                              const res = await fetch(
+                                `${config.apiUrl}/git/commit-diff/${currentWorkstation?.id}?commit=${encodeURIComponent(commitFilesModal.hash)}&file=${encodeURIComponent(node.path)}`,
+                                { headers: authHeaders },
+                              );
+                              const data = await res.json();
+                              setExpandedCommitDiff(data.diff || '');
+                            } catch (e: any) {
+                              setExpandedCommitDiff(`Error: ${e.message}`);
+                            } finally {
+                              setExpandedCommitDiffLoading(false);
+                            }
+                          }}
+                        >
+                          <View style={[styles.commitFileStatus, { backgroundColor: sc.color + '22' }]}>
+                            <Ionicons name={sc.icon as any} size={14} color={sc.color} />
+                          </View>
+                          <Ionicons name="document-outline" size={14} color="rgba(255,255,255,0.4)" style={{ marginRight: -4 }} />
+                          <Text style={[styles.commitFileName, { flex: 1 }]} numberOfLines={1}>{node.name}</Text>
+                          <Text style={{ fontSize: 10, color: sc.color, fontWeight: '600', marginRight: 2 }}>{sc.label}</Text>
+                          <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.3)" />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  };
+                  return sorted.map(n => renderNode(n, 0));
+                })()}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Diff Viewer Modal — only for Changes tab diffs */}
+      <Modal
+        visible={diffFile !== null && commitFilesModal === null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDiffFile(null)}
+        statusBarTranslucent
+      >
+        <View style={styles.diffModalOverlay}>
+          <View style={styles.diffModalContainer}>
+            <View style={styles.diffModalHeader}>
+              <Text style={styles.diffModalTitle} numberOfLines={1}>{diffFile}</Text>
+              <TouchableOpacity onPress={() => setDiffFile(null)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Ionicons name="close" size={20} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            {diffLoading ? (
+              <View style={styles.diffLoadingContainer}>
+                <ActivityIndicator size="large" color={AppColors.primary} />
+              </View>
+            ) : (
+              <ScrollView style={styles.diffScroll} horizontal>
+                <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
+                  {(() => {
+                    let oldLine = 0;
+                    let newLine = 0;
+                    return (diffContent || '').split('\n').map((line, i) => {
+                      const isAdd = line.startsWith('+') && !line.startsWith('+++');
+                      const isDel = line.startsWith('-') && !line.startsWith('---');
+                      const isHeader = line.startsWith('@@');
+                      let lineNum = '';
+                      if (isHeader) {
+                        const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)/);
+                        if (match) { oldLine = parseInt(match[1]); newLine = parseInt(match[2]); }
+                      } else if (isAdd) {
+                        lineNum = `${newLine}`;
+                        newLine++;
+                      } else if (isDel) {
+                        lineNum = `${oldLine}`;
+                        oldLine++;
+                      } else if (oldLine > 0) {
+                        lineNum = `${newLine}`;
+                        oldLine++; newLine++;
+                      }
+                      return (
+                        <View
+                          key={i}
+                          style={[
+                            styles.diffLine,
+                            isAdd && styles.diffLineAdd,
+                            isDel && styles.diffLineDel,
+                            isHeader && styles.diffLineHeader,
+                          ]}
+                        >
+                          <Text style={styles.diffLineNum}>{lineNum}</Text>
+                          <Text
+                            style={[
+                              styles.diffLineText,
+                            isAdd && styles.diffLineTextAdd,
+                            isDel && styles.diffLineTextDel,
+                            isHeader && styles.diffLineTextHeader,
+                          ]}
+                        >
+                          {line}
+                        </Text>
+                      </View>
+                      );
+                    });
+                  })()}
+                </ScrollView>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* File Context Menu - absolute overlay instead of Modal to prevent native modal stack issues */}
+      {fileContextMenu && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <TouchableOpacity
+            style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.3)' }]}
+            activeOpacity={1}
+            onPress={() => setFileContextMenu(null)}
+          >
+            <View style={[
+              styles.popoverMenu,
+              {
+                top: Math.min(fileContextMenu.y, Dimensions.get('window').height - 140),
+                right: 16,
+              },
+            ]}>
+              <Text style={styles.popoverTitle} numberOfLines={1}>
+                {fileContextMenu.file.split('/').pop()}
+              </Text>
+              <TouchableOpacity style={styles.popoverItem} onPress={() => handleFileMenuAction('viewDiff')}>
+                <Ionicons name="git-compare-outline" size={16} color="rgba(255,255,255,0.7)" />
+                <Text style={styles.popoverItemText}>{t('terminal:git.viewDiff')}</Text>
+              </TouchableOpacity>
+              <View style={styles.popoverDivider} />
+              <TouchableOpacity style={styles.popoverItem} onPress={() => handleFileMenuAction('discard')}>
+                <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
+                <Text style={[styles.popoverItemText, { color: '#FF6B6B' }]}>
+                  {t('terminal:git.discardChanges')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <ConnectRepoModal
         visible={showConnectModal}
@@ -1253,12 +2503,24 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </Text>
             </View>
 
+            <Text style={styles.commitModalLabel}>Title</Text>
             <TextInput
               style={styles.commitModalInput}
               placeholder={t('terminal:git.commitMessagePlaceholder')}
               placeholderTextColor="rgba(255,255,255,0.3)"
               value={commitMessage}
               onChangeText={setCommitMessage}
+              numberOfLines={1}
+              returnKeyType="next"
+            />
+
+            <Text style={styles.commitModalLabel}>Description (optional)</Text>
+            <TextInput
+              style={styles.commitModalDescInput}
+              placeholder="Add more details about this commit..."
+              placeholderTextColor="rgba(255,255,255,0.2)"
+              value={commitDescription}
+              onChangeText={setCommitDescription}
               multiline
               numberOfLines={3}
               textAlignVertical="top"
@@ -1268,8 +2530,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               <TouchableOpacity
                 style={[styles.commitModalBtn, !commitMessage.trim() && styles.commitModalBtnDisabled]}
                 onPress={async () => {
-                  await handleCommit();
-                  setShowCommitModal(false);
+                  const success = await handleCommit();
+                  if (success) setShowCommitModal(false);
                 }}
                 disabled={!commitMessage.trim() || !!actionLoading}
               >
@@ -1283,16 +2545,54 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 )}
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.commitModalPushBtn, !isOwnRepo && styles.pushBtnWarning]}
+                style={[styles.commitModalPushBtn, !isOwnRepo && styles.pushBtnWarning, !commitMessage.trim() && styles.commitModalBtnDisabled]}
                 onPress={async () => {
-                  if (commitMessage.trim()) {
-                    await handleCommit();
+                  // If there's a commit message + selected files, commit silently first
+                  if (commitMessage.trim() && selectedFiles.size > 0) {
+                    if (!currentWorkstation?.id || !linkedAccount) {
+                      Alert.alert(t('common:error'), t('terminal:git.authRequiredForCommit'));
+                      return;
+                    }
+                    setActionLoading('commit');
+                    try {
+                      const token = await gitAccountService.getToken(linkedAccount, userId);
+                      const authHeaders = await getAuthHeaders();
+                      const response = await fetch(`${config.apiUrl}/git/commit/${currentWorkstation.id}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
+                        body: JSON.stringify({
+                          files: Array.from(selectedFiles),
+                          message: commitDescription.trim()
+                            ? `${commitMessage.trim()}\n\n${commitDescription.trim()}`
+                            : commitMessage.trim(),
+                          authorName: linkedAccount.displayName || linkedAccount.username,
+                          authorEmail: linkedAccount.email || `${linkedAccount.username}@users.noreply.github.com`,
+                        }),
+                      });
+                      const result = await response.json();
+                      if (!response.ok || !result.success) {
+                        Alert.alert(t('common:error'), result.error || result.output || t('terminal:git.commitError'));
+                        setActionLoading(null);
+                        return;
+                      }
+                      // Commit succeeded silently — clear fields, then open push modal
+                      setCommitMessage('');
+                      setCommitDescription('');
+                      setSelectedFiles(new Set());
+                    } catch (e: any) {
+                      Alert.alert(t('common:error'), e.message || t('terminal:git.commitError'));
+                      setActionLoading(null);
+                      return;
+                    } finally {
+                      setActionLoading(null);
+                    }
                   }
-                  trackGitPush();
-                  await handleGitAction('push');
+                  // Close commit modal and open push config modal
                   setShowCommitModal(false);
+                  trackGitPush();
+                  handleGitAction('push');
                 }}
-                disabled={!!actionLoading}
+                disabled={!commitMessage.trim() || !!actionLoading}
               >
                 {actionLoading === 'push' ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -1307,6 +2607,398 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           </Animated.View>
         </Animated.View>
       </Modal>
+
+      {/* Commit Context Menu - absolute overlay instead of Modal to prevent native modal stack issues */}
+      {commitContextMenu && (
+        <View style={[StyleSheet.absoluteFill, styles.commitModalBackdrop]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => { setCommitContextMenu(null); setNewBranchFromCommit(null); }} />
+          <View
+            style={styles.contextMenuContainer}
+          >
+            <View style={styles.contextMenuHeader}>
+              <Text style={styles.contextMenuTitle} numberOfLines={1}>{commitContextMenu?.message}</Text>
+              <Text style={styles.contextMenuHash}>{commitContextMenu?.shortHash}</Text>
+            </View>
+
+            {/* View Changed Files */}
+            <TouchableOpacity
+              style={styles.contextMenuItem}
+              onPress={() => {
+                if (commitContextMenu) {
+                  const info = { ...commitContextMenu };
+                  setCommitContextMenu(null);
+                  setCommitFilesModal(info);
+                  setExpandedCommitFile(null);
+                  setExpandedCommitDiff(null);
+                  setCommitCollapsedFolders(new Set());
+                  fetchCommitFiles(info.hash);
+                }
+              }}
+            >
+              <Ionicons name="document-text-outline" size={18} color="rgba(255,255,255,0.7)" />
+              <Text style={styles.contextMenuItemText}>View Changed Files</Text>
+            </TouchableOpacity>
+
+            {/* Copy SHA */}
+            <TouchableOpacity
+              style={styles.contextMenuItem}
+              onPress={async () => {
+                if (commitContextMenu) {
+                  await Clipboard.setStringAsync(commitContextMenu.hash);
+                  Alert.alert('Copied', `SHA ${commitContextMenu.shortHash} copied`);
+                  setCommitContextMenu(null);
+                }
+              }}
+            >
+              <Ionicons name="copy-outline" size={18} color="rgba(255,255,255,0.7)" />
+              <Text style={styles.contextMenuItemText}>Copy Commit SHA</Text>
+            </TouchableOpacity>
+
+            {/* Checkout Commit */}
+            <TouchableOpacity
+              style={styles.contextMenuItem}
+              onPress={() => {
+                if (!commitContextMenu) return;
+                const hash = commitContextMenu.hash;
+                const shortHash = commitContextMenu.shortHash;
+                const msg = commitContextMenu.message;
+                setCommitContextMenu(null);
+                Alert.alert(
+                  'Checkout Commit',
+                  `Checkout ${shortHash} "${msg}"?\n\nThis will put the repository in detached HEAD state.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Checkout',
+                      onPress: async () => {
+                        if (!currentWorkstation?.id) return;
+                        // Remember current branch before entering detached HEAD
+                        if (currentBranch && !isDetachedHead) {
+                          previousBranchRef.current = currentBranch;
+                        }
+                        setActionLoading('checkout');
+                        let didStash = false;
+                        try {
+                          const authHeaders = await getAuthHeaders();
+                          const token = linkedAccount ? await gitAccountService.getToken(linkedAccount, userId) : '';
+
+                          // Auto-stash local changes before checkout
+                          if (allChangedFiles.length > 0) {
+                            const stashRes = await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
+                              body: JSON.stringify({ action: 'push', message: `Auto-stash before checkout ${shortHash}` }),
+                            });
+                            didStash = stashRes.ok;
+                          }
+
+                          const response = await fetch(`${config.apiUrl}/git/checkout/${currentWorkstation.id}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', ...authHeaders },
+                            body: JSON.stringify({ branch: hash }),
+                          });
+                          const result = await response.json();
+                          if (result.success) {
+                            // Restore stash after successful checkout
+                            if (didStash) {
+                              await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
+                                body: JSON.stringify({ action: 'pop' }),
+                              });
+                              didStash = false;
+                            }
+                            Alert.alert('Success', `Checked out ${shortHash}`);
+                            // Invalidate caches so file tree + git data refresh
+                            useGitCacheStore.getState().clearCache(currentWorkstation.id);
+                            useFileCacheStore.getState().clearCache(currentWorkstation.id);
+                            isLoadingRef.current = false;
+                            await loadGitData();
+                          } else {
+                            // Restore stash on failure too
+                            if (didStash) {
+                              await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
+                                body: JSON.stringify({ action: 'pop' }),
+                              });
+                              didStash = false;
+                            }
+                            Alert.alert('Error', result.output || 'Checkout failed');
+                          }
+                        } catch (e: any) {
+                          // Restore stash if checkout threw an exception
+                          if (didStash) {
+                            const ah = await getAuthHeaders().catch(() => ({}));
+                            await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', ...ah },
+                              body: JSON.stringify({ action: 'pop' }),
+                            }).catch(() => {});
+                          }
+                          Alert.alert('Error', e.message || 'Checkout failed');
+                        } finally {
+                          setActionLoading(null);
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+              disabled={!!actionLoading}
+            >
+              <Ionicons name="log-out-outline" size={18} color="rgba(255,255,255,0.7)" />
+              <Text style={styles.contextMenuItemText}>Checkout Commit</Text>
+            </TouchableOpacity>
+
+            {/* Revert Commit */}
+            <TouchableOpacity
+              style={styles.contextMenuItem}
+              onPress={() => {
+                if (!commitContextMenu) return;
+                const hash = commitContextMenu.hash;
+                setCommitContextMenu(null);
+                Alert.alert(
+                  'Revert Commit',
+                  `Revert "${commitContextMenu.message}"?\nThis creates a new commit that undoes the changes.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Revert', style: 'destructive', onPress: () => handleRevertCommit(hash) },
+                  ]
+                );
+              }}
+              disabled={!!actionLoading}
+            >
+              <Ionicons name="arrow-undo-outline" size={18} color="rgba(255,255,255,0.7)" />
+              <Text style={styles.contextMenuItemText}>Revert Commit</Text>
+            </TouchableOpacity>
+
+            {/* New Branch from Here */}
+            {!newBranchFromCommit ? (
+              <TouchableOpacity
+                style={styles.contextMenuItem}
+                onPress={() => {
+                  if (commitContextMenu) {
+                    setNewBranchFromCommit(commitContextMenu.hash);
+                  }
+                }}
+                disabled={!!actionLoading}
+              >
+                <Ionicons name="git-branch-outline" size={18} color="rgba(255,255,255,0.7)" />
+                <Text style={styles.contextMenuItemText}>New Branch from Here</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.contextMenuBranchInput}>
+                <TextInput
+                  style={styles.contextMenuInput}
+                  placeholder="Branch name..."
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  value={branchFromName}
+                  onChangeText={setBranchFromName}
+                  autoFocus
+                />
+                <TouchableOpacity
+                  style={[styles.contextMenuCreateBtn, !branchFromName.trim() && { opacity: 0.4 }]}
+                  onPress={() => {
+                    if (branchFromName.trim() && newBranchFromCommit) {
+                      handleBranchFromCommit(newBranchFromCommit, branchFromName.trim());
+                      setCommitContextMenu(null);
+                    }
+                  }}
+                  disabled={!branchFromName.trim() || !!actionLoading}
+                >
+                  {actionLoading === 'branch-from' ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.contextMenuCreateBtnText}>Create</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* Pull Config Modal — absolute overlay */}
+      {showPullModal && (
+        <View style={[StyleSheet.absoluteFill, styles.commitModalBackdrop]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowPullModal(false)} />
+          <View style={styles.pushModalContainer}>
+            <View style={styles.pushModalHeader}>
+              <Ionicons name="cloud-download-outline" size={22} color="#fff" />
+              <Text style={styles.pushModalTitle}>Pull</Text>
+            </View>
+            <Text style={styles.pushModalSubtitle}>Pull remote changes and merge into your local branch</Text>
+
+            {/* Remote */}
+            <View style={styles.pushModalRow}>
+              <Text style={styles.pushModalLabel}>Remote:</Text>
+              <View style={[styles.pushModalPicker, { opacity: 0.6 }]}>
+                <Ionicons name="server-outline" size={14} color="rgba(255,255,255,0.5)" />
+                <Text style={styles.pushModalPickerText} numberOfLines={1}>{pullRemote}</Text>
+              </View>
+            </View>
+
+            {/* Branch */}
+            <View style={styles.pushModalRow}>
+              <Text style={styles.pushModalLabel}>Branch:</Text>
+              <TouchableOpacity
+                style={styles.pushModalPicker}
+                onPress={() => setPullBranchPickerOpen(!pullBranchPickerOpen)}
+              >
+                <Ionicons name="git-branch-outline" size={14} color={AppColors.primary} />
+                <Text style={styles.pushModalPickerText} numberOfLines={1}>{pullBranch}</Text>
+                <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.4)" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Branch picker dropdown — show all branches (remote names without origin/ prefix) */}
+            {pullBranchPickerOpen && (
+              <View style={styles.pushBranchDropdown}>
+                <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
+                  {(() => {
+                    // Deduplicate: show unique branch names (prefer local, strip origin/ prefix from remote)
+                    const seen = new Set<string>();
+                    const items: { name: string; display: string }[] = [];
+                    // Local branches first
+                    branches.filter(b => !b.isRemote).forEach(b => {
+                      if (!seen.has(b.name)) { seen.add(b.name); items.push({ name: b.name, display: b.name }); }
+                    });
+                    // Then remote branches (stripped of origin/)
+                    branches.filter(b => b.isRemote).forEach(b => {
+                      const short = b.name.replace(/^origin\//, '');
+                      if (!seen.has(short)) { seen.add(short); items.push({ name: short, display: short }); }
+                    });
+                    return items.map(item => (
+                      <TouchableOpacity
+                        key={item.name}
+                        style={[styles.pushBranchOption, item.name === pullBranch && styles.pushBranchOptionActive]}
+                        onPress={() => { setPullBranch(item.name); setPullBranchPickerOpen(false); }}
+                      >
+                        <Ionicons name="git-branch-outline" size={14} color={item.name === pullBranch ? AppColors.primary : 'rgba(255,255,255,0.5)'} />
+                        <Text style={[styles.pushBranchOptionText, item.name === pullBranch && { color: AppColors.primary }]}>{item.display}</Text>
+                        {item.name === pullBranch && <Ionicons name="checkmark" size={16} color={AppColors.primary} />}
+                      </TouchableOpacity>
+                    ));
+                  })()}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Into — always the current local branch (read-only) */}
+            <View style={styles.pushModalRow}>
+              <Text style={styles.pushModalLabel}>Into:</Text>
+              <View style={[styles.pushModalPicker, { opacity: 0.6 }]}>
+                <Ionicons name="git-branch-outline" size={14} color="rgba(255,255,255,0.5)" />
+                <Text style={styles.pushModalPickerText} numberOfLines={1}>{currentBranch}</Text>
+              </View>
+            </View>
+
+            {/* Options */}
+            <View style={styles.pushModalOptions}>
+              <TouchableOpacity style={styles.pushModalOption} onPress={() => setPullRebase(!pullRebase)}>
+                <Ionicons
+                  name={pullRebase ? 'checkbox' : 'square-outline'}
+                  size={20}
+                  color={pullRebase ? AppColors.primary : 'rgba(255,255,255,0.4)'}
+                />
+                <Text style={styles.pushModalOptionText}>Rebase instead of merge</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.pushModalOption} onPress={() => setPullStash(!pullStash)}>
+                <Ionicons
+                  name={pullStash ? 'checkbox' : 'square-outline'}
+                  size={20}
+                  color={pullStash ? AppColors.primary : 'rgba(255,255,255,0.4)'}
+                />
+                <Text style={styles.pushModalOptionText}>Stash and reapply local changes</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Actions */}
+            <View style={styles.pushModalActions}>
+              <TouchableOpacity style={styles.pushModalCancelBtn} onPress={() => setShowPullModal(false)}>
+                <Text style={styles.pushModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.pushModalPushBtn, { backgroundColor: '#3b82f6' }]} onPress={executePull} disabled={!!actionLoading}>
+                {actionLoading === 'pull' ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.pushModalPushText}>Pull</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Push Config Modal — absolute overlay */}
+      {showPushModal && (
+        <View style={[StyleSheet.absoluteFill, styles.commitModalBackdrop]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowPushModal(false)} />
+          <View style={styles.pushModalContainer}>
+            <View style={styles.pushModalHeader}>
+              <Ionicons name="cloud-upload-outline" size={22} color="#fff" />
+              <Text style={styles.pushModalTitle}>Push</Text>
+            </View>
+            <Text style={styles.pushModalSubtitle}>Push your local changes to remote repository</Text>
+
+            {/* Branch */}
+            <View style={styles.pushModalRow}>
+              <Text style={styles.pushModalLabel}>Branch:</Text>
+              <TouchableOpacity
+                style={styles.pushModalPicker}
+                onPress={() => setPushBranchPickerOpen(!pushBranchPickerOpen)}
+              >
+                <Ionicons name="git-branch-outline" size={14} color={AppColors.primary} />
+                <Text style={styles.pushModalPickerText} numberOfLines={1}>{pushBranch}</Text>
+                <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.4)" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Branch picker dropdown */}
+            {pushBranchPickerOpen && (
+              <View style={styles.pushBranchDropdown}>
+                <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
+                  {branches.filter(b => !b.isRemote || b.isCurrent).map(b => (
+                    <TouchableOpacity
+                      key={b.name}
+                      style={[styles.pushBranchOption, b.name === pushBranch && styles.pushBranchOptionActive]}
+                      onPress={() => { setPushBranch(b.name); setPushBranchPickerOpen(false); }}
+                    >
+                      <Ionicons name="git-branch-outline" size={14} color={b.name === pushBranch ? AppColors.primary : 'rgba(255,255,255,0.5)'} />
+                      <Text style={[styles.pushBranchOptionText, b.name === pushBranch && { color: AppColors.primary }]}>{b.name}</Text>
+                      {b.name === pushBranch && <Ionicons name="checkmark" size={16} color={AppColors.primary} />}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* To */}
+            <View style={styles.pushModalRow}>
+              <Text style={styles.pushModalLabel}>To:</Text>
+              <View style={[styles.pushModalPicker, { opacity: 0.6 }]}>
+                <Ionicons name="git-branch-outline" size={14} color="rgba(255,255,255,0.5)" />
+                <Text style={styles.pushModalPickerText} numberOfLines={1}>{pushRemote}/{pushBranch}</Text>
+              </View>
+            </View>
+
+            {/* Actions */}
+            <View style={styles.pushModalActions}>
+              <TouchableOpacity style={styles.pushModalCancelBtn} onPress={() => setShowPushModal(false)}>
+                <Text style={styles.pushModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.pushModalPushBtn} onPress={executePush} disabled={!!actionLoading}>
+                {actionLoading === 'push' ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.pushModalPushText}>Push</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </Modal>
   );
 };
@@ -1447,6 +3139,20 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: '#fff',
   },
+  changesBadge: {
+    backgroundColor: '#f59e0b',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  changesBadgeText: {
+    color: '#000',
+    fontSize: 10,
+    fontWeight: '700',
+  },
   content: {
     flex: 1,
     paddingHorizontal: 16,
@@ -1464,6 +3170,38 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
     marginTop: 4,
   },
+  branchFilterContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+  },
+  branchFilterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  branchFilterPillActive: {
+    backgroundColor: 'rgba(139,92,246,0.25)',
+    borderColor: 'rgba(139,92,246,0.5)',
+  },
+  branchFilterPillCurrent: {
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  branchFilterPillText: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '500',
+  },
+  branchFilterPillTextActive: {
+    color: '#fff',
+  },
   commitsList: {
     paddingLeft: 4,
   },
@@ -1471,6 +3209,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
     minHeight: 56,
+  },
+  commitMenuBtn: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    alignSelf: 'center',
   },
   timeline: {
     width: 24,
@@ -1536,7 +3280,8 @@ const styles = StyleSheet.create({
   commitBadgesRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    flexWrap: 'wrap',
+    gap: 4,
     marginBottom: 2,
   },
   branchBadgeInline: {
@@ -1563,6 +3308,59 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.7)',
+  },
+  // Remote badge (origin/main)
+  remoteBadgeInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  remoteBadgeInlineText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(34, 197, 94, 0.9)',
+  },
+  branchRefBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(167, 139, 250, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  branchRefBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(167, 139, 250, 0.9)',
+  },
+  tagBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(34, 211, 238, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  tagBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(34, 211, 238, 0.9)',
+  },
+  // Unpushed commit styles
+  timelineDotUnpushed: {
+    borderColor: 'rgba(251, 146, 60, 0.6)',
+  },
+  timelineLineUnpushed: {
+    borderLeftColor: 'rgba(251, 146, 60, 0.3)',
+  },
+  commitMessageUnpushed: {
+    color: 'rgba(255, 255, 255, 0.85)',
   },
   commitMessage: {
     fontSize: 13,
@@ -1733,10 +3531,90 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginBottom: 4,
   },
+  changeFileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
   changeFileName: {
     fontSize: 12,
     color: 'rgba(255,255,255,0.8)',
     flex: 1,
+  },
+  diffModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  diffModalContainer: {
+    backgroundColor: '#1a1a2e',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '85%',
+    minHeight: '50%',
+  },
+  diffModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  diffModalTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+    flex: 1,
+    fontFamily: 'monospace',
+  },
+  diffLoadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  diffScroll: {
+    flex: 1,
+  },
+  diffLine: {
+    flexDirection: 'row',
+    paddingVertical: 1,
+    paddingHorizontal: 4,
+    minWidth: '100%',
+  },
+  diffLineAdd: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+  },
+  diffLineDel: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+  },
+  diffLineHeader: {
+    backgroundColor: 'rgba(96, 165, 250, 0.1)',
+  },
+  diffLineNum: {
+    width: 36,
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.25)',
+    textAlign: 'right',
+    marginRight: 8,
+    fontFamily: 'monospace',
+  },
+  diffLineText: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.7)',
+    fontFamily: 'monospace',
+  },
+  diffLineTextAdd: {
+    color: '#4ade80',
+  },
+  diffLineTextDel: {
+    color: '#f87171',
+  },
+  diffLineTextHeader: {
+    color: '#60a5fa',
   },
   emptyState: {
     alignItems: 'center',
@@ -1802,6 +3680,80 @@ const styles = StyleSheet.create({
   selectedCount: {
     fontSize: 12,
     color: 'rgba(255,255,255,0.4)',
+  },
+  discardSelectedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.2)',
+    marginBottom: 12,
+  },
+  discardSelectedText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#FF6B6B',
+  },
+  changeFolderItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+  },
+  changeFolderName: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.7)',
+    fontWeight: '500',
+    flex: 1,
+  },
+  changeFolderCount: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.3)',
+  },
+  popoverBackdrop: {
+    flex: 1,
+  },
+  popoverMenu: {
+    position: 'absolute',
+    minWidth: 180,
+    backgroundColor: '#1c1c2e',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 20,
+    paddingVertical: 4,
+  },
+  popoverTitle: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  popoverItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  popoverItemText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  popoverDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginVertical: 2,
   },
   commitSection: {
     paddingHorizontal: 16,
@@ -2062,13 +4014,13 @@ const styles = StyleSheet.create({
   commitModalInput: {
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 12,
-    padding: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     color: '#fff',
     fontSize: 14,
-    minHeight: 80,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   commitModalActions: {
     flexDirection: 'row',
@@ -2106,5 +4058,378 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     color: '#fff',
+  },
+  commitModalDescInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    padding: 14,
+    color: '#fff',
+    fontSize: 13,
+    minHeight: 60,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 16,
+  },
+  commitModalLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  // Ahead/behind pills
+  aheadPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: 'rgba(139,92,246,0.15)',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  aheadPillText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: AppColors.primary,
+  },
+  behindPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: 'rgba(245,158,11,0.15)',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  behindPillText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#f59e0b',
+  },
+  // Remote separator
+  remoteSeparator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 6,
+    paddingHorizontal: 8,
+  },
+  remoteSeparatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(34,197,94,0.2)',
+  },
+  remoteSeparatorBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(34,197,94,0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    marginHorizontal: 8,
+  },
+  remoteSeparatorText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(34,197,94,0.9)',
+  },
+  // Commit context menu
+  contextMenuContainer: {
+    width: '85%',
+    maxWidth: 360,
+    backgroundColor: '#1a1a1e',
+    borderRadius: 16,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  contextMenuHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    marginBottom: 4,
+  },
+  contextMenuTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 2,
+  },
+  contextMenuHash: {
+    fontSize: 11,
+    fontFamily: 'monospace',
+    color: 'rgba(255,255,255,0.4)',
+  },
+  contextMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  contextMenuItemText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  contextMenuBranchInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  contextMenuInput: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: '#fff',
+    fontSize: 13,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  contextMenuCreateBtn: {
+    backgroundColor: AppColors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  contextMenuCreateBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  // Detached HEAD
+  detachedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 6,
+    alignSelf: 'flex-start',
+    marginLeft: 28,
+  },
+  detachedBannerText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#f59e0b',
+  },
+  detachedPill: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  detachedPillText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#f59e0b',
+  },
+  detachedBadgeInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  detachedBadgeInlineText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#f59e0b',
+  },
+  commitItemDetachedHere: {
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    borderRadius: 8,
+  },
+  timelineDotDetached: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#f59e0b',
+    borderWidth: 0,
+    position: 'absolute',
+    left: 5,
+    top: 6,
+  },
+  timelineDotInnerDetached: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#fff',
+  },
+  commitFileItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  commitFileStatus: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commitFileName: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#fff',
+  },
+  commitFilePath: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.35)',
+    marginTop: 1,
+  },
+  inlineDiffContainer: {
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 6,
+    marginHorizontal: 8,
+    marginBottom: 6,
+    maxHeight: 300,
+    overflow: 'hidden',
+  },
+  inlineDiffLine: {
+    paddingHorizontal: 8,
+    paddingVertical: 1,
+  },
+  inlineDiffText: {
+    fontSize: 10,
+    fontFamily: 'monospace',
+    color: 'rgba(255,255,255,0.5)',
+  },
+  pushModalContainer: {
+    width: '85%',
+    maxWidth: 380,
+    backgroundColor: 'rgba(28, 28, 32, 0.97)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    padding: 20,
+  },
+  pushModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  pushModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  pushModalSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    marginBottom: 18,
+  },
+  pushModalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 10,
+  },
+  pushModalLabel: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+    width: 60,
+  },
+  pushModalPicker: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  pushModalPickerText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  pushBranchDropdown: {
+    marginLeft: 70,
+    marginTop: -6,
+    marginBottom: 10,
+    backgroundColor: 'rgba(40, 40, 46, 0.98)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
+  },
+  pushBranchOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  pushBranchOptionActive: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  pushBranchOptionText: {
+    flex: 1,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
+  },
+  pushModalOptions: {
+    marginTop: 8,
+    gap: 10,
+    marginBottom: 18,
+  },
+  pushModalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pushModalOptionText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
+  },
+  pushModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  pushModalCancelBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  pushModalCancelText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.7)',
+    fontWeight: '500',
+  },
+  pushModalPushBtn: {
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: AppColors.primary,
+    minWidth: 70,
+    alignItems: 'center',
+  },
+  pushModalPushText: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '600',
   },
 });

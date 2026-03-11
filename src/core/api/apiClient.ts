@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import i18next from 'i18next';
 import { auth } from '../../config/firebase';
 
@@ -8,8 +8,22 @@ const apiClient = axios.create();
 // Prevent showing multiple concurrent re-login alerts
 let authAlertShown = false;
 
+// Track when app returns from background — suppress re-login for a grace period
+let recentlyResumed = false;
+let resumeTimer: ReturnType<typeof setTimeout> | null = null;
+
+AppState.addEventListener('change', (nextState) => {
+  if (nextState === 'active') {
+    recentlyResumed = true;
+    if (resumeTimer) clearTimeout(resumeTimer);
+    // 5s grace period after returning from background — don't prompt re-login
+    resumeTimer = setTimeout(() => { recentlyResumed = false; }, 5000);
+  }
+});
+
 function showReloginAlert(): void {
-  if (authAlertShown) return;
+  // Don't prompt re-login right after returning from background (e.g. from Safari OAuth)
+  if (authAlertShown || recentlyResumed) return;
   authAlertShown = true;
 
   import('../auth/authStore').then(({ useAuthStore }) => {
