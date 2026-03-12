@@ -618,13 +618,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         // Check for limit errors
         if (!response.ok) {
           if (data?.error === 'CLONE_LIMIT_EXCEEDED') {
-            throw new Error(`Hai raggiunto il limite di ${data.limits?.maxCloned || 2} repository clonati.\nPassa a un piano superiore per clonare di più.`);
+            throw new Error(t('alerts.cloneLimitMessage', { max: data.limits?.maxCloned || 2 }));
           }
           if (data?.error === 'STORAGE_LIMIT_EXCEEDED') {
-            throw new Error(`Spazio esaurito (${data.limits?.usedMb || 0}MB / ${data.limits?.maxStorageMb || 500}MB).\nElimina progetti o passa a un piano superiore.`);
+            throw new Error(t('alerts.storageFullMessage', { maxMb: data.limits?.maxStorageMb || 500 }));
           }
           if (data?.error === 'PROJECT_LIMIT_EXCEEDED') {
-            throw new Error(`Hai raggiunto il limite di progetti per il tuo piano.\nPassa a un piano superiore.`);
+            throw new Error(t('alerts.localLimitMessage', { max: data.limits?.maxCreated || 3 }));
           }
           const errorMsg = data?.error || data?.message || t('alerts.serverUnavailable');
           console.error('❌ [Home] VM warmup failed:', response.status, errorMsg);

@@ -103,6 +103,8 @@
     "localLimitMessage": "Hai raggiunto il limite di {{max}} progetti locali per il tuo piano. Elimina un progetto o fai upgrade.",
     "storageFullTitle": "Storage pieno",
     "storageFullMessage": "Hai raggiunto il limite di {{maxMb}}MB di storage per il tuo piano. Elimina un progetto o fai upgrade.",
+    "cloneLimitTitle": "Limite repository raggiunto",
+    "cloneLimitMessage": "Hai raggiunto il limite di {{max}} repository clonati per il tuo piano. Elimina un progetto o fai upgrade.",
     "serverUnavailable": "Server non disponibile",
     "cloneTimeout": "Clone timeout - la repository è troppo grande. Riprova."
   },

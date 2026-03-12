@@ -40,6 +40,7 @@ import { EmptyState } from '../../../shared/components/organisms';
 import { IconButton } from '../../../shared/components/atoms';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
 import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
+import { useNavigationStore } from '../../../core/navigation/navigationStore';
 
 // 🚀 HOLY GRAIL MODE - Uses Fly.io MicroVMs instead of Coder
 const USE_HOLY_GRAIL = true;
@@ -305,7 +306,31 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
       addWorkstation(workstation);
       setShowImportModal(false);
     } catch (error: any) {
-      console.error('Import failed:', error.response?.data?.message || error.message);
+      const errCode = error?.response?.data?.error;
+      if (errCode === 'CLONE_LIMIT_EXCEEDED') {
+        const max = error.response.data.limits?.maxCloned || '?';
+        Alert.alert(
+          t('projects:alerts.cloneLimitTitle'),
+          t('projects:alerts.cloneLimitMessage', { max }),
+          [
+            { text: t('projects:limit.notNow'), style: 'cancel' },
+            { text: t('projects:limit.upgradeTo', { plan: 'Go' }), onPress: () => useNavigationStore.getState().navigateTo('plans') },
+          ]
+        );
+      } else if (errCode === 'STORAGE_LIMIT_EXCEEDED') {
+        const maxMb = error.response.data.limits?.maxStorageMb || '?';
+        Alert.alert(
+          t('projects:alerts.storageFullTitle'),
+          t('projects:alerts.storageFullMessage', { maxMb }),
+          [
+            { text: t('projects:limit.notNow'), style: 'cancel' },
+            { text: t('projects:limit.upgradeTo', { plan: 'Go' }), onPress: () => useNavigationStore.getState().navigateTo('plans') },
+          ]
+        );
+      } else {
+        console.error('Import failed:', error.response?.data?.message || error.message);
+        Alert.alert(t('common:error'), error.response?.data?.message || error.message || t('projects:alerts.unableToCreateProject'));
+      }
     }
   };
 

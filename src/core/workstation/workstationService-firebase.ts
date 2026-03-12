@@ -225,8 +225,8 @@ export const workstationService = {
 
       return result.data;
     } catch (error: any) {
-      // Use console.log for expected auth errors (401) to avoid error overlay
-      if (error.response?.status === 401) {
+      // Suppress error overlay for expected auth/limit errors (401, 403)
+      if (error.response?.status === 401 || error.response?.status === 403) {
       } else {
         console.error('❌ [createWorkstation]', error.message);
       }
