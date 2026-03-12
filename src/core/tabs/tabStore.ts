@@ -12,9 +12,15 @@ export interface Tab {
   isLoading?: boolean;
 }
 
+interface SavedProjectState {
+  tabs: Tab[];
+  activeTabId: string | null;
+}
+
 interface TabStore {
   tabs: Tab[];
   activeTabId: string | null;
+  savedProjects: Record<string, SavedProjectState>;
 
   addTab: (tab: Tab) => void;
   removeTab: (id: string) => void;
@@ -23,6 +29,8 @@ interface TabStore {
   clearTabs: () => void;
   setActiveTab: (id: string) => void;
   updateTab: (id: string, updates: Partial<Tab>) => void;
+  saveProjectTabs: (projectId: string) => void;
+  restoreProjectTabs: (projectId: string) => void;
   addTerminalItem: (tabId: string, item: any) => void;
   updateTerminalItemById: (tabId: string, itemId: string, updates: any) => void;
   clearTerminalItems: (tabId: string) => void;
@@ -31,7 +39,7 @@ interface TabStore {
   updateTerminalItemsByType: (tabId: string, oldType: string, updates: any) => void;
 }
 
-export const useTabStore = create<TabStore>((set) => ({
+export const useTabStore = create<TabStore>((set, get) => ({
   tabs: [
     {
       id: 'chat-main',
@@ -41,6 +49,7 @@ export const useTabStore = create<TabStore>((set) => ({
     }
   ],
   activeTabId: 'chat-main',
+  savedProjects: {},
 
   addTab: (tab) => set((state) => {
     // Check if tab already exists
@@ -160,6 +169,41 @@ export const useTabStore = create<TabStore>((set) => ({
   updateTab: (id, updates) => set((state) => ({
     tabs: state.tabs.map(t => t.id === id ? { ...t, ...updates } : t),
   })),
+
+  // Save current tabs for a project (call before switching away)
+  saveProjectTabs: (projectId) => {
+    const { tabs, activeTabId, savedProjects } = get();
+    set({
+      savedProjects: {
+        ...savedProjects,
+        [projectId]: { tabs: [...tabs], activeTabId },
+      },
+    });
+  },
+
+  // Restore saved tabs for a project (call when switching to it)
+  restoreProjectTabs: (projectId) => {
+    const { savedProjects } = get();
+    const saved = savedProjects[projectId];
+    if (saved && saved.tabs.length > 0) {
+      set({
+        tabs: saved.tabs,
+        activeTabId: saved.activeTabId || saved.tabs[0]?.id || null,
+      });
+    } else {
+      // No saved state — start with a fresh chat tab
+      set({
+        tabs: [{
+          id: 'chat-main',
+          type: 'chat' as TabType,
+          title: 'Nuova Conversazione',
+          data: { chatId: Date.now().toString() },
+          terminalItems: [],
+        }],
+        activeTabId: 'chat-main',
+      });
+    }
+  },
 
   addTerminalItem: (tabId, item) => {
     set((state) => {

@@ -1147,48 +1147,15 @@ export default function App() {
                         // NAVIGATE IMMEDIATELY - auth/clone happens in background
                         // Only clear terminal items when switching to a DIFFERENT project
                         if (!isSameProject) {
-                          // Clear global terminal log
                           clearGlobalTerminalLog();
 
-                          // Remove ALL tabs from previous project (file, env, preview, extra chats)
+                          // Save current project's tabs before switching
                           if (currentWorkstation?.id) {
-                            useTabStore.getState().removeTabsByWorkstation(currentWorkstation.id);
-                          }
-                          // Also remove any chat tabs (they don't contain projectId in their ID)
-                          const tabStore = useTabStore.getState();
-                          const chatTabIds = tabStore.tabs
-                            .filter(t => t.type === 'chat' && t.id !== 'chat-main')
-                            .map(t => t.id);
-                          for (const id of chatTabIds) {
-                            useTabStore.getState().removeTab(id);
+                            useTabStore.getState().saveProjectTabs(currentWorkstation.id);
                           }
 
-                          // Find the most recent chat for the NEW project
-                          const { chatHistory } = useTerminalStore.getState();
-                          const projectChats = chatHistory.filter(c =>
-                            c.repositoryId === workstation.id || c.repositoryId === workstation.projectId
-                          );
-                          const mostRecentChat = projectChats.sort((a, b) =>
-                            new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
-                          )[0];
-
-                          // Reset chat-main for the new project
-                          if (mostRecentChat && mostRecentChat.messages && mostRecentChat.messages.length > 0) {
-                            useTabStore.getState().updateTab('chat-main', {
-                              title: mostRecentChat.title,
-                              data: { chatId: mostRecentChat.id },
-                              terminalItems: mostRecentChat.messages
-                            });
-                          } else {
-                            // No chat for this project — start fresh
-                            useTabStore.getState().updateTab('chat-main', {
-                              title: 'Nuova Conversazione',
-                              data: { chatId: Date.now().toString() },
-                              terminalItems: []
-                            });
-                          }
-                          useTabStore.getState().setActiveTab('chat-main');
-                        } else {
+                          // Restore tabs for the new project (or start fresh)
+                          useTabStore.getState().restoreProjectTabs(workstation.id);
                         }
 
                         // INSTANT navigation - no blocking auth check

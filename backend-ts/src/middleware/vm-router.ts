@@ -199,10 +199,12 @@ export function createAssetProxy() {
       const previewToken = resolvePreviewToken(req);
 
       if (!projectId) {
+        log.warn(`[Asset Proxy] No projectId for ${req.url} (cookie: ${req.headers.cookie?.substring(0, 80) || 'none'}, referer: ${req.headers.referer || 'none'})`);
         res.status(404).json({ error: 'No active preview session', detail: 'projectId not inferable for asset request' });
         return;
       }
       if (!previewToken) {
+        log.warn(`[Asset Proxy] No previewToken for ${req.url} (project: ${projectId}, cookie: ${req.headers.cookie?.substring(0, 80) || 'none'})`);
         res.status(401).json({ error: 'Preview access token required' });
         return;
       }
@@ -214,7 +216,7 @@ export function createAssetProxy() {
       }
 
       const target = resolvePreviewTarget(session);
-      log.debug(`[Asset Proxy] ${req.method} ${req.url} → ${target.host}:${target.port}`);
+      log.info(`[Asset Proxy] ${req.method} ${req.url} → ${target.host}:${target.port} (project: ${projectId})`);
 
       let assetPath = req.url;
       try {
@@ -290,6 +292,7 @@ function proxyRequest(
             const spaTypes = ['vite', 'react', 'vue', 'svelte', 'cra'];
             const needsSpaFix = proxyRes.statusCode === 200
               && projectType != null && spaTypes.includes(projectType);
+            log.info(`[Preview Proxy] HTML response for ${projectId}: type=${projectType}, spaFix=${needsSpaFix}, status=${proxyRes.statusCode}`);
 
             if (needsSpaFix) {
               // Buffer HTML response to inject SPA routing fix
@@ -297,7 +300,8 @@ function proxyRequest(
               proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
               proxyRes.on('end', () => {
                 let html = Buffer.concat(chunks).toString('utf-8');
-                const spaScript = `<script>history.replaceState(null,'','/');</script>`;
+                const spaScript = `<script>history.replaceState(null,'','/');setTimeout(function(){var r=document.getElementById('root');if(r){var d=document.createElement('div');d.style.cssText='position:fixed;bottom:0;left:0;right:0;background:#222;color:#0f0;padding:8px;z-index:99999;font-size:11px;font-family:monospace;max-height:120px;overflow:auto;';d.textContent='[DIAG] children='+r.children.length+' html='+(r.innerHTML||'EMPTY').substring(0,300);document.body.appendChild(d);}},5000);</script>`;
+
                 html = html.replace('<head>', `<head>${spaScript}`);
                 const responseHeaders = { ...proxyRes.headers };
                 responseHeaders['content-length'] = String(Buffer.byteLength(html));
