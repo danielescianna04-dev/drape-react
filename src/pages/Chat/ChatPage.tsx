@@ -2912,6 +2912,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             repositoryUrl={currentTab.data?.repositoryUrl || ''}
             userId={'anonymous'}
             onClose={() => { }}
+            refreshKey={currentTab.data?.refreshKey}
           />
         ) : currentTab?.type === 'terminal' ? (
           <TerminalView

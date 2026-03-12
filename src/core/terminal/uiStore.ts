@@ -44,6 +44,7 @@ export interface UIState {
   // Auto-retry preview after AI fix
   autoRetryPreview: boolean;
   openPreviewRequested: boolean;
+  skipNextPreflight: boolean;
 
   // Autocomplete
   autocompleteOptions: AutocompleteOption[];
@@ -80,6 +81,7 @@ export interface UIState {
   setPendingChatMessage: (message: string | null) => void;
   setAutoRetryPreview: (value: boolean) => void;
   setOpenPreviewRequested: (value: boolean) => void;
+  setSkipNextPreflight: (value: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -109,6 +111,7 @@ export const useUIStore = create<UIState>((set) => ({
     pendingChatMessage: null,
     autoRetryPreview: false,
     openPreviewRequested: false,
+    skipNextPreflight: false,
 
     // Initial state - Autocomplete
     autocompleteOptions: [],
@@ -228,4 +231,5 @@ export const useUIStore = create<UIState>((set) => ({
     setPendingChatMessage: (message) => set({ pendingChatMessage: message }),
     setAutoRetryPreview: (value) => set({ autoRetryPreview: value }),
     setOpenPreviewRequested: (value) => set({ openPreviewRequested: value }),
+    setSkipNextPreflight: (value) => set({ skipNextPreflight: value }),
 }));

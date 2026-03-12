@@ -52,6 +52,7 @@ export interface PreviewWebViewProps {
   onClose: () => void;
   onRetryPreview: () => void;
   onSendErrorReport: () => void;
+  onEnvError?: (message: string) => void;
   topInset: number;
   viewportMode: ViewportMode;
 
@@ -98,6 +99,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
   onClose,
   onRetryPreview,
   onSendErrorReport,
+  onEnvError,
   topInset,
   viewportMode,
   projectId,
@@ -106,6 +108,23 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
   startCommand,
   t,
 }) => {
+  // Detect env-related error messages from the WebView
+  const isEnvRelatedMessage = (msg: string): boolean => {
+    if (!msg) return false;
+    const lower = msg.toLowerCase();
+    return lower.includes('missing value') ||
+      lower.includes('apikey') ||
+      lower.includes('api key') ||
+      lower.includes('api_key') ||
+      lower.includes('environment variable') ||
+      lower.includes('env variable') ||
+      lower.includes('not defined') ||
+      lower.includes('is not set') ||
+      lower.includes('is undefined') ||
+      lower.includes('process.env') ||
+      /\b(NEXT_PUBLIC_|REACT_APP_|VITE_|NUXT_)\w+/.test(msg);
+  };
+
   // Safety-net retry for transient proxy errors that slip past checkServerStatus
   const proxyRetryCountRef = React.useRef(0);
   const MAX_PROXY_RETRIES = 5;
@@ -404,6 +423,132 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                    }));
                  });
 
+                 window.addEventListener('unhandledrejection', function(e) {
+                   var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Unhandled promise rejection';
+                   window.ReactNativeWebView?.postMessage(JSON.stringify({
+                     type: 'JS_ERROR',
+                     message: msg
+                   }));
+                 });
+
+                 // Detect React/CRA error overlay ("Uncaught runtime errors" overlay)
+                 // React error boundaries catch errors before window.onerror, so we
+                 // observe DOM mutations for the error overlay iframe/container.
+                 var envErrorSent = false;
+
+                 // Auto-dismiss dev error overlays for all frameworks
+                 function dismissOverlay(el) {
+                   try {
+                     // Try clicking dismiss/close button
+                     if (el.tagName === 'IFRAME' && el.contentDocument) {
+                       var closeBtn = el.contentDocument.querySelector('[aria-label="Dismiss"], button, .close-button');
+                       if (closeBtn) { closeBtn.click(); return; }
+                     }
+                     // For custom elements (Vite), try shadow DOM close button
+                     if (el.shadowRoot) {
+                       var shadowClose = el.shadowRoot.querySelector('button, .close, [aria-label="Dismiss"]');
+                       if (shadowClose) { shadowClose.click(); return; }
+                     }
+                     el.style.display = 'none';
+                     // CRA backdrop
+                     var backdrop = document.getElementById('webpack-dev-server-client-overlay-div');
+                     if (backdrop) backdrop.style.display = 'none';
+                   } catch(e) {}
+                 }
+
+                 function findErrorOverlay() {
+                   // CRA / webpack-dev-server
+                   var el = document.getElementById('webpack-dev-server-client-overlay');
+                   if (el) return el;
+                   // Older CRA
+                   el = document.getElementById('react-error-overlay');
+                   if (el) return el;
+                   // Next.js error overlay
+                   el = document.querySelector('nextjs-portal');
+                   if (el) return el;
+                   el = document.getElementById('__next-build-error');
+                   if (el) return el;
+                   el = document.querySelector('[data-nextjs-dialog]');
+                   if (el) return el;
+                   // Vite error overlay (custom element)
+                   el = document.querySelector('vite-error-overlay');
+                   if (el) return el;
+                   // Nuxt error overlay
+                   el = document.getElementById('__nuxt-error');
+                   if (el) return el;
+                   // Generic: full-screen fixed iframe (common pattern)
+                   el = document.querySelector('iframe[style*="position: fixed"]');
+                   if (el) return el;
+                   return null;
+                 }
+
+                 function getOverlayText(el) {
+                   try {
+                     if (el.tagName === 'IFRAME' && el.contentDocument) {
+                       return el.contentDocument.body ? el.contentDocument.body.innerText : '';
+                     }
+                     if (el.shadowRoot) {
+                       return el.shadowRoot.textContent || '';
+                     }
+                     return el.innerText || el.textContent || '';
+                   } catch(e) {
+                     return el.getAttribute('title') || '';
+                   }
+                 }
+
+                 function checkForErrorOverlay() {
+                   if (envErrorSent) return;
+                   var overlay = findErrorOverlay();
+                   if (overlay) {
+                     var text = getOverlayText(overlay);
+                     if (text) {
+                       envErrorSent = true;
+                       window.ReactNativeWebView?.postMessage(JSON.stringify({
+                         type: 'RUNTIME_ENV_ERROR',
+                         message: text.substring(0, 1000)
+                       }));
+                       dismissOverlay(overlay);
+                       return;
+                     }
+                   }
+
+                   var bodyText = document.body ? (document.body.innerText || '') : '';
+                   var lower = bodyText.toLowerCase();
+                   if (lower.indexOf('uncaught runtime error') !== -1 ||
+                       lower.indexOf('unhandled runtime error') !== -1) {
+                     var lines = bodyText.split('\\n').filter(function(l) { return l.trim(); });
+                     var errorText = lines.slice(0, 10).join('\\n');
+                     envErrorSent = true;
+                     window.ReactNativeWebView?.postMessage(JSON.stringify({
+                       type: 'RUNTIME_ENV_ERROR',
+                       message: errorText.substring(0, 1000)
+                     }));
+                   }
+                 }
+
+                 // Check periodically for error overlays (React renders them async)
+                 var overlayCheckCount = 0;
+                 var overlayInterval = setInterval(function() {
+                   overlayCheckCount++;
+                   checkForErrorOverlay();
+                   if (envErrorSent || overlayCheckCount >= 20) {
+                     clearInterval(overlayInterval);
+                   }
+                 }, 1000);
+
+                 // Also observe DOM for dynamically added overlay elements
+                 if (typeof MutationObserver !== 'undefined') {
+                   var observer = new MutationObserver(function() {
+                     checkForErrorOverlay();
+                     if (envErrorSent) observer.disconnect();
+                   });
+                   observer.observe(document.body || document.documentElement, {
+                     childList: true, subtree: true
+                   });
+                   // Auto-disconnect after 30s to avoid memory leaks
+                   setTimeout(function() { observer.disconnect(); }, 30000);
+                 }
+
                  // Support multiple root element IDs
                  const root = document.getElementById('root') ||
                               document.getElementById('__next') ||
@@ -496,7 +641,10 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                 const previewPath = previewPathMatch ? previewPathMatch[0] : null;
 
                 // If navigating to drape.info but NOT within the preview path, rewrite it
-                if (previewPath && url.includes('drape.info') && !url.includes(previewPath)) {
+                // Check hostname (not full string) to avoid matching external URLs that reference drape.info in hash/query
+                let urlHost = '';
+                try { urlHost = new URL(url).hostname; } catch {}
+                if (previewPath && urlHost === 'drape.info' && !url.includes(previewPath)) {
                   // Extract the path from the URL (e.g., /login from https://drape.info/login)
                   const urlObj = new URL(url);
                   const targetPath = urlObj.pathname;
@@ -552,8 +700,12 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                       }, 2000);
                       return;
                     }
-                    // Exhausted retries or non-transient error — show error UI
+                    // Exhausted retries or non-transient error — check for env error first
                     console.error('WebView detected proxy error:', rawMsg);
+                    if (onEnvError && isEnvRelatedMessage(rawMsg)) {
+                      onEnvError(rawMsg);
+                      return;
+                    }
                     let userMsg = rawMsg;
                     if (rawMsg.includes('ECONNREFUSED')) {
                       userMsg = t('terminal:preview.errorServerFailed');
@@ -568,11 +720,24 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                     setIsStarting(false);
                   }
                   if (data.type === 'BUILD_ERROR') {
-                    console.error('[Preview] Build error detected in WebView:', data.message);
-                    setPreviewError({ message: data.message || 'Build error', timestamp: new Date() });
-                    trackPreviewError(data.message || 'Build error');
+                    const buildMsg = data.message || 'Build error';
+                    console.error('[Preview] Build error detected in WebView:', buildMsg);
+                    if (onEnvError && isEnvRelatedMessage(buildMsg)) {
+                      onEnvError(buildMsg);
+                      return;
+                    }
+                    setPreviewError({ message: buildMsg, timestamp: new Date() });
+                    trackPreviewError(buildMsg);
                     setServerStatus('stopped');
                     setIsStarting(false);
+                  }
+                  if (data.type === 'JS_ERROR' || data.type === 'RUNTIME_ENV_ERROR') {
+                    const jsMsg = data.message || '';
+                    console.warn('[Preview] JS/runtime error in WebView:', jsMsg);
+                    if (onEnvError && isEnvRelatedMessage(jsMsg)) {
+                      onEnvError(jsMsg);
+                      return;
+                    }
                   }
                   if (data.type === 'TRIGGER_REFRESH') {
                     handleRefresh();

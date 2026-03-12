@@ -323,7 +323,14 @@
     "variableNamePlaceholder": "Variable name (e.g. API_KEY)",
     "noneConfigured": "No variables configured",
     "tapPlus": "Press + to add a variable to the .env file",
-    "emptyValue": "empty"
+    "emptyValue": "empty",
+    "missingTitle": "Missing Environment Variables",
+    "missingDescription": "We detected {{count}} environment variables required by this project. Configure them below to start the preview.",
+    "saveAndStart": "Save Variables",
+    "startAnyway": "Start Anyway",
+    "runtimeErrorTitle": "Preview Error",
+    "runtimeErrorDescription": "The preview failed due to an environment variable issue. Check the values and try again.",
+    "retryPreview": "Retry Preview"
   },
   "previewView": {
     "mockAiResponse": "I'm analyzing your request. I'm updating the code...",

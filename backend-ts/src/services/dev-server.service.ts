@@ -220,7 +220,7 @@ class DevServerService {
             const candidates = new Set<string>();
             for (const m of contextVarMatches) {
               // Filter out common non-env words
-              if (!['GET', 'POST', 'PUT', 'DELETE', 'ERROR', 'HTTP', 'NULL', 'TRUE', 'FALSE', 'HTML', 'JSON'].includes(m[1])) {
+              if (!['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', 'HTTP', 'HTTPS', 'HTML', 'JSON', 'XML', 'ERROR', 'WARNING', 'NULL', 'TRUE', 'FALSE', 'UNDEFINED', 'NAN'].includes(m[1])) {
                 candidates.add(m[1]);
               }
             }

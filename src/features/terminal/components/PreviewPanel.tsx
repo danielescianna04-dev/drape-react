@@ -21,6 +21,7 @@ import { AskUserQuestionModal } from '../../../shared/components/modals/AskUserQ
 import { trackPreviewStart, trackPreviewReady, trackPreviewRefresh, trackPreviewStop, trackPreviewError, trackPreviewFixWithAI, trackViewportChange } from '../../../core/services/analyticsService';
 import { getAuthToken, getAuthHeaders } from '../../../core/api/getAuthToken';
 import { useAgentStore } from '../../../core/agent/agentStore';
+import { useTabStore } from '../../../core/tabs/tabStore';
 
 // Sub-components
 import { PreviewToolbar, ViewportMode } from './PreviewToolbar';
@@ -317,7 +318,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     for (const m of t3Style) vars.add(m[1]);
     const inline = input.matchAll(/\b([A-Z][A-Z0-9_]{2,})\b/g);
     for (const m of inline) {
-      if (!['HTTP', 'HTML', 'JSON', 'ERROR'].includes(m[1])) vars.add(m[1]);
+      if (!['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', 'HTTP', 'HTTPS', 'HTML', 'JSON', 'XML', 'ERROR', 'WARNING', 'NULL', 'TRUE', 'FALSE', 'UNDEFINED', 'NAN'].includes(m[1])) vars.add(m[1]);
     }
     return [...vars].slice(0, 20);
   };
@@ -355,6 +356,45 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       return i18next.t('terminal:preview.compileError');
     }
     return null;
+  };
+
+  // Detect if an error message is related to missing/invalid env vars
+  const isEnvRelatedError = (msg: string): boolean => {
+    if (!msg) return false;
+    const lower = msg.toLowerCase();
+    return lower.includes('missing value') ||
+      lower.includes('apikey') ||
+      lower.includes('api key') ||
+      lower.includes('api_key') ||
+      lower.includes('environment variable') ||
+      lower.includes('env variable') ||
+      lower.includes('not defined') ||
+      lower.includes('is not set') ||
+      lower.includes('is undefined') ||
+      lower.includes('process.env') ||
+      /\b(NEXT_PUBLIC_|REACT_APP_|VITE_|NUXT_)\w+/.test(msg);
+  };
+
+  // Redirect env-related errors to EnvVarsView tab
+  const redirectToEnvVarsWithError = (errorMessage: string) => {
+    // User chose "Start Anyway" — don't redirect, let preview show the error normally
+    if (skipEnvErrorRedirectRef.current) return;
+    onClose();
+    startup.setIsStartTransitioning(false);
+    startup.startTransitionAnim.setValue(0);
+    // Preserve existing missingVars so user still sees what needs configuring
+    const existingEnvTab = useTabStore.getState().tabs.find((t) => t.id === 'env-vars');
+    const existingMissingVars = existingEnvTab?.data?.missingVars;
+    useTabStore.getState().addTab({
+      id: 'env-vars',
+      type: 'envVars' as any,
+      title: 'Environment Variables',
+      data: {
+        runtimeError: errorMessage,
+        fromPreview: true,
+        ...(existingMissingVars ? { missingVars: existingMissingVars } : {}),
+      },
+    });
   };
 
   const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
@@ -516,11 +556,67 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     }
   };
 
+  // Pre-flight: detect missing env vars before starting preview
+  const preflightEnvCheck = async (): Promise<boolean> => {
+    if (!currentWorkstation?.id) return true;
+    try {
+      const authHeaders = await getAuthHeaders();
+      const [analyzeRes, envRes] = await Promise.all([
+        fetch(`${apiUrl}/fly/project/${currentWorkstation.id}/env/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+        }),
+        fetch(`${apiUrl}/fly/project/${currentWorkstation.id}/env`, {
+          headers: authHeaders,
+        }),
+      ]);
+      if (!analyzeRes.ok) return true;
+      const analyzeData = await analyzeRes.json();
+      const required: Array<{ key: string; value?: string }> = analyzeData.variables || [];
+      if (required.length === 0) return true;
+
+      const envData = envRes.ok ? await envRes.json() : { variables: [] };
+      const existing = new Set((envData.variables || []).map((v: any) => v.key));
+      const missing = required.filter((v) => !existing.has(v.key));
+      if (missing.length === 0) return true;
+
+      // Navigate to env vars tab with missing vars info
+      onClose();
+      useTabStore.getState().addTab({
+        id: 'env-vars',
+        type: 'envVars' as any,
+        title: 'Environment Variables',
+        data: {
+          missingVars: missing.map((v) => ({ key: v.key, value: v.value || '' })),
+          fromPreview: true,
+        },
+      });
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
   const handleStartServer = async () => {
     if (!currentWorkstation?.id) {
       logError('No workstation selected', 'preview');
       return;
     }
+
+    // Check for missing env vars before starting (skip if "Start Anyway" was used)
+    if (useUIStore.getState().skipNextPreflight) {
+      useUIStore.getState().setSkipNextPreflight(false);
+      skipEnvErrorRedirectRef.current = true;
+    } else {
+      skipEnvErrorRedirectRef.current = false;
+      const canProceed = await preflightEnvCheck();
+      if (!canProceed) {
+        startup.setIsStartTransitioning(false);
+        startup.startTransitionAnim.setValue(0);
+        return;
+      }
+    }
+
     trackPreviewStart(currentWorkstation?.name || 'unknown');
     clearPendingRelease(currentWorkstation.id);
     // Always reset readiness before a new start to avoid showing stale/black frame.
@@ -531,6 +627,13 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     logsSinceCursorRef.current = 0;
     errorDetectedRef.current = false;
     startup.setPreviewError(null);
+    // Clear stale runtimeError from env-vars tab, but preserve missingVars so user knows what to configure
+    const tabStore = useTabStore.getState();
+    const envTab = tabStore.tabs.find((t) => t.id === 'env-vars');
+    if (envTab?.data?.runtimeError) {
+      const { runtimeError: _removed, ...keepData } = envTab.data;
+      tabStore.updateTab('env-vars', { data: keepData });
+    }
     // Grace period: skip old cached logs burst from container (arrives in first ~2-3s)
     errorDetectionEnabledAtRef.current = Date.now() + 1200;
     ignoreLogsUntilRef.current = Date.now() + 1200;
@@ -824,6 +927,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                 } else if (parsed.type === 'error') {
                   console.log('[Preview:SSE] ERROR received:', parsed.message);
                   errorReceived = true;
+                  // Redirect env-related errors to EnvVarsView
+                  if (isEnvRelatedError(parsed.message || '')) {
+                    redirectToEnvVarsWithError(parsed.message || '');
+                  }
                   applyMissingEnvVarsFromMessage(parsed.message || '');
                   startup.recentLogsRef.current.push(`[ERROR] ${parsed.message}`);
                   startup.setStartupSteps(startup.startupSteps.map(s => s.status === 'active' ? { ...s, status: 'error' as const } : s));
@@ -914,6 +1021,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       if (isMissingPreviewTokenError(message)) {
         resetToStartScreen();
         return;
+      }
+      // Redirect env-related errors to EnvVarsView
+      if (isEnvRelatedError(message || '')) {
+        redirectToEnvVarsWithError(message || '');
       }
       applyMissingEnvVarsFromMessage(message || '');
       logError(message || t('terminal:preview.errorDuringStartup'), 'preview');
@@ -1140,6 +1251,34 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     return () => { if (checkInterval.current) clearInterval(checkInterval.current); };
   }, [currentPreviewUrl, serverStatus, isVisible]);
 
+  // Re-run preflight when preview becomes visible and server is already running
+  // (e.g. user deleted an env var while preview was hidden, then reopened it)
+  const prevVisibleRef = useRef(isVisible);
+  useEffect(() => {
+    const wasHidden = !prevVisibleRef.current;
+    prevVisibleRef.current = isVisible;
+    if (!isVisible || !wasHidden) return;
+
+    // "Avvia comunque" → auto-start the server immediately (skip the start screen)
+    if (useUIStore.getState().skipNextPreflight) {
+      if (serverStatus === 'stopped') {
+        handleStartWithTransition();
+      }
+      return;
+    }
+
+    if (skipEnvErrorRedirectRef.current) return; // "Start Anyway" mode — skip
+    if (serverStatus !== 'running') return;
+    // Run preflight in background — if vars are missing, redirect to env vars
+    preflightEnvCheck().then((ok) => {
+      if (!ok) {
+        // preflightEnvCheck already redirected to env-vars tab
+        setServerStatus('stopped');
+        onClose();
+      }
+    }).catch(() => {});
+  }, [isVisible]);
+
   // Set default project info
   useEffect(() => {
     if (!projectInfo) {
@@ -1343,6 +1482,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   // Grace period: skip old cached logs from container for N seconds after startup
   const ignoreLogsUntilRef = useRef(0);
 
+  // When "Start Anyway" is used, skip env error redirects for this session
+  const skipEnvErrorRedirectRef = useRef(false);
   // Detect critical errors in terminal output and immediately show error screen
   const errorDetectedRef = useRef(false);
   // Grace period: skip error detection for first N seconds after startup to ignore old cached logs
@@ -1680,6 +1821,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   onClose={handleClose}
                   onRetryPreview={handleRetryPreview}
                   onSendErrorReport={sendErrorToChat}
+                  onEnvError={redirectToEnvVarsWithError}
                   topInset={insets.top}
                   viewportMode={viewportMode}
                   projectId={projectId || ''}

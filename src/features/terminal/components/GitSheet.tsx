@@ -1542,28 +1542,42 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                   <Ionicons name="sync-outline" size={16} color="#fff" />
                 )}
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.gitActionBtn}
-                onPress={() => handleGitAction('pull')}
-                disabled={!!actionLoading}
-              >
-                {actionLoading === 'pull' ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name="arrow-down-outline" size={16} color="#fff" />
+              <View>
+                <TouchableOpacity
+                  style={styles.gitActionBtn}
+                  onPress={() => handleGitAction('pull')}
+                  disabled={!!actionLoading}
+                >
+                  {actionLoading === 'pull' ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="arrow-down-outline" size={16} color="#fff" />
+                  )}
+                </TouchableOpacity>
+                {behindCount > 0 && (
+                  <View style={styles.actionBadge}>
+                    <Text style={styles.actionBadgeText}>{behindCount}</Text>
+                  </View>
                 )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.gitActionBtn}
-                onPress={() => handleGitAction('push')}
-                disabled={!!actionLoading}
-              >
-                {actionLoading === 'push' ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name="arrow-up-outline" size={16} color="#fff" />
+              </View>
+              <View>
+                <TouchableOpacity
+                  style={styles.gitActionBtn}
+                  onPress={() => handleGitAction('push')}
+                  disabled={!!actionLoading}
+                >
+                  {actionLoading === 'push' ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="arrow-up-outline" size={16} color="#fff" />
+                  )}
+                </TouchableOpacity>
+                {aheadCount > 0 && (
+                  <View style={styles.actionBadge}>
+                    <Text style={styles.actionBadgeText}>{aheadCount}</Text>
+                  </View>
                 )}
-              </TouchableOpacity>
+              </View>
             </View>
           </View>
 
@@ -3115,6 +3129,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  actionBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: AppColors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  actionBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#fff',
   },
   tabs: {
     flexDirection: 'row',

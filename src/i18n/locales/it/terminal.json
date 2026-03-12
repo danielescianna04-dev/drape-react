@@ -323,7 +323,14 @@
     "variableNamePlaceholder": "Nome variabile (es. API_KEY)",
     "noneConfigured": "Nessuna variabile configurata",
     "tapPlus": "Premi + per aggiungere una variabile al file .env",
-    "emptyValue": "vuoto"
+    "emptyValue": "vuoto",
+    "missingTitle": "Variabili d'ambiente mancanti",
+    "missingDescription": "Abbiamo rilevato {{count}} variabili d'ambiente richieste da questo progetto. Configurale qui sotto per avviare la preview.",
+    "saveAndStart": "Salva variabili",
+    "startAnyway": "Avvia comunque",
+    "runtimeErrorTitle": "Errore durante la preview",
+    "runtimeErrorDescription": "La preview è fallita a causa di un problema con le variabili d'ambiente. Controlla i valori e riprova.",
+    "retryPreview": "Riprova preview"
   },
   "previewView": {
     "mockAiResponse": "Sto analizzando la tua richiesta. Modifico il codice...",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
@@ -9,7 +9,8 @@ import { AppColors } from '../../../../shared/theme/colors';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 import { config } from '../../../../config/config';
 import { getAuthHeaders } from '../../../../core/api/getAuthToken';
-import { Tab } from '../../../../core/tabs/tabStore';
+import { Tab, useTabStore } from '../../../../core/tabs/tabStore';
+import { useUIStore } from '../../../../core/terminal/uiStore';
 import { useSidebarOffset } from '../../context/SidebarContext';
 import { trackEnvVarAdd, trackEnvVarDelete } from '../../../../core/services/analyticsService';
 
@@ -40,33 +41,130 @@ export const EnvVarsView = ({ tab }: Props) => {
   const [newValue, setNewValue] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [visibleSecrets, setVisibleSecrets] = useState<Set<string>>(new Set());
+  const updateTab = useTabStore((s) => s.updateTab);
+
+  // Data from preview pre-flight or runtime error
+  const fromPreview = tab.data?.fromPreview === true;
+  const runtimeError: string | undefined = tab.data?.runtimeError;
+  const [detectedMissingVars, setDetectedMissingVars] = useState<Array<{ key: string; value: string }>>(
+    () => tab.data?.missingVars || [],
+  );
+  const missingVars = detectedMissingVars;
+  const [missingValues, setMissingValues] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const v of (tab.data?.missingVars || [])) { init[v.key] = v.value || ''; }
+    return init;
+  });
+  const [isSavingMissing, setIsSavingMissing] = useState(false);
 
   const projectId = currentWorkstation?.id;
+  const activeTabId = useTabStore((s) => s.activeTabId);
+
+  // Helper: get fresh projectId from store (avoids stale closures)
+  const getFreshProjectId = () => useTerminalStore.getState().currentWorkstation?.id;
 
   useEffect(() => {
+    // Reset state when switching projects
+    setEnvVars([]);
+    setDetectedMissingVars([]);
+    setMissingValues({});
+    setIsLoading(true);
     loadEnvVariables();
   }, [currentWorkstation]);
 
+  // Sync detectedMissingVars when tab.data changes externally (e.g., preflight redirect)
+  useEffect(() => {
+    const incoming = tab.data?.missingVars;
+    if (incoming && incoming.length > 0) {
+      setDetectedMissingVars(incoming);
+      setMissingValues((prev) => {
+        const updated = { ...prev };
+        for (const v of incoming) {
+          if (!(v.key in updated)) updated[v.key] = v.value || '';
+        }
+        return updated;
+      });
+    }
+  }, [tab.data?.missingVars]);
+
+  // Re-fetch when this tab becomes active (e.g., user switches back to it)
+  useEffect(() => {
+    const pid = getFreshProjectId();
+    if (activeTabId === tab.id && pid) {
+      reloadEnvVars();
+    }
+  }, [activeTabId]);
+
   const loadEnvVariables = async () => {
-    if (!projectId) {
+    const pid = getFreshProjectId();
+    if (!pid) {
       setIsLoading(false);
       return;
     }
 
     try {
       const authHeaders = await getAuthHeaders();
-      const response = await fetch(
-        `${config.apiUrl}/fly/project/${projectId}/env`,
-        { headers: authHeaders }
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setEnvVars(data.variables || []);
+      // Fetch configured vars + analyze required vars in parallel
+      const [envResponse, analyzeResponse] = await Promise.all([
+        fetch(`${config.apiUrl}/fly/project/${pid}/env`, { headers: authHeaders }),
+        fetch(`${config.apiUrl}/fly/project/${pid}/env/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+        }).catch(() => null),
+      ]);
+
+      // Abort if project changed while fetching
+      if (getFreshProjectId() !== pid) return;
+
+      if (envResponse.ok) {
+        const data = await envResponse.json();
+        const vars: EnvVariable[] = data.variables || [];
+        setEnvVars(vars);
+
+        // Auto-detect missing vars if not already provided via tab data
+        if (analyzeResponse?.ok) {
+          const analyzeData = await analyzeResponse.json();
+          const required: Array<{ key: string; value?: string }> = analyzeData.variables || [];
+          if (required.length > 0) {
+            const existingKeys = new Set(vars.map((v) => v.key));
+            const missing = required
+              .filter((v) => !existingKeys.has(v.key))
+              .map((v) => ({ key: v.key, value: v.value || '' }));
+            if (missing.length > 0) {
+              setDetectedMissingVars(missing);
+              setMissingValues((prev) => {
+                const updated = { ...prev };
+                for (const v of missing) {
+                  if (!(v.key in updated)) updated[v.key] = v.value || '';
+                }
+                return updated;
+              });
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading env vars:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Light reload: just re-fetch configured vars from the .env file (no analyze)
+  const reloadEnvVars = async () => {
+    const pid = getFreshProjectId();
+    if (!pid) return;
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${config.apiUrl}/fly/project/${pid}/env`, { headers: authHeaders });
+      // Abort if project changed while fetching
+      if (getFreshProjectId() !== pid) return;
+      if (response.ok) {
+        const data = await response.json();
+        setEnvVars(data.variables || []);
+      }
+    } catch (error) {
+      console.error('[EnvVarsView] Error reloading env vars:', error);
     }
   };
 
@@ -96,7 +194,20 @@ export const EnvVarsView = ({ tab }: Props) => {
       );
 
       if (response.ok) {
-        setEnvVars(updatedVars);
+        // Re-fetch from server to ensure UI matches actual .env file content
+        await reloadEnvVars();
+        // Refresh any open .env file tab so it shows updated content
+        const refreshEnvFileTab = () => {
+          const { tabs: allTabs, updateTab: ut } = useTabStore.getState();
+          const envFileTab = allTabs.find((t) =>
+            t.type === 'file' && (t.data?.filePath === '.env' || t.data?.filePath?.endsWith('/.env')),
+          );
+          if (envFileTab) {
+            ut(envFileTab.id, { data: { ...envFileTab.data, refreshKey: Date.now() } });
+          }
+        };
+        refreshEnvFileTab();
+        setTimeout(refreshEnvFileTab, 600);
         return true;
       }
     } catch (error) {
@@ -150,6 +261,46 @@ export const EnvVarsView = ({ tab }: Props) => {
     );
   };
 
+  const handleSaveMissingVars = useCallback(async () => {
+    if (!projectId) return;
+    setIsSavingMissing(true);
+    try {
+      const newVars: EnvVariable[] = missingVars.map((v) => ({
+        key: v.key,
+        value: missingValues[v.key] || '',
+        isSecret: v.key.toLowerCase().includes('key') ||
+          v.key.toLowerCase().includes('secret') ||
+          v.key.toLowerCase().includes('token') ||
+          v.key.toLowerCase().includes('password'),
+      }));
+      const updatedVars = [...envVars, ...newVars.filter((nv) => !envVars.find((ev) => ev.key === nv.key))];
+      const success = await saveVariables(updatedVars);
+      if (success) {
+        // Clear banners and detected missing vars
+        setDetectedMissingVars([]);
+        updateTab(tab.id, { data: {} });
+      }
+    } finally {
+      setIsSavingMissing(false);
+    }
+  }, [projectId, missingVars, missingValues, envVars, saveVariables, updateTab, tab.id]);
+
+  // Open preview (used by "Retry Preview" and "Start Anyway")
+  const openPreview = useCallback((skipPreflight = false) => {
+    if (skipPreflight) {
+      useUIStore.getState().setSkipNextPreflight(true);
+      // Keep missingVars with user-typed values so they persist across navigations
+      const varsWithValues = missingVars.map((v) => ({
+        key: v.key,
+        value: missingValues[v.key] || v.value || '',
+      }));
+      updateTab(tab.id, { data: { missingVars: varsWithValues, fromPreview: true } });
+    } else {
+      updateTab(tab.id, { data: {} }); // clear banner
+    }
+    useUIStore.getState().setOpenPreviewRequested(true);
+  }, [updateTab, tab.id, missingVars, missingValues]);
+
   return (
     <View style={[styles.container, { paddingTop: topPadding, paddingLeft: sidebarPadding }]}>
       {/* Header */}
@@ -173,6 +324,120 @@ export const EnvVarsView = ({ tab }: Props) => {
           </View>
         ) : (
           <>
+            {/* Runtime error banner (red) - shown when preview failed due to env vars */}
+            {fromPreview && runtimeError && (
+              <Animated.View entering={FadeIn} style={styles.errorBanner}>
+                <View style={styles.missingBannerHeader}>
+                  <Ionicons name="close-circle" size={22} color="#FF6B6B" />
+                  <Text style={styles.errorBannerTitle}>
+                    {t('terminal:envVars.runtimeErrorTitle')}
+                  </Text>
+                </View>
+                <Text style={styles.missingBannerText}>
+                  {t('terminal:envVars.runtimeErrorDescription')}
+                </Text>
+                <View style={styles.errorMessageBox}>
+                  <Text style={styles.errorMessageText} numberOfLines={4}>{runtimeError}</Text>
+                </View>
+                {/* Show missing vars inputs inside the error banner */}
+                {missingVars.length > 0 && missingVars.map((v) => (
+                  <View key={v.key} style={styles.missingVarRow}>
+                    <Text style={styles.missingVarKey}>{v.key}</Text>
+                    <TextInput
+                      style={styles.missingVarInput}
+                      placeholder={t('common:enterValue')}
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      value={missingValues[v.key] || ''}
+                      onChangeText={(text) => setMissingValues((prev) => ({ ...prev, [v.key]: text }))}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
+                ))}
+                {missingVars.length > 0 ? (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.missingBannerSaveBtn, isSavingMissing && { opacity: 0.6 }]}
+                      onPress={handleSaveMissingVars}
+                      disabled={isSavingMissing}
+                    >
+                      <Ionicons name="save-outline" size={18} color="#fff" />
+                      <Text style={styles.missingBannerSaveBtnText}>
+                        {isSavingMissing ? t('common:saving') : t('terminal:envVars.saveAndStart')}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.startAnywayBtn}
+                      onPress={() => openPreview(true)}
+                    >
+                      <Text style={styles.startAnywayText}>
+                        {t('terminal:envVars.retryPreview')}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.missingBannerSaveBtn}
+                    onPress={() => openPreview(false)}
+                  >
+                    <Ionicons name="refresh" size={18} color="#fff" />
+                    <Text style={styles.missingBannerSaveBtnText}>
+                      {t('terminal:envVars.retryPreview')}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </Animated.View>
+            )}
+
+            {/* Missing vars banner - shown from preflight or auto-detected on mount */}
+            {!runtimeError && missingVars.length > 0 && (
+              <Animated.View entering={FadeIn} style={styles.missingBanner}>
+                <View style={styles.missingBannerHeader}>
+                  <Ionicons name="alert-circle" size={22} color="#FFB84D" />
+                  <Text style={styles.missingBannerTitle}>
+                    {t('terminal:envVars.missingTitle')}
+                  </Text>
+                </View>
+                <Text style={styles.missingBannerText}>
+                  {t('terminal:envVars.missingDescription', { count: missingVars.length })}
+                </Text>
+                {missingVars.map((v) => (
+                  <View key={v.key} style={styles.missingVarRow}>
+                    <Text style={styles.missingVarKey}>{v.key}</Text>
+                    <TextInput
+                      style={styles.missingVarInput}
+                      placeholder={t('common:enterValue')}
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      value={missingValues[v.key] || ''}
+                      onChangeText={(text) => setMissingValues((prev) => ({ ...prev, [v.key]: text }))}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
+                ))}
+                <TouchableOpacity
+                  style={[styles.missingBannerSaveBtn, isSavingMissing && { opacity: 0.6 }]}
+                  onPress={handleSaveMissingVars}
+                  disabled={isSavingMissing}
+                >
+                  <Ionicons name="save-outline" size={18} color="#fff" />
+                  <Text style={styles.missingBannerSaveBtnText}>
+                    {isSavingMissing
+                      ? t('common:saving')
+                      : t('terminal:envVars.saveAndStart')}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.startAnywayBtn}
+                  onPress={() => openPreview(true)}
+                >
+                  <Text style={styles.startAnywayText}>
+                    {t('terminal:envVars.startAnyway')}
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
+            )}
+
             {/* Current Variables */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -403,5 +668,95 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255,255,255,0.7)',
     fontFamily: 'monospace',
+  },
+  missingBanner: {
+    marginTop: 20,
+    backgroundColor: 'rgba(255, 184, 77, 0.08)',
+    borderRadius: 14,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 184, 77, 0.2)',
+    gap: 12,
+  },
+  missingBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  missingBannerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFB84D',
+  },
+  missingBannerText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+    lineHeight: 18,
+  },
+  missingVarRow: {
+    gap: 6,
+  },
+  missingVarKey: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: AppColors.primary,
+    fontFamily: 'monospace',
+  },
+  missingVarInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 8,
+    padding: 10,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: 'monospace',
+  },
+  missingBannerSaveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: AppColors.primary,
+    borderRadius: 10,
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  missingBannerSaveBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  startAnywayBtn: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  startAnywayText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 13,
+    textDecorationLine: 'underline',
+  },
+  errorBanner: {
+    marginTop: 20,
+    backgroundColor: 'rgba(255, 107, 107, 0.08)',
+    borderRadius: 14,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.2)',
+    gap: 12,
+  },
+  errorBannerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FF6B6B',
+  },
+  errorMessageBox: {
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 8,
+    padding: 10,
+  },
+  errorMessageText: {
+    fontSize: 12,
+    color: '#FF6B6B',
+    fontFamily: 'monospace',
+    lineHeight: 16,
   },
 });

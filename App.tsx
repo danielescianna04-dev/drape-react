@@ -1150,7 +1150,20 @@ export default function App() {
                           // Clear global terminal log
                           clearGlobalTerminalLog();
 
-                          // Find the most recent chat for this project
+                          // Remove ALL tabs from previous project (file, env, preview, extra chats)
+                          if (currentWorkstation?.id) {
+                            useTabStore.getState().removeTabsByWorkstation(currentWorkstation.id);
+                          }
+                          // Also remove any chat tabs (they don't contain projectId in their ID)
+                          const tabStore = useTabStore.getState();
+                          const chatTabIds = tabStore.tabs
+                            .filter(t => t.type === 'chat' && t.id !== 'chat-main')
+                            .map(t => t.id);
+                          for (const id of chatTabIds) {
+                            useTabStore.getState().removeTab(id);
+                          }
+
+                          // Find the most recent chat for the NEW project
                           const { chatHistory } = useTerminalStore.getState();
                           const projectChats = chatHistory.filter(c =>
                             c.repositoryId === workstation.id || c.repositoryId === workstation.projectId
@@ -1159,23 +1172,22 @@ export default function App() {
                             new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
                           )[0];
 
-                          const { activeTabId: preNavTabId, updateTab } = useTabStore.getState();
-
+                          // Reset chat-main for the new project
                           if (mostRecentChat && mostRecentChat.messages && mostRecentChat.messages.length > 0) {
-                            // Load the most recent chat with its messages
-                            if (preNavTabId) {
-                              updateTab(preNavTabId, {
-                                title: mostRecentChat.title,
-                                data: { chatId: mostRecentChat.id },
-                                terminalItems: mostRecentChat.messages
-                              });
-                            }
+                            useTabStore.getState().updateTab('chat-main', {
+                              title: mostRecentChat.title,
+                              data: { chatId: mostRecentChat.id },
+                              terminalItems: mostRecentChat.messages
+                            });
                           } else {
-                            // No existing chat - clear items and start fresh
-                            if (preNavTabId) {
-                              clearTerminalItems(preNavTabId);
-                            }
+                            // No chat for this project — start fresh
+                            useTabStore.getState().updateTab('chat-main', {
+                              title: 'Nuova Conversazione',
+                              data: { chatId: Date.now().toString() },
+                              terminalItems: []
+                            });
                           }
+                          useTabStore.getState().setActiveTab('chat-main');
                         } else {
                         }
 

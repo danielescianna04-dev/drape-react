@@ -441,18 +441,52 @@ flyRouter.post('/project/:id/env/analyze', asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  // Simplified: scan config files for env var references
-  const configFiles = ['next.config.js', 'next.config.mjs', '.env.example', '.env.local'];
+  // Scan config files and env templates for env var references
+  const configFiles = [
+    'next.config.js', 'next.config.mjs', 'next.config.ts',
+    '.env.example', '.env.local', '.env.dev', '.env.development',
+    '.env.sample', '.env.template',
+    'vite.config.js', 'vite.config.ts',
+    'nuxt.config.js', 'nuxt.config.ts',
+  ];
   const variables: { key: string; value: string; required: boolean }[] = [];
 
   for (const file of configFiles) {
     const result = await fileService.readFile(projectId, file);
     if (result.success && result.data) {
-      const envRefs = result.data.content.match(/process\.env\.(\w+)/g) || [];
-      for (const ref of envRefs) {
-        const key = ref.replace('process.env.', '');
-        if (!variables.find(v => v.key === key)) {
-          variables.push({ key, value: '', required: true });
+      const content = result.data.content;
+      const isEnvFile = file.startsWith('.env');
+
+      if (isEnvFile) {
+        // Parse .env-style files: extract KEY=value lines (skip comments and empty)
+        const lines = content.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          const eqIdx = trimmed.indexOf('=');
+          if (eqIdx > 0) {
+            const key = trimmed.substring(0, eqIdx).trim();
+            const value = trimmed.substring(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+            if (/^[A-Z_][A-Z0-9_]*$/.test(key) && !variables.find(v => v.key === key)) {
+              variables.push({ key, value, required: true });
+            }
+          }
+        }
+      } else {
+        // Scan code files for process.env.XXX and import.meta.env.XXX
+        const processEnvRefs = content.match(/process\.env\.([A-Z_][A-Z0-9_]*)/g) || [];
+        for (const ref of processEnvRefs) {
+          const key = ref.replace('process.env.', '');
+          if (!variables.find(v => v.key === key)) {
+            variables.push({ key, value: '', required: true });
+          }
+        }
+        const metaEnvRefs = content.match(/import\.meta\.env\.([A-Z_][A-Z0-9_]*)/g) || [];
+        for (const ref of metaEnvRefs) {
+          const key = ref.replace('import.meta.env.', '');
+          if (!variables.find(v => v.key === key)) {
+            variables.push({ key, value: '', required: true });
+          }
         }
       }
     }

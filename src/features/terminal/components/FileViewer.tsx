@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import * as Haptics from 'expo-haptics';
 import { AppColors } from '../../../shared/theme/colors';
+import { useTabStore } from '../../../core/tabs/tabStore';
 import { useSidebarOffset } from '../context/SidebarContext';
 import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 import { useAutocomplete } from '../hooks/useAutocomplete';
@@ -31,6 +32,7 @@ interface Props {
   repositoryUrl?: string;
   userId: string;
   onClose: () => void;
+  refreshKey?: number;
 }
 
 // ─── Syntax Highlighting ────────────────────────────────────────────────────
@@ -597,10 +599,11 @@ const SIDEBAR_WIDTH = 44;
 const LINE_H = 20;
 const FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 
-export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClose }: Props) => {
+export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClose, refreshKey }: Props) => {
   const { t } = useTranslation(['terminal', 'common']);
   const insets = useSafeAreaInsets();
   const { isSidebarHidden } = useSidebarOffset();
+  const activeTabId = useTabStore((s) => s.activeTabId);
   const [content, setContent] = useState('');
   const [originalContent, setOriginalContent] = useState('');
   const [loading, setLoading] = useState(true);
@@ -642,8 +645,8 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
   }, [content, language, isEditing]);
 
   useEffect(() => {
-    if (visible && filePath) loadFile();
-  }, [visible, filePath]);
+    if (visible && filePath && !isEditing) loadFile();
+  }, [visible, filePath, refreshKey, activeTabId]);
 
   const loadFile = async () => {
     try {

@@ -182,6 +182,25 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
     }
 
     // Auth OK or not a git project - open it
+    // Clean up ALL tabs from previous project if switching
+    const prevWorkstation = useWorkstationStore.getState().currentWorkstation;
+    if (prevWorkstation?.id && prevWorkstation.id !== ws.id) {
+      useTabStore.getState().removeTabsByWorkstation(prevWorkstation.id);
+      // Remove extra chat tabs (they don't contain projectId in their ID)
+      const chatTabIds = useTabStore.getState().tabs
+        .filter(t => t.type === 'chat' && t.id !== 'chat-main')
+        .map(t => t.id);
+      for (const id of chatTabIds) {
+        useTabStore.getState().removeTab(id);
+      }
+      // Reset chat-main for new project
+      useTabStore.getState().updateTab('chat-main', {
+        title: 'Nuova Conversazione',
+        data: { chatId: Date.now().toString() },
+        terminalItems: []
+      });
+      useTabStore.getState().setActiveTab('chat-main');
+    }
     setWorkstation(ws);
     setSelectedProjectId(ws.id);
     setSelectedRepoUrl(repoUrl);

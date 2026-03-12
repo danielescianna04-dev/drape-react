@@ -320,11 +320,34 @@ class DependencyService {
     onLog?: InstallLogCallback,
   ): Promise<void> {
     const maxInstallAttempts = 3;
+    let effectiveCmd = installCmd;
+
+    // Prevent bun lockfile migration issues: if using bun and the project has
+    // package-lock.json but no bun.lockb, remove package-lock.json preemptively.
+    // Bun 1.3.x has a known bug where migrating npm lockfiles causes IntegrityCheckFailed.
+    // Fresh resolve from package.json works fine and avoids the migration entirely.
+    if (effectiveCmd.includes('bun')) {
+      try {
+        const checkResult = await dockerService.exec(
+          agentUrl,
+          `test -f package-lock.json && ! test -f bun.lockb && ! test -f bun.lock && echo "NEEDS_CLEANUP" || echo "OK"`,
+          '/home/coder/project',
+          5000,
+          true,
+        );
+        if ((checkResult.stdout || '').trim() === 'NEEDS_CLEANUP') {
+          await dockerService.exec(agentUrl, 'rm -f package-lock.json', '/home/coder/project', 5000, true);
+          log.info(`[Deps] Removed package-lock.json to prevent bun migration issues`);
+        }
+      } catch {
+        // Best effort — if check fails, proceed normally
+      }
+    }
 
     for (let attempt = 1; attempt <= maxInstallAttempts; attempt++) {
       await this.prepareInstallLogFile(agentUrl, true);
       onProgress?.(`Installing dependencies (attempt ${attempt}/${maxInstallAttempts})...`);
-      onLog?.(`$ ${installCmd}`);
+      onLog?.(`$ ${effectiveCmd}`);
       let nextLine = 1;
       let polling = false;
 
@@ -357,14 +380,14 @@ class DependencyService {
 
       let result: ExecResult;
       try {
-        const streamedInstallCmd = this.withLiveInstallLogging(installCmd);
+        const streamedInstallCmd = this.withLiveInstallLogging(effectiveCmd);
         result = await dockerService.exec(agentUrl, streamedInstallCmd, '/home/coder/project', 300000);
 
         // Retry without --frozen-lockfile if lockfile is incompatible
-        if (result.exitCode !== 0 && installCmd.includes('--frozen-lockfile')) {
+        if (result.exitCode !== 0 && effectiveCmd.includes('--frozen-lockfile')) {
           const errOutput = (result.stderr || result.stdout || '').trim();
-          if (errOutput.includes('LOCKFILE_BREAKING_CHANGE') || errOutput.includes('not compatible')) {
-            const retryCmd = installCmd.replace(/\s*--frozen-lockfile\s*/, ' ').trim();
+          if (errOutput.includes('LOCKFILE_BREAKING_CHANGE') || errOutput.includes('not compatible') || errOutput.includes('IntegrityCheckFailed')) {
+            const retryCmd = effectiveCmd.replace(/\s*--frozen-lockfile\s*/, ' ').trim();
             log.warn(`[Deps] Lockfile incompatible, retrying without --frozen-lockfile: ${retryCmd}`);
             onProgress?.('Lockfile incompatibile, retry senza --frozen-lockfile...');
             onLog?.(`$ ${retryCmd}`);
@@ -395,7 +418,7 @@ class DependencyService {
         result = { exitCode: 1, stdout: '', stderr: 'Native binary integrity check failed' };
       }
 
-      const errOutput = (result.stderr || result.stdout || '').trim();
+      const errOutput = ((result.stderr || '') + '\n' + (result.stdout || '')).trim();
       const lines = errOutput.split('\n').filter(l => l.trim());
       const lastLines = lines.slice(-10).join('\n');
 
@@ -404,10 +427,35 @@ class DependencyService {
         onProgress?.(`Install attempt ${attempt} failed, retrying...`);
         onLog?.(`Install attempt ${attempt}/${maxInstallAttempts} failed (exit ${result.exitCode}). Retrying...`);
 
-        // Kill any lingering install processes and clean up corrupted node_modules
-        // before retrying. Without this, a timed-out npm may still be writing while
-        // the retry starts a second npm, causing truncated native binaries.
-        await this.cleanupBeforeRetry(agentUrl);
+        // Detect bun integrity/migration failures.
+        // Bun 1.3.x has a known bug where it miscalculates integrity hashes when
+        // migrating from package-lock.json, causing IntegrityCheckFailed for certain packages.
+        const isBunIntegrityError = errOutput.includes('IntegrityCheckFailed') ||
+          errOutput.includes('Integrity check failed') ||
+          errOutput.includes('migrated lockfile');
+
+        if (isBunIntegrityError && effectiveCmd.includes('bun')) {
+          if (attempt === 1) {
+            // Attempt 2: retry bun WITHOUT the npm lockfile (fresh resolve, no migration).
+            // The migration is what causes the integrity error — without package-lock.json,
+            // bun resolves fresh from package.json and generates its own bun.lockb.
+            log.warn(`[Deps] Bun integrity error on migration, will retry bun without npm lockfile`);
+            onProgress?.('Errore migrazione lockfile, riprovo senza lockfile npm...');
+            onLog?.(`Retrying bun install without package-lock.json (fresh resolve)`);
+            await this.cleanupBeforeRetry(agentUrl, { clearBunCache: true, removeLockfiles: true });
+          } else {
+            // Attempt 3: bun failed twice, fall back to npm as last resort.
+            effectiveCmd = effectiveCmd.replace(/\bbun\b/g, 'npm');
+            log.warn(`[Deps] Bun failed twice, falling back to npm: ${effectiveCmd}`);
+            onProgress?.('Bun incompatibile, fallback a npm...');
+            onLog?.(`Switching to npm due to repeated bun integrity error`);
+            // Restore package-lock.json from git for npm, clean bun artifacts
+            await this.cleanupBeforeRetry(agentUrl, { clearBunCache: true, restoreLockfile: true });
+          }
+        } else {
+          // Non-bun error: standard cleanup
+          await this.cleanupBeforeRetry(agentUrl, {});
+        }
 
         await new Promise(r => setTimeout(r, 3000));
         continue;
@@ -473,17 +521,23 @@ class DependencyService {
    * Kill lingering install processes and remove corrupted node_modules before retry.
    * Prevents the race condition where a timed-out npm still writes while a new npm starts.
    */
-  private async cleanupBeforeRetry(agentUrl: string): Promise<void> {
+  private async cleanupBeforeRetry(agentUrl: string, opts: { clearBunCache?: boolean; removeLockfiles?: boolean; restoreLockfile?: boolean } = {}): Promise<void> {
     try {
+      const parts: string[] = [];
+      if (opts.removeLockfiles) parts.push('rm -f package-lock.json yarn.lock');
+      if (opts.clearBunCache) parts.push('rm -rf ~/.bun/install/cache 2>/dev/null');
+      // Restore package-lock.json from git when falling back to npm
+      if (opts.restoreLockfile) parts.push('git checkout package-lock.json 2>/dev/null || true');
+      const extraCleanup = parts.length > 0 ? '; ' + parts.join('; ') : '';
       await dockerService.exec(
         agentUrl,
-        // Kill any npm/node install processes, then remove node_modules
-        `pkill -f 'npm install' 2>/dev/null; pkill -f 'yarn install' 2>/dev/null; pkill -f 'pnpm install' 2>/dev/null; sleep 1; rm -rf node_modules`,
+        // Kill any install processes, then remove node_modules and corrupted bun lockfile
+        `pkill -f 'npm install' 2>/dev/null; pkill -f 'yarn install' 2>/dev/null; pkill -f 'pnpm install' 2>/dev/null; pkill -f 'bun install' 2>/dev/null; sleep 1; rm -rf node_modules bun.lockb${extraCleanup}`,
         '/home/coder/project',
         30000,
         true,
       );
-      log.info(`[Deps] Cleaned up node_modules before retry`);
+      log.info(`[Deps] Cleanup before retry: node_modules + bun.lockb${opts.removeLockfiles ? ' + lockfiles' : ''}${opts.clearBunCache ? ' + bun cache' : ''}${opts.restoreLockfile ? ' + restored lockfile' : ''}`);
     } catch (e: any) {
       log.warn(`[Deps] Cleanup before retry failed: ${e.message}`);
     }
