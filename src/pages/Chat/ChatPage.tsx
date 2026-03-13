@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TextInput, ScrollView, FlatList, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions, Image, Alert, Linking, ActivityIndicator } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, withRepeat, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withDelay, withSequence, withRepeat, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import apiClient from '../../core/api/apiClient';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -102,6 +102,27 @@ interface ChatPageProps {
   animatedStyle?: any;
 }
 
+const DelayedMount = ({ delay, children }: { delay: number; children: React.ReactNode }) => {
+  const [mounted, setMounted] = useState(delay === 0);
+
+  useEffect(() => {
+    if (delay === 0) {
+      setMounted(true);
+      return;
+    }
+
+    setMounted(false);
+    const timer = setTimeout(() => {
+      setMounted(true);
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [delay]);
+
+  if (!mounted) return null;
+  return <>{children}</>;
+};
+
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
   const { t } = useTranslation('chat');
   const thinkingLevelLabels = useMemo<Record<string, string>>(() => ({
@@ -202,6 +223,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Liquid Glass Shimmer Animation - flows across the button
   const shimmerX = useSharedValue(-150);
+  const inputRevealAnim = useSharedValue(0);
   // Need activeTabId BEFORE the glass useEffect so the dependency array works
   const activeTabId = useTabStore((state) => state.activeTabId);
   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
@@ -232,58 +254,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       }
     }
   }, [inputBarGlassId, isActiveTab, isSidebarOpen]);
-
-  useEffect(() => {
-    if (Platform.OS !== 'ios' || !isActiveTab) return;
-    if (isSidebarOpen) {
-      if (removeTimerRef.current) {
-        clearTimeout(removeTimerRef.current);
-        removeTimerRef.current = null;
-      }
-      setGlassApplied(false);
-      removeGlassEffect(inputBarGlassId);
-      return;
-    }
-    let cancelled = false;
-    const prevId = lastGlassIdRef.current;
-    if (removeTimerRef.current) {
-      clearTimeout(removeTimerRef.current);
-      removeTimerRef.current = null;
-    }
-    setGlassApplied(false);
-    lastGlassIdRef.current = inputBarGlassId;
-    applyInputGlass(prevId);
-    const delays = [0, 80, 200];
-    const timers = delays.map(ms =>
-      setTimeout(async () => {
-        if (cancelled) return;
-        const ok = await applyGlassEffect(inputBarGlassId, 28);
-        if (ok && !cancelled) setGlassApplied(true);
-      }, ms)
-    );
-    return () => {
-      cancelled = true;
-      timers.forEach(clearTimeout);
-      if (removeTimerRef.current) {
-        clearTimeout(removeTimerRef.current);
-        removeTimerRef.current = null;
-      }
-      const idToRemove = inputBarGlassId;
-      removeTimerRef.current = setTimeout(() => {
-        removeGlassEffect(idToRemove);
-      }, 180);
-    };
-  }, [activeTabId, inputBarGlassId, isActiveTab, applyInputGlass, isSidebarOpen]);
-
-  // Apply glass to model dropdown when it opens
-  useEffect(() => {
-    if (Platform.OS !== 'ios' || !showModelSelector) return;
-    const timer = setTimeout(() => applyGlassEffect('modelDropdownGlass', 16), 100);
-    return () => {
-      clearTimeout(timer);
-      removeGlassEffect('modelDropdownGlass');
-    };
-  }, [showModelSelector]);
 
   useEffect(() => {
     shimmerX.value = withRepeat(
@@ -858,6 +828,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     setTimeout(() => setShowModelSelector(false), 150);
   }, []);
 
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !showModelSelector) return;
+    const timer = setTimeout(() => applyGlassEffect('modelDropdownGlass', 16), 100);
+    return () => {
+      clearTimeout(timer);
+      removeGlassEffect('modelDropdownGlass');
+    };
+  }, [showModelSelector]);
+
   // Get current model display name — migrate stale model IDs
   const currentModelName = useMemo(() => {
     const model = AI_MODELS.find(m => m.id === selectedModel);
@@ -926,10 +905,87 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const setGitHubRepositories = useWorkstationStore((state) => state.setGitHubRepositories);
   const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
   const currentProjectInfo = useWorkstationStore((state) => state.currentProjectInfo);
+  const inputMountDelay = hasChatStarted ? 0 : 300;
+  const inputGlassRevealDelay = hasChatStarted ? 0 : inputMountDelay + 140;
+  const inputMountKey = `${currentWorkstation?.id ?? 'none'}:${currentTab?.id ?? 'none'}`;
 
   // Use tabTerminalItems directly (already memoized above)
   const terminalItems = tabTerminalItems;
   const hasUserMessaged = terminalItems.some(item => item.type === TerminalItemType.USER_MESSAGE);
+
+  useLayoutEffect(() => {
+    if (hasChatStarted) {
+      inputRevealAnim.value = 1;
+      return;
+    }
+
+    inputRevealAnim.value = 0;
+  }, [currentWorkstation?.id, currentTab?.id, hasChatStarted]);
+
+  useEffect(() => {
+    if (hasChatStarted) {
+      inputRevealAnim.value = 1;
+      return;
+    }
+
+    inputRevealAnim.value = withDelay(
+      inputMountDelay,
+      withTiming(1, {
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+      })
+    );
+  }, [currentWorkstation?.id, currentTab?.id, hasChatStarted, inputMountDelay]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !isActiveTab) return;
+    if (isSidebarOpen) {
+      if (removeTimerRef.current) {
+        clearTimeout(removeTimerRef.current);
+        removeTimerRef.current = null;
+      }
+      setGlassApplied(false);
+      removeGlassEffect(inputBarGlassId);
+      return;
+    }
+
+    let cancelled = false;
+    const prevId = lastGlassIdRef.current;
+    if (removeTimerRef.current) {
+      clearTimeout(removeTimerRef.current);
+      removeTimerRef.current = null;
+    }
+
+    setGlassApplied(false);
+    lastGlassIdRef.current = inputBarGlassId;
+
+    const delays = hasChatStarted ? [0, 80, 200] : [inputGlassRevealDelay, inputGlassRevealDelay + 120];
+    const timers = delays.map(ms =>
+      setTimeout(async () => {
+        if (cancelled) return;
+        const ok = await applyGlassEffect(inputBarGlassId, 28);
+        if (ok && !cancelled) {
+          setGlassApplied(true);
+          if (prevId && prevId !== inputBarGlassId) {
+            removeGlassEffect(prevId);
+          }
+        }
+      }, ms)
+    );
+
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+      if (removeTimerRef.current) {
+        clearTimeout(removeTimerRef.current);
+        removeTimerRef.current = null;
+      }
+      const idToRemove = inputBarGlassId;
+      removeTimerRef.current = setTimeout(() => {
+        removeGlassEffect(idToRemove);
+      }, 180);
+    };
+  }, [activeTabId, inputBarGlassId, isActiveTab, applyInputGlass, isSidebarOpen, hasChatStarted, inputGlassRevealDelay]);
 
   // Set loading state for current tab
   const setLoading = (loading: boolean) => {
@@ -1529,6 +1585,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const inputWrapperAnimatedStyle = useAnimatedStyle(() => {
     'worklet';
     const animProgress = inputPositionAnim.value;
+    const revealProgress = inputRevealAnim.value;
+    const revealLift = interpolate(revealProgress, [0, 1], [18, 0], Extrapolate.CLAMP);
 
     // Calcola left in base allo stato della sidebar
     const sidebarLeft = interpolate(
@@ -1564,7 +1622,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         top: topFromKeyboard,
         left: computedLeft,
         right: computedRight,
-        transform: []
+        opacity: revealProgress,
+        transform: [{ translateY: revealLift }]
       };
     }
 
@@ -1578,7 +1637,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       top: baseTop,
       left: computedLeft,
       right: computedRight,
-      transform: [{ translateY }]
+      opacity: revealProgress,
+      transform: [{ translateY: translateY + revealLift }]
     };
   });
 
@@ -3191,6 +3251,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
             {/* AskUserQuestion: shown inline in chat as Q&A card, user replies via input */}
 
+            <DelayedMount key={inputMountKey} delay={inputMountDelay}>
             <Animated.View style={[
               styles.inputWrapper,
               isCardMode && styles.inputWrapperCardMode,
@@ -3260,9 +3321,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 onLayout={(e) => {
                   widgetHeight.value = withTiming(e.nativeEvent.layout.height, { duration: 100 });
                   if (Platform.OS === 'ios' && isActiveTab && !isSidebarOpen && !glassApplied) {
-                    requestAnimationFrame(() => {
+                    const delay = hasChatStarted ? 0 : inputGlassRevealDelay;
+                    setTimeout(() => {
                       applyInputGlass();
-                    });
+                    }, delay);
                   }
                 }}
               >
@@ -3560,6 +3622,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 );
               })()}
             </Animated.View>
+            </DelayedMount>
           </>
         )}
       </Animated.View>

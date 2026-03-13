@@ -49,6 +49,8 @@
   "create": {
     "title": "New Project",
     "subtitle": "Give it a name and describe what you want to create",
+    "describeIdea": "Describe your idea",
+    "startTyping": "Start typing...",
     "namePlaceholder": "Project name",
     "descriptionPlaceholder": "Describe your app... E.g. A landing page to sell shoes with gallery and contact form",
     "enterName": "Enter a project name",

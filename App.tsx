@@ -169,7 +169,7 @@ export default function App() {
 
   const { addWorkstation, setWorkstation, clearGlobalTerminalLog, globalTerminalLog } = useTerminalStore();
   const { addTerminalItem: addTerminalItemToStore, clearTerminalItems, updateTerminalItemsByType } = useTabStore();
-  const { user, isInitialized, initialize } = useAuthStore();
+  const { user, isInitialized, isNewUser, initialize } = useAuthStore();
 
   // Stream backend logs to terminal (always enabled when logged in)
   useBackendLogs({ enabled: isInitialized && !!user });
@@ -202,17 +202,22 @@ export default function App() {
     // Notification tap handling is centralized in pushNotificationService.handleNotificationTap
   }, []);
 
-  // Navigate to onboarding (free users) or home when user logs in
+  // Navigate after login: new users → create project, free users → onboarding, paid → home
   useEffect(() => {
     if (isInitialized && user && currentScreen === 'auth') {
-      const plan = user.plan || 'free';
-      if (plan === 'free') {
-        setCurrentScreen('onboarding');
+      if (isNewUser) {
+        useAuthStore.setState({ isNewUser: false });
+        setCurrentScreen('create');
       } else {
-        setCurrentScreen('home');
+        const plan = user.plan || 'free';
+        if (plan === 'free') {
+          setCurrentScreen('onboarding');
+        } else {
+          setCurrentScreen('home');
+        }
       }
     }
-  }, [user, isInitialized, currentScreen]);
+  }, [user, isInitialized, currentScreen, isNewUser]);
 
   // Listen to navigation store for cross-component navigation
   const pendingNavigation = useNavigationStore((state) => state.pendingNavigation);
@@ -1033,11 +1038,16 @@ export default function App() {
   // Handle splash screen finish - navigate based on auth state
   const handleSplashFinish = () => {
     if (isInitialized && user) {
-      const plan = user.plan || 'free';
-      if (plan === 'free') {
-        setCurrentScreen('onboarding');
+      if (isNewUser) {
+        useAuthStore.setState({ isNewUser: false });
+        setCurrentScreen('create');
       } else {
-        setCurrentScreen('home');
+        const plan = user.plan || 'free';
+        if (plan === 'free') {
+          setCurrentScreen('onboarding');
+        } else {
+          setCurrentScreen('home');
+        }
       }
     } else {
       // Set to 'auth' — if auth isn't initialized yet, the !isInitialized guard

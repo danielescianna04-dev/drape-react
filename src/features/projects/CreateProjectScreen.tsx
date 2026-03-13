@@ -26,7 +26,7 @@ import { workstationService } from '../../core/workstation/workstationService-fi
 import { useAuthStore } from '../../core/auth/authStore';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
-import { DescriptionInput } from './DescriptionInput';
+// DescriptionInput no longer used — step 1 uses inline textarea
 import { liveActivityService } from '../../core/services/liveActivityService';
 import { trackProjectCreate, trackError } from '../../core/services/analyticsService';
 import { useAgentStream, AgentMode } from '../../core/ai/useAgentStream';
@@ -38,6 +38,7 @@ import { getAuthHeaders } from '../../core/api/getAuthToken';
 import { useTranslation } from 'react-i18next';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 
 interface Props {
   onBack: () => void;
@@ -77,6 +78,50 @@ const languageCategories = [
   { id: 'console', labelKey: 'create.console', items: ['python-console', 'javascript-console', 'c-lang', 'cpp', 'java'] },
 ];
 
+const ideaChips = [
+  { id: 'ai-chat', label: 'AI chat', icon: 'chatbubble-ellipses' as const, prompt: 'An AI chatbot with a clean conversational interface, message history, typing indicators, and the ability to switch between different AI personas. Include a sidebar for past conversations and a settings panel.' },
+  { id: 'mood-tracker', label: 'Mood Tracker', icon: 'heart' as const, prompt: 'A mood tracking app where users log their daily mood with emoji selections, add notes, and view trends over time with beautiful charts. Include streak tracking, weekly summaries, and a calm, minimal design.' },
+  { id: 'social-app', label: 'Social app', icon: 'people' as const, prompt: 'A social media platform with user profiles, a feed of posts with images, likes and comments, a stories feature at the top, and a discover page. Clean modern design with smooth animations.' },
+  { id: 'landing', label: 'Landing page', icon: 'globe-outline' as const, prompt: 'A modern landing page for a SaaS product with a hero section, feature highlights with icons, pricing table with 3 tiers, testimonials carousel, FAQ accordion, and a footer with newsletter signup.' },
+  { id: 'ecommerce', label: 'E-commerce', icon: 'cart' as const, prompt: 'An online store with a product grid, filters by category and price, product detail pages with image gallery, shopping cart with quantity controls, and a clean checkout flow. Include a search bar and wishlist.' },
+  { id: 'portfolio', label: 'Portfolio', icon: 'briefcase' as const, prompt: 'A personal portfolio website with an about section, project showcase with cards and live demos, skills visualization, work experience timeline, contact form, and links to GitHub and LinkedIn. Minimal and elegant design.' },
+];
+
+const FaqItem = ({ item, isExpanded, onToggle, isLast }: { item: { question: string; answer: string }; isExpanded: boolean; onToggle: () => void; isLast: boolean }) => {
+  const animValue = useRef(new Animated.Value(isExpanded ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(animValue, {
+      toValue: isExpanded ? 1 : 0,
+      duration: 250,
+      useNativeDriver: false,
+    }).start();
+  }, [isExpanded]);
+
+  const maxH = animValue.interpolate({ inputRange: [0, 1], outputRange: [0, 150] });
+  const opac = animValue.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 0, 1] });
+
+  return (
+    <View>
+      <TouchableOpacity style={faqStyles.row} activeOpacity={0.7} onPress={onToggle}>
+        <Text style={faqStyles.question}>{item.question}</Text>
+        <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={20} color="rgba(255,255,255,0.4)" />
+      </TouchableOpacity>
+      <Animated.View style={{ maxHeight: maxH, opacity: opac, overflow: 'hidden' }}>
+        <Text style={faqStyles.answer}>{item.answer}</Text>
+      </Animated.View>
+      {!isLast && <View style={faqStyles.divider} />}
+    </View>
+  );
+};
+
+const faqStyles = StyleSheet.create({
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16 },
+  question: { fontSize: 16, fontWeight: '700', color: '#fff', flex: 1, marginRight: 12 },
+  answer: { fontSize: 14, color: 'rgba(255,255,255,0.55)', lineHeight: 21, paddingBottom: 16 },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.1)' },
+});
+
 export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) => {
   const { t } = useTranslation('projects');
   const [step, setStep] = useState(1);
@@ -103,6 +148,65 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   const [aiRecommendedLang, setAiRecommendedLang] = useState<string | null>(null);
   const [aiExplanation, setAiExplanation] = useState<string | null>(null);
   const [showAllLangs, setShowAllLangs] = useState(false);
+  const [editingField, setEditingField] = useState<'name' | 'description' | null>(null);
+  const [cloudEnabled, setCloudEnabled] = useState(false);
+  const [showCloudInfo, setShowCloudInfo] = useState(false);
+  const [cloudInfoVisible, setCloudInfoVisible] = useState(false);
+  const cloudOverlayAnim = useRef(new Animated.Value(0)).current;
+  const cloudSheetAnim = useRef(new Animated.Value(600)).current;
+  const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
+
+  const openCloudInfo = () => {
+    setCloudInfoVisible(true);
+    setShowCloudInfo(true);
+    Animated.parallel([
+      Animated.timing(cloudOverlayAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.spring(cloudSheetAnim, { toValue: 0, friction: 9, tension: 65, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const closeCloudInfo = () => {
+    Animated.parallel([
+      Animated.timing(cloudOverlayAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+      Animated.timing(cloudSheetAnim, { toValue: 600, duration: 250, useNativeDriver: true }),
+    ]).start(() => {
+      setShowCloudInfo(false);
+      setCloudInfoVisible(false);
+      setExpandedFaq(null);
+    });
+  };
+  const cloudScaleAnim = useRef(new Animated.Value(1)).current;
+
+  const cloudFaqItems = [
+    {
+      question: 'What does Cloud mode do?',
+      answer: 'When enabled, the AI will generate both frontend and backend code. Your project will include API endpoints, a database layer, and server-side logic — all running on Drape\'s infrastructure.',
+    },
+    {
+      question: 'When should I enable it?',
+      answer: 'Enable Cloud if your app needs user login, stores data across sessions, or requires real-time features like chat or notifications. Think multi-user apps, dashboards, or anything with a database.',
+    },
+    {
+      question: 'When should I leave it off?',
+      answer: 'For static sites, landing pages, portfolios, or tools that run entirely in the browser. If your app doesn\'t need to save data or authenticate users, you don\'t need Cloud.',
+    },
+    {
+      question: 'Can I enable it later?',
+      answer: 'Yes! You can always ask the AI to add backend features to an existing project. Enabling it here just gives the AI a head start from the beginning.',
+    },
+    {
+      question: 'Is there an extra cost?',
+      answer: 'Cloud mode is free during the beta. Projects with Cloud enabled use slightly more resources, so limits may apply based on your plan.',
+    },
+  ];
+
+  const handleCloudToggle = () => {
+    Animated.sequence([
+      Animated.timing(cloudScaleAnim, { toValue: 0.88, duration: 80, useNativeDriver: true }),
+      Animated.spring(cloudScaleAnim, { toValue: 1, friction: 3, tension: 400, useNativeDriver: true }),
+    ]).start();
+    setCloudEnabled(!cloudEnabled);
+  };
 
   // Agent stream hook
   const {
@@ -126,6 +230,9 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   const slideAnim = useRef(new Animated.Value(30)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
+  const stepTranslateX = useRef(new Animated.Value(0)).current;
+  const stepOpacity = useRef(new Animated.Value(1)).current;
+  const bgAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     // Animate in — no opacity animation so LiquidGlassView initializes immediately
     Animated.parallel([
@@ -141,8 +248,18 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       }),
     ]).start();
 
+    // Looping background gradient animation
+    const bgLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bgAnim, { toValue: 1, duration: 6000, useNativeDriver: false }),
+        Animated.timing(bgAnim, { toValue: 0, duration: 6000, useNativeDriver: false }),
+      ])
+    );
+    bgLoop.start();
+
     // Cleanup polling interval on unmount
     return () => {
+      bgLoop.stop();
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -173,7 +290,11 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         setKeyboardVisible(true);
         setKeyboardHeight(e.endCoordinates.height);
         setTimeout(() => {
-          scrollViewRef.current?.scrollToEnd({ animated: true });
+          if (step === 3) {
+            scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+          } else {
+            scrollViewRef.current?.scrollToEnd({ animated: true });
+          }
         }, 150);
       }
     );
@@ -490,66 +611,38 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
   const handleNext = () => {
     if (step === 1) {
-      if (!projectName.trim()) {
-        Alert.alert(t('common:warning'), t('create.enterName'));
-        return;
-      }
       if (!description.trim()) {
         Alert.alert(t('common:warning'), t('create.enterDescription'));
         return;
       }
 
-      // Check for duplicate project name and generate unique name if needed
-      const trimmedName = projectName.trim();
-      const existingProject = workstations.find(
-        w => w.name?.toLowerCase() === trimmedName.toLowerCase()
-      );
-
-      if (existingProject) {
-        // Find a unique name by adding a number suffix
-        let newName = trimmedName;
-        let counter = 2;
-
-        while (workstations.some(w => w.name?.toLowerCase() === newName.toLowerCase())) {
-          newName = `${trimmedName} (${counter})`;
-          counter++;
-        }
-
-        Alert.alert(
-          t('create.nameExists'),
-          t('create.nameExistsDesc', { name: trimmedName }) + ' ' + t('create.newProjectWillBeCalled', { name: newName }),
-          [
-            { text: t('create.changeName'), style: 'cancel' },
-            {
-              text: t('common:ok'),
-              onPress: () => {
-                setProjectName(newName);
-                Keyboard.dismiss();
-                analyzeRequirements();
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                setStep(2);
-              }
-            }
-          ]
-        );
-        return;
-      }
+      // Project name stays empty — user fills it in step 3
 
       Keyboard.dismiss();
 
       // AI Analysis
       analyzeRequirements();
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setStep(2);
+      animateStepTransition(2, 'forward');
     } else if (step === 2) {
       if (!selectedLanguage) {
         Alert.alert(t('common:warning'), t('alerts.selectLanguage'));
         return;
       }
       Keyboard.dismiss();
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setStep(3);
+      animateStepTransition(3, 'forward');
     }
+  };
+
+  const animateStepTransition = (toStep: number, direction: 'forward' | 'back') => {
+    const outX = direction === 'forward' ? -SCREEN_WIDTH : SCREEN_WIDTH;
+    const inX = direction === 'forward' ? SCREEN_WIDTH : -SCREEN_WIDTH;
+    // Slide out
+    Animated.timing(stepTranslateX, { toValue: outX, duration: 200, useNativeDriver: true }).start(() => {
+      setStep(toStep);
+      stepTranslateX.setValue(inX);
+      // Slide in with spring
+      Animated.spring(stepTranslateX, { toValue: 0, friction: 10, tension: 80, useNativeDriver: true }).start();
+    });
   };
 
   const analyzeRequirements = async () => {
@@ -597,7 +690,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
   const handleBack = () => {
     if (step > 1) {
-      setStep(step - 1);
+      animateStepTransition(step - 1, 'back');
     } else {
       // Clear any polling interval when leaving the screen
       if (pollIntervalRef.current) {
@@ -686,7 +779,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       const projectId = result.taskId || result.projectId;
 
       // Build prompt for agent
-      const prompt = `Create a ${selectedLanguage} project named "${projectName.trim()}". Description: ${description.trim()}`;
+      const cloudSuffix = cloudEnabled ? '\n\nIMPORTANT: Enable Cloud mode. Include a backend with database, user authentication, and server-side API routes. The app should support multi-user functionality, persistent data storage, and background workflows.' : '';
+      const prompt = `Create a ${selectedLanguage} project named "${projectName.trim()}". Description: ${description.trim()}${cloudSuffix}`;
 
       // Start agent stream
       await startStream(projectId, mode, prompt);
@@ -781,14 +875,22 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
   const selectedLang = languages.find(l => l.id === selectedLanguage);
   // Step 1: Name + Desc, Step 2: Tech, Step 3: Review
-  const canProceed = step === 1 ? (projectName.trim().length > 0 && description.trim().length > 0)
+  const canProceed = step === 1 ? (description.trim().length > 0)
     : step === 2 ? selectedLanguage !== ''
-      : true;
+      : projectName.trim().length > 0;
 
   const progressWidth = progressAnim.interpolate({
     inputRange: [1, 2, 3],
     outputRange: ['33%', '66%', '100%'],
   });
+
+  const handleChipPress = (chipId: string) => {
+    const chip = ideaChips.find(c => c.id === chipId);
+    if (chip) {
+      setDescription(chip.prompt);
+      inputRef.current?.focus();
+    }
+  };
 
   const renderStep1 = () => (
     <Animated.View
@@ -797,98 +899,119 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         { transform: [{ translateY: slideAnim }] }
       ]}
     >
-      <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>{t('create.title')}</Text>
-        <Text style={styles.stepSubtitle}>{t('create.subtitle')}</Text>
+      <View style={styles.step1Header}>
+        <Text style={styles.step1Title}>{t('create.describeIdea')}</Text>
       </View>
 
-      <View style={styles.inputSection}>
+      {/* Suggestion chips */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.chipsScroll}
+        contentContainerStyle={styles.chipsContainer}
+      >
+        {ideaChips.map((chip) => (
+          <TouchableOpacity
+            key={chip.id}
+            activeOpacity={0.7}
+            onPress={() => handleChipPress(chip.id)}
+          >
+            {isLiquidGlassSupported ? (
+              <LiquidGlassView
+                style={styles.chipLiquid}
+                interactive={true}
+                effect="regular"
+                colorScheme="dark"
+              >
+                <Ionicons name={chip.icon} size={16} color="rgba(255,255,255,0.7)" />
+                <Text style={styles.chipText}>{chip.label}</Text>
+              </LiquidGlassView>
+            ) : (
+              <View style={styles.chip}>
+                <Ionicons name={chip.icon} size={16} color="rgba(255,255,255,0.7)" />
+                <Text style={styles.chipText}>{chip.label}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Large text area */}
+      <View style={styles.ideaInputWrapper}>
         {isLiquidGlassSupported ? (
           <LiquidGlassView
-            style={[
-              styles.inputContainer,
-              inputFocused && styles.inputContainerFocused,
-              { backgroundColor: 'transparent', overflow: 'hidden' }
-            ]}
+            style={[styles.ideaInputContainer, { backgroundColor: 'transparent' }, keyboardHeight > 0 && { maxHeight: Dimensions.get('window').height - keyboardHeight - 340 }]}
             interactive={true}
             effect="clear"
             colorScheme="dark"
           >
-            <Pressable
-              style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
-              onPress={() => inputRef.current?.focus()}
-            >
-              <Ionicons
-                name="cube-outline"
-                size={22}
-                color={inputFocused ? AppColors.primary : 'rgba(255,255,255,0.4)'}
-                style={styles.inputIcon}
-              />
-              <TextInput
-                ref={inputRef}
-                style={styles.textInput}
-                placeholder={t('create.namePlaceholder')}
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                value={projectName}
-                onChangeText={setProjectName}
-                onFocus={() => setInputFocused(true)}
-                onBlur={() => setInputFocused(false)}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="next"
-                keyboardAppearance="dark"
-              />
-              {projectName.length > 0 && (
-                <TouchableOpacity onPress={() => setProjectName('')} style={styles.clearBtn}>
-                  <View style={styles.clearBtnInner}>
-                    <Ionicons name="close" size={12} color="#fff" />
-                  </View>
-                </TouchableOpacity>
-              )}
-            </Pressable>
-          </LiquidGlassView>
-        ) : (
-          <Pressable
-            style={[styles.inputContainer, inputFocused && styles.inputContainerFocused]}
-            onPress={() => inputRef.current?.focus()}
-          >
-            <Ionicons
-              name="cube-outline"
-              size={22}
-              color={inputFocused ? AppColors.primary : 'rgba(255,255,255,0.4)'}
-              style={styles.inputIcon}
-            />
             <TextInput
               ref={inputRef}
-              style={styles.textInput}
-              placeholder={t('create.namePlaceholder')}
-              placeholderTextColor="rgba(255,255,255,0.3)"
-              value={projectName}
-              onChangeText={setProjectName}
+              style={styles.ideaTextInput}
+              placeholder={t('create.startTyping')}
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={description}
+              onChangeText={(text) => {
+                if (text.length <= 500) setDescription(text);
+              }}
+              maxLength={500}
+              multiline
+              scrollEnabled={true}
+              textAlignVertical="top"
+              keyboardAppearance="dark"
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="next"
-              keyboardAppearance="dark"
             />
-            {projectName.length > 0 && (
-              <TouchableOpacity onPress={() => setProjectName('')} style={styles.clearBtn}>
-                <View style={styles.clearBtnInner}>
-                  <Ionicons name="close" size={12} color="#fff" />
-                </View>
+            <View style={styles.ideaToolbar}>
+              <Animated.View style={{ flexDirection: 'row', alignItems: 'center', transform: [{ scale: cloudScaleAnim }] }}>
+                <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
+                  <Ionicons name={cloudEnabled ? 'checkmark' : 'add'} size={16} color={cloudEnabled ? '#fff' : 'rgba(255,255,255,0.6)'} />
+                  <Text style={[styles.cloudPillText, cloudEnabled && styles.cloudPillTextActive]}>{cloudEnabled ? 'Cloud Enabled' : 'Enable Cloud'}</Text>
+                </TouchableOpacity>
+                <Pressable style={styles.cloudInfoBtn} onPress={openCloudInfo} hitSlop={8}>
+                  <Ionicons name="information-circle-outline" size={20} color="rgba(255,255,255,0.4)" />
+                </Pressable>
+              </Animated.View>
+              <TouchableOpacity style={styles.toolbarIconBtn} activeOpacity={0.7}>
+                <Ionicons name="mic-outline" size={22} color="rgba(255,255,255,0.5)" />
               </TouchableOpacity>
-            )}
-          </Pressable>
+            </View>
+          </LiquidGlassView>
+        ) : (
+          <View style={[styles.ideaInputContainer, keyboardHeight > 0 && { maxHeight: Dimensions.get('window').height - keyboardHeight - 340 }]}>
+            <TextInput
+              ref={inputRef}
+              style={styles.ideaTextInput}
+              placeholder={t('create.startTyping')}
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={description}
+              onChangeText={(text) => {
+                if (text.length <= 500) setDescription(text);
+              }}
+              maxLength={500}
+              multiline
+              scrollEnabled={true}
+              textAlignVertical="top"
+              keyboardAppearance="dark"
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
+            />
+            <View style={styles.ideaToolbar}>
+              <Animated.View style={{ flexDirection: 'row', alignItems: 'center', transform: [{ scale: cloudScaleAnim }] }}>
+                <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
+                  <Ionicons name={cloudEnabled ? 'checkmark' : 'add'} size={16} color={cloudEnabled ? '#fff' : 'rgba(255,255,255,0.6)'} />
+                  <Text style={[styles.cloudPillText, cloudEnabled && styles.cloudPillTextActive]}>{cloudEnabled ? 'Cloud Enabled' : 'Enable Cloud'}</Text>
+                </TouchableOpacity>
+                <Pressable style={styles.cloudInfoBtn} onPress={openCloudInfo} hitSlop={8}>
+                  <Ionicons name="information-circle-outline" size={20} color="rgba(255,255,255,0.4)" />
+                </Pressable>
+              </Animated.View>
+              <TouchableOpacity style={styles.toolbarIconBtn} activeOpacity={0.7}>
+                <Ionicons name="mic-outline" size={22} color="rgba(255,255,255,0.5)" />
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
-      </View>
-
-      <View style={styles.inputSection}>
-        <DescriptionInput
-          value={description}
-          onChangeText={setDescription}
-          placeholder={t('create.descriptionPlaceholder')}
-        />
       </View>
     </Animated.View>
   );
@@ -907,13 +1030,28 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
       {/* AI Explanation */}
       {aiExplanation && aiRecommendedLang && (
-        <View style={styles.aiExplanationBox}>
-          <Ionicons name="sparkles" size={14} color={AppColors.primary} />
-          <Text style={styles.aiExplanationText}>
-            <Text style={{ fontWeight: '600' }}>{t('create.aiRecommendedBecause')} </Text>
-            {aiExplanation}
-          </Text>
-        </View>
+        isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={[styles.aiExplanationBox, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            <Ionicons name="sparkles" size={14} color={AppColors.primary} />
+            <Text style={styles.aiExplanationText}>
+              <Text style={{ fontWeight: '600' }}>{t('create.aiRecommendedBecause')} </Text>
+              {aiExplanation}
+            </Text>
+          </LiquidGlassView>
+        ) : (
+          <View style={styles.aiExplanationBox}>
+            <Ionicons name="sparkles" size={14} color={AppColors.primary} />
+            <Text style={styles.aiExplanationText}>
+              <Text style={{ fontWeight: '600' }}>{t('create.aiRecommendedBecause')} </Text>
+              {aiExplanation}
+            </Text>
+          </View>
+        )
       )}
 
       {(showAllLangs ? languageCategories : [languageCategories[0]]).map((category) => {
@@ -993,6 +1131,68 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     </Animated.View>
   );
 
+  const renderSummaryRow = (icon: string, iconColor: string, label: string, value: string, field: 'name' | 'description' | 'tech') => {
+    const isNameEmpty = field === 'name' && !projectName.trim();
+    const isEditing = field === 'name' && (editingField === 'name' || isNameEmpty);
+    return (
+      <View style={styles.summaryRow}>
+        <View style={styles.summaryIconBox}>
+          <Ionicons name={icon as any} size={24} color={iconColor} />
+        </View>
+        <View style={styles.summaryInfo}>
+          <Text style={styles.summaryLabel}>{label}</Text>
+          {isEditing ? (
+            <TextInput
+              style={[styles.summaryValue, styles.summaryInput]}
+              value={projectName}
+              onChangeText={(text) => { setProjectName(text); if (editingField !== 'name') setEditingField('name'); }}
+              placeholder={t('create.namePlaceholder')}
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              autoFocus
+              onBlur={() => { if (!isNameEmpty) setEditingField(null); }}
+              keyboardAppearance="dark"
+              returnKeyType="done"
+              onSubmitEditing={() => setEditingField(null)}
+            />
+          ) : (
+            <Text
+              style={[styles.summaryValue, field === 'tech' && { color: iconColor }]}
+              numberOfLines={field === 'description' ? 2 : 1}
+            >
+              {value}
+            </Text>
+          )}
+        </View>
+        {(isEditing || !isNameEmpty) && (
+          <TouchableOpacity
+            style={styles.editBtn}
+            onPress={() => {
+              if (field === 'name') {
+                setEditingField(editingField === 'name' ? null : 'name');
+              } else if (field === 'description') {
+                setStep(1);
+              } else {
+                setStep(2);
+              }
+            }}
+          >
+            <Ionicons name={isEditing ? 'checkmark-circle' : 'create-outline'} size={22} color={isEditing ? AppColors.primary : 'rgba(255,255,255,0.4)'} />
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  const renderStep3Content = () => (
+    <>
+      {renderSummaryRow('folder-outline', '#fff', t('create.projectName'), projectName, 'name')}
+      <View style={styles.summaryDivider} />
+      {renderSummaryRow('document-text-outline', '#fff', t('create.description'), description, 'description')}
+      <View style={styles.summaryDivider} />
+      {renderSummaryRow(selectedLang?.icon || 'code-outline', selectedLang?.color || '#fff', t('create.technology'), selectedLang?.name || '', 'tech')}
+    </>
+  );
+
   const renderStep3 = () => (
     <Animated.View
       style={[
@@ -1012,93 +1212,11 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           effect="clear"
           colorScheme="dark"
         >
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryIconBox}>
-              <Ionicons name="folder-outline" size={24} color="#fff" />
-            </View>
-            <View style={styles.summaryInfo}>
-              <Text style={styles.summaryLabel}>{t('create.projectName')}</Text>
-              <Text style={styles.summaryValue}>{projectName}</Text>
-            </View>
-            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
-              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.summaryDivider} />
-
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryIconBox}>
-              <Ionicons name="document-text-outline" size={24} color="#fff" />
-            </View>
-            <View style={styles.summaryInfo}>
-              <Text style={styles.summaryLabel}>{t('create.description')}</Text>
-              <Text style={styles.summaryValue} numberOfLines={2}>{description}</Text>
-            </View>
-            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
-              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.summaryDivider} />
-
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryIconBox}>
-              <Ionicons name={selectedLang?.icon as any} size={24} color={selectedLang?.color} />
-            </View>
-            <View style={styles.summaryInfo}>
-              <Text style={styles.summaryLabel}>{t('create.technology')}</Text>
-              <Text style={[styles.summaryValue, { color: selectedLang?.color }]}>{selectedLang?.name}</Text>
-            </View>
-            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(2)}>
-              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
-            </TouchableOpacity>
-          </View>
+          {renderStep3Content()}
         </LiquidGlassView>
       ) : (
         <View style={styles.summaryCard}>
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryIconBox}>
-              <Ionicons name="folder-outline" size={24} color="#fff" />
-            </View>
-            <View style={styles.summaryInfo}>
-              <Text style={styles.summaryLabel}>{t('create.projectName')}</Text>
-              <Text style={styles.summaryValue}>{projectName}</Text>
-            </View>
-            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
-              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.summaryDivider} />
-
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryIconBox}>
-              <Ionicons name="document-text-outline" size={24} color="#fff" />
-            </View>
-            <View style={styles.summaryInfo}>
-              <Text style={styles.summaryLabel}>{t('create.description')}</Text>
-              <Text style={styles.summaryValue} numberOfLines={2}>{description}</Text>
-            </View>
-            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
-              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.summaryDivider} />
-
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryIconBox}>
-              <Ionicons name={selectedLang?.icon as any} size={24} color={selectedLang?.color} />
-            </View>
-            <View style={styles.summaryInfo}>
-              <Text style={styles.summaryLabel}>{t('create.technology')}</Text>
-              <Text style={[styles.summaryValue, { color: selectedLang?.color }]}>{selectedLang?.name}</Text>
-            </View>
-            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(2)}>
-              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
-            </TouchableOpacity>
-          </View>
+          {renderStep3Content()}
         </View>
       )}
       <View style={styles.readyBanner}>
@@ -1109,79 +1227,53 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     </Animated.View>
   );
 
+  const bgOpacity1 = bgAnim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.55] });
+  const bgOpacity2 = bgAnim.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0.3] });
+
   return (
     <View style={styles.container}>
-      {/* Background */}
-      <LinearGradient
-        colors={['#0A0A0F', '#0D0B14', '#0A0A0F']}
-        style={StyleSheet.absoluteFill}
-      />
-
-      {/* Decorative elements */}
-      <View style={styles.orbTop} />
-      <View style={styles.orbBottom} />
-
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={[styles.backBtn, isLiquidGlassSupported && styles.backBtnGlass]} activeOpacity={0.7}>
-          {isLiquidGlassSupported ? (
-            <LiquidGlassView style={styles.backBtnLiquid} interactive={true} effect="regular" colorScheme="dark">
-              <Ionicons name={step === 1 ? "close" : "chevron-back"} size={24} color="#fff" />
-            </LiquidGlassView>
-          ) : (
-            <Ionicons name={step === 1 ? "close" : "chevron-back"} size={24} color="#fff" />
-          )}
-        </TouchableOpacity>
-
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>{t('create.title')}</Text>
-        </View>
-
-        <View style={{ width: 44 }} />
+      {/* Animated gradient background — full screen */}
+      <View style={StyleSheet.absoluteFill}>
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: bgOpacity1 }]}>
+          <LinearGradient
+            colors={['#1a0a2e', '#2d0845', AppColors.primary, '#0A0A0F']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: bgOpacity2 }]}>
+          <LinearGradient
+            colors={['#0A0A0F', '#4c1d95', '#1a0a2e', '#0A0A0F']}
+            start={{ x: 1, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
       </View>
 
-      {/* Progress bar */}
-      {/* Segmented Progress Bar */}
-      <View style={styles.segmentContainer}>
-        {[1, 2, 3].map((s) => {
-          const isActive = s <= step;
-          const isCurrent = s === step;
-          const isCompleted = s < step;
+      {/* Header with back button + inline progress bar */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={handleBack} style={styles.backBtnMinimal} activeOpacity={0.7}>
+          <Ionicons name="chevron-back" size={28} color="#fff" />
+        </TouchableOpacity>
 
-          return (
-            <View
-              key={s}
+        {/* Inline progress bar */}
+        <View style={styles.progressBarContainer}>
+          <View style={styles.progressBarTrack}>
+            <Animated.View
               style={[
-                styles.segment,
-                { backgroundColor: 'rgba(255,255,255,0.1)' }
+                styles.progressBarFill,
+                {
+                  width: progressAnim.interpolate({
+                    inputRange: [1, 2, 3],
+                    outputRange: ['33%', '66%', '100%'],
+                  }),
+                }
               ]}
-            >
-              {(isActive) && (
-                <Animated.View
-                  style={[
-                    StyleSheet.absoluteFill,
-                    {
-                      width: isCurrent ? progressAnim.interpolate({
-                        inputRange: [s - 1, s],
-                        outputRange: ['0%', '100%'],
-                        extrapolate: 'clamp'
-                      }) : '100%',
-                      borderRadius: 2,
-                      overflow: 'hidden'
-                    }
-                  ]}
-                >
-                  <LinearGradient
-                    colors={isCompleted ? [AppColors.primary, '#9333EA'] : ['#fff', '#fff']}
-                    style={StyleSheet.absoluteFill}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                  />
-                </Animated.View>
-              )}
-            </View>
-          );
-        })}
+            />
+          </View>
+        </View>
       </View>
 
       {/* Content */}
@@ -1190,23 +1282,23 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
-          keyboardHeight > 0 && { paddingBottom: keyboardHeight }
+          keyboardHeight > 0 && { paddingBottom: keyboardHeight + 80 }
         ]}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="always"
+        keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        {step === 1 && renderStep1()}
-        {step === 2 && renderStep2()}
-        {step === 3 && renderStep3()}
+        <Animated.View style={{ transform: [{ translateX: stepTranslateX }] }}>
+          {step === 1 && renderStep1()}
+          {step === 2 && renderStep2()}
+          {step === 3 && renderStep3()}
+        </Animated.View>
       </ScrollView>
 
-      {/* Bottom Button - Hidden visually when keyboard is visible to keep layout stable */}
-
-      {/* Bottom Button - Hidden visually when keyboard is visible to keep layout stable */}
+      {/* Bottom Button - moves above keyboard */}
       <View style={[
         styles.bottomBar,
-        keyboardVisible && { opacity: 0, pointerEvents: 'none' }
+        keyboardVisible && { bottom: keyboardHeight + 10 }
       ]}>
         <TouchableOpacity
           style={[styles.actionBtn, !canProceed && styles.actionBtnDisabled]}
@@ -1357,6 +1449,34 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           </View>
         </View>
       )}
+      {/* Cloud Info Bottom Sheet */}
+      {cloudInfoVisible && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <Animated.View style={[styles.cloudInfoBackdrop, { opacity: cloudOverlayAnim }]}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeCloudInfo} />
+          </Animated.View>
+          <View style={styles.cloudInfoOverlay} pointerEvents="box-none">
+            <Animated.View style={[styles.cloudInfoSheet, { transform: [{ translateY: cloudSheetAnim }] }]}>
+              <View style={styles.cloudInfoHandle} />
+              <Text style={styles.cloudInfoTitle}>Cloud mode</Text>
+              <Text style={styles.cloudInfoSubtitle}>Cloud mode tells the AI to build your project with a full backend — database, authentication, and APIs included. Not every project needs it.</Text>
+              <View style={styles.cloudInfoFaqCard}>
+                <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+                  {cloudFaqItems.map((item, index) => (
+                    <FaqItem
+                      key={index}
+                      item={item}
+                      isExpanded={expandedFaq === index}
+                      onToggle={() => setExpandedFaq(expandedFaq === index ? null : index)}
+                      isLast={index === cloudFaqItems.length - 1}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            </Animated.View>
+          </View>
+        </View>
+      )}
     </View >
   );
 };
@@ -1368,76 +1488,36 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0A0A0F',
   },
-  // Decorative
-  orbTop: {
-    position: 'absolute',
-    top: -120,
-    right: -80,
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    backgroundColor: 'rgba(139, 92, 246, 0.08)',
-  },
-  orbBottom: {
-    position: 'absolute',
-    bottom: 50,
-    left: -100,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: 'rgba(59, 130, 246, 0.04)',
-  },
   // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 52, // Reduced from 60
-    paddingBottom: 12, // Reduced from 20
+    paddingTop: 56,
+    paddingBottom: 8,
+    gap: 12,
   },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+  backBtnMinimal: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backBtnGlass: {
-    backgroundColor: 'transparent',
-    overflow: 'hidden',
-  },
-  backBtnLiquid: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  headerCenter: {
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  // Segmented Progress
-  segmentContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 24,
-    gap: 6,
-    marginBottom: 8,
-    height: 4,
-  },
-  segment: {
+  progressBarContainer: {
     flex: 1,
+    justifyContent: 'center',
+    paddingRight: 4,
+  },
+  progressBarTrack: {
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#fff',
   },
   // Content
   scrollView: {
@@ -1485,11 +1565,184 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     maxWidth: '90%',
   },
-  // Step 1 - Input
+  // Step 1 - Describe idea
+  step1Header: {
+    marginBottom: 20,
+  },
+  step1Title: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: -0.5,
+  },
+  chipsScroll: {
+    marginBottom: 20,
+    marginHorizontal: -24,
+  },
+  chipsContainer: {
+    paddingHorizontal: 24,
+    gap: 10,
+    flexDirection: 'row',
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  chipLiquid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    overflow: 'hidden',
+  },
+  chipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.8)',
+  },
+  ideaInputWrapper: {
+  },
+  ideaInputContainer: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 68,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    minHeight: 200,
+    maxHeight: 420,
+    position: 'relative',
+  },
+  ideaTextInput: {
+    fontSize: 17,
+    color: '#fff',
+    fontWeight: '500',
+    lineHeight: 26,
+    textAlignVertical: 'top',
+    minHeight: 120,
+  },
+  ideaToolbar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  toolbarIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cloudPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  cloudPillActive: {
+    backgroundColor: AppColors.primary,
+  },
+  cloudInfoBtn: {
+    marginLeft: 6,
+    padding: 2,
+  },
+  cloudPillText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  cloudPillTextActive: {
+    color: '#fff',
+  },
+  betaBadge: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  betaBadgeActive: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  betaBadgeText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  betaBadgeTextActive: {
+    color: '#fff',
+  },
+  // Cloud Info Modal
+  cloudInfoOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  cloudInfoBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  cloudInfoSheet: {
+    backgroundColor: '#1A1A24',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 40,
+    maxHeight: '85%',
+  },
+  cloudInfoHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignSelf: 'center',
+    marginBottom: 24,
+  },
+  cloudInfoTitle: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: 12,
+    lineHeight: 38,
+  },
+  cloudInfoSubtitle: {
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.5)',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  cloudInfoFaqCard: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 18,
+    maxHeight: 380,
+  },
+  // Legacy (kept for step 2/3 compatibility)
   inputSection: {
     marginBottom: 32,
   },
-  // Removed inputWrapper, inputGradient
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1775,6 +2028,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#fff',
+  },
+  summaryInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minHeight: 28,
   },
   summaryDivider: {
     height: 1,

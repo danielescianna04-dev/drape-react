@@ -999,7 +999,22 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* Animated gradient background */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <LinearGradient
+          colors={['#0d0515', '#180828', '#2d0845', '#0A0A0F']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[StyleSheet.absoluteFill, { opacity: 0.3 }]}
+        />
+        <LinearGradient
+          colors={['#0A0A0F', '#150520', '#0d0515', '#0A0A0F']}
+          start={{ x: 1, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[StyleSheet.absoluteFill, { opacity: 0.25 }]}
+        />
+      </View>
+
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -1069,7 +1084,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 onPress={onCreateProject}
               >
                 <LinearGradient
-                  colors={[AppColors.primary, '#7B6BFF']}
+                  colors={[AppColors.primary, '#5B3FD4']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={styles.actionCardGradient}
@@ -2047,7 +2062,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: AppColors.primary,
+    backgroundColor: '#5B3FD4',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
