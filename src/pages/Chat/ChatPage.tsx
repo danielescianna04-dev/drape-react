@@ -3005,8 +3005,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               locations={[0, 0.3, 0.7, 1]}
               style={styles.background}
             >
-              <View style={styles.glowTop} />
-              <View style={styles.glowBottom} />
             </LinearGradient>
             <FlatList
               ref={scrollViewRef}
@@ -3750,26 +3748,6 @@ const styles = StyleSheet.create({
   },
   background: {
     ...StyleSheet.absoluteFillObject,
-  },
-  glowTop: {
-    position: 'absolute',
-    top: -100,
-    left: -50,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: AppColors.primaryAlpha.a08,
-    opacity: 0.6,
-  },
-  glowBottom: {
-    position: 'absolute',
-    bottom: -150,
-    right: -80,
-    width: 400,
-    height: 400,
-    borderRadius: 200,
-    backgroundColor: AppColors.primaryAlpha.a05,
-    opacity: 0.5,
   },
   inputWrapper: {
     position: 'absolute',

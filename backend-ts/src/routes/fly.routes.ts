@@ -884,10 +884,10 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  // Preview stays running during publish — builds use separate output dirs
-  // and don't conflict with dev servers.
+  // Publish can kill the dev server (cache deletion, config patching).
+  // Always restart it afterwards.
   const previewSession = await sessionService.get(projectId, userId);
-  const shouldResumePreview = false;
+  const shouldResumePreview = !!previewSession;
 
   const isAgentTransportError = (error: any): boolean => {
     const code = String(error?.code || '');

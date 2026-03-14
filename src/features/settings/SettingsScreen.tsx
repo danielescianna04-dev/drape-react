@@ -557,9 +557,20 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           scale: planExitAnim.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }),
         }],
       }]}>
-        <LinearGradient colors={['#0A0A0C', '#0A0A0C']} style={StyleSheet.absoluteFill} />
-
-        {/* Background is uniform #0A0A0C via LinearGradient */}
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <LinearGradient
+            colors={['#0C0816', '#1a0a2e', '#2d0845', '#0C0816']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[StyleSheet.absoluteFill, { opacity: 0.35 }]}
+          />
+          <LinearGradient
+            colors={['#0C0816', '#1E1040', '#0C0816']}
+            start={{ x: 1, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={[StyleSheet.absoluteFill, { opacity: 0.3 }]}
+          />
+        </View>
 
         <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
           <TouchableOpacity
@@ -841,7 +852,20 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
     return (
       <View style={styles.container}>
-        <LinearGradient colors={['#0A0A0C', '#0A0A0C']} style={StyleSheet.absoluteFill} />
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <LinearGradient
+            colors={['#0C0816', '#1a0a2e', '#2d0845', '#0C0816']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[StyleSheet.absoluteFill, { opacity: 0.35 }]}
+          />
+          <LinearGradient
+            colors={['#0C0816', '#1E1040', '#0C0816']}
+            start={{ x: 1, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={[StyleSheet.absoluteFill, { opacity: 0.3 }]}
+          />
+        </View>
 
         <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
           <TouchableOpacity
@@ -982,10 +1006,20 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       style={[styles.container, { transform: [{ translateX: swipeX }] }]}
       {...panResponder.panHandlers}
     >
-      <LinearGradient
-        colors={['#0A0A0C', '#0A0A0C']}
-        style={StyleSheet.absoluteFill}
-      />
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <LinearGradient
+          colors={['#0C0816', '#1a0a2e', '#2d0845', '#0C0816']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[StyleSheet.absoluteFill, { opacity: 0.35 }]}
+        />
+        <LinearGradient
+          colors={['#0C0816', '#1E1040', '#0C0816']}
+          start={{ x: 1, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[StyleSheet.absoluteFill, { opacity: 0.3 }]}
+        />
+      </View>
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
@@ -1198,7 +1232,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0C',
+    backgroundColor: '#0A0812',
   },
   header: {
     flexDirection: 'row',

@@ -13,15 +13,15 @@ export const withOpacity = (color: string, opacity: number): string => {
 };
 
 export const AppColors = {
-  // Brand - Soft Violet
-  primary: '#9B8AFF',
-  primaryTint: '#BEB4FF',
-  primaryShade: '#7A6AD9',
+  // Brand — Premium Violet
+  primary: '#6D4CFF',
+  primaryLight: '#7C5CFF',
+  primaryDeep: '#5B3EE6',
 
   // Gradient backgrounds
   gradient: {
-    dark: ['#0a0a0a', '#121212', '#1a1a1a', '#0f0f0f'] as const,
-    primary: ['#9B8AFF', '#7A6AD9'] as const,
+    dark: ['#07070B', '#0D0B14', '#1A1033', '#0A0A12'] as const,
+    primary: ['#5B3EE6', '#7C5CFF'] as const,
   },
 
   // Light Mode
@@ -36,17 +36,19 @@ export const AppColors = {
     shadow: 'rgba(0,0,0,0.04)',
   },
 
-  // Dark Mode
+  // Dark Mode — Premium
   dark: {
-    background: '#090A0B',
-    backgroundAlt: '#0a0a0a',
-    surface: '#1C1C1E',
-    surfaceAlt: '#1A1A1C',
-    surfaceVariant: '#2C2C2E',
-    surfaceElevated: '#121212',
-    titleText: '#EDEDED',
-    bodyText: '#9CA3AF',
-    border: '#2C2C2E',
+    background: '#07070B',
+    backgroundAlt: '#0D0B14',
+    surface: '#12111A',
+    surfaceAlt: '#181622',
+    surfaceVariant: '#1E1C28',
+    surfaceElevated: '#15131D',
+    titleText: '#F5F4FA',
+    bodyText: '#A7A3B8',
+    bodyTextMuted: '#7C788D',
+    border: 'rgba(255,255,255,0.06)',
+    borderSubtle: 'rgba(255,255,255,0.05)',
     shadow: 'rgba(0,0,0,0.3)',
     overlay: 'rgba(0, 0, 0, 0.5)',
   },
@@ -80,16 +82,41 @@ export const AppColors = {
     b10: 'rgba(0,0,0,0.1)',
   },
 
-  // Primary with opacity (for glows, highlights)
+  // Primary with opacity (for glows, badges, highlights)
   primaryAlpha: {
-    a80: 'rgba(155, 138, 255, 0.8)',
-    a60: 'rgba(155, 138, 255, 0.6)',
-    a40: 'rgba(155, 138, 255, 0.4)',
-    a20: 'rgba(155, 138, 255, 0.2)',
-    a15: 'rgba(155, 138, 255, 0.15)',
-    a10: 'rgba(155, 138, 255, 0.1)',
-    a08: 'rgba(155, 138, 255, 0.08)',
-    a05: 'rgba(155, 138, 255, 0.05)',
+    a80: 'rgba(109, 76, 255, 0.8)',
+    a60: 'rgba(109, 76, 255, 0.6)',
+    a40: 'rgba(109, 76, 255, 0.4)',
+    a22: 'rgba(124, 92, 255, 0.22)',
+    a20: 'rgba(109, 76, 255, 0.2)',
+    a15: 'rgba(109, 76, 255, 0.15)',
+    a14: 'rgba(124, 92, 255, 0.14)',
+    a10: 'rgba(124, 92, 255, 0.10)',
+    a08: 'rgba(109, 76, 255, 0.08)',
+    a05: 'rgba(109, 76, 255, 0.05)',
+  },
+
+  // Badge / pill
+  badge: {
+    background: 'rgba(124,92,255,0.14)',
+    text: '#CBBEFF',
+    border: 'rgba(124,92,255,0.22)',
+  },
+
+  // Text hierarchy
+  text: {
+    primary: '#F5F4FA',
+    secondary: '#A7A3B8',
+    tertiary: '#7C788D',
+    metadata: '#8E89A1',
+  },
+
+  // Icon hierarchy
+  iconColors: {
+    primary: '#F1F0F7',
+    secondary: '#A7A3B8',
+    accent: '#7C5CFF',
+    muted: '#6F6A82',
   },
 
   // Terminal
@@ -137,24 +164,28 @@ export const AppColors = {
     node: '#68A063',
     swift: '#FA7343',
     kotlin: '#7F52FF',
-    default: '#9B8AFF',
+    default: '#7C5CFF',
   },
 
-  // Icon colors
+  // Icon colors (legacy)
   icon: {
-    default: '#888888',
-    active: '#9B8AFF',
-    muted: '#666666',
+    default: '#A7A3B8',
+    active: '#7C5CFF',
+    muted: '#6F6A82',
   },
 
   // Legacy aliases (for backwards compatibility)
-  textPrimary: '#EDEDED',
-  textSecondary: '#9CA3AF',
-  textTertiary: '#6E7681',
-  accent: '#9B8AFF',
-  purpleMedium: '#9B8AFF',
-  purpleLight: '#BEB4FF',
-  purpleDark: '#7A6AD9',
+  textPrimary: '#F5F4FA',
+  textSecondary: '#A7A3B8',
+  textTertiary: '#7C788D',
+  accent: '#7C5CFF',
+  purpleMedium: '#7C5CFF',
+  purpleLight: '#CBBEFF',
+  purpleDark: '#5B3EE6',
+
+  // Old aliases — kept for compat, point to new values
+  primaryTint: '#7C5CFF',
+  primaryShade: '#5B3EE6',
 };
 
 // Simple colors export for navigation

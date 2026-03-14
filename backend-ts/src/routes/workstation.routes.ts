@@ -6,6 +6,7 @@ import { fileService } from '../services/file.service';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
 import { aiProviderService } from '../services/ai-provider.service';
+import { firebaseService } from '../services/firebase.service';
 import { log } from '../utils/logger';
 
 // In-memory task store for project creation
@@ -926,7 +927,7 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
 
 // POST /workstation/create-with-template
 workstationRouter.post('/create-with-template', asyncHandler(async (req, res) => {
-  const { projectName, technology, description, projectId } = req.body;
+  const { projectName, technology, description, projectId, agentMode } = req.body;
   if (!projectName) throw new ValidationError('projectName required');
 
   // Enforce project creation + storage limits using active project count
@@ -959,6 +960,25 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
   const id = projectId || `project-${Date.now()}`;
   await fileService.ensureProjectDir(id);
 
+  // Write ownership record to Firestore so agent/stream can verify access
+  try {
+    const db = firebaseService.getFirestore();
+    if (db && userId !== 'anonymous') {
+      await db.collection('users').doc(userId).collection('projects').doc(id).set({
+        projectId: id,
+        name: projectName,
+        technology: technology || 'nextjs',
+        description: description || '',
+        userId,
+        status: 'creating',
+        createdAt: new Date().toISOString(),
+      }, { merge: true });
+      log.info(`[CreateProject] Ownership record written for user ${userId}, project ${id}`);
+    }
+  } catch (err: any) {
+    log.warn(`[CreateProject] Failed to write ownership record: ${err.message}`);
+  }
+
   // Create task entry
   const task: CreationTask = {
     id, projectId: id, status: 'running', progress: 5,
@@ -966,13 +986,19 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
   };
   creationTasks.set(id, task);
 
-  // Run generation in background
-  generateProject(id, projectName, technology || 'nextjs', description || '', task, userId).catch(err => {
-    log.error(`[CreateProject] Failed: ${err.message}`);
-    task.status = 'failed';
-    task.error = err.message;
-    task.message = 'Generation failed';
-  });
+  // Run generation in background (skip if agent mode — agent stream handles generation)
+  if (!agentMode) {
+    generateProject(id, projectName, technology || 'nextjs', description || '', task, userId).catch(err => {
+      log.error(`[CreateProject] Failed: ${err.message}`);
+      task.status = 'failed';
+      task.error = err.message;
+      task.message = 'Generation failed';
+    });
+  } else {
+    task.message = 'Agent mode — generation handled by /agent/stream';
+    task.step = 'AgentMode';
+    log.info(`[CreateProject] Agent mode enabled for ${id}, skipping Gemini generation`);
+  }
 
   res.json({ success: true, taskId: id, projectId: id, message: 'Template creation started' });
 }));

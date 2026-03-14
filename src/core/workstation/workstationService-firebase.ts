@@ -152,6 +152,11 @@ export const workstationService = {
     }
   },
 
+  // Mark that user has created their first project
+  async markFirstProjectCreated(userId: string): Promise<void> {
+    await setDoc(doc(db, 'users', userId), { hasCreatedFirstProject: true }, { merge: true });
+  },
+
   // Carica progetti utente da Firebase
   async getUserProjects(userId: string): Promise<UserProject[]> {
     try {

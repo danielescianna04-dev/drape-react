@@ -85,7 +85,22 @@
     "console": "Console",
     "showAll": "Show all",
     "showLess": "Show less",
-    "aiRecommendedBecause": "AI recommendation:"
+    "aiRecommendedBecause": "AI recommendation:",
+    "cloudMode": "Cloud Mode",
+    "cloudTitle": "Cloud mode",
+    "cloudSubtitle": "Cloud mode tells the AI to build your project with a full backend — database, authentication, and APIs included. Not every project needs it.",
+    "cloudFaq": {
+      "whatQ": "What does Cloud mode do?",
+      "whatA": "When enabled, the AI will generate both frontend and backend code. Your project will include API endpoints, a database layer, and server-side logic — all running on Drape's infrastructure.",
+      "whenEnableQ": "When should I enable it?",
+      "whenEnableA": "Enable Cloud if your app needs user login, stores data across sessions, or requires real-time features like chat or notifications. Think multi-user apps, dashboards, or anything with a database.",
+      "whenOffQ": "When should I leave it off?",
+      "whenOffA": "For static sites, landing pages, portfolios, or tools that run entirely in the browser. If your app doesn't need to save data or authenticate users, you don't need Cloud.",
+      "laterQ": "Can I enable it later?",
+      "laterA": "Yes! You can always ask the AI to add backend features to an existing project. Enabling it here just gives the AI a head start from the beginning.",
+      "costQ": "Is there an extra cost?",
+      "costA": "Cloud mode is free during the beta. Projects with Cloud enabled use slightly more resources, so limits may apply based on your plan."
+    }
   },
   "alerts": {
     "creationFailed": "Creation failed",
@@ -253,5 +268,38 @@
     "messages": "messages",
     "repositories": "repositories",
     "noReposFound": "No repositories found"
+  },
+  "onboardingFlow": {
+    "continue": "Continue",
+    "welcome": {
+      "title": "Welcome to Drape",
+      "subtitle": "Your AI-powered mobile IDE",
+      "feature1Title": "AI builds your app",
+      "feature1Desc": "Describe your idea, AI writes the code for you",
+      "feature2Title": "Clone any repo",
+      "feature2Desc": "Import from GitHub and edit with AI assistance",
+      "feature3Title": "Live preview",
+      "feature3Desc": "See changes in real-time as the code updates",
+      "feature4Title": "20+ technologies",
+      "feature4Desc": "React, Next.js, Python, Flutter and more"
+    },
+    "experience": {
+      "title": "What's your experience?",
+      "neverCoded": "Never coded before",
+      "neverCodedDesc": "Totally new to this",
+      "noCode": "Used AI/no-code tools",
+      "noCodeDesc": "AI builders, no-code platforms...",
+      "developer": "I'm a developer",
+      "developerDesc": "I write code regularly"
+    },
+    "referral": {
+      "title": "How did you find Drape?",
+      "tiktok": "TikTok",
+      "instagram": "Instagram",
+      "youtube": "YouTube",
+      "friend": "Friend",
+      "appStore": "App Store",
+      "other": "Other"
+    }
   }
 }

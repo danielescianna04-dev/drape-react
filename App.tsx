@@ -5,7 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SplashScreen } from './src/features/splash/SplashScreen';
 import * as Linking from 'expo-linking';
-import Animated, { FadeIn, FadeOut, SlideInRight, FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, SlideInRight, SlideOutRight, FadeInDown } from 'react-native-reanimated';
 import { I18nextProvider } from 'react-i18next';
 import i18n from './src/i18n';
 import { useLanguageStore } from './src/i18n/languageStore';
@@ -15,6 +15,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { CreateProjectScreen } from './src/features/projects/CreateProjectScreen';
 import { AllProjectsScreen } from './src/features/projects/AllProjectsScreen';
 import { SettingsScreen } from './src/features/settings/SettingsScreen';
+import { OnboardingFlowScreen } from './src/features/onboarding/OnboardingFlowScreen';
 import { ImportGitHubModal } from './src/features/terminal/components/ImportGitHubModal';
 import { GitHubAuthModal } from './src/features/terminal/components/GitHubAuthModal';
 import { LoadingModal } from './src/shared/components/molecules/LoadingModal';
@@ -125,7 +126,7 @@ const checkRepoAccess = async (
   }
 };
 
-type Screen = 'splash' | 'auth' | 'onboarding' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
+type Screen = 'splash' | 'auth' | 'onboarding' | 'onboardingFlow' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
 
 
 function ForceUpdateScreen({ storeUrl }: { storeUrl: string }) {
@@ -161,6 +162,8 @@ export default function App() {
     });
   };
   const [createKey, setCreateKey] = useState(0);
+  const [isFirstCreate, setIsFirstCreate] = useState(false);
+  const [onboardingInitialStep, setOnboardingInitialStep] = useState<'welcome' | 'experience' | 'referral'>('welcome');
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [pendingRepoUrl, setPendingRepoUrl] = useState('');
@@ -207,7 +210,8 @@ export default function App() {
     if (isInitialized && user && currentScreen === 'auth') {
       if (isNewUser) {
         useAuthStore.setState({ isNewUser: false });
-        setCurrentScreen('create');
+        setIsFirstCreate(true);
+        setCurrentScreen('onboardingFlow');
       } else {
         const plan = user.plan || 'free';
         if (plan === 'free') {
@@ -231,7 +235,7 @@ export default function App() {
   // Automatically track previous screen whenever currentScreen changes.
   // We skip screens like 'settings' and 'plans' because we want to return FROM them to the previous workspace.
   useEffect(() => {
-    if (currentScreen !== 'settings' && currentScreen !== 'plans' && currentScreen !== 'splash' && currentScreen !== 'auth') {
+    if (currentScreen !== 'settings' && currentScreen !== 'plans' && currentScreen !== 'splash' && currentScreen !== 'auth' && currentScreen !== 'onboardingFlow') {
       useNavigationStore.setState({ previousScreen: currentScreen });
     }
   }, [currentScreen]);
@@ -1040,7 +1044,8 @@ export default function App() {
     if (isInitialized && user) {
       if (isNewUser) {
         useAuthStore.setState({ isNewUser: false });
-        setCurrentScreen('create');
+        setIsFirstCreate(true);
+        setCurrentScreen('onboardingFlow');
       } else {
         const plan = user.plan || 'free';
         if (plan === 'free') {
@@ -1125,6 +1130,27 @@ export default function App() {
     );
   }
 
+  if (currentScreen === 'onboardingFlow') {
+    return (
+      <I18nextProvider i18n={i18n}>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0A0A0F' }}>
+          <SafeAreaProvider style={{ backgroundColor: '#0A0A0F' }}>
+            <OnboardingFlowScreen
+              userId={user.uid}
+              initialStep={onboardingInitialStep}
+              onComplete={() => {
+                setOnboardingInitialStep('welcome');
+                setCreateKey(k => k + 1);
+                setCurrentScreen('create');
+              }}
+            />
+            <StatusBar style="light" />
+          </SafeAreaProvider>
+        </GestureHandlerRootView>
+      </I18nextProvider>
+    );
+  }
+
   return (
     <I18nextProvider i18n={i18n}>
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
@@ -1132,16 +1158,17 @@ export default function App() {
           <View style={{ flex: 1, backgroundColor: '#000' }}>
             <NetworkConfigProvider>
               <ErrorBoundary>
-              {(currentScreen === 'home' || (currentScreen === 'settings' && useNavigationStore.getState().previousScreen === 'home')) && (
-                <Animated.View
+              {(currentScreen === 'home' || currentScreen === 'create' || (currentScreen === 'settings' && useNavigationStore.getState().previousScreen === 'home')) && (
+                <View
                   key="home-screen"
-                  entering={FadeIn.duration(300)}
-                  exiting={FadeOut.duration(200)}
                   style={{ flex: 1 }}
                 >
                   <NavigationContainer independent={true}>
                     <ProjectsHomeScreen
-                      onCreateProject={() => { setCreateKey(k => k + 1); setCurrentScreen('create'); }}
+                      onCreateProject={() => {
+                        setCreateKey(k => k + 1);
+                        setCurrentScreen('create');
+                      }}
                       onImportProject={() => setShowImportModal(true)}
                       onMyProjects={() => setCurrentScreen('allProjects')}
                       onSettings={() => setCurrentScreen('settings')}
@@ -1265,16 +1292,25 @@ export default function App() {
                       }}
                     />
                   </NavigationContainer>
-                </Animated.View>
+                </View>
               )}
 
               {currentScreen === 'create' && (
                 <View
                   key={`create-screen-${createKey}`}
-                  style={{ flex: 1 }}
+                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }}
                 >
                   <CreateProjectScreen
-                    onBack={() => setCurrentScreen('home')}
+                    progressOffset={isFirstCreate ? 3 : 0}
+                    progressTotal={isFirstCreate ? 6 : 3}
+                    onBack={() => {
+                      if (isFirstCreate) {
+                        setOnboardingInitialStep('referral');
+                        setCurrentScreen('onboardingFlow');
+                      } else {
+                        setCurrentScreen('home');
+                      }
+                    }}
                     onOpenPlans={() => setCurrentScreen('plans')}
                     onCreate={async (workstation) => {
                       // 0. Save to Firebase so it appears in home screen
@@ -1286,6 +1322,10 @@ export default function App() {
                           userId,
                           workstation.technology || workstation.language,
                         ).catch((e: any) => console.warn('[App] Failed to save project to Firebase:', e.message));
+
+                        // Mark first project created so new user isn't sent back to create
+                        workstationService.markFirstProjectCreated(userId)
+                          .catch((e: any) => console.warn('[App] Failed to mark first project:', e.message));
                       }
 
                       // 1. Set the new workstation
@@ -1305,6 +1345,7 @@ export default function App() {
                         );
                       }
 
+                      setIsFirstCreate(false);
                       setCurrentScreen('terminal');
 
                       // Add welcome message to chat

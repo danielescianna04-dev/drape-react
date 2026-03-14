@@ -37,13 +37,18 @@ import { config } from '../../config/config';
 import { getAuthHeaders } from '../../core/api/getAuthToken';
 import { useTranslation } from 'react-i18next';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 
 interface Props {
   onBack: () => void;
   onCreate: (projectData: any) => void;
   onOpenPlans?: () => void;
+  hideBack?: boolean;
+  /** Number of steps already completed before this screen (shifts progress bar) */
+  progressOffset?: number;
+  /** Total number of steps including this screen's 3 steps */
+  progressTotal?: number;
 }
 
 const languages = [
@@ -122,7 +127,7 @@ const faqStyles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.1)' },
 });
 
-export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) => {
+export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, progressOffset = 0, progressTotal = 3 }: Props) => {
   const { t } = useTranslation('projects');
   const [step, setStep] = useState(1);
   const [projectName, setProjectName] = useState('');
@@ -175,36 +180,16 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       setExpandedFaq(null);
     });
   };
-  const cloudScaleAnim = useRef(new Animated.Value(1)).current;
 
   const cloudFaqItems = [
-    {
-      question: 'What does Cloud mode do?',
-      answer: 'When enabled, the AI will generate both frontend and backend code. Your project will include API endpoints, a database layer, and server-side logic — all running on Drape\'s infrastructure.',
-    },
-    {
-      question: 'When should I enable it?',
-      answer: 'Enable Cloud if your app needs user login, stores data across sessions, or requires real-time features like chat or notifications. Think multi-user apps, dashboards, or anything with a database.',
-    },
-    {
-      question: 'When should I leave it off?',
-      answer: 'For static sites, landing pages, portfolios, or tools that run entirely in the browser. If your app doesn\'t need to save data or authenticate users, you don\'t need Cloud.',
-    },
-    {
-      question: 'Can I enable it later?',
-      answer: 'Yes! You can always ask the AI to add backend features to an existing project. Enabling it here just gives the AI a head start from the beginning.',
-    },
-    {
-      question: 'Is there an extra cost?',
-      answer: 'Cloud mode is free during the beta. Projects with Cloud enabled use slightly more resources, so limits may apply based on your plan.',
-    },
+    { question: t('create.cloudFaq.whatQ'), answer: t('create.cloudFaq.whatA') },
+    { question: t('create.cloudFaq.whenEnableQ'), answer: t('create.cloudFaq.whenEnableA') },
+    { question: t('create.cloudFaq.whenOffQ'), answer: t('create.cloudFaq.whenOffA') },
+    { question: t('create.cloudFaq.laterQ'), answer: t('create.cloudFaq.laterA') },
+    { question: t('create.cloudFaq.costQ'), answer: t('create.cloudFaq.costA') },
   ];
 
   const handleCloudToggle = () => {
-    Animated.sequence([
-      Animated.timing(cloudScaleAnim, { toValue: 0.88, duration: 80, useNativeDriver: true }),
-      Animated.spring(cloudScaleAnim, { toValue: 1, friction: 3, tension: 400, useNativeDriver: true }),
-    ]).start();
     setCloudEnabled(!cloudEnabled);
   };
 
@@ -227,39 +212,84 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   const { workstations } = useTerminalStore();
 
   // Animations
-  const slideAnim = useRef(new Animated.Value(30)).current;
-  const scaleAnim = useRef(new Animated.Value(0.95)).current;
-  const progressAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT * 0.35)).current;
+  const scaleAnim = useRef(new Animated.Value(0.85)).current;
+  const entranceOpacity = useRef(new Animated.Value(0)).current;
+  const contentBlur = useRef(new Animated.Value(0)).current;
+  const headerSlide = useRef(new Animated.Value(-50)).current;
+  const headerOpacity = useRef(new Animated.Value(0)).current;
+  const bottomBarSlide = useRef(new Animated.Value(80)).current;
+  const bottomBarOpacity = useRef(new Animated.Value(0)).current;
+  // LiquidGlass fails to init when parent has transform/opacity animations at mount.
+  // Delay LiquidGlass rendering until entrance animation settles.
+  const [glassReady, setGlassReady] = useState(false);
+  const progressAnim = useRef(new Animated.Value(1)).current;
   const stepTranslateX = useRef(new Animated.Value(0)).current;
   const stepOpacity = useRef(new Animated.Value(1)).current;
-  const bgAnim = useRef(new Animated.Value(0)).current;
+  const bgAnim = useRef(new Animated.Value(0)).current; // opacity cross-fade (non-native)
+  const bgMove = useRef(new Animated.Value(0)).current; // shift + scale (native)
   useEffect(() => {
-    // Animate in — no opacity animation so LiquidGlassView initializes immediately
-    Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 8,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    // Phase 1 (0ms): Background fades in
+    Animated.timing(entranceOpacity, {
+      toValue: 1,
+      duration: 350,
+      useNativeDriver: true,
+    }).start();
 
-    // Looping background gradient animation
-    const bgLoop = Animated.loop(
+    // Phase 2 (100ms): Content rises up with slow, cinematic spring
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          friction: 9,
+          tension: 28,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          friction: 8,
+          tension: 30,
+          useNativeDriver: true,
+        }),
+        Animated.timing(contentBlur, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 100);
+
+    // Phase 3 (350ms): Header drops in
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.spring(headerSlide, { toValue: 0, friction: 8, tension: 50, useNativeDriver: true }),
+        Animated.timing(headerOpacity, { toValue: 1, duration: 350, useNativeDriver: true }),
+      ]).start();
+    }, 350);
+
+    // Phase 4 (500ms): Bottom bar slides up
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.spring(bottomBarSlide, { toValue: 0, friction: 8, tension: 50, useNativeDriver: true }),
+        Animated.timing(bottomBarOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      ]).start();
+    }, 500);
+
+    // Phase 5 (600ms): Enable LiquidGlass after animations settle
+    setTimeout(() => setGlassReady(true), 600);
+
+    // Looping background drift — smooth slow movement only
+    const bgMoveLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(bgAnim, { toValue: 1, duration: 6000, useNativeDriver: false }),
-        Animated.timing(bgAnim, { toValue: 0, duration: 6000, useNativeDriver: false }),
+        Animated.timing(bgMove, { toValue: 1, duration: 6000, useNativeDriver: true }),
+        Animated.timing(bgMove, { toValue: 0, duration: 6000, useNativeDriver: true }),
       ])
     );
-    bgLoop.start();
+    bgMoveLoop.start();
 
-    // Cleanup polling interval on unmount
+    // Cleanup on unmount
     return () => {
-      bgLoop.stop();
+      bgMoveLoop.stop();
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -275,10 +305,19 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       useNativeDriver: false,
     }).start();
 
-    // Reset animations to final state when entering step 2 to prevent interference
-    if (step === 2) {
+    // Ensure entrance animation is settled for step transitions
+    if (step >= 2) {
       slideAnim.setValue(0);
+      scaleAnim.setValue(1);
+      contentBlur.setValue(1);
+      entranceOpacity.setValue(1);
+      headerOpacity.setValue(1);
+      headerSlide.setValue(0);
+      bottomBarOpacity.setValue(1);
+      bottomBarSlide.setValue(0);
+      if (!glassReady) setGlassReady(true);
     }
+
   }, [step]);
 
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -704,9 +743,9 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   const handleCreate = async () => {
     Keyboard.dismiss();
 
-    // Show mode selection modal if using agent system
+    // Use agent system directly in fast mode
     if (useAgentSystem) {
-      setShowModeModal(true);
+      handleModeSelect('fast');
     } else {
       // Fallback to old creation system
       startOldCreation();
@@ -879,9 +918,12 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     : step === 2 ? selectedLanguage !== ''
       : projectName.trim().length > 0;
 
+  const p1 = `${Math.round(((progressOffset + 1) / progressTotal) * 100)}%`;
+  const p2 = `${Math.round(((progressOffset + 2) / progressTotal) * 100)}%`;
+  const p3 = `${Math.round(((progressOffset + 3) / progressTotal) * 100)}%`;
   const progressWidth = progressAnim.interpolate({
     inputRange: [1, 2, 3],
-    outputRange: ['33%', '66%', '100%'],
+    outputRange: [p1, p2, p3],
   });
 
   const handleChipPress = (chipId: string) => {
@@ -893,12 +935,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   };
 
   const renderStep1 = () => (
-    <Animated.View
-      style={[
-        styles.stepContent,
-        { transform: [{ translateY: slideAnim }] }
-      ]}
-    >
+    <View style={styles.stepContent}>
       <View style={styles.step1Header}>
         <Text style={styles.step1Title}>{t('create.describeIdea')}</Text>
       </View>
@@ -916,7 +953,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
             activeOpacity={0.7}
             onPress={() => handleChipPress(chip.id)}
           >
-            {isLiquidGlassSupported ? (
+            {useGlass ? (
               <LiquidGlassView
                 style={styles.chipLiquid}
                 interactive={true}
@@ -937,10 +974,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       </ScrollView>
 
       {/* Large text area */}
-      <View style={styles.ideaInputWrapper}>
-        {isLiquidGlassSupported ? (
+      <View style={[styles.ideaInputWrapper, keyboardVisible && { marginBottom: 76 }]}>
+        {useGlass ? (
           <LiquidGlassView
-            style={[styles.ideaInputContainer, { backgroundColor: 'transparent' }, keyboardHeight > 0 && { maxHeight: Dimensions.get('window').height - keyboardHeight - 340 }]}
+            style={[styles.ideaInputContainer, { backgroundColor: 'transparent' }, keyboardHeight > 0 && { maxHeight: 180 }]}
             interactive={true}
             effect="clear"
             colorScheme="dark"
@@ -963,22 +1000,22 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
               onBlur={() => setInputFocused(false)}
             />
             <View style={styles.ideaToolbar}>
-              <Animated.View style={{ flexDirection: 'row', alignItems: 'center', transform: [{ scale: cloudScaleAnim }] }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
                   <Ionicons name={cloudEnabled ? 'checkmark' : 'add'} size={16} color={cloudEnabled ? '#fff' : 'rgba(255,255,255,0.6)'} />
-                  <Text style={[styles.cloudPillText, cloudEnabled && styles.cloudPillTextActive]}>{cloudEnabled ? 'Cloud Enabled' : 'Enable Cloud'}</Text>
+                  <Text style={[styles.cloudPillText, cloudEnabled && styles.cloudPillTextActive]}>{t('create.cloudMode')}</Text>
                 </TouchableOpacity>
                 <Pressable style={styles.cloudInfoBtn} onPress={openCloudInfo} hitSlop={8}>
                   <Ionicons name="information-circle-outline" size={20} color="rgba(255,255,255,0.4)" />
                 </Pressable>
-              </Animated.View>
+              </View>
               <TouchableOpacity style={styles.toolbarIconBtn} activeOpacity={0.7}>
                 <Ionicons name="mic-outline" size={22} color="rgba(255,255,255,0.5)" />
               </TouchableOpacity>
             </View>
           </LiquidGlassView>
         ) : (
-          <View style={[styles.ideaInputContainer, keyboardHeight > 0 && { maxHeight: Dimensions.get('window').height - keyboardHeight - 340 }]}>
+          <View style={[styles.ideaInputContainer, keyboardHeight > 0 && { maxHeight: 180 }]}>
             <TextInput
               ref={inputRef}
               style={styles.ideaTextInput}
@@ -997,15 +1034,15 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
               onBlur={() => setInputFocused(false)}
             />
             <View style={styles.ideaToolbar}>
-              <Animated.View style={{ flexDirection: 'row', alignItems: 'center', transform: [{ scale: cloudScaleAnim }] }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
                   <Ionicons name={cloudEnabled ? 'checkmark' : 'add'} size={16} color={cloudEnabled ? '#fff' : 'rgba(255,255,255,0.6)'} />
-                  <Text style={[styles.cloudPillText, cloudEnabled && styles.cloudPillTextActive]}>{cloudEnabled ? 'Cloud Enabled' : 'Enable Cloud'}</Text>
+                  <Text style={[styles.cloudPillText, cloudEnabled && styles.cloudPillTextActive]}>{t('create.cloudMode')}</Text>
                 </TouchableOpacity>
                 <Pressable style={styles.cloudInfoBtn} onPress={openCloudInfo} hitSlop={8}>
                   <Ionicons name="information-circle-outline" size={20} color="rgba(255,255,255,0.4)" />
                 </Pressable>
-              </Animated.View>
+              </View>
               <TouchableOpacity style={styles.toolbarIconBtn} activeOpacity={0.7}>
                 <Ionicons name="mic-outline" size={22} color="rgba(255,255,255,0.5)" />
               </TouchableOpacity>
@@ -1013,16 +1050,11 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           </View>
         )}
       </View>
-    </Animated.View>
+    </View>
   );
 
   const renderStep2 = () => (
-    <Animated.View
-      style={[
-        styles.stepContent,
-        { transform: [{ translateY: slideAnim }] }
-      ]}
-    >
+    <View style={styles.stepContent}>
       <View style={styles.stepHeader}>
         <Text style={styles.stepTitle}>{t('create.recommendedTech')}</Text>
         <Text style={styles.stepSubtitle}>{t('create.aiSuggests')}</Text>
@@ -1030,7 +1062,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
       {/* AI Explanation */}
       {aiExplanation && aiRecommendedLang && (
-        isLiquidGlassSupported ? (
+        useGlass ? (
           <LiquidGlassView
             style={[styles.aiExplanationBox, { backgroundColor: 'transparent', overflow: 'hidden' }]}
             interactive={true}
@@ -1089,13 +1121,13 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
                     key={lang.id}
                     style={[
                       styles.langCard,
-                      isLiquidGlassSupported && styles.langCardGlass,
-                      isSelected && { borderColor: lang.color, backgroundColor: isLiquidGlassSupported ? 'transparent' : 'rgba(255,255,255,0.08)' }
+                      useGlass && styles.langCardGlass,
+                      isSelected && { borderColor: lang.color, backgroundColor: useGlass ? 'transparent' : 'rgba(255,255,255,0.08)' }
                     ]}
                     onPress={() => setSelectedLanguage(lang.id)}
                     activeOpacity={0.7}
                   >
-                    {isLiquidGlassSupported ? (
+                    {useGlass ? (
                       <LiquidGlassView
                         style={[
                           styles.langCardLiquid,
@@ -1120,15 +1152,32 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
       {/* Show all / Show less toggle */}
       <TouchableOpacity
-        style={styles.showAllButton}
+        style={[styles.showAllButton, useGlass && styles.showAllButtonGlass]}
         onPress={() => setShowAllLangs(!showAllLangs)}
+        activeOpacity={0.7}
       >
-        <Ionicons name={showAllLangs ? 'chevron-up' : 'grid-outline'} size={16} color={AppColors.primary} />
-        <Text style={styles.showAllText}>
-          {showAllLangs ? t('create.showLess') : t('create.showAll')}
-        </Text>
+        {useGlass ? (
+          <LiquidGlassView
+            style={styles.showAllButtonLiquid}
+            interactive={true}
+            effect="regular"
+            colorScheme="dark"
+          >
+            <Ionicons name={showAllLangs ? 'chevron-up' : 'grid-outline'} size={16} color={AppColors.primary} />
+            <Text style={styles.showAllText}>
+              {showAllLangs ? t('create.showLess') : t('create.showAll')}
+            </Text>
+          </LiquidGlassView>
+        ) : (
+          <>
+            <Ionicons name={showAllLangs ? 'chevron-up' : 'grid-outline'} size={16} color={AppColors.primary} />
+            <Text style={styles.showAllText}>
+              {showAllLangs ? t('create.showLess') : t('create.showAll')}
+            </Text>
+          </>
+        )}
       </TouchableOpacity>
-    </Animated.View>
+    </View>
   );
 
   const renderSummaryRow = (icon: string, iconColor: string, label: string, value: string, field: 'name' | 'description' | 'tech') => {
@@ -1194,18 +1243,13 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   );
 
   const renderStep3 = () => (
-    <Animated.View
-      style={[
-        styles.stepContent,
-        { transform: [{ translateY: slideAnim }] }
-      ]}
-    >
+    <View style={styles.stepContent}>
       <View style={styles.stepHeader}>
         <Text style={styles.stepTitle}>{t('create.allSet')}</Text>
         <Text style={styles.stepSubtitle}>{t('create.verifyDetails')}</Text>
       </View>
 
-      {isLiquidGlassSupported ? (
+      {useGlass ? (
         <LiquidGlassView
           style={[styles.summaryCard, { backgroundColor: 'transparent', overflow: 'hidden' }]}
           interactive={true}
@@ -1219,44 +1263,65 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           {renderStep3Content()}
         </View>
       )}
-      <View style={styles.readyBanner}>
-        <Text style={styles.readyText}>
-          {t('create.allCorrect')} <Text style={styles.readyHighlight}>{t('create.createButton')}</Text> {t('create.toStart')}
-        </Text>
-      </View>
-    </Animated.View>
+      {!keyboardVisible && (
+        <View style={styles.readyBanner}>
+          <Text style={styles.readyText}>
+            {t('create.allCorrect')} <Text style={styles.readyHighlight}>{t('create.createButton')}</Text> {t('create.toStart')}
+          </Text>
+        </View>
+      )}
+    </View>
   );
 
-  const bgOpacity1 = bgAnim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.55] });
-  const bgOpacity2 = bgAnim.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0.3] });
+  const bgShift1 = bgMove.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 15, 0] });
+  const bgShift2 = bgMove.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, -15, 0] });
+  const bgScale1 = bgMove.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1.2, 1.25, 1.2] });
+  const bgScale2 = bgMove.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1.22, 1.18, 1.22] });
+
+  // Only enable LiquidGlass after entrance animation settles
+  const useGlass = isLiquidGlassSupported && glassReady;
 
   return (
     <View style={styles.container}>
-      {/* Animated gradient background — full screen */}
-      <View style={StyleSheet.absoluteFill}>
-        <Animated.View style={[StyleSheet.absoluteFill, { opacity: bgOpacity1 }]}>
+      {/* Animated gradient background — smooth drift, no pulse */}
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity: entranceOpacity }]}>
+        <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ translateY: bgShift1 }, { scale: bgScale1 }] }]}>
           <LinearGradient
             colors={['#1a0a2e', '#2d0845', AppColors.primary, '#0A0A0F']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
+            style={[StyleSheet.absoluteFill, { opacity: 0.45 }]}
           />
         </Animated.View>
-        <Animated.View style={[StyleSheet.absoluteFill, { opacity: bgOpacity2 }]}>
+        <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ translateY: bgShift2 }, { scale: bgScale2 }] }]}>
           <LinearGradient
             colors={['#0A0A0F', '#4c1d95', '#1a0a2e', '#0A0A0F']}
             start={{ x: 1, y: 0 }}
             end={{ x: 0, y: 1 }}
-            style={StyleSheet.absoluteFill}
+            style={[StyleSheet.absoluteFill, { opacity: 0.4 }]}
           />
         </Animated.View>
-      </View>
+      </Animated.View>
+
 
       {/* Header with back button + inline progress bar */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backBtnMinimal} activeOpacity={0.7}>
-          <Ionicons name="chevron-back" size={28} color="#fff" />
-        </TouchableOpacity>
+      <Animated.View style={[styles.header, { transform: [{ translateY: headerSlide }] }]}>
+        {!hideBack && (
+          <TouchableOpacity onPress={handleBack} style={[styles.backBtnMinimal, useGlass && styles.backBtnMinimalGlass]} activeOpacity={0.7}>
+            {useGlass ? (
+              <LiquidGlassView
+                style={styles.backBtnMinimalLiquid}
+                interactive={true}
+                effect="clear"
+                colorScheme="dark"
+              >
+                <Ionicons name="chevron-back" size={24} color="#fff" />
+              </LiquidGlassView>
+            ) : (
+              <Ionicons name="chevron-back" size={28} color="#fff" />
+            )}
+          </TouchableOpacity>
+        )}
 
         {/* Inline progress bar */}
         <View style={styles.progressBarContainer}>
@@ -1267,38 +1332,42 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
                 {
                   width: progressAnim.interpolate({
                     inputRange: [1, 2, 3],
-                    outputRange: ['33%', '66%', '100%'],
+                    outputRange: [p1, p2, p3],
                   }),
                 }
               ]}
             />
           </View>
         </View>
-      </View>
+      </Animated.View>
 
-      {/* Content */}
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.scrollView}
-        contentContainerStyle={[
-          styles.scrollContent,
-          keyboardHeight > 0 && { paddingBottom: keyboardHeight + 80 }
-        ]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-      >
-        <Animated.View style={{ transform: [{ translateX: stepTranslateX }] }}>
-          {step === 1 && renderStep1()}
-          {step === 2 && renderStep2()}
-          {step === 3 && renderStep3()}
-        </Animated.View>
-      </ScrollView>
+      {/* Content — entrance animation wraps the scroll area */}
+      {/* Content — entrance: rises from below + scale (NO opacity — kills LiquidGlass) */}
+      <Animated.View style={{ flex: 1, transform: [{ translateY: slideAnim }, { scale: scaleAnim }] }}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.scrollContent,
+            keyboardHeight > 0 && { paddingBottom: keyboardHeight + 80, paddingTop: 32 }
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          <Animated.View style={{ transform: [{ translateX: stepTranslateX }] }}>
+            {step === 1 && renderStep1()}
+            {step === 2 && renderStep2()}
+            {step === 3 && renderStep3()}
+          </Animated.View>
+        </ScrollView>
+      </Animated.View>
 
       {/* Bottom Button - moves above keyboard */}
-      <View style={[
+      <Animated.View style={[
         styles.bottomBar,
-        keyboardVisible && { bottom: keyboardHeight + 10 }
+        keyboardVisible && { bottom: keyboardHeight + 6 },
+        { opacity: bottomBarOpacity, transform: [{ translateY: bottomBarSlide }] }
       ]}>
         <TouchableOpacity
           style={[styles.actionBtn, !canProceed && styles.actionBtnDisabled]}
@@ -1328,7 +1397,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
             )}
           </LinearGradient>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
 
       {/* Agent Mode Selection Modal */}
       <AgentModeModal
@@ -1337,47 +1406,13 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         onSelectMode={handleModeSelect}
       />
 
-      {/* Creation Progress - Show agent progress or old progress */}
-      {isCreating && useAgentSystem && isStreaming ? (
-        <Modal
-          visible={true}
-          transparent={true}
-          animationType="fade"
-          statusBarTranslucent={true}
-        >
-          <View style={styles.progressModalContainer}>
-            <View style={styles.progressModalBackdrop} />
-            <View style={styles.progressModalContent}>
-              <View style={styles.progressModalHeader}>
-                <View style={styles.progressIconContainer}>
-                  <LinearGradient
-                    colors={[AppColors.primary, '#9333EA']}
-                    style={styles.progressIconGradient}
-                  >
-                    <Ionicons name="sparkles" size={24} color="#fff" />
-                  </LinearGradient>
-                </View>
-                <Text style={styles.progressModalTitle}>AI Agent Working</Text>
-                <Text style={styles.progressModalSubtitle}>
-                  Creating your project with {agentMode === 'fast' ? 'Fast Mode' : 'Planning Mode'}
-                </Text>
-              </View>
-              <AgentProgress
-                events={agentEvents}
-                status={agentStatus}
-                currentTool={agentCurrentTool}
-              />
-            </View>
-          </View>
-        </Modal>
-      ) : (
-        <CreationProgressModal
-          visible={isCreating}
-          progress={creationTask?.progress || 0}
-          status={creationTask?.message || 'Preparing...'}
-          step={creationTask?.step}
-        />
-      )}
+      {/* Creation Progress */}
+      <CreationProgressModal
+        visible={isCreating}
+        progress={creationTask?.progress || 0}
+        status={creationTask?.message || 'Preparing...'}
+        step={creationTask?.step}
+      />
       {/* Upgrade Overlay (absolute positioned, no native Modal) */}
       {showUpgradeModal && (
         <View style={styles.upgradeOverlay}>
@@ -1458,8 +1493,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           <View style={styles.cloudInfoOverlay} pointerEvents="box-none">
             <Animated.View style={[styles.cloudInfoSheet, { transform: [{ translateY: cloudSheetAnim }] }]}>
               <View style={styles.cloudInfoHandle} />
-              <Text style={styles.cloudInfoTitle}>Cloud mode</Text>
-              <Text style={styles.cloudInfoSubtitle}>Cloud mode tells the AI to build your project with a full backend — database, authentication, and APIs included. Not every project needs it.</Text>
+              <Text style={styles.cloudInfoTitle}>{t('create.cloudTitle')}</Text>
+              <Text style={styles.cloudInfoSubtitle}>{t('create.cloudSubtitle')}</Text>
               <View style={styles.cloudInfoFaqCard}>
                 <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
                   {cloudFaqItems.map((item, index) => (
@@ -1477,7 +1512,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           </View>
         </View>
       )}
-    </View >
+    </View>
   );
 };
 
@@ -1493,7 +1528,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 56,
+    paddingTop: 66,
     paddingBottom: 8,
     gap: 12,
   },
@@ -1502,6 +1537,19 @@ const styles = StyleSheet.create({
     height: 36,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  backBtnMinimalGlass: {
+    backgroundColor: 'transparent',
+    overflow: 'hidden' as const,
+    borderRadius: 18,
+  },
+  backBtnMinimalLiquid: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    overflow: 'hidden' as const,
   },
   progressBarContainer: {
     flex: 1,
@@ -1960,6 +2008,24 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     marginTop: 4,
   },
+  showAllButtonGlass: {
+    backgroundColor: 'transparent',
+    overflow: 'hidden' as const,
+    borderRadius: 20,
+    alignSelf: 'center' as const,
+    padding: 0,
+    paddingVertical: 0,
+  },
+  showAllButtonLiquid: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    overflow: 'hidden' as const,
+  },
   showAllText: {
     color: AppColors.primary,
     fontSize: 14,
@@ -2063,7 +2129,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   readyHighlight: {
-    color: '#10B981',
+    color: AppColors.primaryLight,
     fontWeight: '700',
   },
   // Bottom Bar

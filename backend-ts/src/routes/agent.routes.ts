@@ -24,7 +24,7 @@ agentRouter.get('/status', asyncHandler(async (req, res) => {
       streaming: true,
       tools: true,
       multimodal: true,
-      models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
+      models: ['claude-sonnet-4', 'claude-4-6-sonnet', 'claude-4-6-opus'],
     },
     version: '1.0.0',
   });
@@ -168,7 +168,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     const agentLoop = new AgentLoop({
       projectId,
       mode,
-      model: model || 'claude-3-5-sonnet-20241022',
+      model: model || 'claude-sonnet-4',
       conversationHistory: conversationHistory || [],
       thinkingLevel,
       executionPlan: mode === 'execute' ? plan : undefined,

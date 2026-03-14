@@ -30,126 +30,42 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type AuthMode = 'initial' | 'login' | 'register' | 'forgot' | 'verify';
 
-// Animated gradient background — two layers moving in different directions
+// Animated gradient background — same as Create screen
 const AnimatedGradientBg = () => {
-  const layer1Y = useRef(new RNAnimated.Value(0)).current;
-  const layer2X = useRef(new RNAnimated.Value(0)).current;
-  const layer2Y = useRef(new RNAnimated.Value(0)).current;
-  const layer3X = useRef(new RNAnimated.Value(0)).current;
-  const layer3Y = useRef(new RNAnimated.Value(0)).current;
-  const pulseOpacity = useRef(new RNAnimated.Value(0.35)).current;
+  const bgMove = useRef(new RNAnimated.Value(0)).current;
 
   useEffect(() => {
-    // Vertical scroll — faster
     RNAnimated.loop(
-      RNAnimated.timing(layer1Y, {
-        toValue: -SCREEN_HEIGHT,
-        duration: 7000,
+      RNAnimated.timing(bgMove, {
+        toValue: 1,
+        duration: 6000,
         useNativeDriver: true,
         easing: (t: number) => t,
       })
     ).start();
-
-    // Top blob — orbits around
-    RNAnimated.loop(
-      RNAnimated.sequence([
-        RNAnimated.timing(layer2X, { toValue: 100, duration: 6000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
-        RNAnimated.timing(layer2X, { toValue: -80, duration: 7000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
-      ])
-    ).start();
-    RNAnimated.loop(
-      RNAnimated.sequence([
-        RNAnimated.timing(layer2Y, { toValue: 80, duration: 8000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
-        RNAnimated.timing(layer2Y, { toValue: -60, duration: 6000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
-      ])
-    ).start();
-
-    // Bottom blob — orbits opposite
-    RNAnimated.loop(
-      RNAnimated.sequence([
-        RNAnimated.timing(layer3X, { toValue: -100, duration: 7000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
-        RNAnimated.timing(layer3X, { toValue: 90, duration: 6000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
-      ])
-    ).start();
-    RNAnimated.loop(
-      RNAnimated.sequence([
-        RNAnimated.timing(layer3Y, { toValue: -70, duration: 6500, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
-        RNAnimated.timing(layer3Y, { toValue: 80, duration: 7500, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
-      ])
-    ).start();
-
-    // Pulsing opacity on blobs
-    RNAnimated.loop(
-      RNAnimated.sequence([
-        RNAnimated.timing(pulseOpacity, { toValue: 0.55, duration: 4000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
-        RNAnimated.timing(pulseOpacity, { toValue: 0.25, duration: 4000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
-      ])
-    ).start();
   }, []);
+
+  const bgShift1 = bgMove.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 15, 0] });
+  const bgShift2 = bgMove.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, -15, 0] });
+  const bgScale1 = bgMove.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1.2, 1.25, 1.2] });
+  const bgScale2 = bgMove.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1.22, 1.18, 1.22] });
 
   return (
     <View style={[StyleSheet.absoluteFillObject, { overflow: 'hidden' }]} pointerEvents="none">
-      <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#08080f' }]} />
-
-      {/* Layer 1 — vertical scroll, very smooth seamless gradient */}
-      <RNAnimated.View
-        style={{
-          position: 'absolute',
-          left: -60,
-          right: -60,
-          height: SCREEN_HEIGHT * 2,
-          top: 0,
-          transform: [{ translateY: layer1Y }],
-        }}
-      >
+      <RNAnimated.View style={[StyleSheet.absoluteFill, { transform: [{ translateY: bgShift1 }, { scale: bgScale1 }] }]}>
         <LinearGradient
-          colors={[
-            '#0a0a14', '#0e0920', '#120b2a', '#150d30', '#120b2a', '#0e0920',
-            '#0a0a14', '#0e0920', '#120b2a', '#150d30', '#120b2a', '#0e0920', '#0a0a14',
-          ]}
-          start={{ x: 0.4, y: 0 }}
-          end={{ x: 0.6, y: 1 }}
-          style={{ width: '100%', height: '100%' }}
+          colors={['#1a0a2e', '#2d0845', AppColors.primary, '#0A0A0F']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[StyleSheet.absoluteFill, { opacity: 0.45 }]}
         />
       </RNAnimated.View>
-
-      {/* Layer 2 — full-screen color wash that drifts */}
-      <RNAnimated.View
-        style={{
-          ...StyleSheet.absoluteFillObject,
-          top: -SCREEN_HEIGHT * 0.5,
-          bottom: -SCREEN_HEIGHT * 0.5,
-          left: -SCREEN_HEIGHT * 0.5,
-          right: -SCREEN_HEIGHT * 0.5,
-          opacity: pulseOpacity,
-          transform: [{ translateX: layer2X }, { translateY: layer2Y }],
-        }}
-      >
+      <RNAnimated.View style={[StyleSheet.absoluteFill, { transform: [{ translateY: bgShift2 }, { scale: bgScale2 }] }]}>
         <LinearGradient
-          colors={['#0a0a14', '#150d32', '#1a1040', '#150d32', '#0a0a14']}
-          start={{ x: 0.1, y: 0.1 }}
-          end={{ x: 0.9, y: 0.9 }}
-          style={{ width: '100%', height: '100%' }}
-        />
-      </RNAnimated.View>
-
-      {/* Layer 3 — another full-screen wash, opposite direction */}
-      <RNAnimated.View
-        style={{
-          ...StyleSheet.absoluteFillObject,
-          top: -SCREEN_HEIGHT * 0.5,
-          bottom: -SCREEN_HEIGHT * 0.5,
-          left: -SCREEN_HEIGHT * 0.5,
-          right: -SCREEN_HEIGHT * 0.5,
-          opacity: 0.3,
-          transform: [{ translateX: layer3X }, { translateY: layer3Y }],
-        }}
-      >
-        <LinearGradient
-          colors={['#0a0a14', '#12092e', '#180e38', '#12092e', '#0a0a14']}
-          start={{ x: 0.9, y: 0.2 }}
-          end={{ x: 0.1, y: 0.8 }}
-          style={{ width: '100%', height: '100%' }}
+          colors={['#0A0A0F', '#4c1d95', '#1a0a2e', '#0A0A0F']}
+          start={{ x: 1, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[StyleSheet.absoluteFill, { opacity: 0.4 }]}
         />
       </RNAnimated.View>
     </View>
@@ -920,7 +836,7 @@ export const AuthScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0f',
+    backgroundColor: '#0A0A0F',
   },
   blurOverlay: {
     ...StyleSheet.absoluteFillObject,

@@ -415,11 +415,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         const drapeUser = mapFirebaseUser(firebaseUser);
 
-        // Load the user's actual plan from Firestore
-        const userPlan = await loadUserPlanFromFirestore(firebaseUser.uid);
+        // Load the user's actual plan and first-project flag from Firestore
+        const userDocRef = doc(db, 'users', firebaseUser.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        const userData = userDocSnap.exists() ? userDocSnap.data() : null;
+        const userPlan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
         drapeUser.plan = userPlan;
 
-        set({ user: drapeUser, isInitialized: true, isLoading: false, deviceCheckFailed: false });
+        const isNew = !userDocSnap.exists() || userData?.hasCreatedFirstProject === false;
+
+        set({ user: drapeUser, isInitialized: true, isLoading: false, deviceCheckFailed: false, isNewUser: isNew });
 
         // Update terminalStore userId
         useTerminalStore.setState({ userId: firebaseUser.uid });
@@ -494,14 +499,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // Register this device as active BEFORE onAuthStateChanged can check
       await deviceService.registerAsActiveDevice(userCredential.user.uid);
-      isLoggingIn = false;
 
       const drapeUser = mapFirebaseUser(userCredential.user);
 
-      // Load actual plan from Firestore
-      drapeUser.plan = await loadUserPlanFromFirestore(userCredential.user.uid);
+      // Load actual plan and first-project flag from Firestore
+      const userDocRef = doc(db, 'users', userCredential.user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+      const userData = userDocSnap.exists() ? userDocSnap.data() : null;
+      drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
+      const isNew = !userDocSnap.exists() || userData?.hasCreatedFirstProject === false;
 
-      set({ user: drapeUser, isLoading: false });
+      set({ user: drapeUser, isLoading: false, isNewUser: isNew });
+
+      // Release lock AFTER state is set to prevent onAuthStateChanged from overwriting
+      isLoggingIn = false;
+
       useTerminalStore.setState({ userId: userCredential.user.uid });
 
       // Update projectStore and reload user's projects
@@ -554,6 +566,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       setDoc(doc(db, 'users', userCredential.user.uid), {
         email,
         displayName,
+        hasCreatedFirstProject: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       }).catch(err => console.warn('[AuthStore] Firestore user doc creation deferred:', err.code));
@@ -864,7 +877,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // Register this device as active BEFORE onAuthStateChanged can check
       await deviceService.registerAsActiveDevice(userCredential.user.uid);
-      isLoggingIn = false;
 
       const drapeUser = mapFirebaseUser(userCredential.user);
 
@@ -877,6 +889,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           email: userCredential.user.email,
           displayName: userCredential.user.displayName,
           photoURL: userCredential.user.photoURL,
+          hasCreatedFirstProject: false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           provider: 'google',
@@ -888,15 +901,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }, { merge: true });
       }
 
-      const isNew = !userDoc.exists();
+      const userData = userDoc.exists() ? userDoc.data() : null;
+      const isNew = !userDoc.exists() || userData?.hasCreatedFirstProject === false;
 
       // Load plan from Firestore user document (existing users have plan field)
-      if (!isNew && userDoc.exists()) {
-        const userData = userDoc.data();
+      if (userDoc.exists() && userData) {
         drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
       }
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
+
+      // Release lock AFTER state is set to prevent onAuthStateChanged from overwriting
+      isLoggingIn = false;
+
       useTerminalStore.setState({ userId: userCredential.user.uid });
 
       // Update projectStore and reload user's projects
@@ -954,7 +971,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // Register this device as active BEFORE onAuthStateChanged can check
       await deviceService.registerAsActiveDevice(userCredential.user.uid);
-      isLoggingIn = false;
 
       const drapeUser = mapFirebaseUser(userCredential.user);
 
@@ -979,6 +995,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           email: userCredential.user.email,
           displayName: drapeUser.displayName,
           photoURL: userCredential.user.photoURL,
+          hasCreatedFirstProject: false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           provider: 'apple',
@@ -990,15 +1007,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }, { merge: true });
       }
 
-      const isNew = !userDoc.exists();
+      const userData = userDoc.exists() ? userDoc.data() : null;
+      const isNew = !userDoc.exists() || userData?.hasCreatedFirstProject === false;
 
       // Load plan from Firestore user document (existing users have plan field)
-      if (!isNew && userDoc.exists()) {
-        const userData = userDoc.data();
+      if (userDoc.exists() && userData) {
         drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
       }
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
+
+      // Release lock AFTER state is set to prevent onAuthStateChanged from overwriting
+      isLoggingIn = false;
+
       useTerminalStore.setState({ userId: userCredential.user.uid });
 
       // Update projectStore and reload user's projects

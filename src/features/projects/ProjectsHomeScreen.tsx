@@ -122,6 +122,10 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const [loadingStep, setLoadingStep] = useState('');
   const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'pro' | 'team'>(user?.plan === 'starter' ? 'free' : (user?.plan || 'free') as 'free' | 'go' | 'pro' | 'team');
   const [showUpgradeCta, setShowUpgradeCta] = useState(true);
+  const handleNewProject = () => {
+    onCreateProject();
+  };
+
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -999,19 +1003,19 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
   return (
     <View style={styles.container}>
-      {/* Animated gradient background */}
+      {/* Branded gradient background — matching Create screen atmosphere */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <LinearGradient
-          colors={['#0d0515', '#180828', '#2d0845', '#0A0A0F']}
+          colors={['#0C0816', '#1a0a2e', '#2d0845', '#0C0816']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[StyleSheet.absoluteFill, { opacity: 0.3 }]}
+          style={[StyleSheet.absoluteFill, { opacity: 0.35 }]}
         />
         <LinearGradient
-          colors={['#0A0A0F', '#150520', '#0d0515', '#0A0A0F']}
+          colors={['#0C0816', '#1E1040', '#0C0816']}
           start={{ x: 1, y: 0 }}
           end={{ x: 0, y: 1 }}
-          style={[StyleSheet.absoluteFill, { opacity: 0.25 }]}
+          style={[StyleSheet.absoluteFill, { opacity: 0.3 }]}
         />
       </View>
 
@@ -1033,14 +1037,18 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             <View style={styles.nameWithBadge}>
               <Text style={styles.headerTitle} numberOfLines={1}>{userName}</Text>
               <View style={[styles.planBadge, {
-                backgroundColor: currentPlan === 'free' ? 'rgba(148,163,184,0.15)' :
-                  currentPlan === 'go' ? `${AppColors.primary}15` :
-                    currentPlan === 'pro' ? `${AppColors.primary}15` : '#F472B615'
+                backgroundColor: currentPlan === 'free' ? AppColors.badge.background :
+                  currentPlan === 'go' ? AppColors.primaryAlpha.a14 :
+                    currentPlan === 'pro' ? AppColors.primaryAlpha.a14 : '#F472B615',
+                borderWidth: 1,
+                borderColor: currentPlan === 'free' ? AppColors.badge.border :
+                  currentPlan === 'go' ? AppColors.primaryAlpha.a22 :
+                    currentPlan === 'pro' ? AppColors.primaryAlpha.a22 : 'rgba(244,114,182,0.22)',
               }]}>
                 <Text style={[styles.planBadgeText, {
-                  color: currentPlan === 'free' ? '#94A3B8' :
-                    currentPlan === 'go' ? AppColors.primary :
-                      currentPlan === 'pro' ? AppColors.primary : '#F472B6'
+                  color: currentPlan === 'free' ? AppColors.badge.text :
+                    currentPlan === 'go' ? AppColors.primaryLight :
+                      currentPlan === 'pro' ? AppColors.primaryLight : '#F472B6'
                 }]}>
                   {currentPlan.toUpperCase()}
                 </Text>
@@ -1054,7 +1062,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           onPress={onSettings}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Ionicons name="settings-outline" size={24} color="rgba(255,255,255,0.5)" />
+          <Ionicons name="settings-outline" size={24} color="#B7B3C7" />
         </TouchableOpacity>
       </View>
 
@@ -1081,10 +1089,10 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               <TouchableOpacity
                 style={styles.actionCard}
                 activeOpacity={0.8}
-                onPress={onCreateProject}
+                onPress={handleNewProject}
               >
                 <LinearGradient
-                  colors={[AppColors.primary, '#5B3FD4']}
+                  colors={['#5035D0', '#6A4DE8']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={styles.actionCardGradient}
@@ -1144,13 +1152,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Ionicons name="close" size={14} color="rgba(255,255,255,0.35)" />
+                <Ionicons name="close" size={14} color="#8E89A1" />
               </TouchableOpacity>
 
               <View style={styles.upgradeCtaMain}>
                 <View style={styles.upgradeCtaContent}>
                   <View style={styles.upgradeCtaIconWrap}>
-                    <Ionicons name="rocket-outline" size={18} color={AppColors.primary} />
+                    <Ionicons name="rocket-outline" size={18} color={AppColors.iconColors.accent} />
                   </View>
                   <View style={styles.upgradeCtaText}>
                     <Text style={styles.upgradeCtaTitle}>{t('home.unlockPro')}</Text>
@@ -1158,7 +1166,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                   </View>
                 </View>
                 <View style={styles.upgradeCtaArrow}>
-                  <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.4)" />
+                  <Ionicons name="chevron-forward" size={16} color="#8E89A1" />
                 </View>
               </View>
             </TouchableOpacity>
@@ -1169,7 +1177,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         <View style={styles.projectsSection}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
-              <Ionicons name="time-outline" size={16} color="rgba(255,255,255,0.4)" />
+              <Ionicons name="time-outline" size={16} color={AppColors.text.tertiary} />
               <Text style={styles.sectionLabel}>{t('home.recent')}</Text>
             </View>
 
@@ -1197,9 +1205,9 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                     >
                       <View style={styles.projectIcon}>
                         {repoInfo ? (
-                          <Ionicons name="logo-github" size={22} color="rgba(255,255,255,0.7)" />
+                          <Ionicons name="logo-github" size={22} color={AppColors.iconColors.primary} />
                         ) : (
-                          <Ionicons name={getLanguageIcon(project.language) as any} size={22} color={langColor} />
+                          <Ionicons name={getLanguageIcon(project.language) as any} size={22} color={langColor || AppColors.iconColors.accent} />
                         )}
                       </View>
                       <View style={styles.projectInfo}>
@@ -1214,7 +1222,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                           <Text style={styles.projectTime}>{getTimeAgo(project.lastOpened || project.createdAt)}</Text>
                         </View>
                       </View>
-                      <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" />
+                      <Ionicons name="chevron-forward" size={16} color="#6F6A82" />
                     </TouchableOpacity>
                   </GlassWrapper>
                 );
@@ -1222,18 +1230,18 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               {/* See All Button */}
               <GlassWrapper key={`seeall-${focusKey}`} style={{ borderRadius: 100, overflow: 'hidden', alignSelf: 'center', marginTop: 32 }}>
                 <TouchableOpacity
-                  style={[styles.seeAllButton, { marginTop: 0, backgroundColor: 'rgba(20,20,22,0.5)' }]}
+                  style={[styles.seeAllButton, { marginTop: 0, backgroundColor: 'rgba(22, 18, 35, 0.7)' }]}
                   activeOpacity={0.7}
                   onPress={onMyProjects}
                 >
                   <Text style={styles.seeAllButtonText}>{t('seeAll')}</Text>
-                  <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.6)" />
+                  <Ionicons name="chevron-forward" size={14} color="#B7B3C7" />
                 </TouchableOpacity>
               </GlassWrapper>
             </>
           ) : (
             <View style={styles.emptyState}>
-              <Ionicons name="folder-open-outline" size={48} color="rgba(255,255,255,0.1)" />
+              <Ionicons name="folder-open-outline" size={48} color="rgba(255,255,255,0.08)" />
               <Text style={styles.emptyTitle}>{t('home.noProjects')}</Text>
               <Text style={styles.emptySubtitle}>{t('home.createFirstProject')}</Text>
             </View>
@@ -1591,7 +1599,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0C',
+    backgroundColor: '#0A0812',
   },
   // Header
   header: {
@@ -1601,8 +1609,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 56,
     paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(124, 92, 255, 0.04)',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -1622,12 +1630,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#fff',
+    color: '#F5F4FA',
     letterSpacing: -0.3,
   },
   headerSubtitle: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.4)',
+    color: '#7C788D',
     marginTop: 1,
   },
   // Scroll
@@ -1645,9 +1653,9 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.4)',
+    color: '#7C788D',
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 1,
   },
   // Quick Actions Row - compact cards
   quickActionsRow: {
@@ -1671,9 +1679,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   actionCardDark: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: 'rgba(22, 18, 35, 0.8)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(124, 92, 255, 0.08)',
   },
   actionCardGlass: {
     flex: 1,
@@ -1684,17 +1692,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: 'rgba(20,20,22,0.5)',
+    backgroundColor: 'rgba(22, 18, 35, 0.8)',
     borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(180, 160, 255, 0.10)',
+    borderTopColor: 'rgba(200, 180, 255, 0.12)',
   },
   actionCardTitle: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#fff',
+    color: '#F5F4FA',
   },
   actionCardSubtitle: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.5)',
+    color: '#B5B0C8',
     fontWeight: '500',
   },
   // Projects Section
@@ -1724,8 +1735,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 14,
-    backgroundColor: 'rgba(20,20,22,0.5)',
+    backgroundColor: 'rgba(22, 18, 35, 0.7)',
     borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(180, 160, 255, 0.08)',
+    borderTopColor: 'rgba(200, 180, 255, 0.10)',
   },
   projectIcon: {
     marginRight: 4,
@@ -1737,7 +1751,7 @@ const styles = StyleSheet.create({
   projectName: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#fff',
+    color: '#F5F4FA',
     marginBottom: 4,
   },
   projectMetaRow: {
@@ -1746,24 +1760,24 @@ const styles = StyleSheet.create({
   },
   projectRepoText: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.45)',
+    color: '#9D98B2',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     maxWidth: '55%',
   },
   projectLang: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.4)',
+    color: '#9D98B2',
   },
   metaDot: {
     width: 3,
     height: 3,
     borderRadius: 1.5,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.15)',
     marginHorizontal: 8,
   },
   projectTime: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.3)',
+    color: '#8A859E',
   },
   // Skeleton
   skeletonItem: {
@@ -1772,7 +1786,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 14,
     marginBottom: 8,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: 'rgba(22, 18, 35, 0.5)',
     borderRadius: 14,
   },
   skeletonIcon: {
@@ -1807,13 +1821,13 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.5)',
+    color: '#A7A3B8',
     marginTop: 16,
     marginBottom: 6,
   },
   emptySubtitle: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.3)',
+    color: '#7C788D',
     textAlign: 'center',
     paddingHorizontal: 40,
   },
@@ -1838,7 +1852,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   sheetContainer: {
-    backgroundColor: '#141416',
+    backgroundColor: '#140F22',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingBottom: 40,
@@ -2055,14 +2069,14 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 21,
     marginRight: 12,
-    borderWidth: 2,
-    borderColor: 'rgba(155, 138, 255, 0.2)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(124, 92, 255, 0.22)',
   },
   profilePlaceholder: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#5B3FD4',
+    backgroundColor: AppColors.primaryDeep,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -2099,7 +2113,9 @@ const styles = StyleSheet.create({
   },
   upgradeCta: {
     borderRadius: 14,
-    backgroundColor: 'rgba(20,20,22,0.5)',
+    backgroundColor: 'rgba(24, 18, 38, 0.8)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,92,255,0.10)',
     paddingVertical: 14,
     paddingHorizontal: 16,
     position: 'relative',
@@ -2136,11 +2152,11 @@ const styles = StyleSheet.create({
   upgradeCtaTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#fff',
+    color: '#F5F4FA',
   },
   upgradeCtaSubtitle: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.45)',
+    color: '#A8A3BC',
   },
   upgradeCtaArrow: {
     marginRight: 20,
@@ -2154,15 +2170,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     marginTop: 32,
     alignSelf: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: 'rgba(22, 18, 35, 0.7)',
     borderRadius: 100,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(124, 92, 255, 0.08)',
   },
   seeAllButtonText: {
     fontSize: 13,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.9)',
+    color: '#F1F0F7',
     letterSpacing: 0.4,
   },
   // Tutorial Styles

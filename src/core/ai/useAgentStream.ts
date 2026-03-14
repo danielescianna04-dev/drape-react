@@ -1,22 +1,26 @@
 /**
  * useAgentStream Hook
  * Manages streaming agent responses for project creation
+ * Uses react-native-sse for React Native SSE compatibility
  */
 
 import { useState, useCallback, useRef } from 'react';
+import EventSource from 'react-native-sse';
 import { config } from '../../config/config';
-import { getAuthHeaders } from '../api/getAuthToken';
+import { getAuthToken } from '../api/getAuthToken';
 
 export type AgentMode = 'fast' | 'planning';
 
 export interface ToolEvent {
-  type: 'tool_start' | 'tool_complete' | 'tool_error' | 'status' | 'complete';
+  type: 'tool_start' | 'tool_complete' | 'tool_error' | 'status' | 'complete' | 'message' | 'thinking' | 'iteration_start' | 'text_delta';
   tool?: string;
   input?: any;
   success?: boolean;
   error?: string;
   message?: string;
+  content?: string;
   timestamp?: number;
+  iteration?: number;
 }
 
 export interface UseAgentStreamOptions {
@@ -30,7 +34,9 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
   const [currentTool, setCurrentTool] = useState<string | null>(null);
   const [status, setStatus] = useState<'idle' | 'running' | 'complete' | 'error'>('idle');
   const [result, setResult] = useState<any>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const esRef = useRef<EventSource | null>(null);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const startStream = useCallback(
     async (projectId: string, mode: AgentMode, prompt: string) => {
@@ -46,136 +52,140 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
       setStatus('running');
       setResult(null);
 
-      // Create abort controller for cancellation
-      abortControllerRef.current = new AbortController();
-
-      const apiUrl = config.apiUrl;
-
       try {
+        const token = await getAuthToken();
+        const apiUrl = config.apiUrl;
 
-        const authHeaders = await getAuthHeaders();
-        const response = await fetch(`${apiUrl}/agent/stream`, {
+        const es = new EventSource(`${apiUrl}/agent/stream`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...authHeaders,
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
             projectId,
             mode,
             prompt,
           }),
-          signal: abortControllerRef.current.signal,
+          pollingInterval: 0,
         });
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
+        esRef.current = es;
 
-        const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error('No response body');
-        }
+        // Handle all SSE event types
+        const eventTypes = [
+          'tool_start', 'tool_input', 'tool_complete', 'tool_error',
+          'message', 'text_delta', 'thinking', 'thinking_start', 'thinking_end',
+          'iteration_start', 'status', 'complete', 'error', 'done',
+          'processing', 'heartbeat', 'plan_ready', 'usage',
+        ];
 
-        const decoder = new TextDecoder();
-        let buffer = '';
+        for (const eventType of eventTypes) {
+          es.addEventListener(eventType, (e: any) => {
+            if (!e.data) return;
 
-        while (true) {
-          const { done, value } = await reader.read();
+            try {
+              const eventData = JSON.parse(e.data);
+              const event: ToolEvent = {
+                ...eventData,
+                type: eventType as ToolEvent['type'],
+                timestamp: Date.now(),
+              };
 
-          if (done) {
-            break;
-          }
+              if (eventType === 'tool_start') {
+                setCurrentTool(event.tool || null);
+              } else if (eventType === 'tool_complete' || eventType === 'tool_error') {
+                setCurrentTool(null);
+              } else if (eventType === 'complete' || eventType === 'done') {
+                setStatus('complete');
+                setCurrentTool(null);
+                setIsStreaming(false);
 
-          // Decode chunk and add to buffer
-          buffer += decoder.decode(value, { stream: true });
-
-          // Process complete lines
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-          for (const line of lines) {
-            if (!line.trim()) continue;
-
-            // SSE format: "data: {...}"
-            if (line.startsWith('data: ')) {
-              try {
-                const eventData = JSON.parse(line.substring(6));
-                const event: ToolEvent = {
-                  ...eventData,
-                  timestamp: Date.now(),
-                };
-
-                // Update state based on event type
-                if (event.type === 'tool_start') {
-                  setCurrentTool(event.tool || null);
-                } else if (event.type === 'tool_complete' || event.type === 'tool_error') {
-                  setCurrentTool(null);
-                } else if (event.type === 'complete') {
-                  setStatus('complete');
-                  setCurrentTool(null);
-                  if (event.message) {
-                    try {
-                      const resultData = JSON.parse(event.message);
-                      setResult(resultData);
-                      options.onComplete?.(resultData);
-                    } catch {
-                      setResult({ message: event.message });
-                      options.onComplete?.({ message: event.message });
-                    }
-                  }
+                if (eventData.result || eventData.message) {
+                  const resultData = eventData.result || eventData;
+                  setResult(resultData);
+                  optionsRef.current.onComplete?.(resultData);
+                } else {
+                  optionsRef.current.onComplete?.({ success: true });
                 }
 
-                // Add event to list
-                setEvents((prev) => [...prev, event]);
-              } catch (error) {
-                console.error('[useAgentStream] Failed to parse event:', error);
+                es.close();
+                esRef.current = null;
+                return;
+              } else if (eventType === 'error') {
+                setStatus('error');
+                setIsStreaming(false);
+                optionsRef.current.onError?.(eventData.error || eventData.message || 'Agent error');
+                es.close();
+                esRef.current = null;
+                return;
               }
+
+              // Skip heartbeats and processing from the events list
+              if (eventType !== 'heartbeat' && eventType !== 'processing') {
+                setEvents((prev) => [...prev, event]);
+              }
+            } catch (parseErr) {
+              console.warn('[useAgentStream] Failed to parse event:', eventType, parseErr);
             }
-          }
+          });
         }
 
-        if (status !== 'complete') {
-          setStatus('complete');
-        }
+        // Handle generic message event (unnamed SSE events sent as "data: {...}")
+        es.addEventListener('message', (e: any) => {
+          if (!e.data) return;
+          try {
+            const eventData = JSON.parse(e.data);
+            if (eventData.type) {
+              const event: ToolEvent = { ...eventData, timestamp: Date.now() };
+              setEvents((prev) => [...prev, event]);
+            }
+          } catch (_) {}
+        });
+
+        // Handle connection errors
+        es.addEventListener('error', (e: any) => {
+          console.error('[useAgentStream] SSE error:', e);
+          // Only treat as fatal if we haven't completed
+          if (status !== 'complete') {
+            setStatus('error');
+            setIsStreaming(false);
+            const errorMsg = e?.message || 'Connection error';
+            optionsRef.current.onError?.(errorMsg);
+            es.close();
+            esRef.current = null;
+          }
+        });
+
       } catch (error: any) {
-        if (error.name === 'AbortError') {
-          setStatus('idle');
-        } else {
-          console.error('[useAgentStream] Stream error:', error);
-          setStatus('error');
-          setEvents((prev) => [
-            ...prev,
-            {
-              type: 'tool_error',
-              error: error.message || 'Unknown error',
-              timestamp: Date.now(),
-            },
-          ]);
-          options.onError?.(error.message || 'Unknown error');
-        }
-      } finally {
+        console.error('[useAgentStream] Stream setup error:', error);
+        setStatus('error');
         setIsStreaming(false);
-        setCurrentTool(null);
-        abortControllerRef.current = null;
+        optionsRef.current.onError?.(error.message || 'Failed to start stream');
       }
     },
-    [isStreaming, status, options]
+    [isStreaming, status]
   );
 
   const cancel = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
     }
+    setIsStreaming(false);
+    setStatus('idle');
   }, []);
 
   const reset = useCallback(() => {
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
     setIsStreaming(false);
     setEvents([]);
     setCurrentTool(null);
     setStatus('idle');
     setResult(null);
-    abortControllerRef.current = null;
   }, []);
 
   return {

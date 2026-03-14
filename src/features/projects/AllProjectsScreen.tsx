@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useTabStore } from '../../core/tabs/tabStore';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
+import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../shared/theme/colors';
 import { trackProjectDelete, trackProjectFilter, trackProjectBulkDelete, trackError } from '../../core/services/analyticsService';
 
@@ -396,6 +397,21 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
 
   return (
     <View style={styles.container}>
+      {/* Branded gradient background */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <LinearGradient
+          colors={['#0C0816', '#1a0a2e', '#2d0845', '#0C0816']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[StyleSheet.absoluteFill, { opacity: 0.35 }]}
+        />
+        <LinearGradient
+          colors={['#0C0816', '#1E1040', '#0C0816']}
+          start={{ x: 1, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[StyleSheet.absoluteFill, { opacity: 0.3 }]}
+        />
+      </View>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -615,7 +631,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0C',
+    backgroundColor: '#0A0812',
   },
   header: {
     flexDirection: 'row',
