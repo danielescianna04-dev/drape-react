@@ -63,6 +63,7 @@
     "newBranchName": "New branch name",
     "branchCreated": "Branch created",
     "branchSwitched": "Branch switched",
+    "pushed": "Pushed",
     "selectBranch": "Select branch",
     "defaultBranch": "default",
     "loadingCommits": "Loading commits...",

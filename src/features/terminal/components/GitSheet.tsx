@@ -111,6 +111,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const [remoteHead, setRemoteHead] = useState<string | null>(null);
   const [aheadCount, setAheadCount] = useState(0);
   const [behindCount, setBehindCount] = useState(0);
+  const [commitBranchMap, setCommitBranchMap] = useState<Record<string, string[]>>({});
   const [isDetachedHead, setIsDetachedHead] = useState(false);
   const [detachedAt, setDetachedAt] = useState<string | null>(null);
   const previousBranchRef = useRef<string>('main');
@@ -122,11 +123,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const [expandedCommitDiff, setExpandedCommitDiff] = useState<string | null>(null);
   const [expandedCommitDiffLoading, setExpandedCommitDiffLoading] = useState(false);
   const [showPushModal, setShowPushModal] = useState(false);
-  const [pushBranch, setPushBranch] = useState<string>('');
-  const [pushRemote, setPushRemote] = useState<string>('origin');
-  const [pushForcePush, setPushForcePush] = useState(false);
-  const [pushTags, setPushTags] = useState(false);
-  const [pushBranchPickerOpen, setPushBranchPickerOpen] = useState(false);
+  const [pushDestBranch, setPushDestBranch] = useState<string>('');
+  const [pushDestPickerOpen, setPushDestPickerOpen] = useState(false);
   const [showPullModal, setShowPullModal] = useState(false);
   const [pullBranch, setPullBranch] = useState<string>('');
   const [pullRemote, setPullRemote] = useState<string>('origin');
@@ -219,7 +217,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       setExpandedCommitDiff(null);
       setShowPushModal(false);
       setShowPullModal(false);
-      setPushBranchPickerOpen(false);
       setPullBranchPickerOpen(false);
       setShowCreateBranch(false);
       setNewBranchName('');
@@ -235,21 +232,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     }
   }, [visible, currentWorkstation?.id]);
 
-  const expandToTab = useCallback(() => {
-    onClose();
-    // Add or switch to git tab
-    const existingTab = tabs.find(t => t.id === 'github-main');
-    if (existingTab) {
-      setActiveTab('github-main');
-    } else {
-      addTab({
-        id: 'github-main',
-        type: 'github',
-        title: 'Git',
-        data: {},
-      });
-    }
-  }, [onClose, tabs, setActiveTab, addTab]);
 
   const loadAccountInfo = async (): Promise<GitAccount[]> => {
     const startTime = Date.now();
@@ -522,6 +504,15 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         if (localData.behind !== undefined) setBehindCount(localData.behind);
         setIsDetachedHead(!!localData.isDetachedHead);
         setDetachedAt(localData.detachedAt || null);
+        if (localData.commitBranches) setCommitBranchMap(localData.commitBranches);
+
+        // Default filter to current branch (avoid showing other branches' commits)
+        if (localData.branch && selectedBranchFilter === null && localData.commitBranches) {
+          const branchNames = new Set(Object.values(localData.commitBranches as Record<string, string[]>).flat());
+          if (branchNames.size > 1) {
+            setSelectedBranchFilter(localData.branch);
+          }
+        }
 
         // Merge local commits with existing GitHub commits
         // Local commits from backend include unpushed commits
@@ -772,14 +763,10 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       return;
     }
 
-    // For push, open config modal instead of pushing directly
+    // Push: open modal to select destination branch
     if (action === 'push') {
-      const activeBranch = branches.find(b => b.isCurrent)?.name || currentBranch;
-      setPushBranch(activeBranch);
-      setPushRemote('origin');
-      setPushForcePush(false);
-      setPushTags(false);
-      setPushBranchPickerOpen(false);
+      setPushDestBranch(currentBranch);
+      setPushDestPickerOpen(false);
       setShowPushModal(true);
       return;
     }
@@ -790,6 +777,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const executePush = async () => {
     setShowPushModal(false);
     setActionLoading('push');
+    const branch = branches.find(b => b.isCurrent)?.name || currentBranch;
+    const destBranch = pushDestBranch || branch;
     try {
       const token = await gitAccountService.getToken(linkedAccount!, userId);
       const authHeaders = await getAuthHeaders();
@@ -801,16 +790,21 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           'X-Git-Token': token || '',
         },
         body: JSON.stringify({
-          branch: pushBranch,
-          remote: pushRemote,
-          forcePush: pushForcePush,
-          pushTags,
+          branch,
+          remoteBranch: destBranch,
+          remote: 'origin',
+          forcePush: false,
+          pushTags: false,
           setUpstream: true,
         }),
       });
       const data = await response.json();
       if (data.success) {
-        Alert.alert(t('common:success'), 'Push complete');
+        const output = (data.output || '').trim();
+        const detail = output.includes('up-to-date')
+          ? `${destBranch}: already up-to-date`
+          : `${branch} → origin/${destBranch}`;
+        Alert.alert(t('common:success'), detail);
         useGitCacheStore.getState().clearCache(currentWorkstation!.id);
         isLoadingRef.current = false;
         await loadGitData();
@@ -1008,12 +1002,22 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   };
 
   // Branch filter: displayCommits returns filtered or all commits
-  const BRANCH_COLORS = ['#9B8AFF', '#3FB950', '#F97316', '#22D3EE', '#F472B6', '#FBBF24'];
+  const BRANCH_COLORS = ['#9B8AFF', '#F97316', '#22D3EE', '#F472B6', '#FBBF24', '#3FB950'];
 
   const displayCommits = useMemo(() => {
     if (selectedBranchFilter === null) return commits;
+    // Use commitBranchMap for local filtering when available
+    if (Object.keys(commitBranchMap).length > 0) {
+      return commits.filter(c => {
+        const hash = c.shortHash || c.hash?.substring(0, 7);
+        if (!hash) return true; // no hash → show it
+        const branches = commitBranchMap[hash];
+        if (!branches) return true; // not in map (older commit) → show it
+        return branches.includes(selectedBranchFilter);
+      });
+    }
     return filteredCommits;
-  }, [selectedBranchFilter, commits, filteredCommits]);
+  }, [selectedBranchFilter, commits, filteredCommits, commitBranchMap]);
 
   const branchColorMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -1027,27 +1031,27 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     return map;
   }, [branches]);
 
-  // Pre-compute timeline color per commit in "All" view
-  // Uses branch refs (local or remote) on commits; once a non-current branch is found,
-  // all subsequent commits inherit that color until another branch ref appears
+  // Pre-compute timeline color per commit using backend branch membership
   const commitTimelineColors = useMemo(() => {
+    const defaultColor = branchColorMap[currentBranch || 'main'] || BRANCH_COLORS[0];
     const colors: string[] = [];
-    let activeBranch = currentBranch || 'main';
     for (const c of displayCommits) {
-      // Check for a branch ref that indicates a different branch
-      const localRef = c.branches?.find(b => b !== currentBranch && !b.startsWith('origin/'));
-      const remoteRef = !localRef
-        ? c.branches?.find(b => b.startsWith('origin/') && b !== `origin/${currentBranch}` && b !== 'origin/HEAD')
-        : null;
-      const branchName = localRef || (remoteRef ? remoteRef.replace('origin/', '') : null);
-      // Also check if this commit has current branch ref → switch back
-      const hasCurrentRef = c.branches?.some(b => b === currentBranch || b === `origin/${currentBranch}`);
-      if (hasCurrentRef && !localRef) activeBranch = currentBranch || 'main';
-      else if (branchName) activeBranch = branchName;
-      colors.push(branchColorMap[activeBranch] || BRANCH_COLORS[0]);
+      const hash = c.shortHash || c.hash?.substring(0, 7);
+      const memberBranches = hash ? commitBranchMap[hash] : null;
+      if (memberBranches && memberBranches.length > 0) {
+        if (memberBranches.includes(currentBranch)) {
+          // On current branch (even if also on others) → current branch color
+          colors.push(defaultColor);
+        } else {
+          // Exclusively on another branch → that branch's color
+          colors.push(branchColorMap[memberBranches[0]] || BRANCH_COLORS[0]);
+        }
+      } else {
+        colors.push(defaultColor);
+      }
     }
     return colors;
-  }, [displayCommits, currentBranch, branchColorMap]);
+  }, [displayCommits, currentBranch, branchColorMap, commitBranchMap]);
 
   // Get all changed files for selection (include staged files too — they're still changes)
   // Deduplicate: a file can appear in multiple categories (e.g. staged + deleted)
@@ -1507,29 +1511,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             </View>
           </View>
 
-          {/* Branch & Actions Row */}
+          {/* Actions Row */}
           <View style={styles.branchRow}>
-            <View style={styles.branchBadge}>
-              <Ionicons name="git-branch" size={14} color={isDetachedHead ? '#f59e0b' : AppColors.primary} />
-              <Text style={[styles.branchText, isDetachedHead && { color: '#f59e0b' }]}>{currentBranch}</Text>
-            </View>
-            {isDetachedHead && (
-              <View style={styles.detachedPill}>
-                <Text style={styles.detachedPillText}>detached</Text>
-              </View>
-            )}
-            {aheadCount > 0 && (
-              <View style={styles.aheadPill}>
-                <Ionicons name="arrow-up" size={10} color={AppColors.primary} />
-                <Text style={styles.aheadPillText}>{aheadCount}</Text>
-              </View>
-            )}
-            {behindCount > 0 && (
-              <View style={styles.behindPill}>
-                <Ionicons name="arrow-down" size={10} color="#f59e0b" />
-                <Text style={styles.behindPillText}>{behindCount}</Text>
-              </View>
-            )}
             <View style={styles.gitActions}>
               <TouchableOpacity
                 style={styles.gitActionBtn}
@@ -1580,7 +1563,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             </View>
           </View>
-
           {/* Tabs */}
           <View style={styles.tabs}>
             {(['commits', 'branches', 'changes'] as const).map((section) => (
@@ -1598,12 +1580,9 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                   <Text style={[styles.tabText, activeSection === section && styles.tabTextActive]}>
                     {section === 'commits' ? t('git.commit') : section === 'branches' ? t('git.branch') : t('git.changes')}
                   </Text>
-                  {section === 'changes' && (statusRefreshing || allChangedFiles.length > 0) && (
+                  {section === 'changes' && isGitRepo && allChangedFiles.length > 0 && (
                     <View style={styles.changesBadge}>
-                      {statusRefreshing && allChangedFiles.length === 0
-                        ? <ActivityIndicator size={10} color="#fff" />
-                        : <Text style={styles.changesBadgeText}>{allChangedFiles.length}</Text>
-                      }
+                      <Text style={styles.changesBadgeText}>{allChangedFiles.length}</Text>
                     </View>
                   )}
                 </View>
@@ -1629,11 +1608,28 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                   <Text style={styles.loadingText}>{errorMsg}</Text>
                 )}
               </View>
+            ) : !isGitRepo && !repoUrl ? (
+              <View style={styles.emptyState}>
+                <View style={styles.connectGitIcon}>
+                  <Ionicons name="git-branch-outline" size={32} color="rgba(255,255,255,0.4)" />
+                </View>
+                <Text style={styles.connectGitTitle}>{t('connectRepo.title')}</Text>
+                <Text style={styles.connectGitSubtitle}>
+                  {t('connectRepo.noAccountsAvailable')}
+                </Text>
+                <TouchableOpacity
+                  style={styles.connectGitButton}
+                  onPress={() => { setShowConnectModal(true); trackGitConnectRepo(); }}
+                >
+                  <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                  <Text style={styles.connectGitButtonText}>{t('connectRepo.title')}</Text>
+                </TouchableOpacity>
+              </View>
             ) : activeSection === 'commits' ? (
               <View style={styles.commitsList}>
 
                 {/* Branch filter pills */}
-                {branches.filter(b => !b.name.startsWith('origin/')).length > 1 && (
+                {(branches.filter(b => !b.name.startsWith('origin/')).length > 1 || new Set(Object.values(commitBranchMap).flat()).size > 1) && (
                   <View style={styles.branchFilterContainer}>
                     <TouchableOpacity
                       style={[styles.branchFilterPill, selectedBranchFilter === null && styles.branchFilterPillActive]}
@@ -1703,7 +1699,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                   </TouchableOpacity>
                 )}
 
-                {!branchFilterLoading && displayCommits.slice(0, 10).map((commit, index) => {
+                {!branchFilterLoading && displayCommits.map((commit, index) => {
                   // Determine if this is the detached HEAD position
                   const isDetachedHere = isDetachedHead && detachedAt && commit.shortHash === detachedAt;
                   // Determine if this commit is pushed by comparing with remoteHead
@@ -1716,13 +1712,13 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
                   return (
                   <React.Fragment key={commit.hash || index}>
-                  {/* Full-width origin/branch separator — like Fork */}
-                  {isRemoteHead && !commit.isHead && (selectedBranchFilter === null || selectedBranchFilter === currentBranch) && (
+                  {/* Full-width separator — sits right below unpushed commits */}
+                  {index === aheadCount && aheadCount > 0 && selectedBranchFilter === null && (
                     <View style={styles.remoteSeparator}>
                       <View style={styles.remoteSeparatorLine} />
                       <View style={styles.remoteSeparatorBadge}>
-                        <Ionicons name="cloud-outline" size={11} color="#22c55e" />
-                        <Text style={styles.remoteSeparatorText}>origin/{currentBranch}</Text>
+                        <Ionicons name="checkmark-circle-outline" size={11} color="#8b8b8b" />
+                        <Text style={styles.remoteSeparatorText}>{t('terminal:git.pushed')}</Text>
                       </View>
                       <View style={styles.remoteSeparatorLine} />
                     </View>
@@ -1759,7 +1755,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                                 <View style={styles.timelineDotInnerDetached} />
                               )}
                             </View>
-                            {index < Math.min(displayCommits.length - 1, 9) && (
+                            {index < displayCommits.length - 1 && (
                               <View style={[
                                 styles.timelineLine,
                                 styles.timelineLineBottom,
@@ -1896,24 +1892,13 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                     )}
                   </View>
                 )}
-                {displayCommits.length >= 10 && (
-                  <TouchableOpacity style={styles.showMoreBtn} onPress={() => { expandToTab(); trackGitCommitView(); }}>
-                    <Text style={styles.showMoreText}>{t('terminal:git.showAllCommits', { count: displayCommits.length })}</Text>
-                    <Ionicons name="chevron-forward" size={14} color={AppColors.primary} />
-                  </TouchableOpacity>
-                )}
               </View>
             ) : activeSection === 'branches' ? (
               <View style={styles.branchesList}>
-                {branches.map((branch) => (
-                  <TouchableOpacity
+                {branches.filter(b => !b.isRemote).map((branch) => (
+                  <View
                     key={branch.name}
                     style={styles.branchItem}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      if (!branch.isCurrent) handleCheckoutBranch(branch.name);
-                    }}
-                    disabled={branch.isCurrent || !!actionLoading}
                   >
                     <View style={styles.branchItemLeft}>
                       <Ionicons
@@ -1925,16 +1910,12 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         {branch.name}
                       </Text>
                     </View>
-                    {branch.isCurrent ? (
+                    {branch.isCurrent && (
                       <View style={styles.currentBadge}>
                         <Text style={styles.currentBadgeText}>{t('terminal:git.current')}</Text>
                       </View>
-                    ) : actionLoading === 'checkout' ? (
-                      <ActivityIndicator size="small" color={AppColors.primary} />
-                    ) : (
-                      <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.2)" />
                     )}
-                  </TouchableOpacity>
+                  </View>
                 ))}
 
                 {/* Create Branch */}
@@ -1985,7 +1966,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             ) : (
               <View style={styles.changesContainer}>
-                {allChangedFiles.length > 0 || statusRefreshing ? (
+                {allChangedFiles.length > 0 ? (
                   <>
                     {/* Select All Header */}
                     <TouchableOpacity style={styles.selectAllRow} onPress={() => { toggleSelectAll(); trackGitSelectAll(); }}>
@@ -2945,7 +2926,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         </View>
       )}
 
-      {/* Push Config Modal — absolute overlay */}
+      {/* Push Modal — like Fork: Branch (source) + To (destination) */}
       {showPushModal && (
         <View style={[StyleSheet.absoluteFill, styles.commitModalBackdrop]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowPushModal(false)} />
@@ -2954,48 +2935,47 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               <Ionicons name="cloud-upload-outline" size={22} color="#fff" />
               <Text style={styles.pushModalTitle}>Push</Text>
             </View>
-            <Text style={styles.pushModalSubtitle}>Push your local changes to remote repository</Text>
 
-            {/* Branch */}
+            {/* Source branch (read-only) */}
             <View style={styles.pushModalRow}>
               <Text style={styles.pushModalLabel}>Branch:</Text>
+              <View style={[styles.pushModalPicker, { opacity: 0.6 }]}>
+                <Ionicons name="git-branch-outline" size={14} color={AppColors.primary} />
+                <Text style={styles.pushModalPickerText} numberOfLines={1}>{currentBranch}</Text>
+              </View>
+            </View>
+
+            {/* Destination branch (selectable) */}
+            <View style={styles.pushModalRow}>
+              <Text style={styles.pushModalLabel}>To:</Text>
               <TouchableOpacity
                 style={styles.pushModalPicker}
-                onPress={() => setPushBranchPickerOpen(!pushBranchPickerOpen)}
+                onPress={() => setPushDestPickerOpen(!pushDestPickerOpen)}
               >
-                <Ionicons name="git-branch-outline" size={14} color={AppColors.primary} />
-                <Text style={styles.pushModalPickerText} numberOfLines={1}>{pushBranch}</Text>
+                <Ionicons name="cloud-outline" size={14} color={AppColors.primary} />
+                <Text style={styles.pushModalPickerText} numberOfLines={1}>origin/{pushDestBranch}</Text>
                 <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.4)" />
               </TouchableOpacity>
             </View>
 
-            {/* Branch picker dropdown */}
-            {pushBranchPickerOpen && (
+            {/* Destination picker dropdown */}
+            {pushDestPickerOpen && (
               <View style={styles.pushBranchDropdown}>
                 <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
-                  {branches.filter(b => !b.isRemote || b.isCurrent).map(b => (
+                  {branches.filter(b => !b.isRemote).map(b => (
                     <TouchableOpacity
                       key={b.name}
-                      style={[styles.pushBranchOption, b.name === pushBranch && styles.pushBranchOptionActive]}
-                      onPress={() => { setPushBranch(b.name); setPushBranchPickerOpen(false); }}
+                      style={[styles.pushBranchOption, b.name === pushDestBranch && styles.pushBranchOptionActive]}
+                      onPress={() => { setPushDestBranch(b.name); setPushDestPickerOpen(false); }}
                     >
-                      <Ionicons name="git-branch-outline" size={14} color={b.name === pushBranch ? AppColors.primary : 'rgba(255,255,255,0.5)'} />
-                      <Text style={[styles.pushBranchOptionText, b.name === pushBranch && { color: AppColors.primary }]}>{b.name}</Text>
-                      {b.name === pushBranch && <Ionicons name="checkmark" size={16} color={AppColors.primary} />}
+                      <Ionicons name="cloud-outline" size={14} color={b.name === pushDestBranch ? AppColors.primary : 'rgba(255,255,255,0.5)'} />
+                      <Text style={[styles.pushBranchOptionText, b.name === pushDestBranch && { color: AppColors.primary }]}>origin/{b.name}</Text>
+                      {b.name === pushDestBranch && <Ionicons name="checkmark" size={16} color={AppColors.primary} />}
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
               </View>
             )}
-
-            {/* To */}
-            <View style={styles.pushModalRow}>
-              <Text style={styles.pushModalLabel}>To:</Text>
-              <View style={[styles.pushModalPicker, { opacity: 0.6 }]}>
-                <Ionicons name="git-branch-outline" size={14} color="rgba(255,255,255,0.5)" />
-                <Text style={styles.pushModalPickerText} numberOfLines={1}>{pushRemote}/{pushBranch}</Text>
-              </View>
-            </View>
 
             {/* Actions */}
             <View style={styles.pushModalActions}>
@@ -3013,6 +2993,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           </View>
         </View>
       )}
+
     </Modal>
   );
 };
@@ -3117,6 +3098,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     color: AppColors.primary,
+  },
+  branchSwitcherDropdown: {
+    backgroundColor: 'rgba(30,30,30,0.95)',
+    borderRadius: 10,
+    marginHorizontal: 16,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
+  },
+  branchSwitcherOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  branchSwitcherOptionActive: {
+    backgroundColor: `${AppColors.primary}10`,
+  },
+  branchSwitcherOptionText: {
+    flex: 1,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.7)',
+    fontWeight: '500',
   },
   gitActions: {
     flexDirection: 'row',
@@ -4147,13 +4155,13 @@ const styles = StyleSheet.create({
   remoteSeparatorLine: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(34,197,94,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   remoteSeparatorBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(34,197,94,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 4,
@@ -4162,7 +4170,7 @@ const styles = StyleSheet.create({
   remoteSeparatorText: {
     fontSize: 10,
     fontWeight: '600',
-    color: 'rgba(34,197,94,0.9)',
+    color: 'rgba(255,255,255,0.5)',
   },
   // Commit context menu
   contextMenuContainer: {

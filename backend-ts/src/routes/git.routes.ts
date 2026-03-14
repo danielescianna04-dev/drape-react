@@ -63,16 +63,20 @@ gitRouter.get('/status/:projectId', asyncHandler(async (req, res) => {
   const activeBranch = branch || detachedFromBranch || 'main';
 
   // Always log from the branch tip (not HEAD) so we see all commits even in detached HEAD
-  const [logResult, aheadBehindResult] = await Promise.all([
-    execShell(git(`log ${isDetachedHead ? shellEscape(activeBranch) : 'HEAD'} --oneline -10`) + ' 2>/dev/null || echo ""', dir),
-    execShell(`(${git(`rev-list --left-right --count ${isDetachedHead ? shellEscape(activeBranch) : 'HEAD'}...origin/HEAD`)} || ${git(`rev-list --left-right --count ${isDetachedHead ? shellEscape(activeBranch) : 'HEAD'}...origin/main`)}) 2>/dev/null || echo "0\t0"`, dir),
+  const headRef = isDetachedHead ? shellEscape(activeBranch) : 'HEAD';
+  const [logResult, unpushedResult, behindResult] = await Promise.all([
+    execShell(git(`log --all --topo-order --oneline -15`) + ' 2>/dev/null || echo ""', dir),
+    // Count commits not on ANY remote branch (truly unpushed)
+    execShell(git(`log ${headRef} --not --remotes --oneline`) + ' 2>/dev/null || echo ""', dir),
+    // Behind count: commits on origin that we don't have
+    execShell(`(${git(`rev-list --count ${headRef}..origin/HEAD`)} || ${git(`rev-list --count ${headRef}..origin/main`)}) 2>/dev/null || echo "0"`, dir),
   ]);
 
   // Remote tracking info
   const remoteHead = remoteHeadResult.stdout.trim() || null;
-  const aheadBehindParts = aheadBehindResult.stdout.trim().split('\t');
-  const ahead = parseInt(aheadBehindParts[0]) || 0;
-  const behind = parseInt(aheadBehindParts[1]) || 0;
+  const unpushedLines = unpushedResult.stdout.trim().split('\n').filter(Boolean);
+  const ahead = unpushedLines.length > 0 && unpushedLines[0] !== '' ? unpushedLines.length : 0;
+  const behind = parseInt(behindResult.stdout.trim()) || 0;
   // IMPORTANT: use trimEnd() not trim() — trim() removes leading space from the first line,
   // which corrupts the XY status columns of git status --porcelain format.
   const lines = statusResult.stdout.trimEnd().split('\n').filter(l => l.length >= 3);
@@ -100,6 +104,18 @@ gitRouter.get('/status/:projectId', asyncHandler(async (req, res) => {
     return { hash, message: msgParts.join(' ') };
   });
 
+  // Build per-branch commit membership: for each local branch, which commits are on it
+  const branchListResult = await execShell(git('branch --format="%(refname:short)"') + ' 2>/dev/null || echo ""', dir);
+  const localBranches = branchListResult.stdout.trim().split('\n').filter(Boolean);
+  const commitBranches: Record<string, string[]> = {}; // hash -> [branch names]
+  await Promise.all(localBranches.map(async (b) => {
+    const result = await execShell(git(`log ${shellEscape(b)} --first-parent --format="%h" -15`) + ' 2>/dev/null || echo ""', dir);
+    for (const h of result.stdout.trim().split('\n').filter(Boolean)) {
+      if (!commitBranches[h]) commitBranches[h] = [];
+      if (!commitBranches[h].includes(b)) commitBranches[h].push(b);
+    }
+  }));
+
   res.json({
     success: true,
     isGitRepo,
@@ -111,6 +127,7 @@ gitRouter.get('/status/:projectId', asyncHandler(async (req, res) => {
     status: statusResult.stdout,
     hasChanges: lines.length > 0,
     commits,
+    commitBranches,
     remoteHead,
     ahead,
     behind,
@@ -202,9 +219,10 @@ gitRouter.post('/pull/:projectId', asyncHandler(async (req, res) => {
 gitRouter.post('/push/:projectId', asyncHandler(async (req, res) => {
   const dir = projectDir(req.params.projectId);
   const token = (req.headers['x-git-token'] as string) || undefined;
-  const { branch, remote: targetRemote, forcePush, pushTags, setUpstream } = req.body || {};
+  const { branch, remoteBranch, remote: targetRemote, forcePush, pushTags, setUpstream } = req.body || {};
 
   const remoteName = targetRemote || 'origin';
+  log.info(`[Git Push] project=${req.params.projectId} branch=${branch} remoteBranch=${remoteBranch || branch} remote=${remoteName} hasToken=${!!token}`);
 
   if (token) {
     const remote = await execShell(git(`remote get-url ${shellEscape(remoteName)}`) + ' 2>/dev/null || echo ""', dir);
@@ -213,15 +231,74 @@ gitRouter.post('/push/:projectId', asyncHandler(async (req, res) => {
   }
 
   try {
-    let cmd = 'push';
-    if (forcePush) cmd += ' --force';
-    if (pushTags) cmd += ' --tags';
-    if (setUpstream) cmd += ' -u';
-    cmd += ` ${shellEscape(remoteName)}`;
-    if (branch) cmd += ` ${shellEscape(branch)}`;
+    const isCrossBranch = remoteBranch && remoteBranch !== branch;
+    let pushResult: { exitCode: number; stdout: string; stderr: string };
 
-    const result = await execShell(git(cmd) + ' 2>&1', dir, 60000);
-    res.json({ success: result.exitCode === 0, message: 'Push complete', output: stripTokenFromUrl(result.stdout), error: stripTokenFromUrl(result.stderr) });
+    if (isCrossBranch) {
+      // Cross-branch push: checkout target → merge source → push → checkout back
+      // This puts commits actually ON the target branch (like Fork does)
+      log.info(`[Git Push] cross-branch: merging ${branch} into ${remoteBranch}, then pushing ${remoteBranch}`);
+
+      // 0. Get committer identity from latest commit (needed for merge commit)
+      const authorInfo = await execShell(git(`log -1 --format="%an|||%ae"`) + ' 2>/dev/null || echo "Drape User|||noreply@drape.info"', dir);
+      const [authorName, authorEmail] = authorInfo.stdout.trim().split('|||');
+      const mergeGit = (cmd: string) => `git -c safe.directory='*' -c user.name=${shellEscape(authorName || 'Drape User')} -c user.email=${shellEscape(authorEmail || 'noreply@drape.info')} ${cmd}`;
+
+      // 1. Checkout target branch
+      const checkoutResult = await execShell(git(`checkout ${shellEscape(remoteBranch)}`) + ' 2>&1', dir, 15000);
+      if (checkoutResult.exitCode !== 0) {
+        log.warn(`[Git Push] checkout ${remoteBranch} failed: ${checkoutResult.stdout}`);
+        // Try checkout back to original branch
+        await execShell(git(`checkout ${shellEscape(branch)}`) + ' 2>&1', dir, 15000).catch(() => {});
+        res.json({ success: false, message: 'Checkout failed', output: checkoutResult.stdout, error: `Could not checkout ${remoteBranch}` });
+        return;
+      }
+
+      // 2. Merge source branch into target (--no-ff to create visible merge commit)
+      const mergeResult = await execShell(mergeGit(`merge --no-ff ${shellEscape(branch)} -m "Merge ${branch} into ${remoteBranch}"`) + ' 2>&1', dir, 30000);
+      if (mergeResult.exitCode !== 0) {
+        log.warn(`[Git Push] merge ${branch} into ${remoteBranch} failed: ${mergeResult.stdout}`);
+        // Abort merge and go back
+        await execShell(git('merge --abort') + ' 2>&1', dir, 10000).catch(() => {});
+        await execShell(git(`checkout ${shellEscape(branch)}`) + ' 2>&1', dir, 15000).catch(() => {});
+        res.json({ success: false, message: 'Merge failed', output: mergeResult.stdout, error: `Merge conflict: ${branch} → ${remoteBranch}` });
+        return;
+      }
+
+      // 3. Push target branch
+      let cmd = 'push';
+      if (forcePush) cmd += ' --force';
+      if (pushTags) cmd += ' --tags';
+      if (setUpstream) cmd += ' -u';
+      cmd += ` ${shellEscape(remoteName)} ${shellEscape(remoteBranch)}`;
+
+      log.info(`[Git Push] cmd: git ${cmd}`);
+      pushResult = await execShell(git(cmd) + ' 2>&1', dir, 60000);
+      log.info(`[Git Push] exitCode=${pushResult.exitCode} output=${stripTokenFromUrl(pushResult.stdout).substring(0, 300)}`);
+
+      // 4. Checkout back to original branch
+      await execShell(git(`checkout ${shellEscape(branch)}`) + ' 2>&1', dir, 15000).catch(() => {});
+    } else {
+      // Normal push: push current branch to same-named remote
+      let cmd = 'push';
+      if (forcePush) cmd += ' --force';
+      if (pushTags) cmd += ' --tags';
+      if (setUpstream) cmd += ' -u';
+      cmd += ` ${shellEscape(remoteName)}`;
+      if (branch) cmd += ` ${shellEscape(branch)}`;
+
+      log.info(`[Git Push] cmd: git ${cmd}`);
+      pushResult = await execShell(git(cmd) + ' 2>&1', dir, 60000);
+      log.info(`[Git Push] exitCode=${pushResult.exitCode} output=${stripTokenFromUrl(pushResult.stdout).substring(0, 300)}`);
+    }
+
+    // Fetch after push to update remote refs
+    if (pushResult.exitCode === 0) {
+      await execShell(git(`config remote.${shellEscape(remoteName)}.fetch '+refs/heads/*:refs/remotes/${shellEscape(remoteName)}/*'`), dir).catch(() => {});
+      await execShell(git(`fetch ${shellEscape(remoteName)}`) + ' 2>&1', dir, 30000).catch(() => {});
+    }
+
+    res.json({ success: pushResult.exitCode === 0, message: 'Push complete', output: stripTokenFromUrl(pushResult.stdout), error: stripTokenFromUrl(pushResult.stderr) });
   } finally {
     // Always reset remote URL to remove token, even on crash
     if (token) {

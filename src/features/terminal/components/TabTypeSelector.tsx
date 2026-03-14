@@ -34,13 +34,6 @@ const tabTypes: TabTypeOption[] = [
     gradient: ['rgba(0, 208, 132, 0.2)', 'rgba(0, 208, 132, 0.05)'],
   },
   {
-    type: 'github',
-    titleKey: 'tabSelector.types.github.title',
-    descriptionKey: 'tabSelector.types.github.description',
-    icon: 'logo-github',
-    gradient: ['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.05)'],
-  },
-  {
     type: 'browser',
     titleKey: 'tabSelector.types.browser.title',
     descriptionKey: 'tabSelector.types.browser.description',

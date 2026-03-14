@@ -300,7 +300,7 @@ function proxyRequest(
               proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
               proxyRes.on('end', () => {
                 let html = Buffer.concat(chunks).toString('utf-8');
-                const spaScript = `<script>history.replaceState(null,'','/');setTimeout(function(){var r=document.getElementById('root');if(r){var d=document.createElement('div');d.style.cssText='position:fixed;bottom:0;left:0;right:0;background:#222;color:#0f0;padding:8px;z-index:99999;font-size:11px;font-family:monospace;max-height:120px;overflow:auto;';d.textContent='[DIAG] children='+r.children.length+' html='+(r.innerHTML||'EMPTY').substring(0,300);document.body.appendChild(d);}},5000);</script>`;
+                const spaScript = `<script>history.replaceState(null,'','/');</script>`;
 
                 html = html.replace('<head>', `<head>${spaScript}`);
                 const responseHeaders = { ...proxyRes.headers };

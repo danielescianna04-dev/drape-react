@@ -1348,6 +1348,7 @@ export default function App() {
                             repositoryUrl={tab.data?.repositoryUrl}
                             userId={tab.data?.userId || 'anonymous'}
                             onClose={() => { }}
+                            refreshKey={tab.data?.refreshKey}
                           />
                         );
                       }

@@ -8,6 +8,7 @@ import { projectDetectorService } from './project-detector.service';
 import { dependencyService } from './dependency.service';
 import { devServerService } from './dev-server.service';
 import { containerLifecycleService } from './container-lifecycle.service';
+import { caseSensitivityService } from './case-sensitivity.service';
 import { execShell, shellEscape } from '../utils/helpers';
 import { config } from '../config';
 import path from 'path';
@@ -97,6 +98,9 @@ class WorkspaceService {
         await this.cloneRepository(projectId, repoUrl, githubToken, branch);
       }
     }
+
+    // Fix macOS→Linux case-sensitivity mismatches in imports
+    await caseSensitivityService.fix(projectId);
 
     // Detect project type
     const projectInfo = await projectDetectorService.detect(projectId);
@@ -238,6 +242,12 @@ class WorkspaceService {
         onProgress?.('clone', 'Cloning repository...');
         await this.cloneRepository(projectId, repoUrl, githubToken);
       }
+    }
+
+    // Fix macOS→Linux case-sensitivity mismatches in imports (e.g. leftbar.scss vs leftBar.scss)
+    const caseFixes = await caseSensitivityService.fix(projectId);
+    if (caseFixes > 0) {
+      log.info(`[Workspace] Fixed ${caseFixes} case-sensitivity mismatch(es) for ${projectId}`);
     }
 
     // Detect project

@@ -229,7 +229,7 @@ export const GitHubView = ({ tab }: Props) => {
       if (data.success) {
         setIsGitRepo(true);
         setBranches(data.branches || [{ name: data.currentBranch || 'main', isCurrent: true, isRemote: false }]);
-        setGitStatus(data.status || null);
+        setGitStatus(data.changes || null);
         setCurrentBranch(data.currentBranch || 'main');
 
         // Set local commits (backend now returns full format)
@@ -858,7 +858,7 @@ export const GitHubView = ({ tab }: Props) => {
   );
 
   // Changes (staged/unstaged)
-  const hasChanges = gitStatus && (gitStatus.staged.length > 0 || gitStatus.modified.length > 0 || gitStatus.untracked.length > 0);
+  const hasChanges = gitStatus && ((gitStatus.staged?.length || 0) > 0 || (gitStatus.modified?.length || 0) > 0 || (gitStatus.untracked?.length || 0) > 0);
 
   const renderChanges = () => (
     <View style={styles.section}>
@@ -887,10 +887,10 @@ export const GitHubView = ({ tab }: Props) => {
 
       {gitStatus ? (
         <>
-          {gitStatus.staged.length > 0 && (
+          {(gitStatus.staged?.length || 0) > 0 && (
             <>
-              <Text style={styles.sectionTitle}>{t('terminal:git.staged')} ({gitStatus.staged.length})</Text>
-              {gitStatus.staged.map((file) => {
+              <Text style={styles.sectionTitle}>{t('terminal:git.staged')} ({gitStatus.staged!.length})</Text>
+              {gitStatus.staged!.map((file) => {
                 const fileContent = (
                   <View style={styles.fileRowInner}>
                     <View style={styles.fileStatusBadge}>
@@ -919,12 +919,12 @@ export const GitHubView = ({ tab }: Props) => {
             </>
           )}
 
-          {gitStatus.modified.length > 0 && (
+          {(gitStatus.modified?.length || 0) > 0 && (
             <>
-              <Text style={[styles.sectionTitle, gitStatus.staged.length > 0 && { marginTop: 20 }]}>
-                {t('terminal:git.modified')} ({gitStatus.modified.length})
+              <Text style={[styles.sectionTitle, (gitStatus.staged?.length || 0) > 0 && { marginTop: 20 }]}>
+                {t('terminal:git.modified')} ({gitStatus.modified!.length})
               </Text>
-              {gitStatus.modified.map((file) => {
+              {gitStatus.modified!.map((file) => {
                 const fileContent = (
                   <View style={styles.fileRowInner}>
                     <View style={[styles.fileStatusBadge, styles.fileStatusModified]}>
@@ -953,12 +953,12 @@ export const GitHubView = ({ tab }: Props) => {
             </>
           )}
 
-          {gitStatus.untracked.length > 0 && (
+          {(gitStatus.untracked?.length || 0) > 0 && (
             <>
               <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
-                {t('terminal:git.untracked')} ({gitStatus.untracked.length})
+                {t('terminal:git.untracked')} ({gitStatus.untracked!.length})
               </Text>
-              {gitStatus.untracked.map((file) => {
+              {gitStatus.untracked!.map((file) => {
                 const fileContent = (
                   <View style={styles.fileRowInner}>
                     <View style={[styles.fileStatusBadge, styles.fileStatusUntracked]}>
@@ -987,7 +987,7 @@ export const GitHubView = ({ tab }: Props) => {
             </>
           )}
 
-          {gitStatus.staged.length === 0 && gitStatus.modified.length === 0 && gitStatus.untracked.length === 0 && (
+          {!gitStatus.staged?.length && !gitStatus.modified?.length && !gitStatus.untracked?.length && (
             <View style={styles.emptyState}>
               <Ionicons name="checkmark-circle" size={48} color="#00D084" />
               <Text style={styles.emptyText}>{t('terminal:git.noChanges')}</Text>
