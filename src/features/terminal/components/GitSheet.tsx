@@ -131,6 +131,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const [pullRebase, setPullRebase] = useState(false);
   const [pullStash, setPullStash] = useState(false);
   const [pullBranchPickerOpen, setPullBranchPickerOpen] = useState(false);
+  const [pullIntoBranch, setPullIntoBranch] = useState<string>('');
+  const [pullIntoPickerOpen, setPullIntoPickerOpen] = useState(false);
 
   // Branch filter state
   const [selectedBranchFilter, setSelectedBranchFilter] = useState<string | null>(null);
@@ -149,6 +151,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const accountsRef = useRef<GitAccount[]>([]);
   const isLoadingRef = useRef(false);
   const hasStartedRef = useRef(false); // Prevent double-start from React StrictMode
+  const skipAutoFilterRef = useRef(false); // Skip auto-filter after push/pull
 
   useEffect(() => {
     if (visible && currentWorkstation?.id) {
@@ -506,13 +509,11 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         setDetachedAt(localData.detachedAt || null);
         if (localData.commitBranches) setCommitBranchMap(localData.commitBranches);
 
-        // Default filter to current branch (avoid showing other branches' commits)
-        if (localData.branch && selectedBranchFilter === null && localData.commitBranches) {
-          const branchNames = new Set(Object.values(localData.commitBranches as Record<string, string[]>).flat());
-          if (branchNames.size > 1) {
-            setSelectedBranchFilter(localData.branch);
-          }
+        // Reset skip flag if set (after push/pull)
+        if (skipAutoFilterRef.current) {
+          skipAutoFilterRef.current = false;
         }
+        // Default to "All" view — no auto-filter to current branch
 
         // Merge local commits with existing GitHub commits
         // Local commits from backend include unpushed commits
@@ -526,17 +527,19 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 shortHash: lc.hash?.substring(0, 7),
                 message: lc.message,
                 author: '',
-                date: new Date(),
+                date: lc.authorDate ? new Date(lc.authorDate) : new Date(),
                 isHead: false,
               }));
 
             if (localOnly.length > 0) {
-              // Prepend local commits, mark first as HEAD (immutable)
-              const merged = [...localOnly, ...prev].map((c, i) => ({
-                ...c,
-                isHead: i === 0,
-                branch: i === 0 && localData.branch ? localData.branch : (i === 0 ? c.branch : undefined),
-              }));
+              // Merge local + existing commits, sorted by date (newest first)
+              const merged = [...localOnly, ...prev]
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                .map((c, i) => ({
+                  ...c,
+                  isHead: i === 0,
+                  branch: i === 0 && localData.branch ? localData.branch : (i === 0 ? c.branch : undefined),
+                }));
               return merged;
             }
             return prev;
@@ -759,6 +762,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       setPullRebase(false);
       setPullStash(allChangedFiles.length > 0);
       setPullBranchPickerOpen(false);
+      setPullIntoBranch(currentBranch);
+      setPullIntoPickerOpen(false);
       setShowPullModal(true);
       return;
     }
@@ -806,6 +811,10 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           : `${branch} → origin/${destBranch}`;
         Alert.alert(t('common:success'), detail);
         useGitCacheStore.getState().clearCache(currentWorkstation!.id);
+        // Show All commits after push so user sees the latest
+        skipAutoFilterRef.current = true;
+        setSelectedBranchFilter(null);
+        setActiveSection('commits');
         isLoadingRef.current = false;
         await loadGitData();
       } else {
@@ -834,6 +843,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         body: JSON.stringify({
           branch: pullBranch,
           remote: pullRemote,
+          intoBranch: pullIntoBranch || currentBranch,
           rebase: pullRebase,
           stashAndReapply: pullStash,
         }),
@@ -843,6 +853,9 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         Alert.alert(t('common:success'), 'Pull complete');
         useGitCacheStore.getState().clearCache(currentWorkstation!.id);
         useFileCacheStore.getState().clearCache(currentWorkstation!.id);
+        skipAutoFilterRef.current = true;
+        setSelectedBranchFilter(null);
+        setActiveSection('commits');
         isLoadingRef.current = false;
         await loadGitData();
       } else {
@@ -1895,7 +1908,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             ) : activeSection === 'branches' ? (
               <View style={styles.branchesList}>
-                {branches.filter(b => !b.isRemote).map((branch) => (
+                <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: '600', textTransform: 'uppercase', marginBottom: 8, letterSpacing: 0.5 }}>Local</Text>
+                {branches.filter(b => !b.isRemote && !b.name.startsWith('origin/')).map((branch) => (
                   <View
                     key={branch.name}
                     style={styles.branchItem}
@@ -1917,6 +1931,26 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                     )}
                   </View>
                 ))}
+
+                {/* Remote branches */}
+                {branches.filter(b => b.isRemote || b.name.startsWith('origin/')).length > 0 && (
+                  <>
+                    <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: '600', textTransform: 'uppercase', marginTop: 16, marginBottom: 8, letterSpacing: 0.5 }}>Remote</Text>
+                    {branches.filter(b => b.isRemote || b.name.startsWith('origin/')).map((branch) => {
+                      const shortName = branch.name.replace(/^origin\//, '');
+                      return (
+                        <View key={branch.name} style={styles.branchItem}>
+                          <View style={styles.branchItemLeft}>
+                            <Ionicons name="cloud-outline" size={14} color="rgba(255,255,255,0.35)" />
+                            <Text style={[styles.branchItemText, { color: 'rgba(255,255,255,0.5)' }]}>
+                              {shortName}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </>
+                )}
 
                 {/* Create Branch */}
                 {showCreateBranch ? (
@@ -2839,7 +2873,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               <Text style={styles.pushModalLabel}>Branch:</Text>
               <TouchableOpacity
                 style={styles.pushModalPicker}
-                onPress={() => setPullBranchPickerOpen(!pullBranchPickerOpen)}
+                onPress={() => { setPullBranchPickerOpen(!pullBranchPickerOpen); setPullIntoPickerOpen(false); }}
               >
                 <Ionicons name="git-branch-outline" size={14} color={AppColors.primary} />
                 <Text style={styles.pushModalPickerText} numberOfLines={1}>{pullBranch}</Text>
@@ -2880,14 +2914,37 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             )}
 
-            {/* Into — always the current local branch (read-only) */}
+            {/* Into — selectable local branch */}
             <View style={styles.pushModalRow}>
               <Text style={styles.pushModalLabel}>Into:</Text>
-              <View style={[styles.pushModalPicker, { opacity: 0.6 }]}>
-                <Ionicons name="git-branch-outline" size={14} color="rgba(255,255,255,0.5)" />
-                <Text style={styles.pushModalPickerText} numberOfLines={1}>{currentBranch}</Text>
-              </View>
+              <TouchableOpacity
+                style={styles.pushModalPicker}
+                onPress={() => { setPullIntoPickerOpen(!pullIntoPickerOpen); setPullBranchPickerOpen(false); }}
+              >
+                <Ionicons name="git-branch-outline" size={14} color={AppColors.primary} />
+                <Text style={styles.pushModalPickerText} numberOfLines={1}>{pullIntoBranch || currentBranch}</Text>
+                <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.4)" />
+              </TouchableOpacity>
             </View>
+
+            {/* Into picker dropdown — local branches only */}
+            {pullIntoPickerOpen && (
+              <View style={styles.pushBranchDropdown}>
+                <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
+                  {branches.filter(b => !b.isRemote && !b.name.startsWith('origin/')).map(b => (
+                    <TouchableOpacity
+                      key={b.name}
+                      style={[styles.pushBranchOption, (pullIntoBranch || currentBranch) === b.name && styles.pushBranchOptionActive]}
+                      onPress={() => { setPullIntoBranch(b.name); setPullIntoPickerOpen(false); }}
+                    >
+                      <Ionicons name="git-branch-outline" size={14} color={(pullIntoBranch || currentBranch) === b.name ? AppColors.primary : 'rgba(255,255,255,0.5)'} />
+                      <Text style={[styles.pushBranchOptionText, (pullIntoBranch || currentBranch) === b.name && { color: AppColors.primary }]}>{b.name}</Text>
+                      {(pullIntoBranch || currentBranch) === b.name && <Ionicons name="checkmark" size={16} color={AppColors.primary} />}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
             {/* Options */}
             <View style={styles.pushModalOptions}>

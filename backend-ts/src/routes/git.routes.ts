@@ -65,7 +65,7 @@ gitRouter.get('/status/:projectId', asyncHandler(async (req, res) => {
   // Always log from the branch tip (not HEAD) so we see all commits even in detached HEAD
   const headRef = isDetachedHead ? shellEscape(activeBranch) : 'HEAD';
   const [logResult, unpushedResult, behindResult] = await Promise.all([
-    execShell(git(`log --all --topo-order --oneline -15`) + ' 2>/dev/null || echo ""', dir),
+    execShell(git(`log --all --format="%h||%aI||%s" -30`) + ' 2>/dev/null || echo ""', dir),
     // Count commits not on ANY remote branch (truly unpushed)
     execShell(git(`log ${headRef} --not --remotes --oneline`) + ' 2>/dev/null || echo ""', dir),
     // Behind count: commits on origin that we don't have
@@ -99,10 +99,19 @@ gitRouter.get('/status/:projectId', asyncHandler(async (req, res) => {
     deleted: lines.filter(l => l[1] === 'D' || l[0] === 'D').map(extractPath),
   };
 
+  // Parse commits, sort by author date descending (pure chronological)
   const commits = logResult.stdout.trim().split('\n').filter(Boolean).map(line => {
+    const parts = line.split('||');
+    if (parts.length >= 3) {
+      return { hash: parts[0], authorDate: parts[1], message: parts.slice(2).join('||') };
+    }
     const [hash, ...msgParts] = line.split(' ');
     return { hash, message: msgParts.join(' ') };
-  });
+  }).sort((a, b) => {
+    const dateA = (a as any).authorDate ? new Date((a as any).authorDate).getTime() : 0;
+    const dateB = (b as any).authorDate ? new Date((b as any).authorDate).getTime() : 0;
+    return dateB - dateA;
+  }).slice(0, 15);
 
   // Build per-branch commit membership: for each local branch, which commits are on it
   const branchListResult = await execShell(git('branch --format="%(refname:short)"') + ' 2>/dev/null || echo ""', dir);
@@ -167,7 +176,7 @@ gitRouter.post('/fetch/:projectId', asyncHandler(async (req, res) => {
 gitRouter.post('/pull/:projectId', asyncHandler(async (req, res) => {
   const dir = projectDir(req.params.projectId);
   const token = (req.headers['x-git-token'] as string) || undefined;
-  const { branch, remote: targetRemote, rebase, stashAndReapply } = req.body || {};
+  const { branch, remote: targetRemote, intoBranch, rebase, stashAndReapply } = req.body || {};
 
   const remoteName = targetRemote || 'origin';
 
@@ -185,6 +194,22 @@ gitRouter.post('/pull/:projectId', asyncHandler(async (req, res) => {
       didStash = stashResult.exitCode === 0 && !stashResult.stdout.includes('No local changes');
     }
 
+    // If intoBranch differs from current, checkout it first
+    let originalBranch: string | null = null;
+    if (intoBranch) {
+      const currentResult = await execShell(git('rev-parse --abbrev-ref HEAD') + ' 2>/dev/null', dir);
+      const current = currentResult.stdout.trim();
+      if (current && current !== intoBranch) {
+        originalBranch = current;
+        const checkoutResult = await execShell(git(`checkout ${shellEscape(intoBranch)}`) + ' 2>&1', dir);
+        if (checkoutResult.exitCode !== 0) {
+          if (didStash) await execShell(git('stash pop') + ' 2>&1', dir).catch(() => {});
+          res.json({ success: false, message: 'Checkout failed', output: checkoutResult.stdout, error: checkoutResult.stderr });
+          return;
+        }
+      }
+    }
+
     // Build pull command
     let cmd = 'pull';
     if (rebase) cmd += ' --rebase';
@@ -192,6 +217,11 @@ gitRouter.post('/pull/:projectId', asyncHandler(async (req, res) => {
     if (branch) cmd += ` ${shellEscape(branch)}`;
 
     const result = await execShell(git(cmd) + ' 2>&1', dir, 60000);
+
+    // Checkout back to original branch if we switched
+    if (originalBranch) {
+      await execShell(git(`checkout ${shellEscape(originalBranch)}`) + ' 2>&1', dir).catch(() => {});
+    }
 
     // Pop stash only if we actually stashed something
     if (didStash) {
