@@ -94,7 +94,7 @@ export class AgentLoop {
 
   // Budget limits per plan (monthly EUR)
   private static readonly PLAN_BUDGETS: Record<string, number> = {
-    free: 2.00,
+    free: 1.00,
     go: 7.50,
     pro: 50.00,
     team: 200.00,
@@ -293,6 +293,17 @@ export class AgentLoop {
           plan: this.userPlan,
         };
         return;
+      }
+
+      // Emit budget warning at 75% and 90% thresholds
+      if (budgetCheck.percentUsed >= 75) {
+        const budget = AgentLoop.PLAN_BUDGETS[this.userPlan] || AgentLoop.PLAN_BUDGETS.free;
+        yield {
+          type: 'budget_warning',
+          percentUsed: budgetCheck.percentUsed,
+          plan: this.userPlan,
+          budgetEur: budget,
+        };
       }
 
       // 3. Ensure container exists and is ready

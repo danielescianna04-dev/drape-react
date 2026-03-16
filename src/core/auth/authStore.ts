@@ -422,7 +422,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const userPlan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
         drapeUser.plan = userPlan;
 
-        const isNew = !userDocSnap.exists() || userData?.hasCreatedFirstProject === false;
+        const isNew = !userDocSnap.exists() || userData?.hasCreatedFirstProject !== true;
 
         set({ user: drapeUser, isInitialized: true, isLoading: false, deviceCheckFailed: false, isNewUser: isNew });
 
@@ -440,6 +440,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         // Initialize push notifications (non-blocking)
         pushNotificationService.initialize(firebaseUser.uid).catch((err) => console.warn('[Auth] Failed to initialize push notifications:', err?.message || err));
+
+        // Initialize onboarding state (non-blocking)
+        import('../onboarding/onboardingStore').then(({ useOnboardingStore }) => {
+          useOnboardingStore.getState().initialize(firebaseUser.uid);
+        }).catch(err => console.warn('[Auth] Onboarding init failed:', err));
 
         // Initialize IAP (non-blocking)
         import('../iap/iapStore').then(({ useIAPStore }) => {
@@ -507,7 +512,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const userDocSnap = await getDoc(userDocRef);
       const userData = userDocSnap.exists() ? userDocSnap.data() : null;
       drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
-      const isNew = !userDocSnap.exists() || userData?.hasCreatedFirstProject === false;
+      const isNew = !userDocSnap.exists() || userData?.hasCreatedFirstProject !== true;
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
 
@@ -562,14 +567,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Update profile with display name
       await updateProfile(userCredential.user, { displayName });
 
-      // Create user document in Firestore (non-blocking — can be created later if it fails)
-      setDoc(doc(db, 'users', userCredential.user.uid), {
+      // Create user document in Firestore — must succeed so signIn can detect new user
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
         email,
         displayName,
         hasCreatedFirstProject: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      }).catch(err => console.warn('[AuthStore] Firestore user doc creation deferred:', err.code));
+      });
 
       try {
         const provider = await sendVerificationEmailWithFallback(userCredential.user, email, displayName);
@@ -708,29 +713,49 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         });
         await reauthenticateWithCredential(firebaseUser, oauthCredential);
       } else if (isGoogleProvider) {
-        // For Google, we throw a specific error so UI can trigger Google Sign-In flow
+        // Google re-auth: use signInWithCredential to refresh the session
+        // Since we don't have a native Google Sign-In SDK, we need the user to
+        // sign out and sign back in for a fresh credential
         set({ isLoading: false });
         throw new Error('google-reauth-required');
       }
 
-      // 1. Delete all user data from Firestore
+      // 1. Delete user document from Firestore FIRST
+      await deleteDoc(doc(db, 'users', uid));
+
+      // 2. Delete related data (errors are collected, not swallowed)
+      const errors: string[] = [];
+
       try {
         const projectsQuery = query(collection(db, 'user_projects'), where('userId', '==', uid));
         const projectsSnap = await getDocs(projectsQuery);
         for (const d of projectsSnap.docs) {
           await deleteDoc(d.ref);
         }
-      } catch (e) { console.warn('[DeleteAccount] Failed to delete user_projects:', e); }
+      } catch (e: any) {
+        console.error('[DeleteAccount] Failed to delete user_projects:', e);
+        errors.push('user_projects');
+      }
 
       try {
         const gitAccountsSnap = await getDocs(collection(db, 'users', uid, 'git-accounts'));
         for (const d of gitAccountsSnap.docs) {
           await deleteDoc(d.ref);
         }
-      } catch (e) { console.warn('[DeleteAccount] Failed to delete git-accounts:', e); }
+      } catch (e: any) {
+        console.error('[DeleteAccount] Failed to delete git-accounts:', e);
+        errors.push('git-accounts');
+      }
 
-      try { await deleteDoc(doc(db, 'user_configs', uid)); } catch (e) { /* ignore */ }
-      try { await deleteDoc(doc(db, 'presence', uid)); } catch (e) { /* ignore */ }
+      try { await deleteDoc(doc(db, 'user_configs', uid)); } catch (e: any) {
+        console.error('[DeleteAccount] Failed to delete user_configs:', e);
+        errors.push('user_configs');
+      }
+
+      try { await deleteDoc(doc(db, 'presence', uid)); } catch (e: any) {
+        console.error('[DeleteAccount] Failed to delete presence:', e);
+        errors.push('presence');
+      }
 
       try {
         const sharedQuery = query(collection(db, 'shared-git-accounts'), where('addedBy', '==', uid));
@@ -738,11 +763,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         for (const d of sharedSnap.docs) {
           await deleteDoc(d.ref);
         }
-      } catch (e) { console.warn('[DeleteAccount] Failed to delete shared-git-accounts:', e); }
+      } catch (e: any) {
+        console.error('[DeleteAccount] Failed to delete shared-git-accounts:', e);
+        errors.push('shared-git-accounts');
+      }
 
-      try { await deleteDoc(doc(db, 'users', uid)); } catch (e) { /* ignore */ }
+      if (errors.length > 0) {
+        console.warn('[DeleteAccount] Partial cleanup failures:', errors.join(', '));
+      }
 
-      // 2. Clean up local state (same as logout)
+      // 3. Clean up local state (same as logout)
       useTabStore.getState().resetTabs();
       useTerminalStore.setState({
         userId: null,
@@ -758,15 +788,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         currentWorkstationId: null,
       });
 
-      // 3. Unregister push token
+      // 4. Unregister push token
       await pushNotificationService.unregisterToken().catch(() => {});
 
-      // 4. Stop presence tracking
+      // 5. Stop presence tracking
       if (presenceCleanup) { presenceCleanup(); presenceCleanup = null; }
       stopDeviceListener();
       stopDeviceGuard();
 
-      // 5. Delete Firebase Auth user
+      // 6. Delete Firebase Auth user
       await deleteUser(firebaseUser);
 
       set({ user: null, isLoading: false, deviceCheckFailed: false });
@@ -902,7 +932,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const userData = userDoc.exists() ? userDoc.data() : null;
-      const isNew = !userDoc.exists() || userData?.hasCreatedFirstProject === false;
+      const isNew = !userDoc.exists() || userData?.hasCreatedFirstProject !== true;
 
       // Load plan from Firestore user document (existing users have plan field)
       if (userDoc.exists() && userData) {
@@ -1008,7 +1038,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const userData = userDoc.exists() ? userDoc.data() : null;
-      const isNew = !userDoc.exists() || userData?.hasCreatedFirstProject === false;
+      const isNew = !userDoc.exists() || userData?.hasCreatedFirstProject !== true;
 
       // Load plan from Firestore user document (existing users have plan field)
       if (userDoc.exists() && userData) {

@@ -123,12 +123,12 @@
     "free": {
       "name": "Starter",
       "description": "Per chi vuole esplorare le basi.",
-      "features": ["3 progetti + 2 clonati", "5 preview al mese", "Budget AI base", "1GB Storage Cloud"]
+      "features": ["2 progetti + 1 clonato", "5 preview per progetto", "Budget AI base", "1GB Storage Cloud"]
     },
     "go": {
       "name": "Go",
       "description": "Per chi vuole creare sul serio.",
-      "features": ["10 progetti + 5 clonati", "20 preview al mese", "Budget AI potenziato", "5GB Storage Cloud", "Supporto email"]
+      "features": ["10 progetti + 5 clonati", "20 preview per progetto", "Budget AI potenziato", "Pubblica progetti", "5GB Storage Cloud", "Supporto email"]
     },
     "pro": {
       "name": "Pro",
@@ -143,7 +143,7 @@
     "elevateDesc": "Scatena la potenza dell'AI nei tuoi progetti con i piani Drape.",
     "secureTransactions": "Transazioni sicure via Stripe. Gestione abbonamento semplice e veloce dalle impostazioni.",
     "upgradeTo": "Passa a {{plan}}",
-    "upgradeFeatures": "5 progetti, 20 preview/mese e budget AI raddoppiato.",
+    "upgradeFeatures": "Piu progetti, 20 preview per progetto e budget AI raddoppiato.",
     "currentPlan": "Piano Attuale",
     "freePlan": "Piano Gratuito",
     "recommended": "CONSIGLIATO",
@@ -173,7 +173,8 @@
     "previews": "Anteprime",
     "active": "attive",
     "projects": "Progetti",
-    "projectsActive": "attivi"
+    "projectsActive": "attivi",
+    "perProject": "per progetto"
   },
   "language": {
     "title": "Lingua",

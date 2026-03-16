@@ -17,21 +17,23 @@ import {
   useOnboardingStore,
   CHAT_FEATURES,
 } from '../../core/onboarding/onboardingStore';
+import { trackScreenView, trackChatWelcomeDismissed } from '../../core/services/analyticsService';
 
 const CARD_MAX_WIDTH = 400;
 
 export const ChatWelcomeOverlay = () => {
   const { t } = useTranslation(['projects']);
-  const { chatWelcomeSeen, dismissChatWelcome } = useOnboardingStore();
+  const { chatWelcomeSeen, dismissChatWelcome, isLoaded } = useOnboardingStore();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const { width: screenW } = useWindowDimensions();
 
   const isTablet = screenW >= 700;
-  const visible = !chatWelcomeSeen;
+  const visible = isLoaded && !chatWelcomeSeen;
 
   useEffect(() => {
     if (visible) {
+      trackScreenView('chat_welcome');
       fadeAnim.setValue(0);
       scaleAnim.setValue(0.9);
       Animated.parallel([
@@ -53,6 +55,7 @@ export const ChatWelcomeOverlay = () => {
   if (!visible) return null;
 
   const handleDismiss = () => {
+    trackChatWelcomeDismissed();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Animated.timing(fadeAnim, {
       toValue: 0,

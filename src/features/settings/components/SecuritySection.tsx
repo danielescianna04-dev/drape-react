@@ -7,18 +7,20 @@ import { SettingItem } from './SettingItem';
 interface SecuritySectionProps {
   onChangePassword: () => void;
   onChangeEmail?: () => void;
+  loading?: boolean;
   t: (key: string) => string;
 }
 
 export const SecuritySection: React.FC<SecuritySectionProps> = ({
   onChangePassword,
   onChangeEmail,
+  loading,
   t,
 }) => {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{t('security.title')}</Text>
-      <GlassCard>
+      <GlassCard key={loading ? 'loading-security' : 'loaded-security'}>
         <View style={[styles.sectionCard, isLiquidGlassSupported && styles.sectionCardGlass]}>
           <SettingItem
             icon="lock-closed-outline"

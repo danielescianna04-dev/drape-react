@@ -19,8 +19,11 @@
     "recent": "Recent",
     "noProjects": "No projects",
     "createFirstProject": "Create your first project using the buttons above",
-    "unlockPro": "Unlock Pro",
-    "unlockProDesc": "Unlimited projects and 6x AI budget"
+    "unlockPro": "Upgrade to Go",
+    "unlockProDesc": "More projects, premium models, 7x AI budget",
+    "counterCreated": "created",
+    "counterClone": "clone",
+    "counterLocal": "local"
   },
   "tutorial": {
     "welcome": "Welcome to Drape!",
@@ -135,11 +138,13 @@
       "previews": "Up to 20 previews/month",
       "budget": "Doubled AI budget"
     },
-    "notNow": "Not now"
+    "notNow": "Not now",
+    "cloneLimitReached": "You've reached the limit of {{max}} cloned repositories for the {{plan}} plan",
+    "upgradeCta": "Upgrade to Go"
   },
   "actions": {
     "delete": "Delete Project",
-    "deleteConfirm": "Are you sure you want to delete {{name}}?",
+    "deleteConfirm": "Are you sure you want to delete {{name}}?\n\nNote: deleting a project does not free up slots to create new ones.",
     "deleting": "Deleting...",
     "unableToDelete": "Unable to delete some projects",
     "duplicate": "Duplicate",
@@ -198,7 +203,7 @@
     },
     "freeFeatures": {
       "projects": "2 projects + 1 cloned",
-      "previews": "5 previews per month",
+      "previews": "5 previews per project",
       "aiBudget": "Base AI budget",
       "storage": "500MB storage"
     }

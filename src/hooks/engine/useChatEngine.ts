@@ -17,7 +17,7 @@ import { sanitizeAgentText } from '../../shared/utils/sanitizeAgentText';
 
 export interface ChatEngineMessage {
   id: string;
-  type: 'thinking' | 'text' | 'tool_start' | 'tool_complete' | 'tool_error' | 'error' | 'budget_exceeded' | 'completion' | 'context_compacted';
+  type: 'thinking' | 'text' | 'tool_start' | 'tool_complete' | 'tool_error' | 'error' | 'budget_exceeded' | 'budget_warning' | 'completion' | 'context_compacted';
   isCompacting?: boolean;
   content: string;
 
@@ -627,6 +627,18 @@ export function useChatEngine(
 
       // Sub-agent events are handled by SubAgentStatus in ChatPage (not here)
       if (event.type === 'sub_agent_start' || event.type === 'sub_agent_complete') {
+        continue;
+      }
+
+      if (event.type === 'budget_warning') {
+        // Emit a warning message in chat
+        const data = event as any;
+        const pct = data.percentUsed || 75;
+        const budgetEur = data.budgetEur || 1.00;
+        setMessages(prev => [
+          ...prev,
+          { id: `budget-warn-${Date.now()}`, type: 'text' as const, content: `__BUDGET_WARNING_${pct}__`, timestamp: new Date() },
+        ]);
         continue;
       }
 

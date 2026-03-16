@@ -17,6 +17,7 @@ import {
   useOnboardingStore,
   ONBOARDING_STEPS,
 } from '../../core/onboarding/onboardingStore';
+import { trackScreenView, trackTutorialStepAdvance, trackTutorialSkip } from '../../core/services/analyticsService';
 
 const SPOTLIGHT_PADDING = 10;
 const TOOLTIP_OFFSET = 20;
@@ -150,13 +151,21 @@ export const SpotlightOverlay = () => {
     outputRange: [showBelow ? 16 : -16, 0],
   });
 
+  useEffect(() => {
+    if (isActive && step) {
+      trackScreenView(`tutorial_step_${currentStepIndex}`);
+    }
+  }, [isActive, currentStepIndex]);
+
   const handleAdvance = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    trackTutorialStepAdvance(String(currentStepIndex), step?.titleKey || '');
     advanceStep();
   };
 
   const handleSkip = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    trackTutorialSkip(String(currentStepIndex));
     skipOnboarding();
   };
 

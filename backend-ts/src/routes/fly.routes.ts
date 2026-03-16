@@ -3,7 +3,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
-import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb } from '../middleware/auth';
+import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter } from '../middleware/auth';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
 import { fileService } from '../services/file.service';
@@ -31,16 +31,16 @@ flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  // Enforce clone + storage limits using active project count
+  // Enforce clone + storage limits using lifetime creation counts
   if (uid !== 'anonymous' && repositoryUrl) {
     const planId = await getUserPlan(uid);
     const limits = getPlanProjectLimits(planId);
-    const activeCounts = await countUserProjects(uid);
-    if (activeCounts.cloned >= limits.maxCloned) {
+    const lifetimeCounts = await getLifetimeCreationCounts(uid);
+    if (lifetimeCounts.cloned >= limits.maxCloned) {
       return res.status(403).json({
         success: false,
         error: 'CLONE_LIMIT_EXCEEDED',
-        limits: { maxCloned: limits.maxCloned, current: activeCounts.cloned },
+        limits: { maxCloned: limits.maxCloned, current: lifetimeCounts.cloned },
         message: `Hai raggiunto il limite di ${limits.maxCloned} repository clonati per il piano ${planId}`,
       });
     }
@@ -77,6 +77,29 @@ flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response
   if (!isOwner) {
     log.warn(`[AUTH] User ${uid} tried to access project ${projectId} without ownership (preview/start)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
+  // Enforce preview limit per project (free: 5, go: 20, pro: 75, team: 300)
+  const previewLimits: Record<string, number> = { free: 5, go: 20, pro: 75, team: 300 };
+  const userPlan = await getUserPlan(uid);
+  const maxPreviews = previewLimits[userPlan] || previewLimits.free;
+  const fbDb = firebaseService.getFirestore();
+  if (fbDb) {
+    const projectRef = fbDb.collection('user_projects').doc(projectId as string);
+    const projectDoc = await projectRef.get();
+    const currentCount = projectDoc.exists ? (projectDoc.data()?.previewCount || 0) : 0;
+    log.info(`[Fly] Preview count for ${projectId}: ${currentCount}/${maxPreviews} (plan: ${userPlan})`);
+    if (currentCount >= maxPreviews) {
+      log.warn(`[Fly] Preview limit reached for project ${projectId}: ${currentCount}/${maxPreviews}`);
+      return res.status(403).json({
+        error: 'PREVIEW_LIMIT_EXCEEDED',
+        message: `Hai raggiunto il limite di ${maxPreviews} preview per questo progetto.`,
+        limits: { current: currentCount, max: maxPreviews },
+      });
+    }
+    // Increment — use set with merge to handle both existing and new docs
+    await projectRef.set({ previewCount: currentCount + 1 }, { merge: true });
+    log.info(`[Fly] Preview count incremented to ${currentCount + 1} for ${projectId}`);
   }
 
   // SSE headers
@@ -146,27 +169,27 @@ flyRouter.post('/project/create', asyncHandler(async (req, res) => {
   const uid = req.userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
-  // Enforce project limits using active project count
+  // Enforce project limits using lifetime creation counts (never reset on delete)
   if (uid !== 'anonymous') {
     const planId = await getUserPlan(uid);
     const limits = getPlanProjectLimits(planId);
-    const activeCounts = await countUserProjects(uid);
+    const lifetimeCounts = await getLifetimeCreationCounts(uid);
     const isLocal = source === 'local';
     const isClone = !!repositoryUrl;
 
-    if (isLocal && activeCounts.local >= limits.maxLocal) {
+    if (isLocal && lifetimeCounts.local >= limits.maxLocal) {
       return res.status(403).json({
         success: false,
         error: 'LOCAL_LIMIT_EXCEEDED',
-        limits: { maxLocal: limits.maxLocal, current: activeCounts.local },
+        limits: { maxLocal: limits.maxLocal, current: lifetimeCounts.local },
         message: `Hai raggiunto il limite di ${limits.maxLocal} progetti locali per il piano ${planId}`,
       });
     }
-    if (isClone && activeCounts.cloned >= limits.maxCloned) {
+    if (isClone && lifetimeCounts.cloned >= limits.maxCloned) {
       return res.status(403).json({
         success: false,
         error: 'CLONE_LIMIT_EXCEEDED',
-        limits: { maxCloned: limits.maxCloned, current: activeCounts.cloned },
+        limits: { maxCloned: limits.maxCloned, current: lifetimeCounts.cloned },
         message: `Hai raggiunto il limite di ${limits.maxCloned} repository clonati per il piano ${planId}`,
       });
     }
@@ -186,6 +209,10 @@ flyRouter.post('/project/create', asyncHandler(async (req, res) => {
   if (repositoryUrl) {
     await workspaceService.cloneRepository(projectId, repositoryUrl, githubToken, branch);
   }
+
+  // Increment lifetime creation counter
+  const createType = source === 'local' ? 'local' : repositoryUrl ? 'cloned' : 'created';
+  incrementCreationCounter(uid, createType).catch(() => {});
 
   const files = await workspaceService.listFiles(projectId);
   res.json({ success: true, projectId, filesCount: files.length, files });
@@ -882,6 +909,16 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
   if (!isOwner) {
     log.warn(`[AUTH] User ${userId} tried to access project ${projectId} without ownership (publish)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
+  // Publish is a paid feature
+  const publishUserPlan = await getUserPlan(userId);
+  if (publishUserPlan === 'free') {
+    log.warn(`[Publish] Free user ${userId} tried to publish project ${projectId}`);
+    return res.status(403).json({
+      error: 'PUBLISH_REQUIRES_PAID',
+      message: 'La pubblicazione è disponibile con il piano Go.',
+    });
   }
 
   // Publish can kill the dev server (cache deletion, config patching).

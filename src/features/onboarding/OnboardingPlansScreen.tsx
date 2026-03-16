@@ -14,7 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../shared/theme/colors';
 import { useIAPStore } from '../../core/iap/iapStore';
 import { IAP_PRODUCT_IDS } from '../../core/iap/iapConstants';
-import { trackPlanSelect } from '../../core/services/analyticsService';
+import { trackPlanSelect, trackScreenView, trackOnboardingPlanSelected } from '../../core/services/analyticsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -39,6 +39,10 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
   const cardFade2 = useRef(new Animated.Value(0)).current;
   const cardSlide1 = useRef(new Animated.Value(40)).current;
   const cardSlide2 = useRef(new Animated.Value(40)).current;
+
+  useEffect(() => {
+    trackScreenView('onboarding_plans');
+  }, []);
 
   useEffect(() => {
     // Staggered entrance animations
@@ -108,7 +112,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
           <TouchableOpacity
             style={[styles.planCard, styles.planCardFeatured]}
             activeOpacity={0.85}
-            onPress={() => { trackPlanSelect('go'); onSelectPlan('go'); }}
+            onPress={() => { trackPlanSelect('go'); trackOnboardingPlanSelected('go'); onSelectPlan('go'); }}
           >
             <LinearGradient
               colors={['rgba(139, 92, 246, 0.08)', 'rgba(99, 102, 241, 0.03)', 'transparent']}
@@ -167,7 +171,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
           <TouchableOpacity
             style={styles.planCard}
             activeOpacity={0.85}
-            onPress={() => { trackPlanSelect('free'); onSelectPlan('free'); }}
+            onPress={() => { trackPlanSelect('free'); trackOnboardingPlanSelected('free'); onSelectPlan('free'); }}
           >
             <View style={styles.planHeader}>
               <Text style={styles.planName}>Free</Text>

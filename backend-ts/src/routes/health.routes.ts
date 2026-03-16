@@ -80,10 +80,10 @@ healthRouter.get('/stats/system-status', optionalAuth, asyncHandler(async (req, 
 
     // Plan limits
     const planLimits: Record<string, { tokens: number; previews: number; projects: number; search: number }> = {
-      free:    { tokens: 50000, previews: 5, projects: 5, search: 50 },
-      go:      { tokens: 500000, previews: 20, projects: 15, search: 200 },
-      pro:     { tokens: 2000000, previews: 75, projects: 75, search: 1000 },
-      team:    { tokens: 10000000, previews: 300, projects: 300, search: 5000 },
+      free:    { tokens: 50000, previews: 5, projects: 3, search: 999999 },
+      go:      { tokens: 500000, previews: 20, projects: 15, search: 999999 },
+      pro:     { tokens: 2000000, previews: 75, projects: 75, search: 999999 },
+      team:    { tokens: 10000000, previews: 300, projects: 300, search: 999999 },
     };
 
     const limits = planLimits[planId] || planLimits.free;
@@ -108,14 +108,20 @@ healthRouter.get('/stats/system-status', optionalAuth, asyncHandler(async (req, 
 
     // Total projects from Firestore (real count, not in-memory sessions)
     let totalProjects = 0;
+    const previewsByProject: { name: string; used: number; limit: number }[] = [];
     const fbDb = firebaseService.getFirestore();
     if (fbDb) {
       const projSnap = await fbDb.collection('user_projects').where('userId', '==', userId).get();
       totalProjects = projSnap.size;
+      projSnap.docs.forEach(d => {
+        const data = d.data();
+        previewsByProject.push({
+          name: data.name || d.id.substring(0, 15),
+          used: data.previewCount || 0,
+          limit: limits.previews,
+        });
+      });
     }
-
-    // Previews = same as projects (every project has a preview)
-    const totalPreviews = totalProjects;
 
     // Search usage (tracked as operation)
     const searchOps = metricsService.getOperationEntries('web_search', 10000)
@@ -133,9 +139,8 @@ healthRouter.get('/stats/system-status', optionalAuth, asyncHandler(async (req, 
         hourly,
       },
       previews: {
-        active: totalPreviews,
         limit: limits.previews,
-        percent: limits.previews > 0 ? Math.round((totalPreviews / limits.previews) * 100) : 0,
+        byProject: previewsByProject,
       },
       projects: {
         active: totalProjects,
@@ -167,7 +172,7 @@ healthRouter.get('/ai/budget/:userId', optionalAuth, asyncHandler(async (req, re
     const planId = await getUserPlan(userId);
 
     const planBudgets: Record<string, { name: string; monthlyBudgetEur: number }> = {
-      free:    { name: 'Free', monthlyBudgetEur: 2.00 },
+      free:    { name: 'Free', monthlyBudgetEur: 1.00 },
       go:      { name: 'Go', monthlyBudgetEur: 7.50 },
       pro:     { name: 'Pro', monthlyBudgetEur: 50.00 },
       team:    { name: 'Team', monthlyBudgetEur: 200.00 },
@@ -204,5 +209,59 @@ healthRouter.get('/ai/budget/:userId', optionalAuth, asyncHandler(async (req, re
   } catch (error: any) {
     log.error('[Budget] error:', error);
     res.status(500).json({ success: false, error: 'Failed to retrieve budget status' });
+  }
+}));
+
+// POST /ai/budgets — Batch AI budget status (for admin dashboard)
+healthRouter.post('/ai/budgets', optionalAuth, asyncHandler(async (req, res) => {
+  try {
+    const { uids } = req.body;
+    if (!Array.isArray(uids) || uids.length === 0) {
+      return res.status(400).json({ success: false, error: 'uids must be a non-empty array' });
+    }
+    // Cap at 500 to prevent abuse
+    const limitedUids = uids.slice(0, 500);
+
+    const planBudgets: Record<string, { name: string; monthlyBudgetEur: number }> = {
+      free:    { name: 'Free', monthlyBudgetEur: 1.00 },
+      go:      { name: 'Go', monthlyBudgetEur: 7.50 },
+      pro:     { name: 'Pro', monthlyBudgetEur: 50.00 },
+      team:    { name: 'Team', monthlyBudgetEur: 200.00 },
+    };
+
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const sinceTs = monthStart.getTime();
+
+    const results: Record<string, any> = {};
+
+    await Promise.all(limitedUids.map(async (uid: string) => {
+      try {
+        const planId = await getUserPlan(uid);
+        const plan = planBudgets[planId] || planBudgets.free;
+        const aiSummary = metricsService.getAIUsageSummary(uid, sinceTs);
+
+        const spentEur = aiSummary.totalCostEur;
+        const remainingEur = Math.max(0, plan.monthlyBudgetEur - spentEur);
+        const rawPercent = plan.monthlyBudgetEur > 0
+          ? (spentEur / plan.monthlyBudgetEur) * 100
+          : 0;
+        const percentUsed = rawPercent > 0 ? Math.max(1, Math.round(rawPercent)) : 0;
+
+        results[uid] = {
+          success: true,
+          plan: { id: planId, name: plan.name, monthlyBudgetEur: plan.monthlyBudgetEur },
+          usage: { spentEur, remainingEur, percentUsed },
+        };
+      } catch (err: any) {
+        results[uid] = { success: false, error: err.message || 'Failed to retrieve budget' };
+      }
+    }));
+
+    res.json(results);
+  } catch (error: any) {
+    log.error('[Budget Batch] error:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve batch budget status' });
   }
 }));

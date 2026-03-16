@@ -16,7 +16,14 @@ import { AppColors } from '../../shared/theme/colors';
 import { DrapeLogo } from '../../shared/components/icons/DrapeLogo';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import { trackScreenView } from '../../core/services/analyticsService';
+import {
+  trackScreenView,
+  trackOnboardingStepCompleted,
+  trackOnboardingExperienceSelected,
+  trackOnboardingReferralSelected,
+  trackOnboardingCompleted,
+  trackOnboardingBack,
+} from '../../core/services/analyticsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
@@ -98,6 +105,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
 
   // Step transitions
   useEffect(() => {
+    trackScreenView(`onboarding_${step}`);
     const targetPct = step === 'welcome' ? 17 : step === 'experience' ? 33 : 50;
     Animated.timing(progressAnim, { toValue: targetPct, duration: 300, useNativeDriver: false }).start();
     if (step !== 'welcome') {
@@ -108,17 +116,22 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
 
   const handleNext = async () => {
     if (step === 'welcome') {
+      trackOnboardingStepCompleted('welcome');
       setStep('experience');
     } else if (step === 'experience' && experienceLevel) {
+      trackOnboardingStepCompleted('experience');
+      trackOnboardingExperienceSelected(experienceLevel);
       setStep('referral');
     } else if (step === 'referral' && referralSource) {
+      trackOnboardingStepCompleted('referral');
+      trackOnboardingReferralSelected(referralSource);
       try {
         await setDoc(doc(db, 'users', userId), {
           experienceLevel,
           referralSource,
           onboardingCompletedAt: new Date().toISOString(),
         }, { merge: true });
-        trackScreenView('onboarding_completed');
+        trackOnboardingCompleted();
       } catch (e) {}
       onComplete();
     }
@@ -312,7 +325,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
         {step !== 'welcome' ? (
           <TouchableOpacity
             style={[styles.backBtn, isLiquidGlassSupported && styles.backBtnGlass]}
-            onPress={() => setStep(step === 'referral' ? 'experience' : 'welcome')}
+            onPress={() => { trackOnboardingBack(step); setStep(step === 'referral' ? 'experience' : 'welcome'); }}
             activeOpacity={0.7}
           >
             {isLiquidGlassSupported ? (

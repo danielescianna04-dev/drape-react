@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ActivityIndicator, Alert, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, ActivityIndicator, Alert, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -7,6 +7,8 @@ import { SplashScreen } from './src/features/splash/SplashScreen';
 import * as Linking from 'expo-linking';
 import Animated, { FadeIn, FadeOut, SlideInRight, SlideOutRight, FadeInDown } from 'react-native-reanimated';
 import { I18nextProvider } from 'react-i18next';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import i18n from './src/i18n';
 import { useLanguageStore } from './src/i18n/languageStore';
 
@@ -169,6 +171,7 @@ export default function App() {
   const [pendingRepoUrl, setPendingRepoUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
+  const [limitModal, setLimitModal] = useState<{ message: string } | null>(null);
 
   const { addWorkstation, setWorkstation, clearGlobalTerminalLog, globalTerminalLog } = useTerminalStore();
   const { addTerminalItem: addTerminalItemToStore, clearTerminalItems, updateTerminalItemsByType } = useTabStore();
@@ -205,20 +208,25 @@ export default function App() {
     // Notification tap handling is centralized in pushNotificationService.handleNotificationTap
   }, []);
 
-  // Navigate after login: new users → create project, free users → onboarding, paid → home
+  // Navigate after login: new users → onboarding flow, free users → plans, paid → home
   useEffect(() => {
-    if (isInitialized && user && currentScreen === 'auth') {
-      if (isNewUser) {
-        useAuthStore.setState({ isNewUser: false });
-        setIsFirstCreate(true);
-        setCurrentScreen('onboardingFlow');
+    if (!isInitialized || !user) return;
+
+    // New users MUST see onboarding, regardless of current screen
+    if (isNewUser && currentScreen !== 'onboardingFlow' && currentScreen !== 'create') {
+      useAuthStore.setState({ isNewUser: false });
+      setIsFirstCreate(true);
+      setCurrentScreen('onboardingFlow');
+      return;
+    }
+
+    // Post-auth navigation (only from auth screen)
+    if (currentScreen === 'auth') {
+      const plan = user.plan || 'free';
+      if (plan === 'free') {
+        setCurrentScreen('onboarding');
       } else {
-        const plan = user.plan || 'free';
-        if (plan === 'free') {
-          setCurrentScreen('onboarding');
-        } else {
-          setCurrentScreen('home');
-        }
+        setCurrentScreen('home');
       }
     }
   }, [user, isInitialized, currentScreen, isNewUser]);
@@ -227,10 +235,15 @@ export default function App() {
   const pendingNavigation = useNavigationStore((state) => state.pendingNavigation);
   useEffect(() => {
     if (pendingNavigation) {
+      // Don't override onboarding screens — new users must complete the flow
+      if (currentScreen === 'onboardingFlow' || currentScreen === 'onboarding') {
+        useNavigationStore.getState().clearPendingNavigation();
+        return;
+      }
       setCurrentScreen(pendingNavigation);
       useNavigationStore.getState().clearPendingNavigation();
     }
-  }, [pendingNavigation]);
+  }, [pendingNavigation, currentScreen]);
 
   // Automatically track previous screen whenever currentScreen changes.
   // We skip screens like 'settings' and 'plans' because we want to return FROM them to the previous workspace.
@@ -816,6 +829,22 @@ export default function App() {
         console.warn('📥 [handleImportRepo] Repo access check failed (network?):', accessErr.message);
       }
 
+      // Pre-check clone limits using lifetime counters (never reset on delete)
+      const userPlan = useAuthStore.getState().user?.plan || 'free';
+      const planCloneLimits: Record<string, number> = { free: 1, go: 5, pro: 25, team: 100 };
+      const maxCloned = planCloneLimits[userPlan] || 1;
+      const lifetimeCounts = await workstationService.getLifetimeCreationCounts(userId);
+      if (lifetimeCounts.cloned >= maxCloned) {
+        importInProgress.current = false;
+        setIsImporting(false);
+        setLoadingMessage('');
+        setShowImportModal(false);
+        setTimeout(() => {
+          setLimitModal({ message: i18n.t('projects:limit.cloneLimitReached', { max: maxCloned, plan: userPlan }) });
+        }, 400);
+        return;
+      }
+
       // If creating a copy, count existing copies and use next number
       let copyNumber: number | undefined;
       if (forceCopy) {
@@ -1002,12 +1031,24 @@ export default function App() {
       setIsImporting(false);
       setLoadingMessage(''); // Clear loading on error
 
+      // Handle limit errors (403 with specific error codes)
+      const errorCode = error.response?.data?.error;
+      const errorMsg = error.response?.data?.message;
+      if (error.response?.status === 403 && (errorCode === 'CLONE_LIMIT_EXCEEDED' || errorCode === 'PROJECT_LIMIT_EXCEEDED' || errorCode === 'STORAGE_LIMIT_EXCEEDED')) {
+        importInProgress.current = false;
+        // Close import modal first — iOS can't present two modals simultaneously
+        setShowImportModal(false);
+        setTimeout(() => {
+          setLimitModal({ message: errorMsg || i18n.t('projects:alerts.cloneLimitMessage', { max: 1 }) });
+        }, 400);
+        return;
+      }
+
       // If auth error, silently show popup (NO error message, NO console.error)
       const isAuthError = error.requiresAuth || error.response?.status === 401;
       if (!isAuthError) {
         // Only log as error if it's NOT an expected auth error
         console.error('Import error:', error.response?.status, error.message);
-      } else {
       }
       if (isAuthError && !newToken) {
         setShowImportModal(false);
@@ -1158,7 +1199,7 @@ export default function App() {
           <View style={{ flex: 1, backgroundColor: '#000' }}>
             <NetworkConfigProvider>
               <ErrorBoundary>
-              {(currentScreen === 'home' || currentScreen === 'create' || (currentScreen === 'settings' && useNavigationStore.getState().previousScreen === 'home')) && (
+              {(currentScreen === 'home' || (currentScreen === 'create' && !isFirstCreate) || (currentScreen === 'settings' && useNavigationStore.getState().previousScreen === 'home')) && (
                 <View
                   key="home-screen"
                   style={{ flex: 1 }}
@@ -1561,9 +1602,144 @@ export default function App() {
         <GitAuthPopup />
         <OfflineOverlay />
         <InAppToast />
+
+        {/* Limit reached modal (clone/project/storage) */}
+        <Modal visible={!!limitModal} transparent animationType="fade" onRequestClose={() => setLimitModal(null)}>
+          <View style={limitStyles.overlay}>
+            <View style={limitStyles.card}>
+              <View style={limitStyles.iconWrap}>
+                <Ionicons name="lock-closed" size={28} color="#A78BFA" />
+              </View>
+              <Text style={limitStyles.title}>{i18n.t('projects:limit.reached')}</Text>
+              <Text style={limitStyles.message}>{limitModal?.message}</Text>
+
+              <View style={limitStyles.features}>
+                <View style={limitStyles.featureRow}>
+                  <Ionicons name="checkmark-circle" size={16} color="#A78BFA" />
+                  <Text style={limitStyles.featureText}>10 progetti + 5 clonati</Text>
+                </View>
+                <View style={limitStyles.featureRow}>
+                  <Ionicons name="checkmark-circle" size={16} color="#A78BFA" />
+                  <Text style={limitStyles.featureText}>7x budget AI</Text>
+                </View>
+                <View style={limitStyles.featureRow}>
+                  <Ionicons name="checkmark-circle" size={16} color="#A78BFA" />
+                  <Text style={limitStyles.featureText}>Modelli premium</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={limitStyles.upgradeBtn}
+                activeOpacity={0.85}
+                onPress={() => { setLimitModal(null); setCurrentScreen('plans'); }}
+              >
+                <LinearGradient
+                  colors={['#7C3AED', '#5B21B6']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={limitStyles.upgradeBtnGrad}
+                >
+                  <Ionicons name="rocket" size={16} color="#fff" />
+                  <Text style={limitStyles.upgradeBtnText}>{i18n.t('projects:limit.upgradeCta')}</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={limitStyles.dismissBtn} onPress={() => setLimitModal(null)}>
+                <Text style={limitStyles.dismissBtnText}>{i18n.t('projects:limit.notNow')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
         <StatusBar style="light" />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   </I18nextProvider>
   );
 }
+
+const limitStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 28,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.15)',
+  },
+  iconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  message: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.55)',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  features: {
+    width: '100%',
+    backgroundColor: 'rgba(139, 92, 246, 0.08)',
+    borderRadius: 16,
+    padding: 16,
+    gap: 10,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.12)',
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  featureText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.75)',
+  },
+  upgradeBtn: {
+    width: '100%',
+    borderRadius: 20,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  upgradeBtnGrad: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  upgradeBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  dismissBtn: {
+    paddingVertical: 10,
+  },
+  dismissBtnText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.4)',
+  },
+});

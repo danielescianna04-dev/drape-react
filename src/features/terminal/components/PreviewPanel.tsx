@@ -956,16 +956,23 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           if (xhr.status < 200 || xhr.status >= 300) {
             console.log('[Preview:SSE] XHR bad status:', xhr.status);
             let message = `Server error: ${xhr.status}`;
+            let errorCode = '';
             try {
               const payload = JSON.parse(xhr.responseText || '{}');
-              if (typeof payload?.error === 'string' && payload.error.trim().length > 0) {
-                message = payload.error;
-              } else if (typeof payload?.message === 'string' && payload.message.trim().length > 0) {
+              errorCode = payload?.error || '';
+              // Prefer human-readable message over error code
+              if (typeof payload?.message === 'string' && payload.message.trim().length > 0) {
                 message = payload.message;
+              } else if (typeof payload?.error === 'string' && payload.error.trim().length > 0) {
+                message = payload.error;
               }
             } catch {}
-            if (xhr.status === 403 && !/access denied/i.test(message)) {
+            if (xhr.status === 403 && message === `Server error: 403`) {
               message = 'Access denied: project ownership check failed. Refresh project list and retry.';
+            }
+            // Prefix limit errors so UI can show upgrade card
+            if (errorCode === 'PREVIEW_LIMIT_EXCEEDED' || errorCode === 'PUBLISH_REQUIRES_PAID') {
+              message = `__LIMIT__${errorCode}__::${message}`;
             }
             reject(new Error(message));
             return;
@@ -1020,6 +1027,13 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       const message = error.message || t('terminal:preview.errorDuringStartup');
       if (isMissingPreviewTokenError(message)) {
         resetToStartScreen();
+        return;
+      }
+      // Limit errors: show upgrade UI directly, skip env/AI processing
+      if (message.startsWith('__LIMIT__')) {
+        setServerStatus('stopped');
+        startup.setIsStarting(false);
+        startup.setPreviewError({ message, timestamp: new Date() });
         return;
       }
       // Redirect env-related errors to EnvVarsView
@@ -1886,6 +1900,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         onPublish={publish.handlePublish}
         onUnpublish={publish.handleUnpublish}
         onClose={publish.closePublishModal}
+        isFreeUser={(useAuthStore.getState().user?.plan || 'free') === 'free'}
       />
 
       <AskUserQuestionModal

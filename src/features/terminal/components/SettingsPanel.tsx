@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Dimensions, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { useAnimatedStyle, interpolate } from 'react-native-reanimated';
@@ -101,7 +101,18 @@ export const SettingsPanel = ({ onClose }: Props) => {
                 key={model.id}
                 onPress={() => {
                   if (isLocked) {
-                    navigateTo('plans');
+                    Alert.alert(
+                      model.name,
+                      model.id.includes('opus')
+                        ? 'Il modello piu potente. Genera codice complesso e architettura superiore. Disponibile con Go.'
+                        : model.id.includes('gpt')
+                        ? 'GPT-5.3 di OpenAI. Eccelle in ragionamento e coding. Disponibile con Go.'
+                        : 'Gemini Pro di Google. Ottime capacita di ragionamento. Disponibile con Go.',
+                      [
+                        { text: 'Annulla', style: 'cancel' },
+                        { text: 'Vedi piani', onPress: () => navigateTo('plans') },
+                      ]
+                    );
                     return;
                   }
                   setSelectedModel(model.id);

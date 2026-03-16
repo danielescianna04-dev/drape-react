@@ -24,6 +24,7 @@ export type AgentEventType =
   | 'tool_error'
   | 'iteration_start'
   | 'budget_exceeded'
+  | 'budget_warning'
   | 'todo_update'
   | 'thinking_start'
   | 'thinking'
@@ -370,6 +371,7 @@ export function useAgentStream(
         'context_compacting',
         'context_compacted',
         'budget_exceeded',
+        'budget_warning',
         'complete',
         'error',
         'fatal_error',

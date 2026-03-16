@@ -79,7 +79,10 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
         const detail = [data?.error, data?.stderr].filter(Boolean).join(': ');
         const normalized = String(detail).toLowerCase();
 
-        if (response.status === 409) {
+        if (data?.error === 'PUBLISH_REQUIRES_PAID') {
+          setPublishError(i18next.t('terminal:previewPublish.requiresPaid', { defaultValue: 'La pubblicazione è disponibile con il piano Go.' }));
+          trackPublishError('Publish requires paid plan');
+        } else if (response.status === 409) {
           setPublishError(i18next.t('terminal:previewPublish.slugTaken'));
           trackPublishError('Slug taken');
         } else if (normalized.includes('server-side frameworks')) {

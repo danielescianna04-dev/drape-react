@@ -64,6 +64,7 @@ import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { useNavigationStore } from '../../core/navigation/navigationStore';
 import { SpotlightOverlay } from '../../shared/components/SpotlightOverlay';
 import { ChatWelcomeOverlay } from '../../shared/components/ChatWelcomeOverlay';
+import { useOnboardingStore } from '../../core/onboarding/onboardingStore';
 import Svg, { Circle } from 'react-native-svg';
 // WebSocket log service disabled - was causing connect/disconnect loop
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
@@ -227,6 +228,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Need activeTabId BEFORE the glass useEffect so the dependency array works
   const activeTabId = useTabStore((state) => state.activeTabId);
   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
+  const chatWelcomeVisible = !useOnboardingStore((state) => state.chatWelcomeSeen);
   const isActiveTab = (tab?.id ?? activeTabId) === activeTabId;
   const inputBarGlassId = useMemo(() => {
     const rawId = tab?.id ?? activeTabId ?? 'main';
@@ -268,6 +270,30 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   }));
 
   const nextPlanLabel = user?.plan === 'go' ? 'Pro' : 'Go';
+
+  // ── Budget indicator state ─────────────────────────────────────
+  const [budgetInfo, setBudgetInfo] = useState<{ spentEur: number; budgetEur: number; percent: number } | null>(null);
+  const fetchBudget = useCallback(async () => {
+    if (!user?.uid || isPaidUser) return;
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${config.apiUrl}/ai/budget/${user.uid}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setBudgetInfo({
+            spentEur: data.usage.spentEur,
+            budgetEur: data.plan.monthlyBudgetEur,
+            percent: data.usage.percentUsed,
+          });
+        }
+      }
+    } catch {}
+  }, [user?.uid, isPaidUser]);
+
+  // Fetch budget on mount and after agent finishes
+  useEffect(() => { fetchBudget(); }, [fetchBudget]);
+  useEffect(() => { if (!agentStreaming) fetchBudget(); }, [agentStreaming]);
 
   // ── Engine: shared event processing ──────────────────────────────
   const engine = useChatEngine(agentEvents, agentStreaming, agentEventsVersion);
@@ -939,7 +965,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   useEffect(() => {
     if (Platform.OS !== 'ios' || !isActiveTab) return;
-    if (isSidebarOpen) {
+    if (isSidebarOpen || chatWelcomeVisible) {
       if (removeTimerRef.current) {
         clearTimeout(removeTimerRef.current);
         removeTimerRef.current = null;
@@ -985,7 +1011,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         removeGlassEffect(idToRemove);
       }, 180);
     };
-  }, [activeTabId, inputBarGlassId, isActiveTab, applyInputGlass, isSidebarOpen, hasChatStarted, inputGlassRevealDelay]);
+  }, [activeTabId, inputBarGlassId, isActiveTab, applyInputGlass, isSidebarOpen, chatWelcomeVisible, hasChatStarted, inputGlassRevealDelay]);
 
   // Set loading state for current tab
   const setLoading = (loading: boolean) => {
@@ -2935,7 +2961,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       {/* Content wrapper with sidebar offset */}
       <Animated.View style={[{ flex: 1, backgroundColor: '#0d0d0f' }, animatedContentStyle]}>
         {/* Top Upgrade Pill - Custom Liquid Glass (Expo Safe) */}
-        {!isPaidUser && !hasUserMessaged && currentTab?.type === 'terminal' && (
+        {!isPaidUser && currentTab?.type === 'terminal' && (
           <TouchableOpacity
             style={[
               styles.topUpgradePill,
@@ -3115,38 +3141,82 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   );
                 }
 
-                // Handle budget exceeded — show upgrade card
-                if (item.content === '__BUDGET_EXCEEDED__') {
+                // Handle budget warning — subtle banner
+                if (item.content?.startsWith('__BUDGET_WARNING_')) {
+                  const pct = parseInt(item.content.replace('__BUDGET_WARNING_', '').replace('__', ''), 10) || 75;
+                  const spent = budgetInfo?.spentEur ?? (pct / 100);
+                  const total = budgetInfo?.budgetEur ?? 1.00;
                   return (
-                    <View style={{
+                    <TouchableOpacity
+                      key={item.id}
+                      onPress={() => navigateTo('plans')}
+                      activeOpacity={0.7}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center',
+                        marginHorizontal: 16, marginVertical: 6,
+                        backgroundColor: pct >= 90 ? 'rgba(255,80,80,0.1)' : 'rgba(255,184,108,0.1)',
+                        borderRadius: 12, padding: 10, gap: 8,
+                        borderWidth: 1,
+                        borderColor: pct >= 90 ? 'rgba(255,80,80,0.15)' : 'rgba(255,184,108,0.15)',
+                      }}
+                    >
+                      <Ionicons name="warning" size={14} color={pct >= 90 ? '#FF6B6B' : '#FFB86C'} />
+                      <Text style={{ fontSize: 12, color: pct >= 90 ? '#FF6B6B' : '#FFB86C', fontWeight: '500', flex: 1 }}>
+                        {t('terminal:preview.budgetWarning', { pct })}
+                      </Text>
+                      <Ionicons name="arrow-forward" size={12} color={pct >= 90 ? '#FF6B6B' : '#FFB86C'} />
+                    </TouchableOpacity>
+                  );
+                }
+
+                // Handle budget exceeded — show rich upgrade card
+                if (item.content === '__BUDGET_EXCEEDED__') {
+                  const budgetLimit = budgetInfo?.budgetEur ?? 1.00;
+                  const goBudget = 7.50;
+                  const multiplier = Math.round(goBudget / budgetLimit);
+                  return (
+                    <View key={item.id} style={{
                       marginHorizontal: 16,
                       marginVertical: 12,
                       borderRadius: 24,
                       overflow: 'hidden',
                     }}>
                       <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
-                      <LiquidGlassView
-                        style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
-                        interactive={true}
-                        effect="regular"
-                        colorScheme="dark"
-                      />
                       <View style={{
                         borderRadius: 24,
                         borderWidth: 1,
-                        borderColor: 'rgba(255,255,255,0.08)',
+                        borderColor: 'rgba(255,80,80,0.2)',
                         padding: 20,
                       }}>
-                        {/* Title */}
+                        {/* Header */}
                         <View style={{ alignItems: 'center', marginBottom: 16 }}>
-                          <Text style={{ fontSize: 28, marginBottom: 10 }}>
-                            🚀
-                          </Text>
+                          <View style={{
+                            width: 44, height: 44, borderRadius: 22,
+                            backgroundColor: 'rgba(255,80,80,0.12)',
+                            justifyContent: 'center', alignItems: 'center',
+                            marginBottom: 12,
+                          }}>
+                            <Ionicons name="flash" size={22} color="#FF6B6B" />
+                          </View>
                           <Text style={{ fontSize: 17, fontWeight: '700', color: '#fff', letterSpacing: -0.3 }}>
-                            {t('settings:plans.budgetExhausted')}
+                            {t('terminal:preview.aiBudgetExceeded')}
                           </Text>
                           <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', marginTop: 4, textAlign: 'center', lineHeight: 18 }}>
-                            {t('settings:plans.budgetExhaustedDesc', { plan: nextPlanLabel })}
+                            {t('terminal:preview.budgetUsed')}
+                          </Text>
+                        </View>
+
+                        {/* Comparison */}
+                        <View style={{
+                          backgroundColor: 'rgba(139,124,246,0.08)',
+                          borderRadius: 16, padding: 14, marginBottom: 16,
+                          borderWidth: 1, borderColor: 'rgba(139,124,246,0.15)',
+                        }}>
+                          <Text style={{ fontSize: 13, fontWeight: '600', color: AppColors.primary, marginBottom: 6 }}>
+                            {t('terminal:preview.budgetGoFeature')}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 18 }}>
+                            {t('terminal:preview.budgetGoDesc')}
                           </Text>
                         </View>
 
@@ -3167,10 +3237,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                             }}
                           >
                             <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff', letterSpacing: -0.2 }}>
-                              {t('settings:plans.upgradeTo', { plan: nextPlanLabel })}
+                              {t('terminal:preview.upgradeCta')}
                             </Text>
                           </LinearGradient>
                         </TouchableOpacity>
+
+                        {/* Reset info */}
+                        <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textAlign: 'center', marginTop: 10 }}>
+                          {t('terminal:preview.budgetReset')}
+                        </Text>
                       </View>
                     </View>
                   );
@@ -3365,6 +3440,37 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     </View>
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {/* Budget indicator for free users */}
+                    {!isPaidUser && budgetInfo && (
+                      <TouchableOpacity
+                        onPress={() => navigateTo('plans')}
+                        activeOpacity={0.7}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          backgroundColor: 'rgba(255,255,255,0.06)',
+                          paddingHorizontal: 6,
+                          paddingVertical: 6,
+                          borderRadius: 12,
+                          gap: 0,
+                        }}
+                      >
+                        <View style={{
+                          width: 40,
+                          height: 4,
+                          borderRadius: 2,
+                          backgroundColor: 'rgba(255,255,255,0.08)',
+                          overflow: 'hidden',
+                        }}>
+                          <View style={{
+                            width: `${Math.min(budgetInfo.percent, 100)}%` as any,
+                            height: '100%',
+                            borderRadius: 2,
+                            backgroundColor: budgetInfo.percent >= 85 ? '#FF6B6B' : budgetInfo.percent >= 60 ? '#FFB86C' : '#10B981',
+                          }} />
+                        </View>
+                      </TouchableOpacity>
+                    )}
                     {/* Context window usage indicator */}
                     {contextUsage > 0 && (() => {
                       const size = 18;
@@ -3494,7 +3600,18 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                           ]}
                           onPress={() => {
                             if (isLocked) {
-                              navigateTo('plans');
+                              Alert.alert(
+                                model.name,
+                                model.id.includes('opus')
+                                  ? 'Il modello piu potente. Genera codice complesso, debug avanzato e architettura superiore. Disponibile con il piano Go.'
+                                  : model.id.includes('gpt')
+                                  ? 'GPT-5.3 di OpenAI. Eccelle in ragionamento e coding. Disponibile con il piano Go.'
+                                  : 'Gemini Pro di Google. Ottime capacita di ragionamento e analisi. Disponibile con il piano Go.',
+                                [
+                                  { text: 'Annulla', style: 'cancel' },
+                                  { text: 'Vedi piani', onPress: () => navigateTo('plans') },
+                                ]
+                              );
                               return;
                             }
                             setSelectedModel(model.id);

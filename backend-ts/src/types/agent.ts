@@ -52,6 +52,7 @@ export type AgentEventType =
   | 'usage'
   | 'complete'
   | 'budget_exceeded'
+  | 'budget_warning'
   | 'context_compacting'
   | 'context_compacted'
   | 'error'

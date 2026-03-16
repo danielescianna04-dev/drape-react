@@ -55,9 +55,8 @@ interface SystemStatus {
     hourly: number[];
   };
   previews: {
-    active: number;
     limit: number;
-    percent: number;
+    byProject?: { name: string; used: number; limit: number }[];
   };
   projects: {
     active: number;
@@ -339,7 +338,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         console.warn('[Settings] budget returned', budgetResponse.status);
       }
     } catch (error) {
-      console.error('Error fetching system status:', error);
+      console.warn('[Settings] Network error fetching system status');
     } finally {
       setStatusLoading(false);
     }
@@ -602,204 +601,167 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.plansContentContainer}
         >
-          <View style={styles.plansFirstFold}>
-            <Animated.View style={[styles.planSelectionHero, {
-              opacity: planHeaderAnim,
-              transform: [{ translateY: planHeaderAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
-            }]}>
-              <Text style={styles.plansMainTitle}>{t('plans.elevateTitle')}</Text>
-              <Text style={styles.plansSubtitleSmall}>{t('plans.elevateDesc')}</Text>
-            </Animated.View>
+          {/* Hero */}
+          <Animated.View style={[styles.planSelectionHero, {
+            opacity: planHeaderAnim,
+            transform: [{ translateY: planHeaderAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
+          }]}>
+            <Text style={styles.plansMainTitle}>{t('plans.elevateTitle')}</Text>
+            <Text style={styles.plansSubtitleSmall}>{t('plans.elevateDesc')}</Text>
+          </Animated.View>
 
-            {/* Billing Switcher */}
-            <Animated.View style={[styles.pricingToggleContainer, {
-              opacity: planToggleAnim,
-              transform: [{ translateY: planToggleAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
-            }]}>
-              <TouchableOpacity
-                style={[styles.pricingOption, billingCycle === 'monthly' && styles.pricingOptionActive]}
-                onPress={() => { trackBillingCycleChange('monthly'); setBillingCycle('monthly'); }}
-              >
-                <Text style={[styles.pricingOptionText, billingCycle === 'monthly' && styles.pricingOptionTextActive]}>{t('plans.monthly')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.pricingOption, billingCycle === 'yearly' && styles.pricingOptionActive]}
-                onPress={() => { trackBillingCycleChange('yearly'); setBillingCycle('yearly'); }}
-              >
-                <Text style={[styles.pricingOptionText, billingCycle === 'yearly' && styles.pricingOptionTextActive]}>{t('plans.yearly')}</Text>
-                <View style={styles.yearlySavings}>
-                  <Text style={styles.yearlySavingsText}>-20%</Text>
-                </View>
-              </TouchableOpacity>
-            </Animated.View>
-
-            <Animated.View style={{
-              opacity: planCardsAnim,
-              transform: [
-                { translateY: planCardsAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) },
-                { scale: planCardsAnim.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }) },
-              ],
-            }}>
-            <ScrollView
-              ref={planScrollRef}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              directionalLockEnabled
-              nestedScrollEnabled
-              pagingEnabled={false}
-              snapToInterval={SNAP_INTERVAL}
-              decelerationRate="fast"
-              contentContainerStyle={styles.plansScrollContent}
-              scrollEventThrottle={16}
-              removeClippedSubviews={false}
-              onScroll={(e) => {
-                const x = e.nativeEvent.contentOffset.x;
-                const index = Math.round(x / SNAP_INTERVAL);
-                if (index >= 0 && index <= 2 && index !== visiblePlanIndex) {
-                  setVisiblePlanIndex(index);
-                }
-              }}
+          {/* Billing Switcher */}
+          <Animated.View style={[styles.pricingToggleContainer, {
+            opacity: planToggleAnim,
+            transform: [{ translateY: planToggleAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+          }]}>
+            <TouchableOpacity
+              style={[styles.pricingOption, billingCycle === 'monthly' && styles.pricingOptionActive]}
+              onPress={() => { trackBillingCycleChange('monthly'); setBillingCycle('monthly'); }}
             >
-              {plans.map((plan, idx) => {
-              // "Piano Attuale" — exact product match if available, fallback to plan name
+              <Text style={[styles.pricingOptionText, billingCycle === 'monthly' && styles.pricingOptionTextActive]}>{t('plans.monthly')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pricingOption, billingCycle === 'yearly' && styles.pricingOptionActive]}
+              onPress={() => { trackBillingCycleChange('yearly'); setBillingCycle('yearly'); }}
+            >
+              <Text style={[styles.pricingOptionText, billingCycle === 'yearly' && styles.pricingOptionTextActive]}>{t('plans.yearly')}</Text>
+              <View style={styles.yearlySavings}>
+                <Text style={styles.yearlySavingsText}>-20%</Text>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+
+          {/* Vertical Plan Cards */}
+          <Animated.View style={[styles.plansVerticalList, {
+            opacity: planCardsAnim,
+            transform: [{ translateY: planCardsAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) }],
+          }]}>
+            {plans.map((plan, idx) => {
               const isExactCurrent = plan.id === 'free'
                 ? (currentPlan === 'free')
                 : currentProductId
                   ? currentProductId === getProductId(plan.id as 'go' | 'pro', billingCycle)
                   : currentPlan === plan.id;
+              const isPopular = !!plan.isPopular;
+              const isFree = plan.id === 'free';
 
-              const cardContent = (
-                <>
-                  <LinearGradient
-                    colors={[`${plan.color}22`, 'rgba(255,255,255,0.01)', 'transparent']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.planCardTopGlow}
-                  />
-
-                  {plan.isPopular && (
-                    <View style={styles.featuredBadge}>
-                      <Ionicons name="sparkles" size={10} color="rgba(255,255,255,0.72)" />
-                      <Text style={styles.featuredBadgeText}>{t('plans.recommended')}</Text>
-                    </View>
+              return (
+                <View key={plan.id} style={[styles.pvCardOuter, isPopular && styles.pvCardOuterPopular]}>
+                  {/* Gradient border glow for popular plan */}
+                  {isPopular && (
+                    <LinearGradient
+                      colors={[`${plan.color}50`, `${plan.color}15`, `${plan.color}30`]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.pvGlowBorder}
+                    />
                   )}
+                  <View style={[
+                    styles.pvCard,
+                    isPopular && styles.pvCardPopular,
+                    isExactCurrent && !isPopular && { borderColor: `${plan.color}30` },
+                  ]}>
+                    {/* Top glow */}
+                    <LinearGradient
+                      colors={[`${plan.color}${isPopular ? '18' : '0A'}`, 'transparent']}
+                      style={styles.pvCardGlow}
+                    />
 
-                  <View style={styles.planHeaderNew}>
-                    <View style={styles.planTitleBlock}>
-                      <View style={[styles.planTierPill, { borderColor: `${plan.color}40`, backgroundColor: `${plan.color}12` }]}>
-                        <View style={[styles.planTierDot, { backgroundColor: plan.color }]} />
-                        <Text style={[styles.planTierPillText, { color: plan.color }]}>{plan.name}</Text>
-                      </View>
-                      <Text style={styles.planNameSmall}>{plan.name}</Text>
-                      <Text style={styles.planDescriptionSmall}>{plan.description}</Text>
-                    </View>
-                    {isExactCurrent && (
-                      <View style={[styles.activeIndicator, { backgroundColor: `${plan.color}20` }]}>
-                        <Ionicons name="checkmark" size={12} color={plan.color} />
-                      </View>
-                    )}
-                  </View>
-
-                  <View style={styles.priceRow}>
-                    {plan.introPrice ? (
-                      <>
-                        <Text style={styles.priceTextLarge}>{plan.introPrice}</Text>
-                        <Text style={styles.pricePeriod}>{billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear')}</Text>
-                        <Text style={styles.introOriginalPrice}>{plan.price}</Text>
-                      </>
-                    ) : (
-                      <>
-                        <Text style={styles.priceTextLarge}>{plan.price}</Text>
-                        <Text style={styles.pricePeriod}>{billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear')}</Text>
-                      </>
-                    )}
-                  </View>
-                  {plan.introPrice && (
-                    <Text style={styles.introLabel}>{t('plans.firstMonth')}</Text>
-                  )}
-
-                  {!plan.introPrice && plan.id !== 'free' && billingCycle === 'yearly' && (
-                    <Text style={styles.planMicroNote}>{t('plans.save20')}</Text>
-                  )}
-
-                  <View style={styles.planDividerNew} />
-
-                  <View style={styles.featuresList}>
-                    {plan.features.map((f, i) => (
-                      <View key={i} style={styles.featureItemNew}>
-                        <View style={[styles.featureMarkWrap, { backgroundColor: `${plan.color}16`, borderColor: `${plan.color}30` }]}>
-                          <View style={[styles.featureMark, { backgroundColor: visiblePlanIndex === idx ? plan.color : 'rgba(255,255,255,0.2)' }]} />
+                    {/* Header row: name + price */}
+                    <View style={styles.pvHeaderRow}>
+                      <View style={styles.pvLeft}>
+                        <View style={styles.pvNameRow}>
+                          <Text style={[styles.pvName, isPopular && { color: '#fff' }]}>{plan.name}</Text>
+                          {isPopular && (
+                            <View style={[styles.pvPopularBadge, { backgroundColor: `${plan.color}20`, borderColor: `${plan.color}35` }]}>
+                              <Ionicons name="sparkles" size={9} color={plan.color} />
+                              <Text style={[styles.pvPopularText, { color: plan.color }]}>POPULAR</Text>
+                            </View>
+                          )}
+                          {isExactCurrent && (
+                            <View style={[styles.pvActiveBadge, { backgroundColor: '#3FB95018', borderColor: '#3FB95030' }]}>
+                              <Ionicons name="checkmark-circle" size={11} color="#3FB950" />
+                              <Text style={styles.pvActiveText}>ACTIVE</Text>
+                            </View>
+                          )}
                         </View>
-                        <Text style={styles.featureLabel}>{f}</Text>
+                        <Text style={styles.pvDesc}>{plan.description}</Text>
                       </View>
-                    ))}
-                  </View>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.planActionBtn,
-                      isExactCurrent
-                        ? { backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }
-                        : { backgroundColor: plan.color, shadowColor: plan.color, shadowOpacity: 0.35, shadowRadius: 18, shadowOffset: { width: 0, height: 10 } },
-                      isPurchasing && plan.id !== 'free' && !isExactCurrent && { opacity: 0.6 },
-                    ]}
-                    disabled={isExactCurrent || plan.id === 'free' || isPurchasing}
-                    onPress={() => {
-                      if (plan.id !== 'free' && !isPurchasing) {
-                        trackPlanSelect(plan.id + '_' + billingCycle);
-                        iapPurchase(plan.id as 'go' | 'pro', billingCycle);
-                      }
-                    }}
-                  >
-                    <Text style={[styles.planActionText, isExactCurrent && { color: 'rgba(255,255,255,0.4)' }]}>
-                      {isExactCurrent ? t('plans.currentPlan') : plan.id === 'free' ? t('plans.freePlan') : t('plans.upgradeTo', { plan: plan.name })}
-                    </Text>
-                  </TouchableOpacity>
-                </>
-              );
-
-                return (
-                <View key={plan.id} style={styles.planCardNewWrapper}>
-                  {isLiquidGlassSupported ? (
-                    <LiquidGlassView
-                      style={[
-                        styles.planCardLiquid,
-                        visiblePlanIndex === idx && { borderColor: `${plan.color}40`, borderWidth: 1 }
-                      ]}
-                      interactive={true}
-                      effect="regular"
-                      colorScheme="dark"
-                    >
-                      {cardContent}
-                    </LiquidGlassView>
-                  ) : (
-                    <View style={[
-                      styles.planCardNew,
-                      visiblePlanIndex === idx && { borderColor: `${plan.color}40`, backgroundColor: 'rgba(255,255,255,0.04)' }
-                    ]}>
-                      {cardContent}
+                      <View style={styles.pvPriceBlock}>
+                        {plan.introPrice ? (
+                          <>
+                            <Text style={[styles.pvPrice, isPopular && { color: '#fff' }]}>{plan.introPrice}</Text>
+                            <View style={styles.pvPriceMeta}>
+                              <Text style={styles.pvPeriod}>{billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear')}</Text>
+                              <Text style={styles.pvOrigPrice}>{plan.price}</Text>
+                            </View>
+                          </>
+                        ) : (
+                          <>
+                            <Text style={[styles.pvPrice, isPopular && { color: '#fff' }]}>{plan.price}</Text>
+                            <Text style={styles.pvPeriod}>{isFree ? '' : billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear')}</Text>
+                          </>
+                        )}
+                      </View>
                     </View>
-                  )}
+
+                    {/* Divider */}
+                    <View style={styles.pvDivider} />
+
+                    {/* Features */}
+                    <View style={styles.pvFeatures}>
+                      {plan.features.map((f, i) => (
+                        <View key={i} style={styles.pvFeatureRow}>
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={16}
+                            color={isPopular ? plan.color : 'rgba(255,255,255,0.25)'}
+                          />
+                          <Text style={[styles.pvFeatureText, isPopular && { color: 'rgba(255,255,255,0.85)' }]}>{f}</Text>
+                        </View>
+                      ))}
+                    </View>
+
+                    {/* CTA */}
+                    {!isFree && (
+                      <TouchableOpacity
+                        style={[
+                          styles.pvCta,
+                          isExactCurrent
+                            ? styles.pvCtaCurrent
+                            : isPopular
+                              ? [styles.pvCtaPopular, { backgroundColor: plan.color, shadowColor: plan.color }]
+                              : { backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+                          isPurchasing && !isExactCurrent && { opacity: 0.6 },
+                        ]}
+                        disabled={isExactCurrent || isPurchasing}
+                        onPress={() => {
+                          if (!isPurchasing) {
+                            trackPlanSelect(plan.id + '_' + billingCycle);
+                            iapPurchase(plan.id as 'go' | 'pro', billingCycle);
+                          }
+                        }}
+                      >
+                        <Text style={[styles.pvCtaText, isExactCurrent && { color: 'rgba(255,255,255,0.35)' }]}>
+                          {isExactCurrent ? t('plans.currentPlan') : t('plans.upgradeTo', { plan: plan.name })}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {isFree && isExactCurrent && (
+                      <View style={[styles.pvCta, styles.pvCtaCurrent]}>
+                        <Text style={[styles.pvCtaText, { color: 'rgba(255,255,255,0.35)' }]}>{t('plans.currentPlan')}</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
-                );
-              })}
-            </ScrollView>
-            </Animated.View>
+              );
+            })}
+          </Animated.View>
 
-            {/* Dots */}
-            <Animated.View style={[styles.dotsRow, {
-              opacity: planFooterAnim,
-            }]}>
-              {plans.map((_, i) => (
-                <View key={i} style={[styles.planDot, visiblePlanIndex === i && styles.planDotActive]} />
-              ))}
-            </Animated.View>
-          </View>
-
-          <Animated.View style={{ opacity: planFooterAnim, alignItems: 'center' }}>
-            <View style={styles.restoreBlock}>
-              <Text style={styles.restoreCaption}>{t('plans.secureTransactions')}</Text>
-            </View>
+          {/* Footer */}
+          <Animated.View style={[styles.pvFooter, { opacity: planFooterAnim }]}>
+            <Text style={styles.restoreCaption}>{t('plans.secureTransactions')}</Text>
             <TouchableOpacity
               onPress={() => { trackRestorePurchases(); restorePurchases(); }}
               disabled={isRestoring}
@@ -928,15 +890,29 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           <View style={styles.hudGridRefined}>
             <View style={styles.usageGridRow}>
               <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>
-                <Ionicons name="eye-outline" size={18} color="#34D399" style={{ marginBottom: 16 }} />
-                <View style={styles.usageTextRow}>
-                  <Text style={styles.usageNameMini}>{t('resources.previews')}</Text>
-                  <Text style={styles.usagePercent}>{systemStatus?.previews.percent || 0}%</Text>
-                </View>
-                <View style={styles.miniBarBg}>
-                  <View style={[styles.miniBarFill, { width: `${systemStatus?.previews.percent || 0}%`, backgroundColor: '#34D399' }]} />
-                </View>
-                <Text style={styles.usageSubtext}>{systemStatus?.previews.active || 0} / {systemStatus?.previews.limit || 5}</Text>
+                <Ionicons name="eye-outline" size={18} color="#34D399" style={{ marginBottom: 8 }} />
+                <Text style={styles.usageNameMini}>{t('resources.previews')}</Text>
+                {systemStatus?.previews?.byProject && systemStatus.previews.byProject.length > 0 ? (
+                  <View style={{ marginTop: 8, gap: 6, width: '100%' }}>
+                    {systemStatus.previews.byProject.slice(0, 3).map((p, i) => (
+                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }} numberOfLines={1}>{p.name}</Text>
+                        </View>
+                        <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{p.used}/{p.limit}</Text>
+                      </View>
+                    ))}
+                    {systemStatus.previews.byProject.length > 3 && (
+                      <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>
+                        +{systemStatus.previews.byProject.length - 3}
+                      </Text>
+                    )}
+                  </View>
+                ) : (
+                  <Text style={[styles.usageSubtext, { marginTop: 4 }]}>
+                    {systemStatus?.previews?.limit || 5} {t('resources.perProject')}
+                  </Text>
+                )}
               </BlurView>
 
               <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>
@@ -972,6 +948,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           {currentPlan === 'free' && (
             <TouchableOpacity
               style={styles.premiumBanner}
+              activeOpacity={0.8}
               onPress={() => {
                 setShowResourceUsage(false);
                 trackPlansView('premium_banner');
@@ -979,17 +956,21 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               }}
             >
               <LinearGradient
-                colors={['#1e1e20', '#121214']}
+                colors={[AppColors.primary, '#6C3AE0']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={styles.premiumBannerGradient}
               >
-                <View style={styles.premiumIconBox}>
-                  <Ionicons name="diamond" size={20} color={AppColors.primary} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 16 }}>
+                <View style={styles.premiumBannerContent}>
+                  <View style={styles.premiumIconBox}>
+                    <Ionicons name="diamond" size={18} color="#fff" />
+                  </View>
                   <Text style={styles.premiumTitle}>{t('plans.upgradeTo', { plan: 'Go' })}</Text>
                   <Text style={styles.premiumSub}>{t('plans.upgradeFeatures')}</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.2)" />
+                <View style={styles.premiumArrow}>
+                  <Ionicons name="arrow-forward" size={16} color="rgba(255,255,255,0.8)" />
+                </View>
               </LinearGradient>
             </TouchableOpacity>
           )}
@@ -1124,6 +1105,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           <SecuritySection
             onChangePassword={() => { trackSettingsModalOpen('change_password'); setShowChangePassword(true); }}
             onChangeEmail={() => { trackSettingsModalOpen('change_email'); setShowChangeEmail(true); }}
+            loading={loading}
             t={t}
           />
         )}
@@ -1153,8 +1135,9 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               text: t('deleteAccount.button'), style: 'destructive', onPress: async () => {
                 const doDelete = async (password?: string) => {
                   try {
-                    trackDeleteAccount();
+                    await trackDeleteAccount();
                     await deleteAccount(password);
+                    Alert.alert('', t('deleteAccount.success'));
                     onClose();
                   } catch (error: any) {
                     if (error.message === 'password-required') {
@@ -1169,10 +1152,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                       );
                     } else if (error.message === 'wrong-password') {
                       Alert.alert(t('common:error'), t('deleteAccount.wrongPassword'));
+                    } else if (error.message === 'google-reauth-required') {
+                      Alert.alert(t('common:error'), t('deleteAccount.reauth'));
                     } else if (error.message === 'cancelled') {
                       // User cancelled Apple re-auth, do nothing
                     } else {
-                      Alert.alert(t('common:error'), t('deleteAccount.error'));
+                      trackError(error?.message || 'Delete account error', 'delete_account');
+                      Alert.alert(t('common:error'), t('deleteAccount.error') + (error?.message ? `\n\n${error.message}` : ''));
                     }
                   }
                 };
@@ -1292,16 +1278,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   // Styles moved to component files (ProfileSection, GitAccountsSection, SubscriptionSection, etc.)
-  // Plans Refactor
-  planBgGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 400,
-    backgroundColor: `${AppColors.primary}08`,
-    opacity: 0.5,
-  },
+  // Plans — vertical premium layout
   headerTitleSmall: {
     fontSize: 17,
     fontWeight: '800',
@@ -1325,54 +1302,50 @@ const styles = StyleSheet.create({
   },
   planSelectionHero: {
     alignItems: 'center',
-    marginTop: 6,
-    marginBottom: 16,
+    marginTop: 8,
+    marginBottom: 20,
+    paddingHorizontal: 24,
   },
   plansMainTitle: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '800',
     color: '#fff',
-    letterSpacing: -0.5,
+    letterSpacing: -0.8,
+    textAlign: 'center',
   },
   plansSubtitleSmall: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.4)',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.45)',
     textAlign: 'center',
-    marginTop: 6,
-    paddingHorizontal: 54,
-    lineHeight: 17,
+    marginTop: 8,
+    lineHeight: 20,
   },
   pricingToggleContainer: {
     flexDirection: 'row',
     alignSelf: 'center',
     backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 16,
-    padding: 4,
-    marginBottom: 18,
+    borderRadius: 999,
+    padding: 3,
+    marginBottom: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   plansContentContainer: {
-    paddingBottom: 32,
-  },
-  plansFirstFold: {
-    minHeight: SCREEN_HEIGHT - 210,
-    justifyContent: 'space-between',
-    paddingTop: 8,
+    paddingBottom: 40,
   },
   pricingOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 11,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 999,
     gap: 6,
   },
   pricingOptionActive: {
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   pricingOptionText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     color: 'rgba(255,255,255,0.3)',
   },
@@ -1381,227 +1354,178 @@ const styles = StyleSheet.create({
   },
   yearlySavings: {
     backgroundColor: `${AppColors.primary}20`,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   yearlySavingsText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '900',
     color: AppColors.primary,
   },
-  plansScrollContent: {
-    paddingLeft: SIDE_INSET,
-    paddingRight: SIDE_INSET,
-    alignItems: 'stretch',
+  // Vertical plan cards
+  plansVerticalList: {
+    paddingHorizontal: 20,
+    gap: 14,
   },
-  planCardNew: {
-    flex: 1,
-    height: '100%',
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderRadius: 28,
-    padding: 24,
+  pvCardOuter: {
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  pvCardOuterPopular: {
+    borderRadius: 24,
+    padding: 1.5,
+    overflow: 'hidden',
+  },
+  pvGlowBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 24,
+  },
+  pvCard: {
+    backgroundColor: 'rgba(255,255,255,0.025)',
+    borderRadius: 22,
+    padding: 22,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
     overflow: 'hidden',
   },
-  planCardNewWrapper: {
-    width: CARD_WIDTH,
-    minHeight: 430,
-    marginRight: GAP,
+  pvCardPopular: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 0,
   },
-  planCardLiquid: {
-    flex: 1,
-    height: '100%',
-    borderRadius: 28,
-    padding: 24,
-    overflow: 'hidden',
-  },
-  planCardTopGlow: {
+  pvCardGlow: {
     position: 'absolute',
-    top: -10,
-    left: -20,
-    right: -20,
-    height: 170,
-    borderRadius: 40,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 120,
   },
-  featuredBadge: {
-    position: 'absolute',
-    top: 18,
-    right: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  featuredBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: 'rgba(255,255,255,0.72)',
-    letterSpacing: 0.4,
-  },
-  planHeaderNew: {
+  pvHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 14,
   },
-  planTitleBlock: {
-    flexShrink: 1,
-    paddingTop: 10,
+  pvLeft: {
+    flex: 1,
+    marginRight: 16,
   },
-  planTierPill: {
-    alignSelf: 'flex-start',
+  pvNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  pvName: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: -0.5,
+  },
+  pvPopularBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  pvPopularText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  pvActiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  pvActiveText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#3FB950',
+    letterSpacing: 0.5,
+  },
+  pvDesc: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.35)',
+    lineHeight: 18,
+  },
+  pvPriceBlock: {
+    alignItems: 'flex-end',
+  },
+  pvPrice: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: -1,
+  },
+  pvPriceMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    marginBottom: 12,
   },
-  planTierDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  planTierPillText: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-  },
-  planNameSmall: {
-    fontSize: 23,
-    fontWeight: '800',
-    color: '#fff',
-    marginBottom: 4,
-    letterSpacing: -0.5,
-  },
-  planDescriptionSmall: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.48)',
-    maxWidth: '88%',
-    lineHeight: 18,
-  },
-  activeIndicator: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 10,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-    marginBottom: 2,
-    minHeight: 46,
-  },
-  priceTextLarge: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: -1,
-  },
-  pricePeriod: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.34)',
+  pvPeriod: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.3)',
     fontWeight: '600',
   },
-  introOriginalPrice: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.25)',
+  pvOrigPrice: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.2)',
     fontWeight: '600',
     textDecorationLine: 'line-through',
-    marginLeft: 6,
   },
-  introLabel: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.58)',
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  planMicroNote: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.34)',
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  planDividerNew: {
+  pvDivider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
     marginVertical: 16,
   },
-  featuresList: {
-    flex: 1,
+  pvFeatures: {
     gap: 10,
     marginBottom: 18,
   },
-  featureItemNew: {
+  pvFeatureRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
-  featureMarkWrap: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  featureMark: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  featureLabel: {
+  pvFeatureText: {
     flex: 1,
     fontSize: 13,
-    color: 'rgba(255,255,255,0.72)',
+    color: 'rgba(255,255,255,0.55)',
     fontWeight: '600',
     lineHeight: 18,
   },
-  planActionBtn: {
+  pvCta: {
     height: 48,
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  planActionText: {
-    fontSize: 14,
+  pvCtaCurrent: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  pvCtaPopular: {
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  pvCtaText: {
+    fontSize: 15,
     fontWeight: '800',
     color: '#fff',
   },
-  dotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 14,
-    marginBottom: 14,
-  },
-  planDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  planDotActive: {
-    backgroundColor: AppColors.primary,
-    width: 12,
-  },
-  restoreBlock: {
-    width: '100%',
-    paddingHorizontal: 28,
-    marginBottom: 6,
+  pvFooter: {
+    alignItems: 'center',
+    marginTop: 28,
+    paddingHorizontal: 24,
   },
   restoreCaption: {
     fontSize: 11,
@@ -1624,7 +1548,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.2)',
     textAlign: 'center',
     marginTop: 12,
-    paddingHorizontal: 30,
+    paddingHorizontal: 20,
     lineHeight: 16,
   },
   legalLinks: {
@@ -1815,34 +1739,47 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.25)',
   },
   premiumBanner: {
+    marginTop: 16,
     marginHorizontal: 16,
-    borderRadius: 24,
+    borderRadius: 18,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
   },
   premiumBannerGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+  },
+  premiumBannerContent: {
+    flex: 1,
   },
   premiumIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 10,
   },
   premiumTitle: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: '#fff',
+    marginBottom: 3,
   },
   premiumSub: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.4)',
-    marginTop: 2,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.7)',
+    lineHeight: 16,
+  },
+  premiumArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   // Budget styles
   budgetProgressContainer: {

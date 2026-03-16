@@ -1645,23 +1645,26 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
               return (
                 <View style={styles.projectCreatedCard}>
                   <LinearGradient
-                    colors={['rgba(139, 92, 246, 0.12)', 'rgba(99, 102, 241, 0.04)', 'transparent']}
+                    colors={['rgba(16, 185, 129, 0.15)', 'rgba(16, 185, 129, 0.03)', 'transparent']}
                     style={styles.projectCreatedGlow}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
                   />
-                  <View style={styles.projectCreatedHeader}>
-                    <View style={styles.projectCreatedIconBox}>
-                      <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-                    </View>
-                    <Text style={styles.projectCreatedTitle}>{t('terminal:terminalItem.projectCreated')}</Text>
+                  <View style={styles.projectCreatedIconBox}>
+                    <LinearGradient
+                      colors={['#10B981', '#059669']}
+                      style={styles.projectCreatedIconGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+                    </LinearGradient>
                   </View>
+                  <Text style={styles.projectCreatedTitle}>{t('terminal:terminalItem.projectCreated')}</Text>
                   <Text style={styles.projectCreatedName}>{info.name}</Text>
-                  <View style={styles.projectCreatedMeta}>
-                    <View style={styles.projectCreatedTag}>
-                      <Ionicons name={lang.icon as any} size={14} color={lang.color} />
-                      <Text style={[styles.projectCreatedTagText, { color: lang.color }]}>{lang.label}</Text>
-                    </View>
+                  <View style={styles.projectCreatedTag}>
+                    <Ionicons name={lang.icon as any} size={13} color={lang.color} />
+                    <Text style={[styles.projectCreatedTagText, { color: lang.color }]}>{lang.label}</Text>
                   </View>
                   <View style={styles.projectCreatedDivider} />
                   <Text style={styles.projectCreatedHint}>{t('terminal:terminalItem.projectCreatedHint')}</Text>
@@ -2907,31 +2910,29 @@ const styles = StyleSheet.create({
   // Project created card
   projectCreatedCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 20,
+    paddingTop: 28,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(16, 185, 129, 0.15)',
     overflow: 'hidden',
+    alignItems: 'center',
   },
   projectCreatedGlow: {
     position: 'absolute',
-    top: -40,
-    left: -40,
-    right: -40,
-    height: 120,
-    borderRadius: 60,
-  },
-  projectCreatedHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 100,
   },
   projectCreatedIconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    marginBottom: 14,
+  },
+  projectCreatedIconGradient: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2939,29 +2940,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#10B981',
-    letterSpacing: 0.3,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 6,
   },
   projectCreatedName: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
     color: '#FFFFFF',
-    marginBottom: 12,
+    marginBottom: 14,
     letterSpacing: -0.3,
-  },
-  projectCreatedMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 16,
   },
   projectCreatedTag: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginBottom: 20,
   },
   projectCreatedTagText: {
     fontSize: 12,
@@ -2970,7 +2968,8 @@ const styles = StyleSheet.create({
   projectCreatedDivider: {
     height: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    marginBottom: 12,
+    marginBottom: 14,
+    alignSelf: 'stretch',
   },
   projectCreatedHint: {
     fontSize: 13,

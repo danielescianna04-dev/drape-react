@@ -226,6 +226,11 @@
     "contextCompacting": "Compacting context...",
     "contextCompacted": "Context compacted",
     "aiBudgetExceeded": "AI budget exhausted",
+    "budgetUsed": "You've used all your AI budget for this month",
+    "budgetWarning": "You've used {{pct}}% of your AI budget",
+    "budgetGoFeature": "With Go you get 7x budget",
+    "budgetGoDesc": "More AI budget, 10 projects, premium models",
+    "budgetReset": "Budget resets on the 1st of the month",
     "startPreview": "Start Preview",
     "aiAssistant": "AI Assistant",
     "aiAssistantReady": "AI Assistant ready",
@@ -259,7 +264,11 @@
     },
     "history": "History",
     "upgradeMessage": "Upgrade to Go to continue",
-    "upgradeCta": "Upgrade to Go"
+    "upgradeCta": "Upgrade to Go",
+    "upgradeFeatures": "10 projects + 5 cloned",
+    "upgradeWith": "With Go you get:",
+    "upgradePreviews": "20 previews per project",
+    "upgradeBudget": "7x AI budget"
   },
   "contentRenderer": {
     "emptyTitle": "No open tabs",
@@ -301,7 +310,14 @@
     "updating": "Updating...",
     "cancel": "Cancel",
     "update": "Update",
-    "publish": "Publish"
+    "publish": "Publish",
+    "paywallTitle": "Publish your site",
+    "paywallSubtitle": "Bring your project online with a public link",
+    "paywallFeatureLink": "Public link drape.info/p/name",
+    "paywallFeatureDeploy": "Instant deploy with a tap",
+    "paywallFeatureShare": "Share with anyone",
+    "paywallCta": "Upgrade to Go",
+    "building": "Building..."
   },
   "folderModal": {
     "title": "New Folder",
@@ -686,6 +702,7 @@
     "planRejected": "Plan rejected"
   },
   "previewPublish": {
+    "requiresPaid": "Publishing is available with the Go plan.",
     "slugTaken": "Slug already taken. Choose another name.",
     "serverSideNotSupported": "This framework is server-side and cannot be published as a static site. Use live preview instead.",
     "publishFailed": "Publish failed",

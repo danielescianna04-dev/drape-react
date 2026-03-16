@@ -28,6 +28,29 @@ export interface UserProject {
 }
 
 export const workstationService = {
+  // Get lifetime creation counters from user doc (never reset on delete)
+  async getLifetimeCreationCounts(userId: string): Promise<{ created: number; cloned: number; local: number }> {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      const data = userDoc.data()?.creationCounters;
+      if (data) {
+        return { created: data.created || 0, cloned: data.cloned || 0, local: data.local || 0 };
+      }
+      // Fallback for old accounts: count existing projects
+      const projectsSnap = await getDocs(query(collection(db, COLLECTION), where('userId', '==', userId)));
+      let created = 0, cloned = 0, local = 0;
+      projectsSnap.docs.forEach(d => {
+        const p = d.data();
+        if (p.source === 'local') local++;
+        else if (p.repositoryUrl) cloned++;
+        else created++;
+      });
+      return { created, cloned, local };
+    } catch {
+      return { created: 0, cloned: 0, local: 0 };
+    }
+  },
+
   // Get API URL for external calls
   getApiUrl(): string {
     return API_BASE_URL;

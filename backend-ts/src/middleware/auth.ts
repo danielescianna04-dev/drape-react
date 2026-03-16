@@ -196,7 +196,7 @@ export interface PlanProjectLimits {
 }
 
 const PLAN_PROJECT_LIMITS: Record<string, PlanProjectLimits> = {
-  free:    { maxCreated: 3, maxCloned: 2, maxLocal: 1, maxStorageMb: 1024 },
+  free:    { maxCreated: 2, maxCloned: 1, maxLocal: 1, maxStorageMb: 1024 },
   go:      { maxCreated: 10, maxCloned: 5, maxLocal: 3, maxStorageMb: 5120 },
   pro:     { maxCreated: 50, maxCloned: 25, maxLocal: 10, maxStorageMb: 10240 },
   team:    { maxCreated: 200, maxCloned: 100, maxLocal: 20, maxStorageMb: 51200 },
@@ -269,10 +269,21 @@ export async function getLifetimeCreationCounts(userId: string): Promise<Creatio
     const db = firebaseService.getFirestore();
     if (!db) return zero;
 
-    const doc = await db.collection('users').doc(userId).get();
-    const data = doc.data()?.creationCounters as CreationCounters | undefined;
-    if (!data) return zero;
-    return { created: data.created || 0, cloned: data.cloned || 0, local: data.local || 0 };
+    const userDoc = await db.collection('users').doc(userId).get();
+    const data = userDoc.data()?.creationCounters as CreationCounters | undefined;
+    if (data) {
+      return { created: data.created || 0, cloned: data.cloned || 0, local: data.local || 0 };
+    }
+    // Fallback for old accounts without creationCounters: count existing projects
+    const projectsSnap = await db.collection('user_projects').where('userId', '==', userId).get();
+    let created = 0, cloned = 0, local = 0;
+    projectsSnap.docs.forEach(d => {
+      const p = d.data();
+      if (p.source === 'local') local++;
+      else if (p.repositoryUrl) cloned++;
+      else created++;
+    });
+    return { created, cloned, local };
   } catch (err: any) {
     log.warn(`[Auth] getLifetimeCreationCounts error for ${userId}: ${err.message}`);
     return zero;

@@ -1,8 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, Linking, Share } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
 import { trackPublishShare, trackPublishOpenUrl, trackUnpublish } from '../../../core/services/analyticsService';
+import { useNavigationStore } from '../../../core/navigation/navigationStore';
 
 export interface PreviewPublishSheetProps {
   visible: boolean;
@@ -16,6 +18,7 @@ export interface PreviewPublishSheetProps {
   onPublish: () => void;
   onUnpublish: () => void;
   onClose: () => void;
+  isFreeUser?: boolean;
 }
 
 export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
@@ -30,6 +33,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
   onPublish,
   onUnpublish,
   onClose,
+  isFreeUser,
 }) => {
   const { t } = useTranslation();
   return (
@@ -41,7 +45,73 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
     >
       <View style={styles.publishModalOverlay}>
         <View style={styles.publishModalContent}>
-          {publishStatus === 'done' && publishedUrl ? (
+          {isFreeUser && !existingPublish ? (
+            <>
+              <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                <View style={{
+                  width: 56, height: 56, borderRadius: 28,
+                  backgroundColor: 'rgba(139, 92, 246, 0.15)',
+                  alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+                }}>
+                  <Ionicons name="rocket" size={28} color="#A78BFA" />
+                </View>
+                <Text style={styles.publishModalTitle}>{t('terminal:publish.paywallTitle')}</Text>
+                <Text style={[styles.publishModalSubtitle, { marginBottom: 0 }]}>
+                  {t('terminal:publish.paywallSubtitle')}
+                </Text>
+              </View>
+
+              <View style={{
+                backgroundColor: 'rgba(139, 92, 246, 0.08)',
+                borderRadius: 16, padding: 16, marginBottom: 20,
+                borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.15)',
+              }}>
+                <View style={{ gap: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Ionicons name="globe-outline" size={16} color="#A78BFA" />
+                    <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
+                      {t('terminal:publish.paywallFeatureLink')}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Ionicons name="flash-outline" size={16} color="#A78BFA" />
+                    <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
+                      {t('terminal:publish.paywallFeatureDeploy')}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Ionicons name="share-social-outline" size={16} color="#A78BFA" />
+                    <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
+                      {t('terminal:publish.paywallFeatureShare')}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={{ borderRadius: 20, overflow: 'hidden', marginBottom: 10 }}
+                activeOpacity={0.85}
+                onPress={() => { onClose(); useNavigationStore.getState().navigateTo('plans'); }}
+              >
+                <LinearGradient
+                  colors={['#7C3AED', '#5B21B6']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={{ paddingVertical: 14, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 }}
+                >
+                  <Ionicons name="rocket" size={16} color="#fff" />
+                  <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{t('terminal:publish.paywallCta')}</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={onClose}
+                style={{ paddingVertical: 10, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', fontWeight: '500' }}>{t('terminal:publish.cancel')}</Text>
+              </TouchableOpacity>
+            </>
+          ) : publishStatus === 'done' && publishedUrl ? (
             <>
               <Ionicons name="checkmark-circle" size={48} color="#00D084" style={{ alignSelf: 'center', marginBottom: 12 }} />
               <Text style={styles.publishModalTitle}>{t('terminal:publish.published')}</Text>
@@ -137,7 +207,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                 <View style={styles.publishProgressRow}>
                   <ActivityIndicator size="small" color="#007AFF" />
                   <Text style={styles.publishProgressText}>
-                    {publishStatus === 'building' ? 'Building...' : t('terminal:publish.updating')}
+                    {publishStatus === 'building' ? t('terminal:publish.building') : t('terminal:publish.updating')}
                   </Text>
                 </View>
               )}

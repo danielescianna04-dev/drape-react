@@ -75,11 +75,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const newProjectCardRef = useRef<View>(null);
   const cloneCardRef = useRef<View>(null);
 
-  useEffect(() => {
-    if (user?.uid) {
-      useOnboardingStore.getState().initialize(user.uid);
-    }
-  }, [user?.uid]);
 
   // Measure target cards when onboarding is active
   useEffect(() => {
@@ -107,6 +102,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const userAvatar = user?.photoURL || gitHubUser?.avatarUrl;
   const userEmail = user?.email || gitHubUser?.login || t('home.defaultUserEmail');
   const [recentProjects, setRecentProjects] = useState<any[]>([]);
+  const [totalProjectCount, setTotalProjectCount] = useState(0);
+  const [projectCounts, setProjectCounts] = useState({ created: 0, cloned: 0, local: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -159,6 +156,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           })
           .slice(0, 5);
         setRecentProjects(sorted);
+        setTotalProjectCount(cachedData.length);
+        // Load lifetime counters from Firestore
+        if (user?.uid) {
+          workstationService.getLifetimeCreationCounts(user.uid).then(setProjectCounts).catch(() => {});
+        }
         setLoading(false);
         loadRecentProjects(true); // silent refresh
       } else {
@@ -242,6 +244,12 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       // Salva nello store globale per persistenza tra remount
       loadWorkstations(workstations);
 
+      setTotalProjectCount(workstations.length);
+      // Use lifetime creation counters (never reset on delete)
+      if (user?.uid) {
+        const lifetime = await workstationService.getLifetimeCreationCounts(user.uid);
+        setProjectCounts(lifetime);
+      }
       const recent = workstations
         .sort((a, b) => {
           // Sort by lastOpened first, fallback to createdAt
@@ -622,13 +630,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         // Check for limit errors
         if (!response.ok) {
           if (data?.error === 'CLONE_LIMIT_EXCEEDED') {
-            throw new Error(t('alerts.cloneLimitMessage', { max: data.limits?.maxCloned || 2 }));
+            throw new Error(t('alerts.cloneLimitMessage', { max: data.limits?.maxCloned || 1 }));
           }
           if (data?.error === 'STORAGE_LIMIT_EXCEEDED') {
             throw new Error(t('alerts.storageFullMessage', { maxMb: data.limits?.maxStorageMb || 500 }));
           }
           if (data?.error === 'PROJECT_LIMIT_EXCEEDED') {
-            throw new Error(t('alerts.localLimitMessage', { max: data.limits?.maxCreated || 3 }));
+            throw new Error(t('alerts.localLimitMessage', { max: data.limits?.maxCreated || 2 }));
           }
           const errorMsg = data?.error || data?.message || t('alerts.serverUnavailable');
           console.error('❌ [Home] VM warmup failed:', response.status, errorMsg);
@@ -1081,27 +1089,83 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       >
         {/* Quick Actions */}
         <View style={styles.quickActionsSection}>
-          <Text style={[styles.sectionLabel, { marginBottom: 14 }]}>{t('home.getStarted')}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <Text style={styles.sectionLabel}>{t('home.getStarted')}</Text>
+            {currentPlan === 'free' && (
+              <TouchableOpacity
+                onPress={onOpenPlans}
+                activeOpacity={0.7}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 6,
+                  backgroundColor: 'rgba(255,255,255,0.06)',
+                  paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12,
+                }}
+              >
+                <Text style={{
+                  fontSize: 10, fontWeight: '600',
+                  color: projectCounts.created >= 2 ? '#FF6B6B' : 'rgba(255,255,255,0.4)',
+                }} numberOfLines={1}>
+                  {projectCounts.created}/2 {t('home.counterCreated')}
+                </Text>
+                <View style={{ width: 1, height: 10, backgroundColor: 'rgba(255,255,255,0.1)' }} />
+                <Text style={{
+                  fontSize: 10, fontWeight: '600',
+                  color: projectCounts.cloned >= 1 ? '#FF6B6B' : 'rgba(255,255,255,0.4)',
+                }} numberOfLines={1}>
+                  {projectCounts.cloned}/1 {t('home.counterClone')}
+                </Text>
+                <View style={{ width: 1, height: 10, backgroundColor: 'rgba(255,255,255,0.1)' }} />
+                <Text style={{
+                  fontSize: 10, fontWeight: '600',
+                  color: projectCounts.local >= 1 ? '#FF6B6B' : 'rgba(255,255,255,0.4)',
+                }} numberOfLines={1}>
+                  {projectCounts.local}/1 {t('home.counterLocal')}
+                </Text>
+                {(projectCounts.created >= 2 || projectCounts.cloned >= 1 || projectCounts.local >= 1) && (
+                  <Ionicons name="arrow-forward" size={10} color="#FF6B6B" />
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
 
           <View style={styles.quickActionsRow}>
-            {/* New Project */}
+            {/* New Project / Upgrade */}
             <View ref={newProjectCardRef} collapsable={false} style={styles.actionCardWrapper}>
-              <TouchableOpacity
-                style={styles.actionCard}
-                activeOpacity={0.8}
-                onPress={handleNewProject}
-              >
-                <LinearGradient
-                  colors={['#5035D0', '#6A4DE8']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.actionCardGradient}
+              {currentPlan === 'free' && projectCounts.created >= 2 ? (
+                <TouchableOpacity
+                  style={styles.actionCard}
+                  activeOpacity={0.8}
+                  onPress={onOpenPlans}
                 >
-                  <Ionicons name="add" size={24} color="#fff" />
-                  <Text style={styles.actionCardTitle}>{t('home.newProject')}</Text>
-                  <Text style={styles.actionCardSubtitle}>{t('home.createProject')}</Text>
-                </LinearGradient>
-              </TouchableOpacity>
+                  <LinearGradient
+                    colors={['#FF6B6B', '#FF4757']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.actionCardGradient}
+                  >
+                    <Ionicons name="arrow-up-circle" size={24} color="#fff" />
+                    <Text style={styles.actionCardTitle}>Upgrade</Text>
+                    <Text style={styles.actionCardSubtitle} numberOfLines={1}>{t('home.unlockPro')}</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.actionCard}
+                  activeOpacity={0.8}
+                  onPress={handleNewProject}
+                >
+                  <LinearGradient
+                    colors={['#5035D0', '#6A4DE8']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.actionCardGradient}
+                  >
+                    <Ionicons name="add" size={24} color="#fff" />
+                    <Text style={styles.actionCardTitle}>{t('home.newProject')}</Text>
+                    <Text style={styles.actionCardSubtitle}>{t('home.createProject')}</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Import from GitHub */}
@@ -1590,8 +1654,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         showTips={true}
       />
 
-      {/* Spotlight Onboarding */}
-      <SpotlightOverlay />
     </View>
   );
 };

@@ -36,6 +36,7 @@ import { AgentModeModal } from '../../shared/components/molecules/AgentModeModal
 import { config } from '../../config/config';
 import { getAuthHeaders } from '../../core/api/getAuthToken';
 import { useTranslation } from 'react-i18next';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
@@ -149,6 +150,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   // TODO: Implement EventSource polyfill for SSE support
   const [useAgentSystem, setUseAgentSystem] = useState(false); // Flag to enable/disable agent system
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showPostCreationPaywall, setShowPostCreationPaywall] = useState(false);
+  const [pendingWorkstation, setPendingWorkstation] = useState<any>(null);
   const [projectLimit, setProjectLimit] = useState(2);
   const [aiRecommendedLang, setAiRecommendedLang] = useState<string | null>(null);
   const [aiExplanation, setAiExplanation] = useState<string | null>(null);
@@ -498,10 +501,19 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       };
 
       // Short delay to show completion
-      setTimeout(() => {
+      setTimeout(async () => {
         setIsCreating(false);
         resetStream();
-        onCreate(workstation);
+        // Show post-creation paywall for free users (once)
+        const userPlan = useAuthStore.getState().user?.plan || 'free';
+        const seenPaywall = await AsyncStorage.getItem('hasSeenPostCreationPaywall');
+        if (userPlan === 'free' && !seenPaywall) {
+          setPendingWorkstation(workstation);
+          setShowPostCreationPaywall(true);
+          await AsyncStorage.setItem('hasSeenPostCreationPaywall', 'true');
+        } else {
+          onCreate(workstation);
+        }
       }, 800);
     } catch (error) {
       console.error('[CreateProject] Failed to save context:', error);
@@ -792,8 +804,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
       if (!response.ok || !result.success) {
         if (result.error === 'PROJECT_LIMIT_EXCEEDED') {
-          trackError('Project limit exceeded: ' + (result.limits?.maxProjects || 3), 'project_create');
-          setProjectLimit(result.limits?.maxProjects || 3);
+          trackError('Project limit exceeded: ' + (result.limits?.maxProjects || 2), 'project_create');
+          setProjectLimit(result.limits?.maxProjects || 2);
           setShowUpgradeModal(true);
           setIsCreating(false);
           liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
@@ -874,7 +886,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
       if (!response.ok || !result.success) {
         if (result.error === 'PROJECT_LIMIT_EXCEEDED') {
-          setProjectLimit(result.limits?.maxProjects || 3);
+          setProjectLimit(result.limits?.maxProjects || 2);
           setShowUpgradeModal(true);
           setIsCreating(false);
           setCreationTask(null);
@@ -1509,6 +1521,78 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                 </ScrollView>
               </View>
             </Animated.View>
+          </View>
+        </View>
+      )}
+
+      {/* Post-creation paywall for free users */}
+      {showPostCreationPaywall && (
+        <View style={styles.upgradeOverlay}>
+          <View style={styles.upgradeModalOverlay}>
+            <View style={styles.upgradeModalCard}>
+              <LinearGradient
+                colors={['rgba(80, 200, 120, 0.15)', 'rgba(59, 130, 246, 0.05)', 'transparent']}
+                style={styles.upgradeModalGlow}
+              />
+              <View style={styles.upgradeIconWrapper}>
+                <LinearGradient
+                  colors={['#50C878', '#34D399']}
+                  style={styles.upgradeIconGradient}
+                >
+                  <Ionicons name="checkmark-circle" size={32} color="#fff" />
+                </LinearGradient>
+              </View>
+              <Text style={styles.upgradeTitle}>Progetto creato!</Text>
+              <Text style={styles.upgradeSubtitle}>
+                Con Go puoi creare di piu e con modelli AI premium.
+              </Text>
+              <View style={styles.upgradeFeatures}>
+                {[
+                  { icon: 'flash', text: '7.5x budget AI' },
+                  { icon: 'folder-open', text: '10 progetti + 5 clonati' },
+                  { icon: 'diamond', text: 'Modelli premium (Opus, GPT-5)' },
+                ].map((f, i) => (
+                  <View key={i} style={styles.upgradeFeatureRow}>
+                    <LinearGradient
+                      colors={[AppColors.primary, '#9333EA']}
+                      style={styles.upgradeFeatureIcon}
+                    >
+                      <Ionicons name={f.icon as any} size={14} color="#fff" />
+                    </LinearGradient>
+                    <Text style={styles.upgradeFeatureText}>{f.text}</Text>
+                  </View>
+                ))}
+              </View>
+              <TouchableOpacity
+                style={styles.upgradeCta}
+                activeOpacity={0.85}
+                onPress={() => {
+                  setShowPostCreationPaywall(false);
+                  if (onOpenPlans) {
+                    onOpenPlans();
+                  }
+                }}
+              >
+                <LinearGradient
+                  colors={[AppColors.primary, '#9333EA']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.upgradeCtaGradient}
+                >
+                  <Ionicons name="arrow-up-circle" size={20} color="#fff" />
+                  <Text style={styles.upgradeCtaText}>{t('limit.upgradeCta')}</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.upgradeDismiss}
+                onPress={() => {
+                  setShowPostCreationPaywall(false);
+                  if (pendingWorkstation) onCreate(pendingWorkstation);
+                }}
+              >
+                <Text style={styles.upgradeDismissText}>{t('limit.notNow')}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       )}

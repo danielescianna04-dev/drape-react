@@ -7,6 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTranslation } from 'react-i18next';
 import { PreviewLog } from '../../../hooks/api/usePreviewLogs';
+import { useNavigationStore } from '../../../core/navigation/navigationStore';
 
 const techIconMap: Record<string, string> = {
   react: 'logo-react',
@@ -180,14 +181,10 @@ export const PreviewStartScreen: React.FC<{
     <View style={styles.startScreen}>
       {/* Same purple desktop background as loading screen */}
       <LinearGradient
-        colors={['#1a0a2e', '#120826', '#0d0619', '#120826', '#1a0a2e']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        colors={AppColors.gradient.dark as unknown as string[]}
+        locations={[0, 0.3, 0.7, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <View style={styles.macDesktopOrb1} />
-      <View style={styles.macDesktopOrb2} />
-      <View style={styles.macDesktopOrb3} />
 
       {/* Terminal-style window with project info — draggable */}
       <Reanimated.View style={[dragStyle, { width: '85%', maxWidth: 340, alignSelf: 'center' }]}>
@@ -395,14 +392,10 @@ export const PreviewErrorScreen: React.FC<{
   return (
     <View style={styles.startScreen}>
       <LinearGradient
-        colors={['#1a0a2e', '#120826', '#0d0619', '#120826', '#1a0a2e']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        colors={AppColors.gradient.dark as unknown as string[]}
+        locations={[0, 0.3, 0.7, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <View style={styles.macDesktopOrb1} />
-      <View style={styles.macDesktopOrb2} />
-      <View style={styles.macDesktopOrb3} />
 
       <TouchableOpacity
         onPress={onClose}
@@ -463,17 +456,11 @@ export const PreviewLoadingScreen: React.FC<{
 
   return (
     <View style={styles.startScreen}>
-      {/* macOS Desktop-style background */}
       <LinearGradient
-        colors={['#1a0a2e', '#120826', '#0d0619', '#120826', '#1a0a2e']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        colors={AppColors.gradient.dark as unknown as string[]}
+        locations={[0, 0.3, 0.7, 1]}
         style={StyleSheet.absoluteFill}
       />
-      {/* Subtle ambient orbs */}
-      <View style={styles.macDesktopOrb1} />
-      <View style={styles.macDesktopOrb2} />
-      <View style={styles.macDesktopOrb3} />
 
       {/* Content - Error or Terminal (full screen) */}
       <View style={styles.fullScreenContent}>
@@ -568,6 +555,11 @@ const ErrorContent: React.FC<{
   onSendErrorReport: () => void;
   t: any;
 }> = ({ previewError, terminalOutput, onRetryPreview, onSendErrorReport, t }) => {
+  // Check if this is a limit error (prefixed by PreviewPanel)
+  const limitMatch = previewError.message.match(/^__LIMIT__(\w+)__::(.+)$/);
+  const isLimitError = !!limitMatch;
+  const displayMessage = limitMatch ? limitMatch[2] : previewError.message;
+
   // Show last terminal lines that contain errors
   const errorLines = React.useMemo(() => {
     if (!terminalOutput || terminalOutput.length === 0) return [];
@@ -578,6 +570,59 @@ const ErrorContent: React.FC<{
     return relevant.length > 0 ? relevant.slice(-15) : terminalOutput.slice(-10);
   }, [terminalOutput]);
 
+  if (isLimitError) {
+    return (
+      <View style={styles.errorContainer}>
+        <View style={[styles.errorIconContainer, { backgroundColor: 'rgba(139, 92, 246, 0.15)' }]}>
+          <Ionicons name="lock-closed" size={48} color="#A78BFA" />
+        </View>
+        <Text style={styles.errorTitle}>{t('projects:limit.reached')}</Text>
+        <Text style={[styles.errorMessage, { marginBottom: 20 }]} numberOfLines={3}>
+          {displayMessage}
+        </Text>
+
+        <View style={{
+          backgroundColor: 'rgba(139, 92, 246, 0.1)',
+          borderRadius: 16,
+          padding: 16,
+          marginBottom: 24,
+          borderWidth: 1,
+          borderColor: 'rgba(139, 92, 246, 0.2)',
+          width: '100%',
+        }}>
+          <Text style={{ color: '#C4B5FD', fontSize: 13, fontWeight: '600', marginBottom: 8 }}>
+            {t('terminal:preview.upgradeWith')}
+          </Text>
+          <View style={{ gap: 6 }}>
+            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
+              <Ionicons name="checkmark-circle" size={14} color="#A78BFA" /> {t('terminal:preview.upgradePreviews')}
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
+              <Ionicons name="checkmark-circle" size={14} color="#A78BFA" /> {t('terminal:preview.upgradeBudget')}
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
+              <Ionicons name="checkmark-circle" size={14} color="#A78BFA" /> {t('terminal:preview.upgradeFeatures')}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.errorButtonsContainer}>
+          <TouchableOpacity
+            style={[styles.retryButton, {
+              backgroundColor: '#7C3AED',
+              flex: 1,
+            }]}
+            onPress={() => useNavigationStore.getState().navigateTo('plans')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="rocket" size={18} color="#fff" />
+            <Text style={styles.retryButtonText}>{t('terminal:preview.upgradeCta')}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.errorContainer}>
       <View style={styles.errorIconContainer}>
@@ -585,7 +630,7 @@ const ErrorContent: React.FC<{
       </View>
       <Text style={styles.errorTitle}>{t('terminal:preview.startupFailed')}</Text>
       <Text style={styles.errorMessage} numberOfLines={3}>
-        {previewError.message}
+        {displayMessage}
       </Text>
 
       {/* Terminal error log */}
@@ -726,34 +771,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 60,
-  },
-  // macOS Desktop wallpaper orbs
-  macDesktopOrb1: {
-    position: 'absolute',
-    top: '10%',
-    left: '-15%',
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: 'rgba(139, 92, 246, 0.25)',
-  },
-  macDesktopOrb2: {
-    position: 'absolute',
-    top: '5%',
-    right: '-10%',
-    width: 250,
-    height: 250,
-    borderRadius: 125,
-    backgroundColor: 'rgba(124, 58, 237, 0.2)',
-  },
-  macDesktopOrb3: {
-    position: 'absolute',
-    bottom: '15%',
-    left: '20%',
-    width: 350,
-    height: 350,
-    borderRadius: 175,
-    backgroundColor: 'rgba(99, 102, 241, 0.15)',
   },
   // Terminal window (macOS style)
   devTerminalWindow: {

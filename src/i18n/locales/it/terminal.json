@@ -226,6 +226,11 @@
     "contextCompacting": "Compattazione in corso...",
     "contextCompacted": "Contesto compattato",
     "aiBudgetExceeded": "Budget AI esaurito",
+    "budgetUsed": "Hai esaurito il budget AI per questo mese",
+    "budgetWarning": "Hai usato il {{pct}}% del budget AI",
+    "budgetGoFeature": "Con Go hai 7x budget",
+    "budgetGoDesc": "Piu budget AI, 10 progetti, modelli premium",
+    "budgetReset": "Il budget si resetta il 1° del mese",
     "startPreview": "Avvia Anteprima",
     "aiAssistant": "AI Assistant",
     "aiAssistantReady": "AI Assistant pronto",
@@ -259,7 +264,11 @@
     },
     "history": "Cronologia",
     "upgradeMessage": "Passa a Go per continuare",
-    "upgradeCta": "Passa a Go"
+    "upgradeCta": "Passa a Go",
+    "upgradeFeatures": "10 progetti + 5 clonati",
+    "upgradeWith": "Con Go hai:",
+    "upgradePreviews": "20 preview per progetto",
+    "upgradeBudget": "7x budget AI"
   },
   "contentRenderer": {
     "emptyTitle": "Nessuna scheda aperta",
@@ -301,7 +310,14 @@
     "updating": "Aggiornamento...",
     "cancel": "Annulla",
     "update": "Aggiorna",
-    "publish": "Pubblica"
+    "publish": "Pubblica",
+    "paywallTitle": "Pubblica il tuo sito",
+    "paywallSubtitle": "Porta il tuo progetto online con un link pubblico",
+    "paywallFeatureLink": "Link pubblico drape.info/p/nome",
+    "paywallFeatureDeploy": "Deploy istantaneo con un tap",
+    "paywallFeatureShare": "Condividi con chiunque",
+    "paywallCta": "Passa a Go",
+    "building": "Building..."
   },
   "folderModal": {
     "title": "Nuova Cartella",
@@ -686,6 +702,7 @@
     "planRejected": "Piano rifiutato"
   },
   "previewPublish": {
+    "requiresPaid": "La pubblicazione e' disponibile con il piano Go.",
     "slugTaken": "Slug gia occupato. Scegli un altro nome.",
     "serverSideNotSupported": "Questo framework e server-side e non puo essere pubblicato come sito statico. Usa la preview live.",
     "publishFailed": "Pubblicazione fallita",

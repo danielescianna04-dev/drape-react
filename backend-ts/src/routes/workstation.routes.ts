@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
-import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb } from '../middleware/auth';
+import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter } from '../middleware/auth';
 import { fileService } from '../services/file.service';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
@@ -873,27 +873,27 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
   const { projectId, repositoryUrl, githubToken, projectName } = req.body;
   if (!projectId) throw new ValidationError('projectId required');
 
-  // Enforce project limits using active project count
+  // Enforce project limits using lifetime creation counts (never reset on delete)
   const userId = req.userId || 'anonymous';
   if (userId !== 'anonymous') {
     const planId = await getUserPlan(userId);
     const limits = getPlanProjectLimits(planId);
-    const activeCounts = await countUserProjects(userId);
+    const lifetimeCounts = await getLifetimeCreationCounts(userId);
     const isClone = !!repositoryUrl;
 
-    if (isClone && activeCounts.cloned >= limits.maxCloned) {
+    if (isClone && lifetimeCounts.cloned >= limits.maxCloned) {
       return res.status(403).json({
         success: false,
         error: 'PROJECT_LIMIT_EXCEEDED',
-        limits: { maxProjects: limits.maxCloned, maxCloned: limits.maxCloned, current: activeCounts.cloned },
+        limits: { maxProjects: limits.maxCloned, maxCloned: limits.maxCloned, current: lifetimeCounts.cloned },
         message: `Hai raggiunto il limite di ${limits.maxCloned} progetti clonati per il piano ${planId}`,
       });
     }
-    if (!isClone && activeCounts.created >= limits.maxCreated) {
+    if (!isClone && lifetimeCounts.created >= limits.maxCreated) {
       return res.status(403).json({
         success: false,
         error: 'PROJECT_LIMIT_EXCEEDED',
-        limits: { maxProjects: limits.maxCreated, maxCloned: limits.maxCloned, current: activeCounts.created },
+        limits: { maxProjects: limits.maxCreated, maxCloned: limits.maxCloned, current: lifetimeCounts.created },
         message: `Hai raggiunto il limite di ${limits.maxCreated} progetti creati per il piano ${planId}`,
       });
     }
@@ -914,6 +914,10 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
     await workspaceService.cloneRepository(projectId, repositoryUrl, githubToken);
   }
 
+  // Increment lifetime creation counter
+  const createType = repositoryUrl ? 'cloned' : 'created';
+  incrementCreationCounter(userId, createType).catch(() => {});
+
   const files = await workspaceService.listFiles(projectId);
   res.json({
     workstationId: projectId,
@@ -930,18 +934,18 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
   const { projectName, technology, description, projectId, agentMode } = req.body;
   if (!projectName) throw new ValidationError('projectName required');
 
-  // Enforce project creation + storage limits using active project count
+  // Enforce project creation + storage limits using lifetime creation counts
   const userId = req.userId || 'anonymous';
   if (userId !== 'anonymous') {
     const planId = await getUserPlan(userId);
     const limits = getPlanProjectLimits(planId);
-    const activeCounts = await countUserProjects(userId);
+    const lifetimeCounts = await getLifetimeCreationCounts(userId);
 
-    if (activeCounts.created >= limits.maxCreated) {
+    if (lifetimeCounts.created >= limits.maxCreated) {
       return res.status(403).json({
         success: false,
         error: 'PROJECT_LIMIT_EXCEEDED',
-        limits: { maxProjects: limits.maxCreated, maxCloned: limits.maxCloned, current: activeCounts.created },
+        limits: { maxProjects: limits.maxCreated, maxCloned: limits.maxCloned, current: lifetimeCounts.created },
         message: `Hai raggiunto il limite di ${limits.maxCreated} progetti creati per il piano ${planId}`,
       });
     }
@@ -959,6 +963,11 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
 
   const id = projectId || `project-${Date.now()}`;
   await fileService.ensureProjectDir(id);
+
+  // Increment lifetime creation counter
+  if (userId !== 'anonymous') {
+    incrementCreationCounter(userId, 'created').catch(() => {});
+  }
 
   // Write ownership record to Firestore so agent/stream can verify access
   try {

@@ -49,8 +49,17 @@ export function trackLogout() {
   trackEvent('logout');
 }
 
-export function trackDeleteAccount() {
-  trackEvent('delete_account');
+export async function trackDeleteAccount() {
+  const user = auth.currentUser;
+  if (!user) return;
+  await addDoc(collection(db, 'user_events'), {
+    type: 'delete_account',
+    userId: user.uid,
+    email: user.email || '',
+    platform: Platform.OS,
+    deviceType: getDeviceType(),
+    timestamp: serverTimestamp(),
+  });
 }
 
 // Project actions
@@ -409,6 +418,47 @@ export function trackLegalView(legalType: string) {
 
 export function trackNotificationToggle(type: string, enabled: string) {
   trackEvent('notification_toggle', { notificationType: type, enabled });
+}
+
+// Onboarding
+export function trackOnboardingStepCompleted(step: string) {
+  trackEvent('onboarding_step_completed', { step });
+}
+
+export function trackOnboardingSkip(step: string) {
+  trackEvent('onboarding_skip', { step });
+}
+
+export function trackOnboardingExperienceSelected(experienceLevel: string) {
+  trackEvent('onboarding_experience_selected', { experienceLevel });
+}
+
+export function trackOnboardingReferralSelected(referralSource: string) {
+  trackEvent('onboarding_referral_selected', { referralSource });
+}
+
+export function trackOnboardingCompleted() {
+  trackEvent('onboarding_completed');
+}
+
+export function trackOnboardingPlanSelected(plan: string) {
+  trackEvent('onboarding_plan_selected', { plan });
+}
+
+export function trackOnboardingBack(fromStep: string) {
+  trackEvent('onboarding_back', { fromStep });
+}
+
+export function trackTutorialStepAdvance(stepIndex: string, stepName: string) {
+  trackEvent('tutorial_step_advance', { stepIndex, stepName });
+}
+
+export function trackTutorialSkip(stepIndex: string) {
+  trackEvent('tutorial_skip', { stepIndex });
+}
+
+export function trackChatWelcomeDismissed() {
+  trackEvent('chat_welcome_dismissed');
 }
 
 // Errors
