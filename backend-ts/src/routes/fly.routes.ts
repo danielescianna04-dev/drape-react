@@ -207,14 +207,34 @@ flyRouter.post('/project/create', asyncHandler(async (req, res) => {
   await fileService.ensureProjectDir(projectId);
 
   if (repositoryUrl) {
-    await workspaceService.cloneRepository(projectId, repositoryUrl, githubToken, branch);
+    const cloneResult = await workspaceService.cloneRepository(projectId, repositoryUrl, githubToken, branch);
+    if (!cloneResult.success) {
+      // Clean up empty project directory
+      await fileService.deleteProject(projectId).catch(() => {});
+      return res.status(400).json({
+        success: false,
+        error: 'CLONE_FAILED',
+        message: cloneResult.error || 'Failed to clone repository',
+      });
+    }
   }
 
-  // Increment lifetime creation counter
+  const files = await workspaceService.listFiles(projectId);
+
+  // Validate that clone produced files — don't create empty projects
+  if (repositoryUrl && files.length === 0) {
+    await fileService.deleteProject(projectId).catch(() => {});
+    return res.status(400).json({
+      success: false,
+      error: 'NO_FILES',
+      message: 'No files found after cloning. The repository may be empty or the URL may be invalid.',
+    });
+  }
+
+  // Increment lifetime creation counter only after successful clone
   const createType = source === 'local' ? 'local' : repositoryUrl ? 'cloned' : 'created';
   incrementCreationCounter(uid, createType).catch(() => {});
 
-  const files = await workspaceService.listFiles(projectId);
   res.json({ success: true, projectId, filesCount: files.length, files });
 }));
 

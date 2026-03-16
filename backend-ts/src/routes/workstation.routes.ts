@@ -911,14 +911,31 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
   await fileService.ensureProjectDir(projectId);
 
   if (repositoryUrl) {
-    await workspaceService.cloneRepository(projectId, repositoryUrl, githubToken);
+    const cloneResult = await workspaceService.cloneRepository(projectId, repositoryUrl, githubToken);
+    if (!cloneResult.success) {
+      await fileService.deleteProject(projectId).catch(() => {});
+      return res.status(400).json({
+        success: false,
+        error: 'CLONE_FAILED',
+        message: cloneResult.error || 'Failed to clone repository',
+      });
+    }
   }
 
-  // Increment lifetime creation counter
+  const files = await workspaceService.listFiles(projectId);
+
+  if (repositoryUrl && files.length === 0) {
+    await fileService.deleteProject(projectId).catch(() => {});
+    return res.status(400).json({
+      success: false,
+      error: 'NO_FILES',
+      message: 'No files found after cloning. The repository may be empty or the URL may be invalid.',
+    });
+  }
+
+  // Increment lifetime creation counter only after successful clone
   const createType = repositoryUrl ? 'cloned' : 'created';
   incrementCreationCounter(userId, createType).catch(() => {});
-
-  const files = await workspaceService.listFiles(projectId);
   res.json({
     workstationId: projectId,
     status: 'active',

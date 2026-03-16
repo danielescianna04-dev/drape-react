@@ -329,8 +329,53 @@ class WorkspaceService {
   }
 
   /**
+   * Parse a git hosting URL to extract base repo URL, branch, and subdirectory path.
+   * Supports GitHub (/tree/), GitLab (/-/tree/), Bitbucket (/src/).
+   */
+  parseRepoUrl(url: string): { repoUrl: string; branch: string | null; subPath: string | null } {
+    try {
+      const u = new URL(url);
+      const parts = u.pathname.split('/').filter(Boolean); // ['owner', 'repo', 'tree', 'branch', ...path]
+
+      if (parts.length < 2) return { repoUrl: url, branch: null, subPath: null };
+
+      const host = u.hostname.toLowerCase();
+
+      // GitHub: /owner/repo/tree/branch/path...
+      if (host.includes('github.com') && parts.length > 3 && parts[2] === 'tree') {
+        const repoUrl = `${u.protocol}//${u.host}/${parts[0]}/${parts[1]}`;
+        const branch = parts[3];
+        const subPath = parts.length > 4 ? parts.slice(4).join('/') : null;
+        return { repoUrl, branch, subPath };
+      }
+
+      // GitLab: /owner/repo/-/tree/branch/path...
+      if ((host.includes('gitlab.com') || host.includes('gitlab.')) && parts.length > 4 && parts[2] === '-' && parts[3] === 'tree') {
+        const repoUrl = `${u.protocol}//${u.host}/${parts[0]}/${parts[1]}`;
+        const branch = parts[4];
+        const subPath = parts.length > 5 ? parts.slice(5).join('/') : null;
+        return { repoUrl, branch, subPath };
+      }
+
+      // Bitbucket: /owner/repo/src/branch/path...
+      if ((host.includes('bitbucket.org') || host.includes('bitbucket.')) && parts.length > 3 && parts[2] === 'src') {
+        const repoUrl = `${u.protocol}//${u.host}/${parts[0]}/${parts[1]}`;
+        const branch = parts[3];
+        const subPath = parts.length > 4 ? parts.slice(4).join('/') : null;
+        return { repoUrl, branch, subPath };
+      }
+
+      // No subdirectory pattern detected — return as-is
+      return { repoUrl: url, branch: null, subPath: null };
+    } catch {
+      return { repoUrl: url, branch: null, subPath: null };
+    }
+  }
+
+  /**
    * Clone a repository to the project directory on NVMe
    * Supports GitHub, GitLab, Bitbucket, and Gitea
+   * Handles subdirectory URLs (e.g. /tree/master/examples/react)
    */
   async cloneRepository(projectId: string, repoUrl: string, token?: string, branch?: string): Promise<Result> {
     const projectDir = path.join(config.projectsRoot, projectId);
@@ -342,28 +387,33 @@ class WorkspaceService {
       return { success: true };
     }
 
-    let cloneUrl = repoUrl;
-    if (token && !repoUrl.includes('@')) {
+    // Parse URL to extract base repo, branch, and subdirectory
+    const parsed = this.parseRepoUrl(repoUrl);
+    let cloneUrl = parsed.repoUrl;
+    const effectiveBranch = branch || parsed.branch;
+    const subPath = parsed.subPath;
+
+    if (subPath) {
+      log.info(`[Workspace] Detected subdirectory: ${subPath} (branch: ${effectiveBranch})`);
+    }
+
+    if (token && !cloneUrl.includes('@')) {
       // Build authenticated URL based on provider
-      const lowerUrl = repoUrl.toLowerCase();
+      const lowerUrl = cloneUrl.toLowerCase();
 
       if (lowerUrl.includes('github.com')) {
-        // GitHub: https://{token}@github.com/...
-        cloneUrl = repoUrl.replace('https://', `https://${token}@`);
+        cloneUrl = cloneUrl.replace('https://', `https://${token}@`);
       } else if (lowerUrl.includes('gitlab.com') || lowerUrl.includes('gitlab.')) {
-        // GitLab: https://oauth2:{token}@gitlab.com/...
-        cloneUrl = repoUrl.replace('https://', `https://oauth2:${token}@`);
+        cloneUrl = cloneUrl.replace('https://', `https://oauth2:${token}@`);
       } else if (lowerUrl.includes('bitbucket.org') || lowerUrl.includes('bitbucket.')) {
-        // Bitbucket: token is already "username:app_password"
-        cloneUrl = repoUrl.replace('https://', `https://${token}@`);
+        cloneUrl = cloneUrl.replace('https://', `https://${token}@`);
       } else {
-        // Generic (Gitea, self-hosted): https://{token}@server/...
-        cloneUrl = repoUrl.replace('https://', `https://${token}@`);
+        cloneUrl = cloneUrl.replace('https://', `https://${token}@`);
       }
     }
 
-    log.info(`[Workspace] Cloning ${repoUrl} to ${projectId}${branch ? ` (branch: ${branch})` : ''}`);
-    const branchFlag = branch ? `--branch ${shellEscape(branch)} ` : '';
+    log.info(`[Workspace] Cloning ${parsed.repoUrl} to ${projectId}${effectiveBranch ? ` (branch: ${effectiveBranch})` : ''}`);
+    const branchFlag = effectiveBranch ? `--branch ${shellEscape(effectiveBranch)} ` : '';
     const result = await execShell(
       `git -c safe.directory='*' clone --depth 1 ${branchFlag}${shellEscape(cloneUrl)} ${shellEscape(projectDir)}`,
       '/tmp',
@@ -373,6 +423,28 @@ class WorkspaceService {
     if (result.exitCode !== 0) {
       log.error(`[Workspace] Clone failed: ${result.stderr}`);
       return { success: false, error: result.stderr };
+    }
+
+    // If subdirectory was specified, extract it to project root
+    if (subPath) {
+      const subDir = path.join(projectDir, subPath);
+      // Use a tmp dir OUTSIDE projectDir to avoid rm -rf deleting it
+      const tmpDir = path.join(config.projectsRoot, `__sub_tmp_${projectId}`);
+      const checkResult = await execShell(`test -d ${shellEscape(subDir)} && echo exists`, '/tmp', 5000);
+
+      if (checkResult.stdout.trim() !== 'exists') {
+        log.error(`[Workspace] Subdirectory '${subPath}' not found in repository`);
+        await execShell(`rm -rf ${shellEscape(projectDir)}`, '/tmp', 10000);
+        return { success: false, error: `Subdirectory '${subPath}' not found in repository` };
+      }
+
+      // Copy subdirectory to temp, wipe project dir, move back
+      await execShell(
+        `cp -a ${shellEscape(subDir)} ${shellEscape(tmpDir)} && rm -rf ${shellEscape(projectDir)} && mv ${shellEscape(tmpDir)} ${shellEscape(projectDir)}`,
+        '/tmp',
+        30000,
+      );
+      log.info(`[Workspace] Extracted subdirectory '${subPath}' to project root`);
     }
 
     log.info(`[Workspace] Clone complete for ${projectId}`);

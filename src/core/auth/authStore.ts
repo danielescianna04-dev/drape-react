@@ -422,7 +422,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const userPlan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
         drapeUser.plan = userPlan;
 
-        const isNew = !userDocSnap.exists() || userData?.hasCreatedFirstProject !== true;
+        const isNew = !userDocSnap.exists();
 
         set({ user: drapeUser, isInitialized: true, isLoading: false, deviceCheckFailed: false, isNewUser: isNew });
 
@@ -512,7 +512,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const userDocSnap = await getDoc(userDocRef);
       const userData = userDocSnap.exists() ? userDocSnap.data() : null;
       drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
-      const isNew = !userDocSnap.exists() || userData?.hasCreatedFirstProject !== true;
+      const isNew = !userDocSnap.exists();
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
 
@@ -932,7 +932,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const userData = userDoc.exists() ? userDoc.data() : null;
-      const isNew = !userDoc.exists() || userData?.hasCreatedFirstProject !== true;
+      const isNew = !userDoc.exists();
 
       // Load plan from Firestore user document (existing users have plan field)
       if (userDoc.exists() && userData) {
@@ -1038,7 +1038,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const userData = userDoc.exists() ? userDoc.data() : null;
-      const isNew = !userDoc.exists() || userData?.hasCreatedFirstProject !== true;
+      const isNew = !userDoc.exists();
 
       // Load plan from Firestore user document (existing users have plan field)
       if (userDoc.exists() && userData) {
