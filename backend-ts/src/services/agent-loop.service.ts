@@ -698,10 +698,43 @@ export class AgentLoop {
         // Add assistant message to history
         // Strip any <system-reminder>...</system-reminder> tags Gemini may have echoed
         const cleanedFullText = fullText.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+
+        // Fallback: parse tool calls embedded as JSON text (Gemini sometimes does this)
+        if (toolCalls.length === 0 && cleanedFullText) {
+          const jsonToolMatch = cleanedFullText.match(/\[\s*\{\s*"name"\s*:\s*"(\w+)"[\s\S]*?\}\s*\]/);
+          if (jsonToolMatch) {
+            try {
+              const parsed = JSON.parse(jsonToolMatch[0]);
+              if (Array.isArray(parsed)) {
+                for (const tc of parsed) {
+                  if (tc.name && tc.arguments) {
+                    const id = `text-tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                    toolCalls.push({ id, name: tc.name, input: tc.arguments });
+                    log.info(`[AgentLoop] Recovered text-embedded tool call: ${tc.name}`);
+                    yield { type: 'tool_start', id, tool: tc.name };
+                    yield { type: 'tool_input', id, tool: tc.name, input: tc.arguments };
+                  }
+                }
+              }
+            } catch {
+              // Not valid JSON, ignore
+            }
+          }
+        }
+
         const assistantContent: ContentBlock[] = [];
 
         if (cleanedFullText) {
-          assistantContent.push({ type: 'text', text: cleanedFullText });
+          // Strip tool JSON and tool_output from text stored in history
+          let historyText = cleanedFullText
+            .replace(/\[\s*\{\s*"name"\s*:\s*"\w+"[\s\S]*?\}\s*\]/g, '')
+            .replace(/<tool_output>[\s\S]*?<\/tool_output>/g, '')
+            .replace(/<\/?tool_output>/g, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+          if (historyText) {
+            assistantContent.push({ type: 'text', text: historyText });
+          }
         }
 
         if (toolCalls.length > 0) {

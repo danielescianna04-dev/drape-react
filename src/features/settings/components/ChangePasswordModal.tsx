@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
   input: {
     width: '100%',
     backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 12,
+    borderRadius: 24,
     paddingHorizontal: 16,
     paddingVertical: 14,
     color: '#fff',
@@ -201,10 +201,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 13,
-    borderRadius: 12,
+    borderRadius: 24,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
-  btnConfirm: { flex: 1, borderRadius: 12, height: 46 },
+  btnConfirm: { flex: 1, borderRadius: 24, height: 46 },
   btnCancelText: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '600' },
   btnConfirmText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

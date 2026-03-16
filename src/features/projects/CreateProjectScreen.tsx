@@ -155,6 +155,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const [projectLimit, setProjectLimit] = useState(2);
   const [aiRecommendedLang, setAiRecommendedLang] = useState<string | null>(null);
   const [aiExplanation, setAiExplanation] = useState<string | null>(null);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [showAllLangs, setShowAllLangs] = useState(false);
   const [editingField, setEditingField] = useState<'name' | 'description' | null>(null);
   const [cloudEnabled, setCloudEnabled] = useState(false);
@@ -227,6 +228,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   // Delay LiquidGlass rendering until entrance animation settles.
   const [glassReady, setGlassReady] = useState(false);
   const progressAnim = useRef(new Animated.Value(1)).current;
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
   const stepTranslateX = useRef(new Animated.Value(0)).current;
   const stepOpacity = useRef(new Animated.Value(1)).current;
   const bgAnim = useRef(new Animated.Value(0)).current; // opacity cross-fade (non-native)
@@ -696,8 +698,22 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     });
   };
 
+  useEffect(() => {
+    if (aiAnalyzing) {
+      shimmerAnim.setValue(0);
+      const loop = Animated.loop(
+        Animated.timing(shimmerAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
+      );
+      loop.start();
+      return () => loop.stop();
+    } else {
+      LayoutAnimation.configureNext(LayoutAnimation.create(400, 'easeInEaseOut', 'opacity'));
+    }
+  }, [aiAnalyzing]);
+
   const analyzeRequirements = async () => {
     let isMounted = true;
+    setAiAnalyzing(true);
 
     try {
       // Don't re-analyze if we already have a selection or if description hasn't changed enough?
@@ -734,6 +750,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         console.error("AI recommendation failed", error);
       }
       // Fail silently, let user choose
+    } finally {
+      if (isMounted) setAiAnalyzing(false);
     }
 
     return () => { isMounted = false; };
@@ -1069,7 +1087,55 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     </View>
   );
 
-  const renderStep2 = () => (
+  const ShimmerBlock: React.FC<{ style: any }> = ({ style, children }) => {
+    const shimmerTranslate = shimmerAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [-SCREEN_WIDTH, SCREEN_WIDTH],
+    });
+    return (
+      <View style={[style, { overflow: 'hidden' }]}>
+        {children}
+        <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ translateX: shimmerTranslate }] }]}>
+          <LinearGradient
+            colors={['transparent', 'rgba(255,255,255,0.06)', 'rgba(255,255,255,0.1)', 'rgba(255,255,255,0.06)', 'transparent']}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+      </View>
+    );
+  };
+
+  const renderStep2Skeleton = () => (
+    <View style={styles.stepContent}>
+      <View style={styles.stepHeader}>
+        <Text style={styles.stepTitle}>{t('create.recommendedTech')}</Text>
+        <Text style={styles.stepSubtitle}>{t('create.aiSuggests')}</Text>
+      </View>
+
+      {/* Skeleton explanation box */}
+      <ShimmerBlock style={styles.skeletonExplanation} />
+
+      {/* Skeleton grid - 4 cards */}
+      <View style={styles.languagesGrid}>
+        {[0, 1, 2, 3].map(i => (
+          <ShimmerBlock key={i} style={styles.skeletonCard}>
+            <View style={styles.skeletonCardIcon} />
+            <View style={styles.skeletonCardLabel} />
+          </ShimmerBlock>
+        ))}
+      </View>
+
+      {/* Skeleton show all */}
+      <ShimmerBlock style={styles.skeletonShowAll} />
+    </View>
+  );
+
+  const renderStep2 = () => {
+    if (aiAnalyzing) return renderStep2Skeleton();
+
+    return (
     <View style={styles.stepContent}>
       <View style={styles.stepHeader}>
         <Text style={styles.stepTitle}>{t('create.recommendedTech')}</Text>
@@ -1194,7 +1260,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         )}
       </TouchableOpacity>
     </View>
-  );
+    );
+  };
 
   const renderSummaryRow = (icon: string, iconColor: string, label: string, value: string, field: 'name' | 'description' | 'tech') => {
     const isNameEmpty = field === 'name' && !projectName.trim();
@@ -2060,6 +2127,40 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#fff',
     letterSpacing: 0.5,
+  },
+  skeletonExplanation: {
+    height: 52,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonCard: {
+    width: '47%',
+    height: 90,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 14,
+    padding: 14,
+    justifyContent: 'space-between',
+  },
+  skeletonCardIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  skeletonCardLabel: {
+    width: '60%',
+    height: 14,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  skeletonShowAll: {
+    alignSelf: 'center',
+    width: 100,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginTop: 12,
   },
   aiExplanationBox: {
     flexDirection: 'row',

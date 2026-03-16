@@ -314,8 +314,10 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
           <View style={styles.projectIcon}>
             {hasRepo ? (
               <Ionicons name="logo-github" size={24} color="rgba(255,255,255,0.7)" />
+            ) : project.type === 'local' ? (
+              <Ionicons name="document-outline" size={24} color="rgba(255,255,255,0.7)" />
             ) : (
-              <Ionicons name={getLanguageIcon(project.language) as any} size={24} color={langColor} />
+              <Ionicons name="folder-outline" size={24} color={AppColors.primary} />
             )}
           </View>
 

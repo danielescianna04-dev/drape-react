@@ -1270,8 +1270,10 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                       <View style={styles.projectIcon}>
                         {repoInfo ? (
                           <Ionicons name="logo-github" size={22} color={AppColors.iconColors.primary} />
+                        ) : project.type === 'local' ? (
+                          <Ionicons name="document-outline" size={22} color="rgba(255,255,255,0.7)" />
                         ) : (
-                          <Ionicons name={getLanguageIcon(project.language) as any} size={22} color={langColor || AppColors.iconColors.accent} />
+                          <Ionicons name="folder-outline" size={22} color={AppColors.primary} />
                         )}
                       </View>
                       <View style={styles.projectInfo}>

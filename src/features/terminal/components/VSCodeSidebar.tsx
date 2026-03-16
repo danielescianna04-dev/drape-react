@@ -473,6 +473,11 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
             <Animated.View entering={FadeInDown.delay(400).duration(500)}>
               <IconButton iconName="eye" size={24} color={AppColors.icon.default} onPress={() => togglePanel('preview')} isActive={showPreviewPanel} activeColor={AppColors.primary} accessibilityLabel="Preview panel" />
             </Animated.View>
+            {!currentWorkstation?.repositoryUrl && !currentWorkstation?.githubUrl && (
+              <Animated.View entering={FadeInDown.delay(450).duration(500)}>
+                <IconButton iconName="server-outline" size={24} color={AppColors.icon.default} onPress={handleDatabaseClick} isActive={activeTab?.type === 'database'} activeColor={AppColors.primary} accessibilityLabel="Database" />
+              </Animated.View>
+            )}
           </View>
 
           {/* Center section with wheel - lowered */}
@@ -484,9 +489,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                   { name: 'receipt-outline', action: handleShellClick },
                   { name: 'git-branch-outline', action: handleGitClick },
                   { name: 'key-outline', action: handleEnvVarsClick },
-                  ...(!currentWorkstation?.repositoryUrl && !currentWorkstation?.githubUrl
-                    ? [{ name: 'server-outline' as const, action: handleDatabaseClick }]
-                    : []),
                 ]}
                 onIconChange={() => { }}
               />
