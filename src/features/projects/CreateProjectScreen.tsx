@@ -830,7 +830,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       const projectId = result.taskId || result.projectId;
 
       // Build prompt for agent
-      const cloudSuffix = cloudEnabled ? '\n\nIMPORTANT: Enable Cloud mode. Include a backend with database, user authentication, and server-side API routes. The app should support multi-user functionality, persistent data storage, and background workflows.' : '';
+      const cloudSuffix = cloudEnabled ? '\n\nIMPORTANT: Enable Cloud mode. You MUST create a full-stack app with:\n1. A SQLite database using better-sqlite3 (create a .db file with proper schema tables)\n2. API routes (Next.js API routes or Express endpoints) that read/write to the SQLite database\n3. User authentication or session management stored in the database\n4. All data must persist in the SQLite .db file — never use in-memory or mock data\n5. Initialize the database with schema and seed data on first run' : '';
       const prompt = `Create a ${selectedLanguage} project named "${projectName.trim()}". Description: ${description.trim()}${cloudSuffix}`;
 
       // Start agent stream
@@ -871,13 +871,17 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       const oldAuthHeaders = await getAuthHeaders();
 
       // 1. Start Task
+      const cloudDesc = cloudEnabled
+        ? `${description.trim()}\n\nIMPORTANT: Enable Cloud mode with a SQLite database.`
+        : description.trim();
       const response = await fetch(`${apiUrl}/workstation/create-with-template`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...oldAuthHeaders },
         body: JSON.stringify({
           projectName: projectName.trim(),
           technology: selectedLanguage,
-          description: description.trim(),
+          description: cloudDesc,
+          cloudEnabled,
           userId,
         }),
       });

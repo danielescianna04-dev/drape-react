@@ -179,6 +179,22 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
 
     log.info(`[Agent] Starting stream for project ${projectId}, mode: ${mode}, model: ${model || 'default'}`);
 
+    // Enhance Cloud Mode prompts: ensure SQLite database creation
+    let finalPrompt = prompt;
+    if (/cloud\s*mode/i.test(prompt) && !/better-sqlite3/i.test(prompt)) {
+      finalPrompt = prompt.replace(
+        /IMPORTANT:\s*Enable Cloud mode\.[^]*/i,
+        `IMPORTANT: Enable Cloud mode. You MUST create a full-stack app with:
+1. A SQLite database using better-sqlite3 — create a .db file in the project root with proper schema tables
+2. A db.js or lib/db.ts utility that initializes the database and creates tables on first run
+3. Next.js API routes (app/api/) that read/write to the SQLite database
+4. All data MUST persist in the .db file — NEVER use in-memory or mock data
+5. Initialize with seed data so the database is not empty on first load
+6. Install better-sqlite3 in package.json dependencies`
+      );
+      log.info(`[Agent] Enhanced Cloud Mode prompt for project ${projectId}`);
+    }
+
     // Send a real SSE event immediately so mobile proxies don't time out waiting
     // for data before Claude sends its first token (TTFT can be 20-30s)
     writeSseEvent('processing', {
@@ -188,7 +204,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     });
 
     // Stream events from agent loop
-    for await (const event of agentLoop.run(prompt, images)) {
+    for await (const event of agentLoop.run(finalPrompt, images)) {
       if (res.writableEnded) {
         log.warn(`[Agent] Response ended, stopping stream for project ${projectId}`);
         break;

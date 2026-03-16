@@ -294,6 +294,23 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     }
   }, [tabs, setActiveTab, addTab]);
 
+  const handleDatabaseClick = useCallback(() => {
+    Keyboard.dismiss();
+    trackPanelOpen('database');
+    setShowPreviewPanel(false);
+    const dbTab = tabs.find(t => t.id === 'database');
+    if (dbTab) {
+      setActiveTab('database');
+    } else {
+      addTab({
+        id: 'database',
+        type: 'database' as any,
+        title: 'Database',
+        data: {},
+      });
+    }
+  }, [tabs, setActiveTab, addTab]);
+
   const handleSupabasePress = useCallback(() => {
     Keyboard.dismiss();
     // Open as tab instead of panel (keep FAB visible)
@@ -467,6 +484,9 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                   { name: 'receipt-outline', action: handleShellClick },
                   { name: 'git-branch-outline', action: handleGitClick },
                   { name: 'key-outline', action: handleEnvVarsClick },
+                  ...(!currentWorkstation?.repositoryUrl && !currentWorkstation?.githubUrl
+                    ? [{ name: 'server-outline' as const, action: handleDatabaseClick }]
+                    : []),
                 ]}
                 onIconChange={() => { }}
               />

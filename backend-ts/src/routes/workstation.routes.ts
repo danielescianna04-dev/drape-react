@@ -948,7 +948,7 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
 
 // POST /workstation/create-with-template
 workstationRouter.post('/create-with-template', asyncHandler(async (req, res) => {
-  const { projectName, technology, description, projectId, agentMode } = req.body;
+  const { projectName, technology, description, projectId, agentMode, cloudEnabled } = req.body;
   if (!projectName) throw new ValidationError('projectName required');
 
   // Enforce project creation + storage limits using lifetime creation counts
@@ -1014,7 +1014,7 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
 
   // Run generation in background (skip if agent mode — agent stream handles generation)
   if (!agentMode) {
-    generateProject(id, projectName, technology || 'nextjs', description || '', task, userId).catch(err => {
+    generateProject(id, projectName, technology || 'nextjs', description || '', task, userId, cloudEnabled === true).catch(err => {
       log.error(`[CreateProject] Failed: ${err.message}`);
       task.status = 'failed';
       task.error = err.message;
@@ -1054,7 +1054,7 @@ workstationRouter.get('/create-status/:taskId', asyncHandler(async (req, res) =>
  * Background AI project generation using Gemini Flash
  */
 async function generateProject(
-  projectId: string, projectName: string, technology: string, description: string, task: CreationTask, userId: string
+  projectId: string, projectName: string, technology: string, description: string, task: CreationTask, userId: string, cloudMode: boolean = false
 ): Promise<void> {
   const update = (progress: number, message: string, step: string) => {
     const normalized = Math.max(0, Math.min(100, Math.round(progress)));
@@ -1112,9 +1112,31 @@ async function generateProject(
     ? `\n- Do NOT include these files (they are auto-generated): ${excluded.join(', ')}`
     : '';
 
+  // Detect Cloud Mode from explicit flag OR from the frontend suffix in the description
+  const isCloudMode = cloudMode || (description ? /cloud\s*mode/i.test(description) : false);
+  if (isCloudMode) log.info(`[Workstation] Cloud Mode detected for "${projectName}" — will enforce SQLite database generation`);
+  const cloudDbRequirements = isCloudMode ? `
+
+CLOUD MODE — DATABASE REQUIRED:
+You MUST include a SQLite database setup using better-sqlite3. This is MANDATORY, not optional.
+1. Add "better-sqlite3": "^11.0.0" to package.json dependencies (and "@types/better-sqlite3": "^7.6.11" to devDependencies). Do NOT add path aliases like "@/lib" to dependencies — those are NOT npm packages.
+2. Create a file "lib/db.ts" that:
+   - Uses require syntax: const Database = require('better-sqlite3')
+   - Opens/creates a database file at process.cwd() + '/data.db'
+   - Creates schema tables with CREATE TABLE IF NOT EXISTS
+   - Inserts seed data with INSERT OR IGNORE so the DB is not empty
+   - Exports the db instance using module.exports = db
+3. Create Next.js API routes (app/api/[resource]/route.ts) that require('../../../lib/db') and perform CRUD operations (GET list, POST create)
+4. The main page MUST fetch data from these API routes and display it in a table or list
+5. The data.db file will be auto-created in the project root when the code runs
+6. NEVER use in-memory databases or mock/hardcoded data — ALL data must come from the SQLite .db file
+7. Include at least 2 tables (e.g. users and posts) with 3-5 seed rows each
+8. Do NOT use lucide-react or any icon library — use emoji or plain text for icons
+` : '';
+
   const prompt = `Generate a complete ${techDesc} project called "${projectName}".
 ${description ? `Description: ${description}` : ''}
-
+${cloudDbRequirements}
 IMPORTANT: Return ONLY a valid JSON object with this exact structure:
 {
   "files": [
@@ -1167,7 +1189,9 @@ CRITICAL RULES to avoid build errors:
 - For Laravel: Do NOT use Vite, Laravel Mix, or any Node.js build tools. Use plain CSS and JS directly in Blade templates. Do NOT include vite.config.js, package.json, or webpack.mix.js. Use @vite directives is FORBIDDEN — use <style> and <script> tags directly.
 - For Angular: use standalone components with inline templates
 - Do NOT use icon libraries (lucide, heroicons, react-icons, @fortawesome, etc.) — use emoji or inline SVG for icons instead. Icon library imports break at runtime due to version mismatches.
+- NEVER put path aliases like "@/lib", "@/components", or "@/utils" as dependencies in package.json — path aliases are NOT npm packages. Only real npm package names go in dependencies.
 - Use relative imports (./Component) not alias imports (@/components/Component) unless Next.js
+- For better-sqlite3: use require() syntax (const Database = require('better-sqlite3')) since it is a native module that doesn't support ESM. This is the ONE exception to the "no require" rule.
 
 Return ONLY the JSON, no markdown fences, no explanation.`;
 
@@ -1176,9 +1200,11 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
   // Fast-first fallback chain on Gemini as requested.
   // Keep two flash attempts before escalating to pro.
   const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3.1-pro'];
-  const systemPrompt = 'You are a senior full-stack developer. You generate complete, working project scaffolds. Always return valid JSON.';
+  const systemPrompt = isCloudMode
+    ? 'You are a senior full-stack developer. You generate complete, working project scaffolds with SQLite databases using better-sqlite3. The database MUST be a real .db file with tables and seed data. Always return valid JSON.'
+    : 'You are a senior full-stack developer. You generate complete, working project scaffolds. Always return valid JSON.';
   const chatMessages = [{ role: 'user' as const, content: prompt }];
-  const chatOptions = { temperature: 0.4, maxTokens: 8000 };
+  const chatOptions = { temperature: 0.4, maxTokens: isCloudMode ? 12000 : 8000 };
 
   try {
     let fullText = '';
@@ -1330,7 +1356,37 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
 
     // Pre-warm: create container + install deps + start dev server in background.
     // When the frontend calls startPreview, the fast path finds the server already running.
-    workspaceService.warmProject(projectId, userId).catch(err => {
+    workspaceService.warmProject(projectId, userId).then(async () => {
+      // For Cloud Mode projects, initialize the SQLite database after warm-up
+      if (cloudMode && writtenFiles.some(f => f.includes('db.'))) {
+        try {
+          const { sessionService } = await import('../services/session.service');
+          const session = await sessionService.get(projectId, userId);
+          const agentUrl = session?.agentUrl;
+          if (!agentUrl) throw new Error('No agent URL found');
+          // Run the db initialization script to create the .db file
+          const initScript = `
+try {
+  const path = require('path');
+  const fs = require('fs');
+  const dbFiles = fs.readdirSync('/home/coder/project/lib').filter(f => f.startsWith('db.'));
+  if (dbFiles.length > 0) {
+    require('/home/coder/project/lib/' + dbFiles[0]);
+    console.log('DB initialized');
+  }
+} catch(e) { console.error('DB init error:', e.message); }`;
+          const { default: fetch } = await import('node-fetch');
+          await fetch(`${agentUrl}/exec`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: `node -e "${initScript.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, cwd: '/home/coder/project', timeout: 15000 }),
+          });
+          log.info(`[CreateProject] Cloud Mode DB initialized for ${projectId}`);
+        } catch (dbErr: any) {
+          log.warn(`[CreateProject] Cloud Mode DB init failed for ${projectId}: ${dbErr.message}`);
+        }
+      }
+    }).catch(err => {
       log.warn(`[CreateProject] Pre-warm failed for ${projectId}: ${err.message}`);
     });
 

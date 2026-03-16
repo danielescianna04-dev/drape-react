@@ -13,6 +13,7 @@ import { notificationRouter } from './notification.routes';
 import { aiRouter } from './ai.routes';
 import { iapRouter } from './iap.routes';
 import { authRouter } from './auth.routes';
+import { dbRouter } from './db.routes';
 import { createPreviewProxy, createAssetProxy } from '../middleware/vm-router';
 import { config } from '../config';
 import { requireAuth } from '../middleware/auth';
@@ -87,6 +88,9 @@ export function mountRoutes(app: Express): void {
 
   // AI
   app.use('/ai', requireAuth, aiRouter);
+
+  // Database viewer
+  app.use('/db', requireAuth, dbRouter);
 
   // Root info — public
   app.get('/', (req, res) => {

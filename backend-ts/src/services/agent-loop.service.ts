@@ -1270,9 +1270,37 @@ export class AgentLoop {
 `;
     }
 
+    // Database instructions: if project has .db files, teach the AI how to query them
+    let dbDirective = '';
+    try {
+      const files = await fileService.listAllFiles(this.projectId);
+      const dbFiles = files.data?.filter(f => /\.(db|sqlite|sqlite3)$/.test(f.path) && !f.path.includes('node_modules')) || [];
+      if (dbFiles.length > 0) {
+        const dbList = dbFiles.map(f => f.path).join(', ');
+        dbDirective = `\n\n## SQLite Database Access
+
+This project has SQLite database files: ${dbList}
+
+To query the database, use the run_command tool with node and better-sqlite3:
+\`\`\`
+node -e "const db=require('better-sqlite3')('${dbFiles[0].path}',{readonly:true});const rows=db.prepare('SELECT * FROM table_name LIMIT 20').all();console.log(JSON.stringify(rows,null,2));db.close()"
+\`\`\`
+
+Common operations:
+- List tables: \`node -e "const db=require('better-sqlite3')('${dbFiles[0].path}',{readonly:true});console.log(db.prepare(\\"SELECT name FROM sqlite_master WHERE type='table'\\").all());db.close()"\`
+- Table schema: \`node -e "const db=require('better-sqlite3')('${dbFiles[0].path}',{readonly:true});console.log(db.prepare('PRAGMA table_info(TABLE_NAME)').all());db.close()"\`
+- Query rows: \`node -e "const db=require('better-sqlite3')('${dbFiles[0].path}',{readonly:true});console.log(JSON.stringify(db.prepare('SELECT * FROM TABLE_NAME LIMIT 50').all(),null,2));db.close()"\`
+
+IMPORTANT: When the user asks about the database, its content, structure, or data — ALWAYS use run_command to actually query it. Do NOT just describe what you would do — execute the query and show the results.
+`;
+      }
+    } catch {
+      // No files or error — skip
+    }
+
     const previewContextDirective = this.buildPreviewContextDirective();
 
-    return basePrompt + languageDirective + modelDirective + projectRules + memoryContext + projectContext + sessionInfo + previewContextDirective + this.buildExecutionPlanContext();
+    return basePrompt + languageDirective + modelDirective + projectRules + memoryContext + projectContext + sessionInfo + dbDirective + previewContextDirective + this.buildExecutionPlanContext();
   }
 
   /**

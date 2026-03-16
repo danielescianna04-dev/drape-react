@@ -43,6 +43,7 @@ import { FigmaView } from '../../features/terminal/components/views/FigmaView';
 import { EnvVarsView } from '../../features/terminal/components/views/EnvVarsView';
 import { TasksView } from '../../features/terminal/components/views/TasksView';
 import { ShellView } from '../../features/terminal/components/views/ShellView';
+import { DatabaseView } from '../../features/terminal/components/views/DatabaseView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
 import { useChatState } from '../../hooks/business/useChatState';
@@ -3017,6 +3018,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           <EnvVarsView tab={currentTab} />
         ) : currentTab?.type === 'tasks' ? (
           <TasksView tab={currentTab} />
+        ) : currentTab?.type === 'database' ? (
+          <DatabaseView tab={currentTab} />
         ) : currentTab?.type === 'integration' ? (
           currentTab.data?.integration === 'supabase' ? (
             <SupabaseView tab={currentTab} />
