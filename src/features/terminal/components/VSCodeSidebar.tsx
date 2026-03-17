@@ -294,6 +294,23 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     }
   }, [tabs, setActiveTab, addTab]);
 
+  const handleTerminalClick = useCallback(() => {
+    Keyboard.dismiss();
+    trackPanelOpen('pty');
+    setShowPreviewPanel(false);
+    const ptyTab = tabs.find(t => t.id === 'interactive-terminal');
+    if (ptyTab) {
+      setActiveTab('interactive-terminal');
+    } else {
+      addTab({
+        id: 'interactive-terminal',
+        type: 'pty' as any,
+        title: 'Terminal',
+        data: {},
+      });
+    }
+  }, [tabs, setActiveTab, addTab]);
+
   const handleDatabaseClick = useCallback(() => {
     Keyboard.dismiss();
     trackPanelOpen('database');
@@ -486,6 +503,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
             <Animated.View entering={FadeInDown.delay(500).duration(500)}>
               <VerticalIconSwitcher
                 icons={[
+                  { name: 'terminal-outline', action: handleTerminalClick },
                   { name: 'receipt-outline', action: handleShellClick },
                   { name: 'git-branch-outline', action: handleGitClick },
                   { name: 'key-outline', action: handleEnvVarsClick },

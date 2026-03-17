@@ -44,6 +44,7 @@ import { EnvVarsView } from '../../features/terminal/components/views/EnvVarsVie
 import { TasksView } from '../../features/terminal/components/views/TasksView';
 import { ShellView } from '../../features/terminal/components/views/ShellView';
 import { DatabaseView } from '../../features/terminal/components/views/DatabaseView';
+import { InteractiveTerminalView } from '../../features/terminal/components/views/InteractiveTerminalView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
 import { useChatState } from '../../hooks/business/useChatState';
@@ -63,7 +64,6 @@ import { TodoList } from '../../shared/components/molecules/TodoList';
 import { SubAgentStatus } from '../../shared/components/molecules/SubAgentStatus';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { useNavigationStore } from '../../core/navigation/navigationStore';
-import { SpotlightOverlay } from '../../shared/components/SpotlightOverlay';
 import { ChatWelcomeOverlay } from '../../shared/components/ChatWelcomeOverlay';
 import { useOnboardingStore } from '../../core/onboarding/onboardingStore';
 import Svg, { Circle } from 'react-native-svg';
@@ -3018,6 +3018,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           <EnvVarsView tab={currentTab} />
         ) : currentTab?.type === 'tasks' ? (
           <TasksView tab={currentTab} />
+        ) : currentTab?.type === 'pty' ? (
+          <InteractiveTerminalView tab={currentTab} />
         ) : currentTab?.type === 'database' ? (
           <DatabaseView tab={currentTab} />
         ) : currentTab?.type === 'integration' ? (
@@ -3854,8 +3856,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         </BlurView>
       </Animated.View>
 
-      {/* Onboarding overlays */}
-      <SpotlightOverlay />
       <ChatWelcomeOverlay />
     </Animated.View >
   );
