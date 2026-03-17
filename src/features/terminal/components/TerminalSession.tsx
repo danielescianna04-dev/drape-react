@@ -7,6 +7,8 @@ import {
   StyleSheet,
   Platform,
   InputAccessoryView,
+  TouchableOpacity,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useTerminalPTY } from '../hooks/useTerminalPTY';
 import { parseAnsiLines, type AnsiSegment } from '../utils/ansiParser';
@@ -33,6 +35,8 @@ export const TerminalSession = React.memo(({
   onConnectionChange,
 }: TerminalSessionProps) => {
   const [lines, setLines] = useState<AnsiSegment[][]>([]);
+  const [inputText, setInputText] = useState('');
+  const [statusMsg, setStatusMsg] = useState('Initializing...');
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
   const accessoryId = `terminal-accessory-${sessionId}`;
@@ -41,6 +45,7 @@ export const TerminalSession = React.memo(({
   onConnectionChangeRef.current = onConnectionChange;
 
   const handleOutput = useCallback((data: string) => {
+    setStatusMsg('');
     const raw = partialLineRef.current + data;
     const parts = raw.split('\n');
     partialLineRef.current = parts.pop() ?? '';
@@ -63,11 +68,14 @@ export const TerminalSession = React.memo(({
   }, []);
 
   const handleExit = useCallback(() => {
+    setStatusMsg('Session ended.');
     onExit?.();
   }, [onExit]);
 
   const handleError = useCallback((msg: string) => {
-    setLines(prev => [...prev, [{ text: `\n[Error] ${msg}`, style: { color: '#cd3131' } }]]);
+    console.warn('[TerminalSession] Error:', msg);
+    setStatusMsg(`Error: ${msg}`);
+    setLines(prev => [...prev, [{ text: `[Error] ${msg}`, style: { color: '#cd3131' } }]]);
   }, []);
 
   const { isConnected, isConnecting, connect, sendInput } = useTerminalPTY({
@@ -77,6 +85,17 @@ export const TerminalSession = React.memo(({
     onExit: handleExit,
     onError: handleError,
   });
+
+  // Update status based on connection state
+  useEffect(() => {
+    if (isConnecting) {
+      setStatusMsg(`Connecting to ${projectId}...`);
+    } else if (isConnected) {
+      setStatusMsg('');
+    } else if (!isConnecting && !isConnected) {
+      setStatusMsg(prev => prev || 'Disconnected.');
+    }
+  }, [isConnecting, isConnected, projectId]);
 
   // Notify parent of connection changes via ref to avoid re-render loops
   const prevConnectedRef = useRef<boolean | null>(null);
@@ -92,9 +111,10 @@ export const TerminalSession = React.memo(({
   useEffect(() => {
     if (isActive && !hasConnectedRef.current) {
       hasConnectedRef.current = true;
+      console.log('[TerminalSession] Auto-connecting, projectId:', projectId);
       connect();
     }
-  }, [isActive, connect]);
+  }, [isActive, connect, projectId]);
 
   // Auto-scroll to bottom on new output
   const linesLenRef = useRef(0);
@@ -108,47 +128,26 @@ export const TerminalSession = React.memo(({
     }
   }, [lines.length]);
 
-  // Focus input when active
-  useEffect(() => {
-    if (isActive) {
-      const timer = setTimeout(() => inputRef.current?.focus(), 100);
-      return () => clearTimeout(timer);
-    }
-  }, [isActive]);
-
   const handleAccessoryKey = useCallback((data: string) => {
     sendInput(data);
   }, [sendInput]);
 
-  // Use a ref to track input value to avoid controlled-input re-render loop
-  const inputValueRef = useRef('');
-  const handleChangeText = useCallback((text: string) => {
-    // text contains the full new value; diff with previous to get typed char(s)
-    const prev = inputValueRef.current;
-    if (text.length > prev.length) {
-      const typed = text.slice(prev.length);
-      sendInput(typed);
-    }
-    // Reset to empty after processing to keep the input clean
-    inputValueRef.current = '';
-    // Use setTimeout to avoid setState during render cycle
-    setTimeout(() => {
-      inputRef.current?.setNativeProps?.({ text: '' });
-    }, 0);
-  }, [sendInput]);
-
-  const handleKeyPress = useCallback((e: any) => {
-    const { key } = e.nativeEvent;
-    if (key === 'Backspace') {
-      sendInput('\x7f');
-    } else if (key === 'Enter') {
+  // Send command when user presses enter on the visible input
+  const handleSubmit = useCallback(() => {
+    if (inputText.trim()) {
+      sendInput(inputText + '\r');
+      setInputText('');
+    } else {
       sendInput('\r');
     }
-  }, [sendInput]);
+  }, [inputText, sendInput]);
 
-  const handleTapOutput = useCallback(() => {
-    inputRef.current?.focus();
-  }, []);
+  const handleReconnect = useCallback(() => {
+    hasConnectedRef.current = false;
+    setStatusMsg('Reconnecting...');
+    connect();
+    hasConnectedRef.current = true;
+  }, [connect]);
 
   const renderLine = useCallback((segments: AnsiSegment[], index: number) => (
     <Text key={index} style={styles.line} selectable>
@@ -161,41 +160,53 @@ export const TerminalSession = React.memo(({
   ), []);
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={100}
+    >
       {/* Terminal output */}
       <ScrollView
         ref={scrollRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        onTouchEnd={handleTapOutput}
         keyboardShouldPersistTaps="always"
       >
-        {isConnecting && (
-          <Text style={styles.statusText}>Connecting...</Text>
-        )}
-        {!isConnected && !isConnecting && (
-          <Text style={styles.statusText}>Disconnected. Tap to reconnect.</Text>
-        )}
+        {statusMsg ? (
+          <View style={styles.statusRow}>
+            <Text style={styles.statusText}>{statusMsg}</Text>
+            {!isConnected && !isConnecting && (
+              <TouchableOpacity onPress={handleReconnect} style={styles.reconnectBtn}>
+                <Text style={styles.reconnectText}>Reconnect</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : null}
         {lines.map(renderLine)}
       </ScrollView>
 
-      {/* Hidden input to capture keyboard — uncontrolled to avoid re-render loops */}
-      <TextInput
-        ref={inputRef}
-        style={styles.hiddenInput}
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="off"
-        spellCheck={false}
-        keyboardType="ascii-capable"
-        keyboardAppearance="dark"
-        inputAccessoryViewID={accessoryId}
-        onChangeText={handleChangeText}
-        onKeyPress={handleKeyPress}
-        blurOnSubmit={false}
-        caretHidden
-        contextMenuHidden
-      />
+      {/* Visible input bar at bottom */}
+      <View style={styles.inputBar}>
+        <Text style={styles.prompt}>$</Text>
+        <TextInput
+          ref={inputRef}
+          style={styles.input}
+          value={inputText}
+          onChangeText={setInputText}
+          onSubmitEditing={handleSubmit}
+          placeholder="Type command..."
+          placeholderTextColor="#4A4A62"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          spellCheck={false}
+          keyboardType="ascii-capable"
+          keyboardAppearance="dark"
+          inputAccessoryViewID={accessoryId}
+          blurOnSubmit={false}
+          returnKeyType="send"
+        />
+      </View>
 
       {/* Accessory bar above keyboard */}
       {Platform.OS === 'ios' && (
@@ -203,7 +214,7 @@ export const TerminalSession = React.memo(({
           <TerminalAccessoryBar onKeyPress={handleAccessoryKey} />
         </InputAccessoryView>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 });
 
@@ -216,9 +227,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 20,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   line: {
     flexDirection: 'row',
@@ -230,20 +241,52 @@ const styles = StyleSheet.create({
     lineHeight: LINE_HEIGHT,
     color: '#E0E0E0',
   },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    gap: 12,
+  },
   statusText: {
     fontFamily: FONT,
     fontSize: FONT_SIZE,
     lineHeight: LINE_HEIGHT,
     color: '#6A6A82',
     fontStyle: 'italic',
-    paddingVertical: 4,
   },
-  hiddenInput: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    width: 1,
-    height: 1,
-    opacity: 0,
+  reconnectBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: '#2A2A2E',
+    borderRadius: 6,
+  },
+  reconnectText: {
+    fontFamily: FONT,
+    fontSize: 12,
+    color: '#7C3AED',
+  },
+  inputBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#161619',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 44,
+  },
+  prompt: {
+    fontFamily: FONT,
+    fontSize: FONT_SIZE,
+    color: '#0dbc79',
+    marginRight: 8,
+  },
+  input: {
+    flex: 1,
+    fontFamily: FONT,
+    fontSize: FONT_SIZE,
+    color: '#E0E0E0',
+    padding: 0,
+    margin: 0,
   },
 });
