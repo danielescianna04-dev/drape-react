@@ -132,7 +132,11 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
     };
 
     const ensureDep = (pkg: any, scope: 'dependencies' | 'devDependencies', name: string, version: string) => {
-      if (!pkg[scope][name]) pkg[scope][name] = version;
+      const existing = pkg[scope][name];
+      // Override if missing or if existing version is a pre-release (rc, canary, alpha, beta, experimental)
+      if (!existing || /-(rc|canary|alpha|beta|experimental|nightly)[\.-]/.test(existing)) {
+        pkg[scope][name] = version;
+      }
     };
 
     let pkg: any = {};

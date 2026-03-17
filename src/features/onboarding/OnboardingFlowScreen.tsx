@@ -24,6 +24,7 @@ import {
   trackOnboardingCompleted,
   trackOnboardingBack,
 } from '../../core/services/analyticsService';
+import { pushNotificationService } from '../../core/services/pushNotificationService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
@@ -129,10 +130,13 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
         await setDoc(doc(db, 'users', userId), {
           experienceLevel,
           referralSource,
+          onboardingCompleted: true,
           onboardingCompletedAt: new Date().toISOString(),
         }, { merge: true });
         trackOnboardingCompleted();
       } catch (e) {}
+      // Request push notification permission right after onboarding
+      pushNotificationService.initialize(userId).catch(() => {});
       onComplete();
     }
   };

@@ -14,6 +14,7 @@ import {
   GoogleAuthProvider,
   OAuthProvider,
   signInWithCredential,
+  getAdditionalUserInfo,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, getDocs, deleteDoc, addDoc, collection, query, where, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { AppState } from 'react-native';
@@ -358,6 +359,13 @@ function startDeviceListener(userId: string) {
 let isSigningUp = false;
 let isCheckingVerification = false;
 let isLoggingIn = false; // Set during sign-in to skip device check in onAuthStateChanged
+// Module-level flag: immune to React batching and Zustand async race conditions.
+// Set by signIn/signUp functions, read by onAuthStateChanged and App.tsx navigation.
+let _pendingNewUser = false;
+export const consumePendingNewUser = (): boolean => {
+  if (_pendingNewUser) { _pendingNewUser = false; return true; }
+  return false;
+};
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -422,9 +430,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const userPlan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
         drapeUser.plan = userPlan;
 
-        const isNew = !userDocSnap.exists();
+        // Layer 4: onboardingCompleted flag — survives app crashes during onboarding
+        const needsOnboarding = userDocSnap.exists() && userData?.createdAt && userData?.onboardingCompleted === false;
+        const isNew = !userDocSnap.exists() || !userData?.createdAt || _pendingNewUser || needsOnboarding;
 
-        set({ user: drapeUser, isInitialized: true, isLoading: false, deviceCheckFailed: false, isNewUser: isNew });
+        // CRITICAL: never overwrite isNewUser=true set by signIn functions.
+        // onAuthStateChanged can fire late (after isLoggingIn=false) and must not
+        // reset the flag that App.tsx useEffect depends on for onboarding navigation.
+        const currentIsNew = get().isNewUser;
+        const finalIsNew = currentIsNew || isNew;
+
+        set({ user: drapeUser, isInitialized: true, isLoading: false, deviceCheckFailed: false, isNewUser: finalIsNew });
 
         // Update terminalStore userId
         useTerminalStore.setState({ userId: firebaseUser.uid });
@@ -461,7 +477,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         stopDeviceListener();
         stopDeviceGuard();
 
-        set({ user: null, isInitialized: true, isLoading: false });
+        _pendingNewUser = false;
+        set({ user: null, isInitialized: true, isLoading: false, isNewUser: false });
         useTerminalStore.setState({ userId: null });
 
         // Clear projects on logout
@@ -502,17 +519,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return;
       }
 
-      // Register this device as active BEFORE onAuthStateChanged can check
-      await deviceService.registerAsActiveDevice(userCredential.user.uid);
+      // Layer 1: Firebase Auth native check (immune to Firestore race conditions)
+      const additionalInfo = getAdditionalUserInfo(userCredential);
+      const isNewFromAuth = additionalInfo?.isNewUser ?? false;
 
       const drapeUser = mapFirebaseUser(userCredential.user);
 
-      // Load actual plan and first-project flag from Firestore
+      // Layer 2+3: Check Firestore BEFORE any writes (registerAsActiveDevice creates doc via merge)
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDocSnap = await getDoc(userDocRef);
       const userData = userDocSnap.exists() ? userDocSnap.data() : null;
+      const isNewFromFirestore = !userDocSnap.exists() || !userData?.createdAt;
+
+      // Layer 4: onboardingCompleted flag — email users who signed up but haven't
+      // completed onboarding yet (e.g. verified email and now logging in for first time)
+      const needsOnboarding = userDocSnap.exists() && userData?.createdAt && userData?.onboardingCompleted === false;
+
+      // Triple defense: any signal of "new" wins
+      const isNew = isNewFromAuth || isNewFromFirestore || needsOnboarding;
+      if (isNew) _pendingNewUser = true;
+
       drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
-      const isNew = !userDocSnap.exists();
+
+      // Now register device (may create doc via merge — but isNew already determined)
+      await deviceService.registerAsActiveDevice(userCredential.user.uid);
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
 
@@ -523,8 +553,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // Update projectStore and reload user's projects
       useProjectStore.getState().setUserId(userCredential.user.uid);
-      useProjectStore.getState().loadUserProjects();
+      if (isNew) {
+        useProjectStore.setState({ projects: [] });
+      } else {
+        useProjectStore.getState().loadUserProjects();
+      }
       startAuthenticatedRealtimeServices(userCredential.user.uid);
+
+      // Request push notification permission immediately after login
+      pushNotificationService.initialize(userCredential.user.uid).catch(() => {});
 
     } catch (error: any) {
       isLoggingIn = false;
@@ -572,6 +609,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         email,
         displayName,
         hasCreatedFirstProject: false,
+        onboardingCompleted: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -660,9 +698,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         await deviceService.clearActiveDevice(user.uid).catch((err) => console.warn('[Auth] Failed to clear active device:', err?.message || err));
       }
 
+      // Reset auth flags
+      _pendingNewUser = false;
+
       // Sign out from Firebase
       await signOut(auth);
-      set({ user: null, isLoading: false, deviceCheckFailed: false });
+      set({ user: null, isLoading: false, deviceCheckFailed: false, isNewUser: false });
 
     } catch (error: any) {
       console.error('❌ [AuthStore] Logout error:', error);
@@ -796,10 +837,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       stopDeviceListener();
       stopDeviceGuard();
 
-      // 6. Delete Firebase Auth user
+      // 6. Reset auth flags to prevent stale state on next sign-in
+      _pendingNewUser = false;
+
+      // 7. Delete Firebase Auth user
       await deleteUser(firebaseUser);
 
-      set({ user: null, isLoading: false, deviceCheckFailed: false });
+      set({ user: null, isLoading: false, deviceCheckFailed: false, isNewUser: false });
 
     } catch (error: any) {
       console.error('[AuthStore] Delete account error:', error);
@@ -905,21 +949,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const credential = GoogleAuthProvider.credential(idToken);
       const userCredential = await signInWithCredential(auth, credential);
 
-      // Register this device as active BEFORE onAuthStateChanged can check
-      await deviceService.registerAsActiveDevice(userCredential.user.uid);
+      // Layer 1: Firebase Auth native check (immune to Firestore race conditions)
+      const additionalInfo = getAdditionalUserInfo(userCredential);
+      const isNewFromAuth = additionalInfo?.isNewUser ?? false;
 
       const drapeUser = mapFirebaseUser(userCredential.user);
 
-      // Create/update user document in Firestore
+      // Layer 2+3: Check Firestore BEFORE any writes (registerAsActiveDevice creates doc via merge)
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDoc = await getDoc(userDocRef);
+      const isNewFromFirestore = !userDoc.exists() || !userDoc.data()?.createdAt;
 
-      if (!userDoc.exists()) {
+      // Triple defense: any signal of "new" wins
+      const isNew = isNewFromAuth || isNewFromFirestore;
+      if (isNew) _pendingNewUser = true;
+
+      // Now register device (may create doc via merge — but isNew already determined)
+      await deviceService.registerAsActiveDevice(userCredential.user.uid);
+
+      if (isNew) {
         await setDoc(userDocRef, {
           email: userCredential.user.email,
           displayName: userCredential.user.displayName,
           photoURL: userCredential.user.photoURL,
           hasCreatedFirstProject: false,
+          onboardingCompleted: false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           provider: 'google',
@@ -931,11 +985,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }, { merge: true });
       }
 
-      const userData = userDoc.exists() ? userDoc.data() : null;
-      const isNew = !userDoc.exists();
+      const userData = isNew ? null : userDoc.data();
 
       // Load plan from Firestore user document (existing users have plan field)
-      if (userDoc.exists() && userData) {
+      if (!isNew && userDoc.exists() && userData) {
         drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
       }
 
@@ -954,6 +1007,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         useProjectStore.getState().loadUserProjects();
       }
       startAuthenticatedRealtimeServices(userCredential.user.uid);
+
+      // Request push notification permission immediately after login
+      pushNotificationService.initialize(userCredential.user.uid).catch(() => {});
 
     } catch (error: any) {
       isLoggingIn = false;
@@ -999,8 +1055,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isLoggingIn = true;
       const userCredential = await signInWithCredential(auth, credential);
 
-      // Register this device as active BEFORE onAuthStateChanged can check
-      await deviceService.registerAsActiveDevice(userCredential.user.uid);
+      // Layer 1: Firebase Auth native check (immune to Firestore race conditions)
+      const additionalInfo = getAdditionalUserInfo(userCredential);
+      const isNewFromAuth = additionalInfo?.isNewUser ?? false;
 
       const drapeUser = mapFirebaseUser(userCredential.user);
 
@@ -1016,16 +1073,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
       }
 
-      // Create/update user document in Firestore
+      // Layer 2+3: Check Firestore BEFORE any writes (registerAsActiveDevice creates the doc via merge)
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDoc = await getDoc(userDocRef);
+      const isNewFromFirestore = !userDoc.exists() || !userDoc.data()?.createdAt;
 
-      if (!userDoc.exists()) {
+      // Triple defense: any signal of "new" wins
+      const isNew = isNewFromAuth || isNewFromFirestore;
+      if (isNew) _pendingNewUser = true;
+
+      // Now register device (may create doc via merge — but isNew already determined)
+      await deviceService.registerAsActiveDevice(userCredential.user.uid);
+
+      // Create/update user document in Firestore
+      if (isNew) {
         await setDoc(userDocRef, {
           email: userCredential.user.email,
           displayName: drapeUser.displayName,
           photoURL: userCredential.user.photoURL,
           hasCreatedFirstProject: false,
+          onboardingCompleted: false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           provider: 'apple',
@@ -1037,11 +1104,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }, { merge: true });
       }
 
-      const userData = userDoc.exists() ? userDoc.data() : null;
-      const isNew = !userDoc.exists();
+      const userData = isNew ? null : userDoc.data();
 
       // Load plan from Firestore user document (existing users have plan field)
-      if (userDoc.exists() && userData) {
+      if (!isNew && userDoc.exists() && userData) {
         drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
       }
 
@@ -1060,6 +1126,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         useProjectStore.getState().loadUserProjects();
       }
       startAuthenticatedRealtimeServices(userCredential.user.uid);
+
+      // Request push notification permission immediately after login
+      pushNotificationService.initialize(userCredential.user.uid).catch(() => {});
 
     } catch (error: any) {
       isLoggingIn = false;

@@ -7,6 +7,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TerminalSession } from '../TerminalSession';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 
@@ -24,6 +25,8 @@ interface InteractiveTerminalViewProps {
 }
 
 export const InteractiveTerminalView = React.memo(({ tab }: InteractiveTerminalViewProps) => {
+  const insets = useSafeAreaInsets();
+  const topPadding = insets.top + 38;
   const currentWorkstation = useTerminalStore(s => s.currentWorkstation);
   const projectId = currentWorkstation?.projectId || tab?.data?.projectId || '';
 
@@ -78,7 +81,7 @@ export const InteractiveTerminalView = React.memo(({ tab }: InteractiveTerminalV
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: topPadding }]}>
       {/* Session tabs bar */}
       <View style={styles.tabBar}>
         <View style={styles.tabsContainer}>

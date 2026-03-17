@@ -31,7 +31,7 @@ import { gitAccountService } from './src/core/git/gitAccountService';
 import { requestGitAuth } from './src/core/github/gitAuthStore';
 import { useTerminalStore } from './src/core/terminal/terminalStore';
 import { useTabStore } from './src/core/tabs/tabStore';
-import { useAuthStore } from './src/core/auth/authStore';
+import { useAuthStore, consumePendingNewUser } from './src/core/auth/authStore';
 import { AuthScreen } from './src/features/auth/AuthScreen';
 import ChatPage from './src/pages/Chat/ChatPage';
 import { VSCodeSidebar } from './src/features/terminal/components/VSCodeSidebar';
@@ -212,8 +212,12 @@ export default function App() {
   useEffect(() => {
     if (!isInitialized || !user) return;
 
+    // Check module-level flag (immune to React batching / Zustand race conditions)
+    const pendingNew = consumePendingNewUser();
+    const shouldOnboard = isNewUser || pendingNew;
+
     // New users MUST see onboarding, regardless of current screen
-    if (isNewUser && currentScreen !== 'onboardingFlow' && currentScreen !== 'create') {
+    if (shouldOnboard && currentScreen !== 'onboardingFlow' && currentScreen !== 'create') {
       useAuthStore.setState({ isNewUser: false });
       setIsFirstCreate(true);
       setCurrentScreen('onboardingFlow');
@@ -1083,7 +1087,8 @@ export default function App() {
   // Handle splash screen finish - navigate based on auth state
   const handleSplashFinish = () => {
     if (isInitialized && user) {
-      if (isNewUser) {
+      const pendingNew = consumePendingNewUser();
+      if (isNewUser || pendingNew) {
         useAuthStore.setState({ isNewUser: false });
         setIsFirstCreate(true);
         setCurrentScreen('onboardingFlow');

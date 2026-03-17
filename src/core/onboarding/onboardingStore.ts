@@ -123,12 +123,7 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
       const chatWelcomeSeen = !!chatDone;
       set({ isLoaded: true, completed, chatWelcomeSeen });
 
-      // Auto-start home onboarding if not done
-      if (!completed) {
-        setTimeout(() => {
-          get().start();
-        }, 1000);
-      }
+      // Spotlight tutorial disabled — no longer needed
     } catch {
       set({ isLoaded: true });
     }

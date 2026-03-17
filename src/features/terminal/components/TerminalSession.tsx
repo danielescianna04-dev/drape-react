@@ -8,6 +8,7 @@ import {
   Platform,
   InputAccessoryView,
   TouchableOpacity,
+  Keyboard,
 } from 'react-native';
 import { useTerminalPTY } from '../hooks/useTerminalPTY';
 import { parseAnsiLines, type AnsiSegment } from '../utils/ansiParser';
@@ -33,6 +34,7 @@ export const TerminalSession = React.memo(({
   onExit,
   onConnectionChange,
 }: TerminalSessionProps) => {
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [lines, setLines] = useState<AnsiSegment[][]>([]);
   const [inputText, setInputText] = useState('');
   const [statusMsg, setStatusMsg] = useState('Initializing...');
@@ -44,7 +46,7 @@ export const TerminalSession = React.memo(({
   onConnectionChangeRef.current = onConnectionChange;
 
   const handleOutput = useCallback((data: string) => {
-    setStatusMsg('');
+    setStatusMsg(''); // Clear status once we get any output
     const raw = partialLineRef.current + data;
     const parts = raw.split('\n');
     partialLineRef.current = parts.pop() ?? '';
@@ -72,7 +74,6 @@ export const TerminalSession = React.memo(({
   }, [onExit]);
 
   const handleError = useCallback((msg: string) => {
-    console.warn('[TerminalSession] Error:', msg);
     setStatusMsg(`Error: ${msg}`);
     setLines(prev => [...prev, [{ text: `[Error] ${msg}`, style: { color: '#cd3131' } }]]);
   }, []);
@@ -85,18 +86,12 @@ export const TerminalSession = React.memo(({
     onError: handleError,
   });
 
-  // Update status based on connection state
   useEffect(() => {
-    if (isConnecting) {
-      setStatusMsg(`Connecting to ${projectId}...`);
-    } else if (isConnected) {
-      setStatusMsg('');
-    } else if (!isConnecting && !isConnected) {
-      setStatusMsg(prev => prev || 'Disconnected.');
-    }
+    if (isConnecting) setStatusMsg(`Connecting to ${projectId}...`);
+    else if (isConnected) setStatusMsg('Connected. Waiting for shell...');
+    else setStatusMsg(prev => prev || 'Disconnected.');
   }, [isConnecting, isConnected, projectId]);
 
-  // Notify parent of connection changes
   const prevConnectedRef = useRef<boolean | null>(null);
   useEffect(() => {
     if (prevConnectedRef.current !== isConnected) {
@@ -105,32 +100,38 @@ export const TerminalSession = React.memo(({
     }
   }, [isConnected]);
 
-  // Auto-connect once
   const hasConnectedRef = useRef(false);
   useEffect(() => {
     if (isActive && !hasConnectedRef.current) {
       hasConnectedRef.current = true;
       connect();
     }
-  }, [isActive, connect, projectId]);
+  }, [isActive, connect]);
 
-  // Auto-scroll on new output
   const linesLenRef = useRef(0);
   useEffect(() => {
     if (lines.length !== linesLenRef.current) {
       linesLenRef.current = lines.length;
-      const timer = setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: false });
-      }, 50);
-      return () => clearTimeout(timer);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 50);
     }
   }, [lines.length]);
 
-  // Focus input when active
+  // Track keyboard height to push input bar above keyboard
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
+
   useEffect(() => {
     if (isActive) {
-      const timer = setTimeout(() => inputRef.current?.focus(), 200);
-      return () => clearTimeout(timer);
+      setTimeout(() => inputRef.current?.focus(), 300);
     }
   }, [isActive]);
 
@@ -139,12 +140,8 @@ export const TerminalSession = React.memo(({
   }, [sendInput]);
 
   const handleSubmit = useCallback(() => {
-    if (inputText.trim()) {
-      sendInput(inputText + '\r');
-      setInputText('');
-    } else {
-      sendInput('\r');
-    }
+    sendInput(inputText + '\r');
+    setInputText('');
   }, [inputText, sendInput]);
 
   const handleReconnect = useCallback(() => {
@@ -157,16 +154,14 @@ export const TerminalSession = React.memo(({
   const renderLine = useCallback((segments: AnsiSegment[], index: number) => (
     <Text key={index} style={styles.line} selectable>
       {segments.map((seg, i) => (
-        <Text key={i} style={[styles.text, seg.style]}>
-          {seg.text}
-        </Text>
+        <Text key={i} style={[styles.text, seg.style]}>{seg.text}</Text>
       ))}
     </Text>
   ), []);
 
   return (
-    <View style={styles.container}>
-      {/* Terminal output */}
+    <View style={[styles.container, keyboardHeight > 0 && { paddingBottom: keyboardHeight }]}>
+      {/* Terminal output — takes all available space */}
       <ScrollView
         ref={scrollRef}
         style={styles.scrollView}
@@ -186,76 +181,39 @@ export const TerminalSession = React.memo(({
           </View>
         ) : null}
         {lines.map(renderLine)}
-        {/* Spacer so content isn't hidden behind input */}
-        <View style={{ height: 60 }} />
       </ScrollView>
 
-      {/* Input + Accessory inside InputAccessoryView — always above keyboard */}
-      {Platform.OS === 'ios' ? (
-        <InputAccessoryView nativeID={accessoryId}>
-          <View style={styles.accessoryContainer}>
-            {/* Input bar */}
-            <View style={styles.inputBar}>
-              <Text style={styles.prompt}>$</Text>
-              <TextInput
-                ref={inputRef}
-                style={styles.input}
-                value={inputText}
-                onChangeText={setInputText}
-                onSubmitEditing={handleSubmit}
-                placeholder="Type command..."
-                placeholderTextColor="#4A4A62"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="off"
-                spellCheck={false}
-                keyboardType="ascii-capable"
-                keyboardAppearance="dark"
-                blurOnSubmit={false}
-                returnKeyType="send"
-              />
-              <TouchableOpacity onPress={handleSubmit} style={styles.sendBtn}>
-                <Text style={styles.sendText}>Run</Text>
-              </TouchableOpacity>
-            </View>
-            {/* Accessory keys */}
-            <TerminalAccessoryBar onKeyPress={handleAccessoryKey} />
-          </View>
-        </InputAccessoryView>
-      ) : (
-        /* Android fallback — static bottom bar */
-        <View style={styles.accessoryContainer}>
-          <View style={styles.inputBar}>
-            <Text style={styles.prompt}>$</Text>
-            <TextInput
-              ref={inputRef}
-              style={styles.input}
-              value={inputText}
-              onChangeText={setInputText}
-              onSubmitEditing={handleSubmit}
-              placeholder="Type command..."
-              placeholderTextColor="#4A4A62"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="off"
-              spellCheck={false}
-              keyboardType="ascii-capable"
-              keyboardAppearance="dark"
-              blurOnSubmit={false}
-              returnKeyType="send"
-            />
-          </View>
-          <TerminalAccessoryBar onKeyPress={handleAccessoryKey} />
-        </View>
-      )}
-
-      {/* Invisible TextInput to bind the accessory view when no visible input is focused */}
-      {Platform.OS === 'ios' && (
+      {/* Input bar — ALWAYS visible at bottom */}
+      <View style={styles.inputBar}>
+        <Text style={styles.prompt}>$</Text>
         <TextInput
-          style={styles.hiddenBinder}
+          ref={inputRef}
+          style={styles.input}
+          value={inputText}
+          onChangeText={setInputText}
+          onSubmitEditing={handleSubmit}
+          placeholder="command..."
+          placeholderTextColor="#4A4A62"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          spellCheck={false}
+          keyboardType="ascii-capable"
+          keyboardAppearance="dark"
           inputAccessoryViewID={accessoryId}
-          editable={false}
+          blurOnSubmit={false}
+          returnKeyType="send"
         />
+        <TouchableOpacity onPress={handleSubmit} style={styles.sendBtn}>
+          <Text style={styles.sendText}>Run</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Accessory bar — appears above keyboard when TextInput is focused */}
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID={accessoryId}>
+          <TerminalAccessoryBar onKeyPress={handleAccessoryKey} />
+        </InputAccessoryView>
       )}
     </View>
   );
@@ -272,6 +230,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 10,
     paddingTop: 10,
+    paddingBottom: 8,
   },
   line: {
     flexDirection: 'row',
@@ -292,7 +251,6 @@ const styles = StyleSheet.create({
   statusText: {
     fontFamily: FONT,
     fontSize: FONT_SIZE,
-    lineHeight: LINE_HEIGHT,
     color: '#6A6A82',
     fontStyle: 'italic',
   },
@@ -307,17 +265,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#7C3AED',
   },
-  accessoryContainer: {
-    backgroundColor: '#161619',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-  },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#161619',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    minHeight: 40,
+    paddingVertical: 8,
+    minHeight: 44,
   },
   prompt: {
     fontFamily: FONT,
@@ -335,7 +291,7 @@ const styles = StyleSheet.create({
   },
   sendBtn: {
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 6,
     backgroundColor: '#7C3AED',
     borderRadius: 6,
     marginLeft: 8,
@@ -345,11 +301,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#fff',
     fontWeight: '600',
-  },
-  hiddenBinder: {
-    position: 'absolute',
-    width: 0,
-    height: 0,
-    opacity: 0,
   },
 });

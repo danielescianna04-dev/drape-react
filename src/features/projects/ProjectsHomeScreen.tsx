@@ -28,9 +28,9 @@ import { githubService } from '../../core/github/githubService';
 import { useGitCacheStore } from '../../core/cache/gitCacheStore';
 import { liveActivityService } from '../../core/services/liveActivityService';
 import { trackProjectOpen, trackError, trackGitImport, trackProjectDelete, trackProjectDuplicate, trackProjectShare, trackProjectRename, trackBrowseFiles, trackScreenView } from '../../core/services/analyticsService';
+import { pushNotificationService } from '../../core/services/pushNotificationService';
 import { useTranslation } from 'react-i18next';
-import { useOnboardingStore, ONBOARDING_STEPS } from '../../core/onboarding/onboardingStore';
-import { SpotlightOverlay } from '../../shared/components/SpotlightOverlay';
+
 
 interface Props {
   onCreateProject: () => void;
@@ -60,9 +60,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const { gitHubUser, loadWorkstations } = useTerminalStore();
   const { t } = useTranslation('projects');
 
-  // Debug: log when component mounts
+  // Request push notification permission on home screen mount (catches users who haven't granted yet)
   useEffect(() => {
-    const cached = useTerminalStore.getState().workstations;
+    if (user?.uid) {
+      pushNotificationService.initialize(user.uid).catch(() => {});
+    }
     return () => {
       if (progressTimerRef.current) {
         clearInterval(progressTimerRef.current);
@@ -70,29 +72,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     };
   }, []);
 
-  // Initialize spotlight onboarding
-  const { isActive: onboardingActive, currentStepIndex, setTargetRect } = useOnboardingStore();
-  const newProjectCardRef = useRef<View>(null);
-  const cloneCardRef = useRef<View>(null);
-
-
-  // Measure target cards when onboarding is active
-  useEffect(() => {
-    if (!onboardingActive) return;
-    const step = ONBOARDING_STEPS[currentStepIndex];
-    if (!step) return;
-
-    const timer = setTimeout(() => {
-      const ref = currentStepIndex === 0 ? newProjectCardRef : cloneCardRef;
-      ref.current?.measureInWindow((x, y, width, height) => {
-        if (width > 0 && height > 0) {
-          setTargetRect({ x, y, width, height });
-        }
-      });
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [onboardingActive, currentStepIndex]);
 
   const currentHour = new Date().getHours();
   const greeting = (currentHour >= 5 && currentHour < 18) ? t('goodMorning') : t('goodEvening');
@@ -1130,7 +1109,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
           <View style={styles.quickActionsRow}>
             {/* New Project / Upgrade */}
-            <View ref={newProjectCardRef} collapsable={false} style={styles.actionCardWrapper}>
+            <View style={styles.actionCardWrapper}>
               {currentPlan === 'free' && projectCounts.created >= 2 ? (
                 <TouchableOpacity
                   style={styles.actionCard}
@@ -1169,7 +1148,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             </View>
 
             {/* Import from GitHub */}
-            <View ref={cloneCardRef} collapsable={false} style={styles.actionCardWrapper}>
+            <View style={styles.actionCardWrapper}>
               <GlassWrapper key={`import-${focusKey}`} style={[styles.actionCard, styles.actionCardGlass]}>
                 <TouchableOpacity
                   style={styles.actionCardInner}

@@ -28,7 +28,7 @@ import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 // DescriptionInput no longer used — step 1 uses inline textarea
 import { liveActivityService } from '../../core/services/liveActivityService';
-import { trackProjectCreate, trackError } from '../../core/services/analyticsService';
+import { trackProjectCreate, trackError, trackScreenView } from '../../core/services/analyticsService';
 import { useAgentStream, AgentMode } from '../../core/ai/useAgentStream';
 import { useAgentStore } from '../../core/ai/agentStore';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
@@ -303,6 +303,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   }, []);
 
   useEffect(() => {
+    // Track screen view for each step
+    const stepNames = ['', 'create_describe_idea', 'create_choose_language', 'create_project_name'];
+    trackScreenView(stepNames[step] || `create_step_${step}`);
+
     // Animate progress bar
     Animated.timing(progressAnim, {
       toValue: step,
@@ -682,6 +686,9 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         return;
       }
       Keyboard.dismiss();
+      // Track language selection with the specific language chosen
+      const lang = languages.find(l => l.id === selectedLanguage);
+      trackScreenView(`create_choose_language_${lang?.name || selectedLanguage}`);
       animateStepTransition(3, 'forward');
     }
   };
@@ -1329,7 +1336,15 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     <View style={styles.stepContent}>
       <View style={styles.stepHeader}>
         <Text style={styles.stepTitle}>{t('create.allSet')}</Text>
-        <Text style={styles.stepSubtitle}>{t('create.verifyDetails')}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}>
+          <Text style={styles.stepSubtitle}>{t('create.verifyDetails')}</Text>
+          {selectedLang && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(109, 76, 255, 0.15)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, gap: 4 }}>
+              <Ionicons name={selectedLang.icon as any} size={13} color={selectedLang.color} />
+              <Text style={{ fontSize: 12, fontWeight: '600', color: selectedLang.color }}>{selectedLang.name}</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {useGlass ? (
