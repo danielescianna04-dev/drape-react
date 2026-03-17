@@ -324,7 +324,7 @@ function applySgr(params: number[], state: StyleState): void {
 // Simple: \x1b followed by single char (e.g. \x1b=, \x1b>, \x1b(B)
 // Also match standalone \x1b at end of string
 const ANSI_RE =
-  /\x1b\[([0-9;]*)([A-Za-z@`])|(?:\x1b\][^\x07\x1b]*(?:\x07|\x1b\\))|(?:\x1b[()][A-Za-z0-9])|(?:\x1b[A-Za-z0-9=><])|(?:\x1b$)/g;
+  /\x1b\[([?]?[0-9;]*)([A-Za-z@`hlm])|(?:\x1b\][^\x07\x1b]*(?:\x07|\x1b\\))|(?:\x1b[()][A-Za-z0-9])|(?:\x1b[A-Za-z0-9=><])|(?:\x1b$)/g;
 
 // ---------------------------------------------------------------------------
 // parseAnsi — flat list of styled segments
@@ -355,24 +355,19 @@ export function parseAnsi(raw: string): AnsiSegment[] {
     const command = match[2];
 
     if (command) {
-      switch (command) {
-        case 'm': {
-          // SGR - Select Graphic Rendition
-          if (!paramStr || paramStr === '') {
-            applySgr([0], state);
-          } else {
-            const params = paramStr.split(';').map((s) => {
-              const n = parseInt(s, 10);
-              return isNaN(n) ? 0 : n;
-            });
-            applySgr(params, state);
-          }
-          break;
+      // Only process SGR (m) commands for styling.
+      // All other CSI commands (h/l for DEC modes, cursor movement,
+      // erase, scroll, etc.) are silently stripped.
+      if (command === 'm' && (!paramStr || !paramStr.startsWith('?'))) {
+        if (!paramStr || paramStr === '') {
+          applySgr([0], state);
+        } else {
+          const params = paramStr.split(';').map((s) => {
+            const n = parseInt(s, 10);
+            return isNaN(n) ? 0 : n;
+          });
+          applySgr(params, state);
         }
-        // All other CSI commands (cursor movement, erase, scroll, etc.)
-        // are silently stripped — we only care about SGR for styling.
-        default:
-          break;
       }
     }
     // OSC sequences and simple escape codes are also silently stripped.
@@ -432,7 +427,7 @@ export function parseAnsiLines(raw: string): AnsiSegment[][] {
       const paramStr = match[1];
       const command = match[2];
 
-      if (command === 'm') {
+      if (command === 'm' && (!paramStr || !paramStr.startsWith('?'))) {
         if (!paramStr || paramStr === '') {
           applySgr([0], state);
         } else {
