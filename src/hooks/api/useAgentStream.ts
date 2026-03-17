@@ -101,6 +101,11 @@ interface UseAgentStreamReturn {
   reset: () => void;
 }
 
+interface StreamConnectOptions {
+  authRetryCount?: number;
+  forceRefreshToken?: boolean;
+}
+
 const isLikelyNetworkError = (error: any): boolean => {
   const message = String(error?.message || '').toLowerCase();
   const type = String(error?.type || '').toLowerCase();
@@ -115,6 +120,41 @@ const isLikelyNetworkError = (error: any): boolean => {
     combined.includes('failed to fetch') ||
     combined.includes('connection')
   );
+};
+
+const isLikelyAuthError = (error: any): boolean => {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    error?.xhrStatus === 401 ||
+    message.includes('401') ||
+    message.includes('invalid or expired token') ||
+    message.includes('unauthorized') ||
+    message.includes('authorization')
+  );
+};
+
+const extractStreamErrorMessage = (error: any): string => {
+  const rawMessage = typeof error?.message === 'string' ? error.message : '';
+
+  if (rawMessage) {
+    try {
+      const parsed = JSON.parse(rawMessage);
+      if (typeof parsed?.error === 'string' && parsed.error.trim()) {
+        return parsed.error;
+      }
+      if (typeof parsed?.message === 'string' && parsed.message.trim()) {
+        return parsed.message;
+      }
+    } catch {
+      // Keep the original message when it isn't JSON.
+    }
+  }
+
+  if (typeof error?.response === 'string' && error.response.trim()) {
+    return error.response;
+  }
+
+  return rawMessage || 'Stream error';
 };
 
 /**
@@ -281,9 +321,20 @@ export function useAgentStream(
    * Connect to SSE endpoint using EventSource POST - sends full conversation history
    * Implements Claude Code style unlimited context via POST body
    */
-  const connect = useCallback(async (prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string, previewContext?: any) => {
+  const connect = useCallback(async (
+    prompt: string,
+    projectId: string,
+    model?: string,
+    conversationHistory?: any[],
+    images?: any[],
+    thinkingLevel?: string,
+    previewContext?: any,
+    connectionOptions: StreamConnectOptions = {},
+  ) => {
     if (!enabled) return;
     if (isConnectingRef.current) return;
+
+    const { authRetryCount = 0, forceRefreshToken = false } = connectionOptions;
 
     // Prevent multiple simultaneous connections
     if (isRunningRef.current && eventSourceRef.current) {
@@ -323,7 +374,8 @@ export function useAgentStream(
       const endpoint = endpointMap[mode];
       const url = `${config.apiUrl}${endpoint}`;
 
-      const authToken = await getAuthToken();
+      // Streams are long-lived, so we prefer a fresh token on open/re-open.
+      const authToken = await getAuthToken(forceRefreshToken || reconnectAttemptsRef.current > 0);
 
       // Use EventSource with POST method and body (react-native-sse supports this)
       const es = new EventSource(url, {
@@ -415,6 +467,50 @@ export function useAgentStream(
         es.close();
         eventSourceRef.current = null;
 
+        if (isLikelyAuthError(error)) {
+          if (authRetryCount < 2) {
+            const retryMsg = authRetryCount === 0
+              ? 'Sessione scaduta, aggiorno il token...'
+              : 'Secondo tentativo di autenticazione...';
+            setError(retryMsg);
+            getAgentStore().setError(retryMsg);
+            reconnectAttemptsRef.current = 0;
+            shouldResumeOnReconnectRef.current = false;
+            isConnectingRef.current = false;
+            // Small delay before retry to let Firebase SDK refresh properly
+            setTimeout(() => {
+              void connect(
+                prompt,
+                projectId,
+                model,
+                conversationHistory,
+                images,
+                thinkingLevel,
+                previewContext,
+                { authRetryCount: authRetryCount + 1, forceRefreshToken: true },
+              );
+            }, authRetryCount === 0 ? 500 : 1500);
+            return;
+          }
+
+          // Auth retry exhausted — force re-login
+          console.warn('[AgentStream] Auth retry exhausted, forcing re-login');
+          const errorMsg = 'Sessione scaduta. Effettua nuovamente il login.';
+          setError(errorMsg);
+          getAgentStore().setError(errorMsg);
+          setRunningState(false);
+          getAgentStore().stopAgent();
+          onError?.(errorMsg);
+
+          // Force sign-out so the user gets redirected to login
+          import('firebase/auth').then(({ signOut: fbSignOut }) => {
+            import('../../config/firebase').then(({ auth: fbAuth }) => {
+              fbSignOut(fbAuth).catch(() => {});
+            });
+          }).catch(() => {});
+          return;
+        }
+
         const recoverable = isLikelyNetworkError(error);
         if (recoverable) {
           shouldResumeOnReconnectRef.current = true;
@@ -434,13 +530,15 @@ export function useAgentStream(
             }
             reconnectTimeoutRef.current = setTimeout(() => {
               reconnectAttemptsRef.current++;
-              connect(prompt, projectId, model, conversationHistory, images, thinkingLevel, previewContext);
+              connect(prompt, projectId, model, conversationHistory, images, thinkingLevel, previewContext, {
+                forceRefreshToken: true,
+              });
             }, delay);
           }
           return;
         }
 
-        const errorMsg = error?.message ? `Stream error: ${error.message}` : 'Stream error';
+        const errorMsg = `Stream error: ${extractStreamErrorMessage(error)}`;
         setError(errorMsg);
         getAgentStore().setError(errorMsg);
         setRunningState(false);
@@ -551,7 +649,7 @@ export function useAgentStream(
       previewContext: currentPreviewContext || undefined,
     };
 
-    const authToken = await getAuthToken();
+    const authToken = await getAuthToken(true);
 
     const es = new EventSource(url, {
       method: 'POST',
@@ -628,7 +726,7 @@ export function useAgentStream(
       eventSourceRef.current = null;
       setRunningState(false);
       getAgentStore().stopAgent();
-      const errorMsg = error.message || 'Execution failed';
+      const errorMsg = extractStreamErrorMessage(error) || 'Execution failed';
       setError(errorMsg);
       onError?.(errorMsg);
     });
