@@ -8,7 +8,6 @@ import {
   Platform,
   InputAccessoryView,
   TouchableOpacity,
-  KeyboardAvoidingView,
 } from 'react-native';
 import { useTerminalPTY } from '../hooks/useTerminalPTY';
 import { parseAnsiLines, type AnsiSegment } from '../utils/ansiParser';
@@ -160,11 +159,7 @@ export const TerminalSession = React.memo(({
   ), []);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={100}
-    >
+    <View style={styles.container}>
       {/* Terminal output */}
       <ScrollView
         ref={scrollRef}
@@ -214,7 +209,7 @@ export const TerminalSession = React.memo(({
           <TerminalAccessoryBar onKeyPress={handleAccessoryKey} />
         </InputAccessoryView>
       )}
-    </KeyboardAvoidingView>
+    </View>
   );
 });
 
