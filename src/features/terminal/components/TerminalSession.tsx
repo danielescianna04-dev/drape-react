@@ -96,7 +96,7 @@ export const TerminalSession = React.memo(({
     }
   }, [isConnecting, isConnected, projectId]);
 
-  // Notify parent of connection changes via ref to avoid re-render loops
+  // Notify parent of connection changes
   const prevConnectedRef = useRef<boolean | null>(null);
   useEffect(() => {
     if (prevConnectedRef.current !== isConnected) {
@@ -105,17 +105,16 @@ export const TerminalSession = React.memo(({
     }
   }, [isConnected]);
 
-  // Auto-connect once when session mounts as active
+  // Auto-connect once
   const hasConnectedRef = useRef(false);
   useEffect(() => {
     if (isActive && !hasConnectedRef.current) {
       hasConnectedRef.current = true;
-      console.log('[TerminalSession] Auto-connecting, projectId:', projectId);
       connect();
     }
   }, [isActive, connect, projectId]);
 
-  // Auto-scroll to bottom on new output
+  // Auto-scroll on new output
   const linesLenRef = useRef(0);
   useEffect(() => {
     if (lines.length !== linesLenRef.current) {
@@ -127,11 +126,18 @@ export const TerminalSession = React.memo(({
     }
   }, [lines.length]);
 
+  // Focus input when active
+  useEffect(() => {
+    if (isActive) {
+      const timer = setTimeout(() => inputRef.current?.focus(), 200);
+      return () => clearTimeout(timer);
+    }
+  }, [isActive]);
+
   const handleAccessoryKey = useCallback((data: string) => {
     sendInput(data);
   }, [sendInput]);
 
-  // Send command when user presses enter on the visible input
   const handleSubmit = useCallback(() => {
     if (inputText.trim()) {
       sendInput(inputText + '\r');
@@ -166,6 +172,8 @@ export const TerminalSession = React.memo(({
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="always"
+        keyboardDismissMode="none"
+        onTouchEnd={() => inputRef.current?.focus()}
       >
         {statusMsg ? (
           <View style={styles.statusRow}>
@@ -178,36 +186,76 @@ export const TerminalSession = React.memo(({
           </View>
         ) : null}
         {lines.map(renderLine)}
+        {/* Spacer so content isn't hidden behind input */}
+        <View style={{ height: 60 }} />
       </ScrollView>
 
-      {/* Visible input bar at bottom */}
-      <View style={styles.inputBar}>
-        <Text style={styles.prompt}>$</Text>
-        <TextInput
-          ref={inputRef}
-          style={styles.input}
-          value={inputText}
-          onChangeText={setInputText}
-          onSubmitEditing={handleSubmit}
-          placeholder="Type command..."
-          placeholderTextColor="#4A4A62"
-          autoCapitalize="none"
-          autoCorrect={false}
-          autoComplete="off"
-          spellCheck={false}
-          keyboardType="ascii-capable"
-          keyboardAppearance="dark"
-          inputAccessoryViewID={accessoryId}
-          blurOnSubmit={false}
-          returnKeyType="send"
-        />
-      </View>
-
-      {/* Accessory bar above keyboard */}
-      {Platform.OS === 'ios' && (
+      {/* Input + Accessory inside InputAccessoryView — always above keyboard */}
+      {Platform.OS === 'ios' ? (
         <InputAccessoryView nativeID={accessoryId}>
-          <TerminalAccessoryBar onKeyPress={handleAccessoryKey} />
+          <View style={styles.accessoryContainer}>
+            {/* Input bar */}
+            <View style={styles.inputBar}>
+              <Text style={styles.prompt}>$</Text>
+              <TextInput
+                ref={inputRef}
+                style={styles.input}
+                value={inputText}
+                onChangeText={setInputText}
+                onSubmitEditing={handleSubmit}
+                placeholder="Type command..."
+                placeholderTextColor="#4A4A62"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="off"
+                spellCheck={false}
+                keyboardType="ascii-capable"
+                keyboardAppearance="dark"
+                blurOnSubmit={false}
+                returnKeyType="send"
+              />
+              <TouchableOpacity onPress={handleSubmit} style={styles.sendBtn}>
+                <Text style={styles.sendText}>Run</Text>
+              </TouchableOpacity>
+            </View>
+            {/* Accessory keys */}
+            <TerminalAccessoryBar onKeyPress={handleAccessoryKey} />
+          </View>
         </InputAccessoryView>
+      ) : (
+        /* Android fallback — static bottom bar */
+        <View style={styles.accessoryContainer}>
+          <View style={styles.inputBar}>
+            <Text style={styles.prompt}>$</Text>
+            <TextInput
+              ref={inputRef}
+              style={styles.input}
+              value={inputText}
+              onChangeText={setInputText}
+              onSubmitEditing={handleSubmit}
+              placeholder="Type command..."
+              placeholderTextColor="#4A4A62"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="off"
+              spellCheck={false}
+              keyboardType="ascii-capable"
+              keyboardAppearance="dark"
+              blurOnSubmit={false}
+              returnKeyType="send"
+            />
+          </View>
+          <TerminalAccessoryBar onKeyPress={handleAccessoryKey} />
+        </View>
+      )}
+
+      {/* Invisible TextInput to bind the accessory view when no visible input is focused */}
+      {Platform.OS === 'ios' && (
+        <TextInput
+          style={styles.hiddenBinder}
+          inputAccessoryViewID={accessoryId}
+          editable={false}
+        />
       )}
     </View>
   );
@@ -224,7 +272,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 10,
     paddingTop: 10,
-    paddingBottom: 10,
   },
   line: {
     flexDirection: 'row',
@@ -260,15 +307,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#7C3AED',
   },
+  accessoryContainer: {
+    backgroundColor: '#161619',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#161619',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    minHeight: 44,
+    paddingVertical: 6,
+    minHeight: 40,
   },
   prompt: {
     fontFamily: FONT,
@@ -283,5 +332,24 @@ const styles = StyleSheet.create({
     color: '#E0E0E0',
     padding: 0,
     margin: 0,
+  },
+  sendBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: '#7C3AED',
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  sendText: {
+    fontFamily: FONT,
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  hiddenBinder: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    opacity: 0,
   },
 });
