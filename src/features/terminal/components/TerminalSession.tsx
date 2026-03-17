@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Platform,
   InputAccessoryView,
-  Keyboard,
 } from 'react-native';
 import { useTerminalPTY } from '../hooks/useTerminalPTY';
 import { parseAnsiLines, type AnsiSegment } from '../utils/ansiParser';
@@ -37,23 +36,19 @@ export const TerminalSession = React.memo(({
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
   const accessoryId = `terminal-accessory-${sessionId}`;
-  // Buffer to accumulate incomplete output chunks before a newline arrives
   const partialLineRef = useRef('');
+  const onConnectionChangeRef = useRef(onConnectionChange);
+  onConnectionChangeRef.current = onConnectionChange;
 
   const handleOutput = useCallback((data: string) => {
-    // Prepend any leftover partial line from the previous chunk
     const raw = partialLineRef.current + data;
-
-    // Split on newlines but keep the last segment (may be incomplete)
     const parts = raw.split('\n');
     partialLineRef.current = parts.pop() ?? '';
 
     if (parts.length === 0 && partialLineRef.current) {
-      // No complete lines yet — render the partial for immediate feedback
       setLines(prev => {
         const parsed = parseAnsiLines(partialLineRef.current);
         if (prev.length === 0) return parsed;
-        // Replace last line (likely partial from previous render)
         const updated = [...prev];
         if (parsed.length > 0) {
           updated[updated.length - 1] = parsed[0];
@@ -75,7 +70,7 @@ export const TerminalSession = React.memo(({
     setLines(prev => [...prev, [{ text: `\n[Error] ${msg}`, style: { color: '#cd3131' } }]]);
   }, []);
 
-  const { isConnected, isConnecting, connect, sendInput, resize } = useTerminalPTY({
+  const { isConnected, isConnecting, connect, sendInput } = useTerminalPTY({
     projectId,
     sessionId,
     onOutput: handleOutput,
@@ -83,30 +78,41 @@ export const TerminalSession = React.memo(({
     onError: handleError,
   });
 
-  // Notify parent of connection changes
+  // Notify parent of connection changes via ref to avoid re-render loops
+  const prevConnectedRef = useRef<boolean | null>(null);
   useEffect(() => {
-    onConnectionChange?.(isConnected);
-  }, [isConnected, onConnectionChange]);
+    if (prevConnectedRef.current !== isConnected) {
+      prevConnectedRef.current = isConnected;
+      onConnectionChangeRef.current?.(isConnected);
+    }
+  }, [isConnected]);
 
-  // Auto-connect when session becomes active
+  // Auto-connect once when session mounts as active
+  const hasConnectedRef = useRef(false);
   useEffect(() => {
-    if (isActive) {
+    if (isActive && !hasConnectedRef.current) {
+      hasConnectedRef.current = true;
       connect();
     }
   }, [isActive, connect]);
 
   // Auto-scroll to bottom on new output
+  const linesLenRef = useRef(0);
   useEffect(() => {
-    const timer = setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: false });
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [lines]);
+    if (lines.length !== linesLenRef.current) {
+      linesLenRef.current = lines.length;
+      const timer = setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: false });
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [lines.length]);
 
   // Focus input when active
   useEffect(() => {
     if (isActive) {
-      setTimeout(() => inputRef.current?.focus(), 100);
+      const timer = setTimeout(() => inputRef.current?.focus(), 100);
+      return () => clearTimeout(timer);
     }
   }, [isActive]);
 
@@ -114,14 +120,21 @@ export const TerminalSession = React.memo(({
     sendInput(data);
   }, [sendInput]);
 
+  // Use a ref to track input value to avoid controlled-input re-render loop
+  const inputValueRef = useRef('');
   const handleChangeText = useCallback((text: string) => {
-    if (text) {
-      sendInput(text);
+    // text contains the full new value; diff with previous to get typed char(s)
+    const prev = inputValueRef.current;
+    if (text.length > prev.length) {
+      const typed = text.slice(prev.length);
+      sendInput(typed);
     }
-  }, [sendInput]);
-
-  const handleSubmitEditing = useCallback(() => {
-    sendInput('\r');
+    // Reset to empty after processing to keep the input clean
+    inputValueRef.current = '';
+    // Use setTimeout to avoid setState during render cycle
+    setTimeout(() => {
+      inputRef.current?.setNativeProps?.({ text: '' });
+    }, 0);
   }, [sendInput]);
 
   const handleKeyPress = useCallback((e: any) => {
@@ -166,11 +179,10 @@ export const TerminalSession = React.memo(({
         {lines.map(renderLine)}
       </ScrollView>
 
-      {/* Hidden input to capture keyboard */}
+      {/* Hidden input to capture keyboard — uncontrolled to avoid re-render loops */}
       <TextInput
         ref={inputRef}
         style={styles.hiddenInput}
-        value=""
         autoCapitalize="none"
         autoCorrect={false}
         autoComplete="off"
@@ -180,7 +192,6 @@ export const TerminalSession = React.memo(({
         inputAccessoryViewID={accessoryId}
         onChangeText={handleChangeText}
         onKeyPress={handleKeyPress}
-        onSubmitEditing={handleSubmitEditing}
         blurOnSubmit={false}
         caretHidden
         contextMenuHidden
