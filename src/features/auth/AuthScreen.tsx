@@ -511,7 +511,6 @@ export const AuthScreen = () => {
       keyboardHeight.current = 0;
     }
 
-    // Only animate bottom if keyboard is NOT open
     const bottomTarget = keyboardHeight.current > 0
       ? keyboardHeight.current - insets.bottom + 10
       : targetMarginBottom;
@@ -751,7 +750,7 @@ export const AuthScreen = () => {
 
       {/* Initial State */}
       {mode === 'initial' && (
-        <Animated.View entering={FadeIn.duration(300)} style={styles.initialButtons}>
+        <Animated.View entering={FadeIn.duration(300)} style={Platform.OS === 'android' ? { gap: 12 } : styles.initialButtons}>
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={() => switchMode('register')}
@@ -848,7 +847,8 @@ export const AuthScreen = () => {
 
       {/* Form State */}
       {mode !== 'initial' && mode !== 'verify' && (
-        <Animated.View entering={FadeIn.duration(300)} style={styles.formContent}>
+        <Animated.View entering={FadeIn.duration(300)} style={Platform.OS === 'android' ? {} : styles.formContent}>
+          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} bounces={false}>
           <View style={styles.formHeader}>
             <GlassBackButton onPress={() => switchMode('initial')} accessibilityLabel={backLabel} />
             <Text style={styles.formTitle}>
@@ -1077,11 +1077,52 @@ export const AuthScreen = () => {
               </TouchableOpacity>
             </>
           )}
+          </ScrollView>
         </Animated.View>
       )}
     </>
   );
 
+  // Android: flex layout so adjustResize naturally pushes modal above keyboard
+  if (Platform.OS === 'android') {
+    return (
+      <View style={styles.container}>
+        <AnimatedGradientBg />
+        {/* Branding — fills top space */}
+        <View style={[styles.content, { paddingTop: insets.top + 40, flex: 1 }]}>
+          <Animated.View entering={FadeInDown.delay(200).duration(700)} style={styles.brandingSection}>
+            <DrapeLogo size={72} gradient />
+            <Text style={styles.brandName}>Drape</Text>
+            <Text style={styles.tagline}>{t('auth:tagline')}</Text>
+          </Animated.View>
+        </View>
+        {/* Modal — sits at bottom, shrinks with keyboard via adjustResize */}
+        <View style={{ marginHorizontal: 16, paddingBottom: 16 }}>
+          <View style={{
+            borderRadius: 28,
+            backgroundColor: 'rgba(18, 14, 35, 0.95)',
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.08)',
+            padding: 24,
+          }}>
+            {renderModalContent()}
+          </View>
+          {mode === 'initial' && (
+            <View style={{ alignItems: 'center', marginTop: 12 }}>
+              <Text style={styles.footerText}>
+                {t('auth:termsFooter')}{' '}
+                <Text style={styles.footerLink} onPress={() => Linking.openURL('https://www.drape-dev.it/terms-of-service.html')}>{t('auth:terms')}</Text>
+                {' & '}
+                <Text style={styles.footerLink} onPress={() => Linking.openURL('https://www.drape-dev.it/privacy-policy.html')}>{t('auth:privacy')}</Text>
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  }
+
+  // iOS: original layout with absolute modal + blur + keyboard animation
   return (
     <View style={styles.container}>
       {/* Animated Gradient Background */}
@@ -1252,6 +1293,13 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 28,
     overflow: 'hidden',
+  },
+  androidModalBg: {
+    flex: 1,
+    borderRadius: 28,
+    backgroundColor: 'rgba(18, 14, 35, 0.95)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   modalContent: {
     flex: 1,

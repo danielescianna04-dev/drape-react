@@ -229,7 +229,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Need activeTabId BEFORE the glass useEffect so the dependency array works
   const activeTabId = useTabStore((state) => state.activeTabId);
   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
-  const chatWelcomeVisible = !useOnboardingStore((state) => state.chatWelcomeSeen);
+  const chatWelcomeVisible = false; // ChatWelcomeOverlay removed — SpotlightOverlay handles onboarding
   const isActiveTab = (tab?.id ?? activeTabId) === activeTabId;
   const inputBarGlassId = useMemo(() => {
     const rawId = tab?.id ?? activeTabId ?? 'main';
