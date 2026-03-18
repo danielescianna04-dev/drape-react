@@ -46,7 +46,7 @@ import { useFileCacheStore } from './src/core/cache/fileCacheStore';
 import { useBackendLogs } from './src/hooks/api/useBackendLogs';
 import { useFileSync } from './src/hooks/business/useFileSync';
 import { useNavigationStore } from './src/core/navigation/navigationStore';
-import { trackScreenView } from './src/core/services/analyticsService';
+import { tracciaSchermata } from './src/core/services/analyticsService';
 import { useUIStore } from './src/core/terminal/uiStore';
 import { getAuthToken } from './src/core/api/getAuthToken';
 import * as Notifications from 'expo-notifications';
@@ -162,7 +162,17 @@ export default function App() {
   const setCurrentScreen = (screen: Screen | ((prev: Screen) => Screen)) => {
     _setCurrentScreen(prev => {
       const next = typeof screen === 'function' ? screen(prev) : screen;
-      if (next !== prev && next !== 'splash') trackScreenView(next);
+      if (next !== prev && next !== 'splash') {
+        // Map internal screen names to Italian labels for analytics
+        const screenLabels: Record<string, string> = {
+          auth: 'Login', home: 'Home', create: 'Crea Progetto',
+          terminal: 'Editor', allProjects: 'Tutti i Progetti',
+          settings: 'Impostazioni', plans: 'Piani',
+          onboarding: 'Onboarding', onboardingFlow: 'Onboarding',
+          firstProjectChoice: 'Scelta Primo Progetto', consent: 'Consenso',
+        };
+        tracciaSchermata(screenLabels[next] || next);
+      }
       return next;
     });
   };
