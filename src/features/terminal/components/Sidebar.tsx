@@ -41,6 +41,7 @@ import { IconButton } from '../../../shared/components/atoms';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
 import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
+import { tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
 
 // 🚀 HOLY GRAIL MODE - Uses Fly.io MicroVMs instead of Coder
 const USE_HOLY_GRAIL = true;
@@ -322,7 +323,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
           t('projects:alerts.cloneLimitMessage', { max }),
           [
             { text: t('projects:limit.notNow'), style: 'cancel' },
-            { text: t('projects:limit.upgradeTo', { plan: 'Go' }), onPress: () => useNavigationStore.getState().navigateTo('plans') },
+            { text: t('projects:limit.upgradeTo', { plan: 'Go' }), onPress: () => { tracciaPaginaPianiVista('sidebar_limit'); useNavigationStore.getState().navigateTo('plans'); } },
           ]
         );
       } else if (errCode === 'STORAGE_LIMIT_EXCEEDED') {
@@ -332,7 +333,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
           t('projects:alerts.storageFullMessage', { maxMb }),
           [
             { text: t('projects:limit.notNow'), style: 'cancel' },
-            { text: t('projects:limit.upgradeTo', { plan: 'Go' }), onPress: () => useNavigationStore.getState().navigateTo('plans') },
+            { text: t('projects:limit.upgradeTo', { plan: 'Go' }), onPress: () => { tracciaPaginaPianiVista('sidebar_limit'); useNavigationStore.getState().navigateTo('plans'); } },
           ]
         );
       } else {

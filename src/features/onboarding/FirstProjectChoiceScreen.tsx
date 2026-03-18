@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../shared/theme/colors';
+import { tracciaSchermata, tracciaOnboardingSceltaProgetto } from '../../core/services/analyticsService';
 
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 
@@ -110,7 +111,7 @@ export const FirstProjectChoiceScreen: React.FC<Props> = ({ onBack, onCreate, on
         <View style={styles.optionsList}>
           <TouchableOpacity
             style={[styles.optionCard, isLiquidGlassSupported && styles.optionCardGlass]}
-            onPress={onCreate}
+            onPress={() => { tracciaOnboardingSceltaProgetto('crea_nuovo'); onCreate(); }}
             activeOpacity={0.8}
           >
             {isLiquidGlassSupported ? (
@@ -157,7 +158,7 @@ export const FirstProjectChoiceScreen: React.FC<Props> = ({ onBack, onCreate, on
 
           <TouchableOpacity
             style={[styles.optionCard, isLiquidGlassSupported && styles.optionCardGlass]}
-            onPress={onClone}
+            onPress={() => { tracciaOnboardingSceltaProgetto('clona_github'); onClone(); }}
             activeOpacity={0.8}
           >
             {isLiquidGlassSupported ? (

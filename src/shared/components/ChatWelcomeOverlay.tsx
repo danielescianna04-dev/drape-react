@@ -17,7 +17,7 @@ import {
   useOnboardingStore,
   CHAT_FEATURES,
 } from '../../core/onboarding/onboardingStore';
-import { trackScreenView, trackChatWelcomeDismissed } from '../../core/services/analyticsService';
+import { tracciaSchermata, tracciaChatBenvenutoChiuso } from '../../core/services/analyticsService';
 
 const CARD_MAX_WIDTH = 400;
 
@@ -33,7 +33,7 @@ export const ChatWelcomeOverlay = () => {
 
   useEffect(() => {
     if (visible) {
-      trackScreenView('chat_welcome');
+      tracciaSchermata('Benvenuto Chat');
       fadeAnim.setValue(0);
       scaleAnim.setValue(0.9);
       Animated.parallel([
@@ -55,7 +55,7 @@ export const ChatWelcomeOverlay = () => {
   if (!visible) return null;
 
   const handleDismiss = () => {
-    trackChatWelcomeDismissed();
+    tracciaChatBenvenutoChiuso();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Animated.timing(fadeAnim, {
       toValue: 0,

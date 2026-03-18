@@ -28,7 +28,7 @@ import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 // DescriptionInput no longer used — step 1 uses inline textarea
 import { liveActivityService } from '../../core/services/liveActivityService';
-import { trackProjectCreate, trackError, trackScreenView } from '../../core/services/analyticsService';
+import { tracciaProgettoCreato, tracciaErrore, tracciaSchermata, tracciaOnboardingIdeaChip } from '../../core/services/analyticsService';
 import { useAgentStream, AgentMode } from '../../core/ai/useAgentStream';
 import { useAgentStore } from '../../core/ai/agentStore';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
@@ -298,8 +298,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
   useEffect(() => {
     // Track screen view for each step
-    const stepNames = ['', 'create_describe_idea', 'create_choose_language', 'create_project_name'];
-    trackScreenView(stepNames[step] || `create_step_${step}`);
+    const stepNames = ['', 'Crea Progetto - Idea', 'Crea Progetto - Linguaggio', 'Crea Progetto - Nome'];
+    tracciaSchermata(stepNames[step] || 'Crea Progetto');
 
     // Animate progress bar
     Animated.timing(progressAnim, {
@@ -424,7 +424,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                 } else if (task.status === 'failed') {
                   activeTaskIdRef.current = null;
                   liveActivityService.endPreviewActivity().catch(() => {});
-                  trackError(task.error || 'Creation failed', 'project_create');
+                  tracciaErrore(task.error || 'Creation failed', 'project_create');
                   Alert.alert(t('common:error'), task.error || t('alerts.creationFailed'));
                   setIsCreating(false);
                   setCreationTask(null);
@@ -541,7 +541,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   // Agent error callback
   function handleAgentError(error: string) {
     console.error('[CreateProject] Agent error:', error);
-    trackError(error, 'project_create_agent');
+    tracciaErrore(error, 'project_create_agent');
     liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
     Alert.alert(t('common:error'), t('alerts.creationErrorWithMessage', { error }));
     setIsCreating(false);
@@ -652,7 +652,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           setIsCreating(false);
           setCreationTask(null);
           liveActivityService.endPreviewActivity().catch(() => {});
-          trackError('Connection lost', 'project_create');
+          tracciaErrore('Connection lost', 'project_create');
           Alert.alert(t('common:error'), t('alerts.creationConnectionLost'));
         }
       }
@@ -681,7 +681,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       Keyboard.dismiss();
       // Track language selection with the specific language chosen
       const lang = languages.find(l => l.id === selectedLanguage);
-      trackScreenView(`create_choose_language_${lang?.name || selectedLanguage}`);
+      tracciaSchermata(`Crea Progetto - Linguaggio: ${lang?.name || selectedLanguage}`);
       animateStepTransition(3, 'forward');
     }
   };
@@ -822,7 +822,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
       if (!response.ok || !result.success) {
         if (result.error === 'PROJECT_LIMIT_EXCEEDED') {
-          trackError('Project limit exceeded: ' + (result.limits?.maxProjects || 2), 'project_create');
+          tracciaErrore('Project limit exceeded: ' + (result.limits?.maxProjects || 2), 'project_create');
           setProjectLimit(result.limits?.maxProjects || 2);
           setShowUpgradeModal(true);
           setIsCreating(false);
@@ -830,7 +830,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           return;
         }
         if (result.error === 'STORAGE_LIMIT_EXCEEDED') {
-          trackError('Storage limit exceeded', 'project_create');
+          tracciaErrore('Storage limit exceeded', 'project_create');
           Alert.alert(
             t('alerts.storageLimitTitle'),
             t('alerts.storageLimitMessage', {
@@ -853,10 +853,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
       // Start agent stream
       await startStream(projectId, mode, prompt);
-      trackProjectCreate(projectName.trim(), selectedLanguage, mode, description.trim());
+      tracciaProgettoCreato(projectName.trim(), selectedLanguage, mode, description.trim());
     } catch (error: any) {
       console.error('[CreateProject] Error starting agent:', error);
-      trackError(error.message || 'Unknown error', 'project_create');
+      tracciaErrore(error.message || 'Unknown error', 'project_create');
       liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
       Alert.alert(t('common:error'), t('alerts.unableToStartAgent'));
       setIsCreating(false);
@@ -963,6 +963,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const handleChipPress = (chipId: string) => {
     const chip = ideaChips.find(c => c.id === chipId);
     if (chip) {
+      tracciaOnboardingIdeaChip(chipId);
       setDescription(chip.prompt);
       inputRef.current?.focus();
     }

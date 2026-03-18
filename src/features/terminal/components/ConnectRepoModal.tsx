@@ -27,7 +27,7 @@ import { config } from '../../../config/config';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
 import { db, auth } from '../../../config/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { trackGitRepoConnect, trackGitRepoImport } from '../../../core/services/analyticsService';
+import { tracciaRepoConnesso, tracciaRepoImportato } from '../../../core/services/analyticsService';
 
 interface Props {
   visible: boolean;
@@ -136,7 +136,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
         // Initialize git on the VM
         await initGitOnVM(result.repoUrl, token);
 
-        trackGitRepoConnect(result.repoUrl);
+        tracciaRepoConnesso(result.repoUrl);
         Alert.alert(t('common:success'), t('terminal:connectRepo.repoCreated', { name: repoName }));
         onConnected(result.repoUrl);
         onClose();
@@ -164,7 +164,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
         await initGitOnVM(repoUrl, token);
       }
 
-      trackGitRepoImport(repo.name);
+      tracciaRepoImportato(repo.name);
       Alert.alert(t('common:success'), t('terminal:connectRepo.repoConnected', { name: repo.name }));
       onConnected(repoUrl);
       onClose();

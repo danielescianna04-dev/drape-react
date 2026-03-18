@@ -9,7 +9,7 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { AppColors } from '../../../shared/theme/colors';
 import apiClient from '../../../core/api/apiClient';
 import { config } from '../../../config/config';
-import { trackGitAuth, trackGitAuthSuccess, trackGitAuthError } from '../../../core/services/analyticsService';
+import { tracciaAuthGit, tracciaAuthGitRiuscita, tracciaErroreAuthGit } from '../../../core/services/analyticsService';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -115,7 +115,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
   }, [step, deviceFlow, pollOnce]);
 
   const handleWebBrowserAuth = async () => {
-    trackGitAuth('github');
+    tracciaAuthGit('github');
     setIsLoading(true);
     setError(null);
     try {
@@ -141,7 +141,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
           });
 
           if (response.data.access_token) {
-            trackGitAuthSuccess('github');
+            tracciaAuthGitRiuscita('github');
             onAuthenticated(response.data.access_token);
           } else {
             throw new Error(t('settings:gitAuth.errors.noTokenInResponse'));
@@ -154,7 +154,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
       }
     } catch (err: any) {
       console.error('❌ Web Browser OAuth error:', err);
-      trackGitAuthError('github', err.message || 'OAuth error');
+      tracciaErroreAuthGit('github', err.message || 'OAuth error');
       setError(t('settings:gitAuth.errors.authFailed', { message: err.message }));
     } finally {
       setIsLoading(false);
@@ -186,8 +186,8 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
 
   const handlePatSubmit = () => {
     if (pat.trim()) {
-      trackGitAuth('github_pat');
-      trackGitAuthSuccess('github_pat');
+      tracciaAuthGit('github_pat');
+      tracciaAuthGitRiuscita('github_pat');
       onAuthenticated(pat.trim());
     }
   };

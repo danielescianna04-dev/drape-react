@@ -9,7 +9,7 @@ import { useTabStore } from '../../core/tabs/tabStore';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../shared/theme/colors';
-import { trackProjectDelete, trackProjectFilter, trackProjectBulkDelete, trackError } from '../../core/services/analyticsService';
+import { tracciaProgettoEliminato, tracciaProgettoFiltro, tracciaProgettoEliminaMultipli, tracciaErrore } from '../../core/services/analyticsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -138,13 +138,13 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
     const doDelete = async () => {
       try {
         const proj = projects.find(p => p.id === projectId);
-        trackProjectDelete(proj?.name || projectId);
+        tracciaProgettoEliminato(proj?.name || projectId);
         removeTabsByWorkstation(projectId);
         await workstationService.deleteWorkstation(projectId);
         loadProjects();
       } catch (error: any) {
         console.error('Error deleting project:', error);
-        trackError(error?.message || 'Delete failed', 'project_delete');
+        tracciaErrore(error?.message || 'Delete failed', 'project_delete');
         Alert.alert(t('common:error'), t('common:unableToDelete'));
       }
     };
@@ -202,7 +202,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
           style: 'destructive',
           onPress: async () => {
             setIsDeleting(true);
-            trackProjectBulkDelete(String(selectedIds.size));
+            tracciaProgettoEliminaMultipli(String(selectedIds.size));
             try {
               for (const id of selectedIds) {
                 removeTabsByWorkstation(id);
@@ -536,7 +536,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
               <TouchableOpacity
                 key={opt.id}
                 style={styles.filterTab}
-                onPress={() => { trackProjectFilter(opt.id); setActiveFilter(opt.id); }}
+                onPress={() => { tracciaProgettoFiltro(opt.id); setActiveFilter(opt.id); }}
                 activeOpacity={0.7}
               >
                 {isActive && isLiquidGlassSupported ? (

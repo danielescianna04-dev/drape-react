@@ -26,7 +26,7 @@ import { AppColors } from '../../shared/theme/colors';
 import { DrapeLogo } from '../../shared/components/icons/DrapeLogo';
 import { useAuthStore } from '../../core/auth/authStore';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import { trackLogin, trackRegister, trackForgotPassword, trackError } from '../../core/services/analyticsService';
+import { tracciaLogin, tracciaRegistrazione, tracciaResetPassword, tracciaErrore } from '../../core/services/analyticsService';
 
 const TERMS_URL = 'https://www.drape-dev.it/terms-of-service.html';
 const PRIVACY_URL = 'https://www.drape-dev.it/privacy-policy.html';
@@ -664,10 +664,10 @@ export const AuthScreen = () => {
     try {
       if (mode === 'login') {
         await signIn(email.trim(), password);
-        trackLogin('email');
+        tracciaLogin('email');
       } else if (mode === 'register') {
         await signUp(email.trim(), password, displayName.trim());
-        trackRegister();
+        tracciaRegistrazione();
         // GDPR Point 7 + 20: tosAcceptedAt and ageConfirmedAt are saved
         // in authStore.signUp as part of the initial user document creation.
         // Registration successful — switch to verify mode
@@ -678,7 +678,7 @@ export const AuthScreen = () => {
         return;
       } else if (mode === 'forgot') {
         await resetPassword(email.trim());
-        trackForgotPassword();
+        tracciaResetPassword();
         Alert.alert(
           t('auth:forgotPassword.sent'),
           t('auth:forgotPassword.sentMessage'),
@@ -686,7 +686,7 @@ export const AuthScreen = () => {
         );
       }
     } catch (err: any) {
-      trackError(err?.message || 'Auth error', mode);
+      tracciaErrore(err?.message || 'Auth error', mode);
     }
   };
 
@@ -733,11 +733,11 @@ export const AuthScreen = () => {
       setLocalError(null);
       clearError();
       await signInWithApple();
-      trackLogin('apple');
+      tracciaLogin('apple');
     } catch (err: any) {
       if (err.message !== t('auth:errors.appleLoginCancelled')) {
         setLocalError(err.message || t('auth:errors.appleLoginError'));
-        trackError(err.message || 'Apple login error', 'apple_sign_in');
+        tracciaErrore(err.message || 'Apple login error', 'apple_sign_in');
       }
     }
   };

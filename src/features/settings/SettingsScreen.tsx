@@ -26,7 +26,7 @@ import { deviceService } from '../../core/services/deviceService';
 import { AppColors } from '../../shared/theme/colors';
 import { getSystemConfig } from '../../core/config/systemConfig';
 import { getAuthHeaders } from '../../core/api/getAuthToken';
-import { trackLogout, trackDeleteAccount, trackLanguageChange, trackRestorePurchases, trackGitAccountRemove, trackError, trackPlansView, trackPlansClose, trackBillingCycleChange, trackPlanSelect, trackLegalView, trackNotificationToggle, trackScreenView, trackSettingsModalOpen, trackSettingsModalClose } from '../../core/services/analyticsService';
+import { tracciaLogout, tracciaEliminaAccount, tracciaLinguaCambiata, tracciaAcquistiRipristinati, tracciaAccountGitRimosso, tracciaErrore, tracciaPaginaPianiVista, tracciaPaginaPianiChiusa, tracciaCicloFatturazioneCambiato, tracciaPianoVisualizzato, tracciaDocumentoLegaleVisto, tracciaNotificheToggle, tracciaSchermata, tracciaImpostazioniAperte, tracciaImpostazioniChiuse } from '../../core/services/analyticsService';
 import { AddGitAccountModal } from './components/AddGitAccountModal';
 import { ProfileSection } from './components/ProfileSection';
 import { GitAccountsSection } from './components/GitAccountsSection';
@@ -226,7 +226,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
   // Animated close for plan screen
   const handleClosePlans = () => {
-    trackPlansClose();
+    tracciaPaginaPianiChiusa();
     // First update state, then animate out
     // The useEffect will reset animations when plans open again
     if (initialShowPlans) {
@@ -386,11 +386,11 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           style: 'destructive',
           onPress: async () => {
             try {
-              trackGitAccountRemove(account.provider);
+              tracciaAccountGitRimosso(account.provider);
               await gitAccountService.deleteAccount(account, userId);
               loadAccounts();
             } catch (error: any) {
-              trackError(error?.message || 'Remove account error', 'git_account_remove');
+              tracciaErrore(error?.message || 'Remove account error', 'git_account_remove');
               Alert.alert(t('common:error'), t('gitAccounts.removeError'));
             }
           },
@@ -620,13 +620,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           }]}>
             <TouchableOpacity
               style={[styles.pricingOption, billingCycle === 'monthly' && styles.pricingOptionActive]}
-              onPress={() => { trackBillingCycleChange('monthly'); setBillingCycle('monthly'); }}
+              onPress={() => { tracciaCicloFatturazioneCambiato('monthly'); setBillingCycle('monthly'); }}
             >
               <Text style={[styles.pricingOptionText, billingCycle === 'monthly' && styles.pricingOptionTextActive]}>{t('plans.monthly')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.pricingOption, billingCycle === 'yearly' && styles.pricingOptionActive]}
-              onPress={() => { trackBillingCycleChange('yearly'); setBillingCycle('yearly'); }}
+              onPress={() => { tracciaCicloFatturazioneCambiato('yearly'); setBillingCycle('yearly'); }}
             >
               <Text style={[styles.pricingOptionText, billingCycle === 'yearly' && styles.pricingOptionTextActive]}>{t('plans.yearly')}</Text>
               <View style={styles.yearlySavings}>
@@ -741,7 +741,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                         disabled={isExactCurrent || isPurchasing}
                         onPress={() => {
                           if (!isPurchasing) {
-                            trackPlanSelect(plan.id + '_' + billingCycle);
+                            tracciaPianoVisualizzato(plan.id + '_' + billingCycle);
                             iapPurchase(plan.id as 'go' | 'pro', billingCycle);
                           }
                         }}
@@ -767,7 +767,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             <Text style={styles.restoreCaption}>{t('plans.secureTransactions')}</Text>
             <TouchableOpacity
               onPress={async () => {
-                trackRestorePurchases();
+                tracciaAcquistiRipristinati();
                 const result = await restorePurchases();
                 const { showToast } = useToastStore.getState();
                 if (!result.success) {
@@ -789,11 +789,11 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               {t('plans.legalNotice')}
             </Text>
             <View style={styles.legalLinks}>
-              <TouchableOpacity onPress={() => { trackLegalView('privacy'); setShowLegal('privacy'); }}>
+              <TouchableOpacity onPress={() => { tracciaDocumentoLegaleVisto('privacy'); setShowLegal('privacy'); }}>
                 <Text style={styles.legalLinkText}>{t('plans.privacyPolicy')}</Text>
               </TouchableOpacity>
               <Text style={styles.legalLinkSeparator}>  ·  </Text>
-              <TouchableOpacity onPress={() => { trackLegalView('terms'); setShowLegal('terms'); }}>
+              <TouchableOpacity onPress={() => { tracciaDocumentoLegaleVisto('terms'); setShowLegal('terms'); }}>
                 <Text style={styles.legalLinkText}>{t('plans.termsOfService')}</Text>
               </TouchableOpacity>
             </View>
@@ -965,7 +965,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               activeOpacity={0.8}
               onPress={() => {
                 setShowResourceUsage(false);
-                trackPlansView('premium_banner');
+                tracciaPaginaPianiVista('premium_banner');
                 setShowPlanSelection(true);
               }}
             >
@@ -1052,7 +1052,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         <ProfileSection
           user={user}
           currentPlan={currentPlan}
-          onEditPress={() => { trackSettingsModalOpen('edit_name'); setShowEditName(true); }}
+          onEditPress={() => { tracciaImpostazioniAperte('edit_name'); setShowEditName(true); }}
           loading={loading}
         />
 
@@ -1071,8 +1071,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           currentPlan={currentPlan}
           budgetStatus={budgetStatus}
           loading={loading}
-          onPlanPress={() => { trackPlansView('settings'); setShowPlanSelection(true); }}
-          onBudgetPress={() => { trackScreenView('usage'); setShowResourceUsage(true); }}
+          onPlanPress={() => { tracciaPaginaPianiVista('settings'); setShowPlanSelection(true); }}
+          onBudgetPress={() => { tracciaSchermata('Utilizzo Risorse'); setShowResourceUsage(true); }}
           t={t}
         />
 
@@ -1080,7 +1080,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         <AppearanceSection
           language={language}
           loading={loading}
-          onLanguageChange={(lang) => { trackLanguageChange(lang); setAppLanguage(lang); }}
+          onLanguageChange={(lang) => { tracciaLinguaCambiata(lang); setAppLanguage(lang); }}
           t={t}
         />
 
@@ -1092,9 +1092,9 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           notifReengagement={notifReengagement}
           loading={loading}
           onNotificationsChange={setNotifications}
-          onOperationsChange={(v) => { trackNotificationToggle('operations', String(v)); setNotifOperations(v); updateNotifPreference('operations', v); }}
-          onGithubChange={(v) => { trackNotificationToggle('github', String(v)); setNotifGithub(v); updateNotifPreference('github', v); }}
-          onReengagementChange={(v) => { trackNotificationToggle('reengagement', String(v)); setNotifReengagement(v); updateNotifPreference('reengagement', v); }}
+          onOperationsChange={(v) => { tracciaNotificheToggle('operations', String(v)); setNotifOperations(v); updateNotifPreference('operations', v); }}
+          onGithubChange={(v) => { tracciaNotificheToggle('github', String(v)); setNotifGithub(v); updateNotifPreference('github', v); }}
+          onReengagementChange={(v) => { tracciaNotificheToggle('reengagement', String(v)); setNotifReengagement(v); updateNotifPreference('reengagement', v); }}
           t={t}
         />
 
@@ -1102,8 +1102,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         <InfoSection
           loading={loading}
           t={t}
-          onOpenTerms={() => { trackLegalView('terms'); setShowLegal('terms'); }}
-          onOpenPrivacy={() => { trackLegalView('privacy'); setShowLegal('privacy'); }}
+          onOpenTerms={() => { tracciaDocumentoLegaleVisto('terms'); setShowLegal('terms'); }}
+          onOpenPrivacy={() => { tracciaDocumentoLegaleVisto('privacy'); setShowLegal('privacy'); }}
         />
 
         {/* Device Section */}
@@ -1117,8 +1117,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         {/* Security Section (email users only) */}
         {isEmailUser && (
           <SecuritySection
-            onChangePassword={() => { trackSettingsModalOpen('change_password'); setShowChangePassword(true); }}
-            onChangeEmail={() => { trackSettingsModalOpen('change_email'); setShowChangeEmail(true); }}
+            onChangePassword={() => { tracciaImpostazioniAperte('change_password'); setShowChangePassword(true); }}
+            onChangeEmail={() => { tracciaImpostazioniAperte('change_email'); setShowChangeEmail(true); }}
             loading={loading}
             t={t}
           />
@@ -1153,11 +1153,11 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             {
               text: t('logout.button'), style: 'destructive', onPress: async () => {
                 try {
-                  trackLogout();
+                  tracciaLogout();
                   await logout();
                   onClose();
                 } catch (error: any) {
-                  trackError(error?.message || 'Logout error', 'logout');
+                  tracciaErrore(error?.message || 'Logout error', 'logout');
                   Alert.alert(t('common:error'), t('logout.error'));
                 }
               }
@@ -1169,7 +1169,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               text: t('deleteAccount.button'), style: 'destructive', onPress: async () => {
                 const doDelete = async (password?: string) => {
                   try {
-                    await trackDeleteAccount();
+                    await tracciaEliminaAccount();
                     await deleteAccount(password);
                     Alert.alert('', t('deleteAccount.success'));
                     onClose();
@@ -1191,7 +1191,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                     } else if (error.message === 'cancelled') {
                       // User cancelled Apple re-auth, do nothing
                     } else {
-                      trackError(error?.message || 'Delete account error', 'delete_account');
+                      tracciaErrore(error?.message || 'Delete account error', 'delete_account');
                       Alert.alert(t('common:error'), t('deleteAccount.error') + (error?.message ? `\n\n${error.message}` : ''));
                     }
                   }
@@ -1218,21 +1218,21 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       <EditNameModal
         visible={showEditName}
         currentName={user?.displayName || ''}
-        onClose={() => { trackSettingsModalClose('edit_name'); setShowEditName(false); }}
+        onClose={() => { tracciaImpostazioniChiuse('edit_name'); setShowEditName(false); }}
         onSave={(newName) => useAuthStore.getState().updateDisplayName(newName)}
         t={t}
       />
 
       <ChangePasswordModal
         visible={showChangePassword}
-        onClose={() => { trackSettingsModalClose('change_password'); setShowChangePassword(false); }}
+        onClose={() => { tracciaImpostazioniChiuse('change_password'); setShowChangePassword(false); }}
         t={t}
       />
 
       <ChangeEmailModal
         visible={showChangeEmail}
         currentEmail={user?.email || ''}
-        onClose={() => { trackSettingsModalClose('change_email'); setShowChangeEmail(false); }}
+        onClose={() => { tracciaImpostazioniChiuse('change_email'); setShowChangeEmail(false); }}
         t={t}
       />
 

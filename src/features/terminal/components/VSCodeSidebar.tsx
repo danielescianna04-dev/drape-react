@@ -25,7 +25,7 @@ import { SidebarProvider } from '../context/SidebarContext';
 import { IconButton } from '../../../shared/components/atoms';
 import { config } from '../../../config/config';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
-import { trackPanelOpen, trackPanelClose, trackGridButton } from '../../../core/services/analyticsService';
+import { tracciaPannelloAperto, tracciaPannelloChiuso, tracciaLayoutGriglia, tracciaSidebarToggle } from '../../../core/services/analyticsService';
 
 type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'preview' | 'git' | 'terminal' | null;
 
@@ -237,22 +237,22 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     Keyboard.dismiss();
     if (panel === 'preview') {
       setShowPreviewPanel(prev => {
-        if (prev) trackPanelClose('preview');
-        else trackPanelOpen('preview');
+        if (prev) tracciaPannelloChiuso('preview');
+        else tracciaPannelloAperto('preview');
         return !prev;
       });
       setActivePanel(null);
     } else {
       setActivePanel(prev => {
-        if (prev === panel) { if (panel) trackPanelClose(panel); return null; }
-        if (panel) trackPanelOpen(panel);
+        if (prev === panel) { if (panel) tracciaPannelloChiuso(panel); return null; }
+        if (panel) tracciaPannelloAperto(panel);
         return panel;
       });
     }
   }, []);
 
   const handleGitClick = useCallback(() => {
-    trackPanelOpen('git');
+    tracciaPannelloAperto('git');
     setIsGitSheetVisible(true);
   }, []);
 
@@ -262,7 +262,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   const handleEnvVarsClick = useCallback(() => {
     Keyboard.dismiss();
-    trackPanelOpen('envVars');
+    tracciaPannelloAperto('envVars');
     setShowPreviewPanel(false);
     const envVarsTab = tabs.find(t => t.id === 'env-vars');
     if (envVarsTab) {
@@ -279,7 +279,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   const handleShellClick = useCallback(() => {
     Keyboard.dismiss();
-    trackPanelOpen('terminal');
+    tracciaPannelloAperto('terminal');
     setShowPreviewPanel(false);
     const shellTab = tabs.find(t => t.id === 'shell');
     if (shellTab) {
@@ -296,7 +296,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   const handleTerminalClick = useCallback(() => {
     Keyboard.dismiss();
-    trackPanelOpen('pty');
+    tracciaPannelloAperto('pty');
     setShowPreviewPanel(false);
     const ptyTab = tabs.find(t => t.id === 'interactive-terminal');
     if (ptyTab) {
@@ -313,7 +313,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   const handleDatabaseClick = useCallback(() => {
     Keyboard.dismiss();
-    trackPanelOpen('database');
+    tracciaPannelloAperto('database');
     setShowPreviewPanel(false);
     const dbTab = tabs.find(t => t.id === 'database');
     if (dbTab) {
@@ -371,15 +371,17 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const hideSidebar = useCallback(() => {
     sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
     setIsSidebarHidden(true);
+    tracciaSidebarToggle('false');
   }, []);
 
   const showSidebar = useCallback(() => {
     sidebarTranslateX.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.cubic) });
     setIsSidebarHidden(false);
+    tracciaSidebarToggle('true');
   }, []);
 
   const handleClosePanel = useCallback(() => {
-    setActivePanel(prev => { if (prev) trackPanelClose(prev); return null; });
+    setActivePanel(prev => { if (prev) tracciaPannelloChiuso(prev); return null; });
   }, []);
 
   // Gestures
@@ -472,7 +474,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                 size={24}
                 color={AppColors.icon.default}
                 onPress={() => {
-                  trackGridButton();
+                  tracciaLayoutGriglia();
                   setActivePanel(null);
                   setShowPreviewPanel(false); // Go back to tabs (hide preview)
                 }}
@@ -574,7 +576,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           >
             <PreviewPanel
               onClose={() => {
-                trackPanelClose('preview');
+                tracciaPannelloChiuso('preview');
                 setShowPreviewPanel(false);
                 if (activePanel === 'preview') setActivePanel(null);
               }}
@@ -589,7 +591,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       {/* Git Sheet - overlays everything */}
       <GitSheet
         visible={isGitSheetVisible}
-        onClose={() => { trackPanelClose('git'); setIsGitSheetVisible(false); }}
+        onClose={() => { tracciaPannelloChiuso('git'); setIsGitSheetVisible(false); }}
       />
 
       {/* Integrations FAB - draggable floating buttons */}

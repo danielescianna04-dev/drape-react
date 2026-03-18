@@ -28,7 +28,7 @@ import {
 } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { config } from '../../../config/config';
-import { trackGitAuth, trackGitAuthSuccess, trackGitAuthError } from '../../../core/services/analyticsService';
+import { tracciaAuthGit, tracciaAuthGitRiuscita, tracciaErroreAuthGit } from '../../../core/services/analyticsService';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -164,13 +164,13 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
         accessToken,
         userId || 'anonymous'
       );
-      trackGitAuthSuccess(selectedProvider);
+      tracciaAuthGitRiuscita(selectedProvider);
       Alert.alert(t('common:success'), t('settings:gitAccounts.accountConnected'));
       onAccountAdded();
       handleClose();
     } catch (error: any) {
       console.error('Error saving OAuth account:', error);
-      trackGitAuthError(selectedProvider, error?.message || 'Save account error');
+      tracciaErroreAuthGit(selectedProvider, error?.message || 'Save account error');
       setError(t('settings:gitAccounts.saveAccountError'));
     } finally {
       setLoading(false);
@@ -191,7 +191,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
 
   const handleStartOAuth = async () => {
     if (!selectedProvider) return;
-    trackGitAuth(selectedProvider);
+    tracciaAuthGit(selectedProvider);
     setLoading(true);
     setError(null);
 
@@ -205,7 +205,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
       }
     } catch (err: any) {
       console.error('OAuth error:', err);
-      trackGitAuthError(selectedProvider, err.message || 'OAuth error');
+      tracciaErroreAuthGit(selectedProvider, err.message || 'OAuth error');
       setError(t('settings:gitAuth.errors.authFailed', { message: err.message }));
       setLoading(false);
     }

@@ -23,7 +23,7 @@ import { githubTokenService } from '../../../core/github/githubTokenService';
 import { gitAccountService, GitAccount } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { config } from '../../../config/config';
-import { trackGitAuth, trackGitAuthSuccess, trackGitAuthError } from '../../../core/services/analyticsService';
+import { tracciaAuthGit, tracciaAuthGitRiuscita, tracciaErroreAuthGit } from '../../../core/services/analyticsService';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -147,7 +147,7 @@ export const GitAuthPopup = React.memo(() => {
   };
 
   const handleAuthSuccess = async (token: string) => {
-    trackGitAuthSuccess('github');
+    tracciaAuthGitRiuscita('github');
     try {
       // Save the token
       const validation = await githubTokenService.validateToken(token);
@@ -165,7 +165,7 @@ export const GitAuthPopup = React.memo(() => {
       completeAuth(token);
     } catch (error) {
       console.error('❌ [handleAuthSuccess] Error:', error);
-      trackGitAuthError('github', error instanceof Error ? error.message : 'token_save_error');
+      tracciaErroreAuthGit('github', error instanceof Error ? error.message : 'token_save_error');
       setError(t('settings:gitAuth.errors.tokenSaveError'));
     }
   };
@@ -230,18 +230,18 @@ export const GitAuthPopup = React.memo(() => {
 
   const handlePatSubmit = async () => {
     if (pat.trim()) {
-      trackGitAuth('pat');
+      tracciaAuthGit('pat');
       setIsLoading(true);
       try {
         const validation = await githubTokenService.validateToken(pat.trim());
         if (validation.valid) {
           await handleAuthSuccess(pat.trim());
         } else {
-          trackGitAuthError('pat', 'invalid_token');
+          tracciaErroreAuthGit('pat', 'invalid_token');
           setError(t('settings:gitAuth.errors.invalidToken'));
         }
       } catch (error) {
-        trackGitAuthError('pat', error instanceof Error ? error.message : 'verification_error');
+        tracciaErroreAuthGit('pat', error instanceof Error ? error.message : 'verification_error');
         setError(t('settings:gitAuth.errors.tokenVerificationError'));
       } finally {
         setIsLoading(false);
@@ -333,7 +333,7 @@ export const GitAuthPopup = React.memo(() => {
 
   // On mobile, use Device Flow; on web/PC use WebBrowser OAuth
   const handleGitHubAuth = () => {
-    trackGitAuth('github');
+    tracciaAuthGit('github');
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
       handleStartDeviceFlow();
     } else {

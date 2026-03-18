@@ -21,7 +21,7 @@ import { githubService, GitHubCommit } from '../../../core/github/githubService'
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { ConnectRepoModal } from './ConnectRepoModal';
 import { useTranslation } from 'react-i18next';
-import { trackGitAction, trackGitCommit, trackGitCheckout, trackGitAuth, trackGitAuthSuccess, trackGitAuthError, trackGitRepoConnect, trackGitTabSwitch, trackGitBranchCreate, trackGitCommitView, trackGitSelectAll, trackGitLinkAccount, trackGitConnectRepo, trackGitPush, trackError } from '../../../core/services/analyticsService';
+import { tracciaAzioneGit, tracciaCommitCreato, tracciaCambioBranch, tracciaAuthGit, tracciaAuthGitRiuscita, tracciaErroreAuthGit, tracciaRepoConnesso, tracciaTabGitCambiato, tracciaBranchCreato, tracciaCronologiaCommit, tracciaSelezionaTuttoGit, tracciaAccountGitCollegato, tracciaConnettiRepo, tracciaPushEffettuato, tracciaErrore } from '../../../core/services/analyticsService';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const MODAL_HEIGHT = SCREEN_HEIGHT * 0.65;
@@ -710,7 +710,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   }, [currentWorkstation, userId, branchCommitsCache]);
 
   const handleGitAction = async (action: 'pull' | 'push' | 'fetch') => {
-    trackGitAction(action);
+    tracciaAzioneGit(action);
     if (!currentWorkstation?.id) {
       Alert.alert(t('common:error'), t('terminal:git.noActiveWorkspace'));
       return;
@@ -900,7 +900,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
   const handleCheckoutBranch = async (branchName: string) => {
     if (!currentWorkstation?.id) return;
-    trackGitCheckout(branchName);
+    tracciaCambioBranch(branchName);
     setActionLoading('checkout');
     let didStash = false;
     try {
@@ -996,7 +996,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       });
 
       if (response.ok) {
-        trackGitBranchCreate(name);
+        tracciaBranchCreato(name);
         Alert.alert(t('common:success'), t('terminal:git.branchCreated'));
         setNewBranchName('');
         setShowCreateBranch(false);
@@ -1306,7 +1306,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       return false;
     }
 
-    trackGitCommit();
+    tracciaCommitCreato();
     setActionLoading('commit');
     try {
       const token = await gitAccountService.getToken(linkedAccount, userId);
@@ -1584,7 +1584,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 style={[styles.tab, activeSection === section && styles.tabActive]}
                 onPress={() => {
                   setActiveSection(section);
-                  trackGitTabSwitch(section);
+                  tracciaTabGitCambiato(section);
                   // Refresh backend status when switching to Changes tab
                   if (section === 'changes') fetchBackendStatus(currentBranch);
                 }}
@@ -1632,7 +1632,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 </Text>
                 <TouchableOpacity
                   style={styles.connectGitButton}
-                  onPress={() => { setShowConnectModal(true); trackGitConnectRepo(); }}
+                  onPress={() => { setShowConnectModal(true); tracciaConnettiRepo(); }}
                 >
                   <Ionicons name="add-circle-outline" size={18} color="#fff" />
                   <Text style={styles.connectGitButtonText}>{t('connectRepo.title')}</Text>
@@ -1883,7 +1883,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         </Text>
                         <TouchableOpacity
                           style={styles.connectGitButton}
-                          onPress={() => { setShowConnectModal(true); trackGitConnectRepo(); }}
+                          onPress={() => { setShowConnectModal(true); tracciaConnettiRepo(); }}
                         >
                           <Ionicons name="add-circle-outline" size={18} color="#fff" />
                           <Text style={styles.connectGitButtonText}>{t('connectRepo.title')}</Text>
@@ -2003,7 +2003,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 {allChangedFiles.length > 0 ? (
                   <>
                     {/* Select All Header */}
-                    <TouchableOpacity style={styles.selectAllRow} onPress={() => { toggleSelectAll(); trackGitSelectAll(); }}>
+                    <TouchableOpacity style={styles.selectAllRow} onPress={() => { toggleSelectAll(); tracciaSelezionaTuttoGit(); }}>
                       <Ionicons
                         name={selectedFiles.size === allChangedFiles.length && allChangedFiles.length > 0 ? "checkmark-circle" : "ellipse-outline"}
                         size={18}
@@ -2048,7 +2048,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         </View>
                         <TouchableOpacity
                           style={styles.authRequiredBtn}
-                          onPress={() => { setShowAddAccountModal(true); trackGitLinkAccount('github'); }}
+                          onPress={() => { setShowAddAccountModal(true); tracciaAccountGitCollegato('github'); }}
                         >
                           <Ionicons name="log-in-outline" size={18} color="#fff" />
                           <Text style={styles.authRequiredBtnText}>{t('terminal:git.linkGitHubAccount')}</Text>
@@ -2489,7 +2489,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               onPress={() => {
                 setShowAccountPicker(false);
                 setShowAddAccountModal(true);
-                trackGitLinkAccount('picker');
+                tracciaAccountGitCollegato('picker');
               }}
             >
               <Ionicons name="add-circle-outline" size={20} color={AppColors.primary} />
@@ -2618,7 +2618,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                   }
                   // Close commit modal and open push config modal
                   setShowCommitModal(false);
-                  trackGitPush();
+                  tracciaPushEffettuato();
                   handleGitAction('push');
                 }}
                 disabled={!commitMessage.trim() || !!actionLoading}

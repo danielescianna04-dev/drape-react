@@ -11,7 +11,7 @@ import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { auth } from '../../../config/firebase';
-import { trackFileOpen, trackFileCreate, trackFileDelete, trackFileRename, trackFileSearch, trackError } from '../../../core/services/analyticsService';
+import { tracciaFileAperto, tracciaFileCreato, tracciaFileEliminato, tracciaFileRinominato, tracciaRicercaFile, tracciaErrore } from '../../../core/services/analyticsService';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android') {
@@ -118,7 +118,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       const timer = setTimeout(async () => {
         try {
           if (!isMounted) return;
-          trackFileSearch(searchQuery, searchMode);
+          tracciaRicercaFile(searchQuery, searchMode);
           setSearching(true);
           const results = await workstationService.searchInFiles(projectId, searchQuery, repositoryUrl);
           if (!isMounted) return;
@@ -324,7 +324,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     try {
       if (isFolder) await workstationService.createFolder(projectId, fullPath);
       else await workstationService.saveFileContent(projectId, fullPath, '', repositoryUrl);
-      trackFileCreate(name, isFolder ? 'folder' : 'file');
+      tracciaFileCreato(name, isFolder ? 'folder' : 'file');
       // Optimistic: immediately add file to local state so it appears instantly
       setFiles(prev => {
         const entry = isFolder ? `${fullPath}/.keep` : fullPath;
@@ -332,7 +332,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       });
       useFileCacheStore.getState().clearCache(projectId);
     } catch (err: any) {
-      trackError(err.message || 'Create file failed', 'file_create');
+      tracciaErrore(err.message || 'Create file failed', 'file_create');
       Alert.alert(t('common:error'), err.message || t('terminal:fileExplorer.createFailed'));
     } finally {
       setCreating(null); setNewName(''); setCreatingInFolder(null); Keyboard.dismiss();
@@ -348,12 +348,12 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         text: t('common:delete'), style: 'destructive',
         onPress: async () => {
           try {
-            trackFileDelete(fileName);
+            tracciaFileEliminato(fileName);
             await workstationService.deleteFile(projectId, filePath);
             // Optimistic: rimuovi subito dal local state
             setFiles(prev => prev.filter(f => f !== filePath && !f.startsWith(filePath + '/')));
             useFileCacheStore.getState().clearCache(projectId);
-          } catch (err: any) { trackError(err.message || 'Delete failed', 'file_delete'); Alert.alert(t('common:error'), err.message || t('terminal:fileExplorer.deleteFailed')); }
+          } catch (err: any) { tracciaErrore(err.message || 'Delete failed', 'file_delete'); Alert.alert(t('common:error'), err.message || t('terminal:fileExplorer.deleteFailed')); }
         }
       },
     ]);
@@ -366,12 +366,12 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     if (newPath === renamingFile) { setRenamingFile(null); setRenameValue(''); return; }
     try {
       const oldName = renamingFile.split('/').pop() || renamingFile;
-      trackFileRename(oldName, renameValue.trim());
+      tracciaFileRinominato(oldName, renameValue.trim());
       await workstationService.moveFile(projectId, renamingFile, newPath);
       // Optimistic: aggiorna path subito nel local state
       setFiles(prev => prev.map(f => f === renamingFile ? newPath : f.startsWith(renamingFile + '/') ? f.replace(renamingFile, newPath) : f));
       useFileCacheStore.getState().clearCache(projectId);
-    } catch (err: any) { trackError(err.message || 'Rename failed', 'file_rename'); Alert.alert(t('common:error'), err.message || t('terminal:fileExplorer.renameFailed')); }
+    } catch (err: any) { tracciaErrore(err.message || 'Rename failed', 'file_rename'); Alert.alert(t('common:error'), err.message || t('terminal:fileExplorer.renameFailed')); }
     finally { setRenamingFile(null); setRenameValue(''); Keyboard.dismiss(); }
   };
 
@@ -713,7 +713,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
                 title: node.name,
                 data: { filePath: node.path, projectId, repositoryUrl, userId: auth.currentUser?.uid || 'anonymous' }
               });
-              trackFileOpen(node.name);
+              tracciaFileAperto(node.name);
               onFileSelect(node.path);
             }}
             onLongPress={(e) => {

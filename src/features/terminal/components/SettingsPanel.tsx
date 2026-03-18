@@ -11,6 +11,7 @@ import { useSidebarOffset } from '../../../features/terminal/context/SidebarCont
 import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
+import { tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
 import { PanelHeader } from '../../../shared/components/organisms';
 
 interface Props {
@@ -110,7 +111,7 @@ export const SettingsPanel = ({ onClose }: Props) => {
                         : 'Gemini Pro di Google. Ottime capacita di ragionamento. Disponibile con Go.',
                       [
                         { text: 'Annulla', style: 'cancel' },
-                        { text: 'Vedi piani', onPress: () => navigateTo('plans') },
+                        { text: 'Vedi piani', onPress: () => { tracciaPaginaPianiVista('settings_model'); navigateTo('plans'); } },
                       ]
                     );
                     return;

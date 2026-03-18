@@ -4,7 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
-import { trackPublishShare, trackPublishOpenUrl, trackUnpublish } from '../../../core/services/analyticsService';
+import { tracciaLinkPubblicazioneCondiviso, tracciaUrlPubblicazioneAperto, tracciaDePubblicato, tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
 
 export interface PreviewPublishSheetProps {
@@ -92,7 +92,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
               <TouchableOpacity
                 style={{ borderRadius: 20, overflow: 'hidden', marginBottom: 10 }}
                 activeOpacity={0.85}
-                onPress={() => { onClose(); useNavigationStore.getState().navigateTo('plans'); }}
+                onPress={() => { tracciaPaginaPianiVista('publish'); onClose(); useNavigationStore.getState().navigateTo('plans'); }}
               >
                 <LinearGradient
                   colors={['#7C3AED', '#5B21B6']}
@@ -121,7 +121,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                 <TouchableOpacity
                   style={styles.publishActionButton}
                   onPress={() => {
-                    trackPublishShare(publishedUrl);
+                    tracciaLinkPubblicazioneCondiviso(publishedUrl);
                     Share.share({ url: publishedUrl, message: publishedUrl });
                   }}
                 >
@@ -130,7 +130,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.publishActionButton}
-                  onPress={() => { trackPublishOpenUrl(publishedUrl); WebBrowser.openBrowserAsync(publishedUrl); }}
+                  onPress={() => { tracciaUrlPubblicazioneAperto(publishedUrl); WebBrowser.openBrowserAsync(publishedUrl); }}
                 >
                   <Ionicons name="open-outline" size={18} color="#fff" />
                   <Text style={styles.publishActionText}>{t('terminal:publish.open')}</Text>
@@ -177,14 +177,14 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                   <View style={styles.publishModalActions}>
                     <TouchableOpacity
                       style={styles.publishActionButton}
-                      onPress={() => { trackPublishOpenUrl(existingPublish.slug); WebBrowser.openBrowserAsync(existingPublish.url); }}
+                      onPress={() => { tracciaUrlPubblicazioneAperto(existingPublish.slug); WebBrowser.openBrowserAsync(existingPublish.url); }}
                     >
                       <Ionicons name="open-outline" size={16} color="#fff" />
                       <Text style={styles.publishActionText}>{t('terminal:publish.openSite')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.publishActionButton}
-                      onPress={() => { trackPublishShare(existingPublish.slug); Share.share({ url: existingPublish.url, message: existingPublish.url }); }}
+                      onPress={() => { tracciaLinkPubblicazioneCondiviso(existingPublish.slug); Share.share({ url: existingPublish.url, message: existingPublish.url }); }}
                     >
                       <Ionicons name="share-outline" size={16} color="#fff" />
                       <Text style={styles.publishActionText}>{t('terminal:publish.share')}</Text>
@@ -193,7 +193,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                   <View style={styles.publishModalActions}>
                     <TouchableOpacity
                       style={[styles.publishActionButton, { backgroundColor: 'rgba(255, 59, 48, 0.12)' }]}
-                      onPress={() => { trackUnpublish(existingPublish.slug); onUnpublish(); }}
+                      onPress={() => { tracciaDePubblicato(existingPublish.slug); onUnpublish(); }}
                     >
                       <Ionicons name="trash-outline" size={16} color="rgba(255, 59, 48, 0.8)" />
                       <Text style={[styles.publishActionText, { color: 'rgba(255, 59, 48, 0.8)' }]}>{t('terminal:publish.remove')}</Text>

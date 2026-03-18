@@ -7,7 +7,7 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { reauthenticateWithCredential, EmailAuthProvider, verifyBeforeUpdateEmail } from 'firebase/auth';
 import { auth } from '../../../config/firebase';
 import { AppColors } from '../../../shared/theme/colors';
-import { trackEmailChange, trackEmailChangeError } from '../../../core/services/analyticsService';
+import { tracciaEmailCambiata, tracciaErroreCambioEmail } from '../../../core/services/analyticsService';
 
 interface ChangeEmailModalProps {
   visible: boolean;
@@ -55,10 +55,10 @@ export const ChangeEmailModal: React.FC<ChangeEmailModalProps> = ({
       const credential = EmailAuthProvider.credential(firebaseUser.email, password);
       await reauthenticateWithCredential(firebaseUser, credential);
       await verifyBeforeUpdateEmail(firebaseUser, newEmail);
-      trackEmailChange();
+      tracciaEmailCambiata();
       setSuccess(true);
     } catch (err: any) {
-      trackEmailChangeError(err.code || err.message || 'unknown');
+      tracciaErroreCambioEmail(err.code || err.message || 'unknown');
       if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         setError(t('security.wrongPassword'));
       } else if (err.code === 'auth/email-already-in-use') {

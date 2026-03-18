@@ -18,7 +18,7 @@ import { gitAccountService } from '../../../core/git/gitAccountService';
 import { serverLogService } from '../../../core/services/serverLogService';
 import { fileWatcherService } from '../../../core/services/agentService';
 import { AskUserQuestionModal } from '../../../shared/components/modals/AskUserQuestionModal';
-import { trackPreviewStart, trackPreviewReady, trackPreviewRefresh, trackPreviewStop, trackPreviewError, trackPreviewFixWithAI, trackViewportChange } from '../../../core/services/analyticsService';
+import { tracciaAnteprimaAvviata, tracciaAnteprimaPronta, tracciaAnteprimaAggiornata, tracciaAnteprimaFermata, tracciaErroreAnteprima, tracciaFixAIAnteprima, tracciaCambioViewport } from '../../../core/services/analyticsService';
 import { getAuthToken, getAuthHeaders } from '../../../core/api/getAuthToken';
 import { useAgentStore } from '../../../core/agent/agentStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
@@ -472,7 +472,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             startup.setStartingMessage(t('terminal:preview.startingDevServer'));
             if (serverStatusRef.current === 'running') {
               startup.setPreviewError({ message: proxyError, timestamp: new Date() });
-              trackPreviewError(proxyError);
+              tracciaErroreAnteprima(proxyError);
               setServerStatus('stopped');
               startup.setIsStarting(false);
             } else {
@@ -522,7 +522,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         if (startupError) {
           applyMissingEnvVarsFromMessage(startupError);
           startup.setPreviewError({ message: startupError, timestamp: new Date() });
-          trackPreviewError(startupError);
+          tracciaErroreAnteprima(startupError);
           setServerStatus('stopped');
           startup.setIsStarting(false);
           return;
@@ -617,7 +617,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       }
     }
 
-    trackPreviewStart(currentWorkstation?.name || 'unknown');
+    tracciaAnteprimaAvviata(currentWorkstation?.name || 'unknown');
     clearPendingRelease(currentWorkstation.id);
     // Always reset readiness before a new start to avoid showing stale/black frame.
     setWebViewReady(false);
@@ -835,7 +835,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     const completeSetup = () => {
                       console.log('[Preview:SSE] completeSetup() called — setting running');
                       setServerStatus('running');
-                      trackPreviewReady(currentWorkstation?.name || 'unknown');
+                      tracciaAnteprimaPronta(currentWorkstation?.name || 'unknown');
                       startup.clearLogs();
                       startup.setIsStarting(false);
                       resolve();
@@ -938,7 +938,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   setServerStatus('stopped');
                   startup.setIsStarting(false);
                   startup.setPreviewError({ message: parsed.message, timestamp: new Date() });
-                  trackPreviewError(parsed.message);
+                  tracciaErroreAnteprima(parsed.message);
                   reject(new Error(parsed.message));
                 }
               } catch {}
@@ -1045,7 +1045,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       setServerStatus('stopped');
       startup.setIsStarting(false);
       startup.setPreviewError({ message: message || t('terminal:preview.errorStartingPreview'), timestamp: new Date() });
-      trackPreviewError(message || 'Unknown preview error');
+      tracciaErroreAnteprima(message || 'Unknown preview error');
     }
   };
 
@@ -1080,7 +1080,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
   const sendErrorToChat = () => {
     if (!startup.previewError) return;
-    trackPreviewFixWithAI();
+    tracciaFixAIAnteprima();
     // Build error message for the AI agent
     const errorLines = terminalOutput
       .filter(l => {
@@ -1116,7 +1116,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       logsXhrRef.current.abort();
       logsXhrRef.current = null;
     }
-    trackPreviewStop();
+    tracciaAnteprimaFermata();
 
     if (currentWorkstation?.id) {
       const closingProjectId = currentWorkstation.id;
@@ -1171,7 +1171,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   };
 
   const handleRefresh = () => {
-    trackPreviewRefresh();
+    tracciaAnteprimaAggiornata();
     pendingChangesRef.current = 0;
     setShowReloadBanner(false);
     useAgentStore.getState().clearFileTracking();
@@ -1476,7 +1476,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           setServerStatus('stopped');
           startup.setIsStarting(false);
           startup.setPreviewError({ message, timestamp: new Date() });
-          trackPreviewError(message);
+          tracciaErroreAnteprima(message);
           return;
         }
         // Retry on any non-200 status (404 = no session yet, 503 = unavailable)
@@ -1520,7 +1520,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       errorDetectedRef.current = true;
       const errorSummary = errorLines.slice(0, 3).join('\n');
       startup.setPreviewError({ message: errorSummary, timestamp: new Date() });
-      trackPreviewError(errorSummary);
+      tracciaErroreAnteprima(errorSummary);
       setServerStatus('stopped');
       startup.setIsStarting(false);
     }
@@ -1727,7 +1727,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     existingPublish={publish.existingPublish}
                     topInset={insets.top}
                     viewportMode={viewportMode}
-                    onViewportChange={(mode) => { trackViewportChange(mode); setViewportMode(mode); }}
+                    onViewportChange={(mode) => { tracciaCambioViewport(mode); setViewportMode(mode); }}
                   />
                 )}
               </Animated.View>

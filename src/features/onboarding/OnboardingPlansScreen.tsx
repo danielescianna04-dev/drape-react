@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../shared/theme/colors';
 import { useIAPStore } from '../../core/iap/iapStore';
 import { IAP_PRODUCT_IDS } from '../../core/iap/iapConstants';
-import { trackPlanSelect, trackScreenView, trackOnboardingPlanSelected, trackLegalView } from '../../core/services/analyticsService';
+import { tracciaPianoVisualizzato, tracciaSchermata, tracciaOnboardingPianoScelto, tracciaDocumentoLegaleVisto } from '../../core/services/analyticsService';
 import { LegalPage } from '../settings/components/LegalPage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -44,7 +44,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
   const cardSlide2 = useRef(new Animated.Value(40)).current;
 
   useEffect(() => {
-    trackScreenView('onboarding_plans');
+    tracciaSchermata('Onboarding Piani');
   }, []);
 
   useEffect(() => {
@@ -120,7 +120,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
           <TouchableOpacity
             style={[styles.planCard, styles.planCardFeatured]}
             activeOpacity={0.85}
-            onPress={() => { trackPlanSelect('go'); trackOnboardingPlanSelected('go'); onSelectPlan('go'); }}
+            onPress={() => { tracciaPianoVisualizzato('go'); tracciaOnboardingPianoScelto('go'); onSelectPlan('go'); }}
           >
             <LinearGradient
               colors={['rgba(139, 92, 246, 0.08)', 'rgba(99, 102, 241, 0.03)', 'transparent']}
@@ -179,7 +179,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
           <TouchableOpacity
             style={styles.planCard}
             activeOpacity={0.85}
-            onPress={() => { trackPlanSelect('free'); trackOnboardingPlanSelected('free'); onSelectPlan('free'); }}
+            onPress={() => { tracciaPianoVisualizzato('free'); tracciaOnboardingPianoScelto('free'); onSelectPlan('free'); }}
           >
             <View style={styles.planHeader}>
               <Text style={styles.planName}>Free</Text>
@@ -218,11 +218,11 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
           {t('projects:onboardingPlans.subscriptionTerms')}
         </Text>
         <View style={styles.legalLinks}>
-          <TouchableOpacity onPress={() => { trackLegalView('terms'); setShowLegal('terms'); }}>
+          <TouchableOpacity onPress={() => { tracciaDocumentoLegaleVisto('terms'); setShowLegal('terms'); }}>
             <Text style={styles.legalLinkText}>{t('projects:onboardingPlans.termsOfService')}</Text>
           </TouchableOpacity>
           <Text style={styles.legalLinkSeparator}>  ·  </Text>
-          <TouchableOpacity onPress={() => { trackLegalView('privacy'); setShowLegal('privacy'); }}>
+          <TouchableOpacity onPress={() => { tracciaDocumentoLegaleVisto('privacy'); setShowLegal('privacy'); }}>
             <Text style={styles.legalLinkText}>{t('projects:onboardingPlans.privacyPolicy')}</Text>
           </TouchableOpacity>
         </View>

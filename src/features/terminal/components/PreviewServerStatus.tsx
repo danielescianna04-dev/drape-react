@@ -8,6 +8,7 @@ import { AppColors } from '../../../shared/theme/colors';
 import { useTranslation } from 'react-i18next';
 import { PreviewLog } from '../../../hooks/api/usePreviewLogs';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
+import { tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
 
 const techIconMap: Record<string, string> = {
   react: 'logo-react',
@@ -612,7 +613,7 @@ const ErrorContent: React.FC<{
               backgroundColor: '#7C3AED',
               flex: 1,
             }]}
-            onPress={() => useNavigationStore.getState().navigateTo('plans')}
+            onPress={() => { tracciaPaginaPianiVista('preview_limit'); useNavigationStore.getState().navigateTo('plans'); }}
             activeOpacity={0.7}
           >
             <Ionicons name="rocket" size={18} color="#fff" />

@@ -27,7 +27,7 @@ import { gitAccountService } from '../../core/git/gitAccountService';
 import { githubService } from '../../core/github/githubService';
 import { useGitCacheStore } from '../../core/cache/gitCacheStore';
 import { liveActivityService } from '../../core/services/liveActivityService';
-import { trackProjectOpen, trackError, trackGitImport, trackProjectDelete, trackProjectDuplicate, trackProjectShare, trackProjectRename, trackBrowseFiles, trackScreenView } from '../../core/services/analyticsService';
+import { tracciaProgettoAperto, tracciaErrore, tracciaImportGitAvviato, tracciaProgettoEliminato, tracciaProgettoDuplicato, tracciaProgettoCondiviso, tracciaProgettoRinominato, tracciaEsploraFile, tracciaSchermata } from '../../core/services/analyticsService';
 import { pushNotificationService } from '../../core/services/pushNotificationService';
 import { useTranslation } from 'react-i18next';
 
@@ -396,14 +396,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       const errCode = error?.response?.data?.error;
       if (errCode === 'LOCAL_LIMIT_EXCEEDED') {
         const max = error.response.data.limits?.maxLocal || '?';
-        trackError('Local limit exceeded: ' + max, 'project_local');
+        tracciaErrore('Local limit exceeded: ' + max, 'project_local');
         Alert.alert(t('alerts.localLimitTitle'), t('alerts.localLimitMessage', { max }));
       } else if (errCode === 'STORAGE_LIMIT_EXCEEDED') {
         const maxMb = error.response.data.limits?.maxStorageMb || '?';
-        trackError('Storage limit exceeded: ' + maxMb + 'MB', 'project_local');
+        tracciaErrore('Storage limit exceeded: ' + maxMb + 'MB', 'project_local');
         Alert.alert(t('alerts.storageFullTitle'), t('alerts.storageFullMessage', { maxMb }));
       } else {
-        trackError(error.message || 'Error opening project', 'project_local');
+        tracciaErrore(error.message || 'Error opening project', 'project_local');
         Alert.alert(t('common:error'), error.message || t('projects:file.errorOpeningProject'));
       }
     }
@@ -497,7 +497,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
       // Open project
       onOpenProject(project);
-      trackProjectOpen(project.name);
+      tracciaProgettoAperto(project.name);
 
       // Clean up
       setTimeout(() => {
@@ -751,7 +751,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
     // Now open the project
     onOpenProject(project);
-    trackProjectOpen(project.name);
+    tracciaProgettoAperto(project.name);
 
     // Clean up after a short delay
     setTimeout(() => {
@@ -764,7 +764,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }, 300);
    } catch (error: any) {
     console.error('❌ [Home] handleProjectOpen error:', error.message);
-    trackError(error.message || 'Unknown error', 'project_open');
+    tracciaErrore(error.message || 'Unknown error', 'project_open');
     liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
     if (progressTimerRef.current) clearInterval(progressTimerRef.current);
     setIsLoadingProject(false);
@@ -820,7 +820,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           onPress: async () => {
             try {
               const deletedProjectId = selectedProject.id;
-              trackProjectDelete(selectedProject.name);
+              tracciaProgettoEliminato(selectedProject.name);
               // Single deletion flow: removeWorkstation already performs remote + local cleanup.
               await useTerminalStore.getState().removeWorkstation(deletedProjectId);
               // Keep Home list in sync immediately (avoid re-adding from an early stale reload).
@@ -843,7 +843,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   // Duplica il progetto
   const handleDuplicateProject = async () => {
     if (!selectedProject) return;
-    trackProjectDuplicate(selectedProject.name);
+    tracciaProgettoDuplicato(selectedProject.name);
     setIsDuplicating(true);
     try {
       // Crea un nuovo progetto con lo stesso repo URL ma nome diverso
@@ -869,7 +869,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   // Condividi il link del repository
   const handleShareProject = async () => {
     if (!selectedProject) return;
-    trackProjectShare(selectedProject.name);
+    tracciaProgettoCondiviso(selectedProject.name);
     const repoUrl = selectedProject.repositoryUrl || selectedProject.githubUrl;
 
     try {
@@ -919,7 +919,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }
 
     try {
-      trackProjectRename(selectedProject.name, newProjectName.trim());
+      tracciaProgettoRinominato(selectedProject.name, newProjectName.trim());
       await workstationService.updateWorkstation(selectedProject.id, {
         name: newProjectName.trim()
       });
@@ -1153,7 +1153,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 <TouchableOpacity
                   style={styles.actionCardInner}
                   activeOpacity={0.8}
-                  onPress={() => { trackGitImport(); onImportProject(); }}
+                  onPress={() => { tracciaImportGitAvviato(); onImportProject(); }}
                 >
                   <Ionicons name="logo-github" size={24} color="#fff" />
                   <Text style={styles.actionCardTitle}>{t('home.clone')}</Text>
@@ -1168,7 +1168,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 <TouchableOpacity
                   style={styles.actionCardInner}
                   activeOpacity={0.8}
-                  onPress={() => { trackBrowseFiles(); handleBrowseFiles(); }}
+                  onPress={() => { tracciaEsploraFile(); handleBrowseFiles(); }}
                 >
                   <Ionicons name="folder-open" size={24} color="rgba(255,255,255,0.85)" />
                   <Text style={styles.actionCardTitle}>{t('home.files')}</Text>

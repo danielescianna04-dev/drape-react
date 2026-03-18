@@ -17,12 +17,12 @@ import { DrapeLogo } from '../../shared/components/icons/DrapeLogo';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import {
-  trackScreenView,
-  trackOnboardingStepCompleted,
-  trackOnboardingExperienceSelected,
-  trackOnboardingReferralSelected,
-  trackOnboardingCompleted,
-  trackOnboardingBack,
+  tracciaSchermata,
+  tracciaOnboardingStepCompletato,
+  tracciaOnboardingEsperienzaScelta,
+  tracciaOnboardingScopertaScelta,
+  tracciaOnboardingCompletato,
+  tracciaOnboardingIndietro,
 } from '../../core/services/analyticsService';
 import { pushNotificationService } from '../../core/services/pushNotificationService';
 import { ConsentBanner } from '../../core/components/ConsentBanner';
@@ -121,7 +121,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
 
   // Step transitions
   useEffect(() => {
-    trackScreenView(`onboarding_${step}`);
+    tracciaSchermata(step === 'welcome' ? 'Benvenuto' : step === 'experience' ? 'Esperienza' : step === 'referral' ? 'Come ci hai trovato' : 'Onboarding');
     const targetPct =
       step === 'welcome' ? 14 :
       step === 'consent' ? 29 :
@@ -136,27 +136,37 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
 
   const handleNext = async () => {
     if (step === 'welcome') {
-      trackOnboardingStepCompleted('welcome');
+      tracciaOnboardingStepCompletato('welcome');
       setStep('consent');
     } else if (step === 'consent') {
-      trackOnboardingStepCompleted('consent');
+      tracciaOnboardingStepCompletato('consent');
       setStep('experience');
     } else if (step === 'experience' && experienceLevel) {
-      trackOnboardingStepCompleted('experience');
-      trackOnboardingExperienceSelected(experienceLevel);
+      tracciaOnboardingStepCompletato('experience');
+      tracciaOnboardingEsperienzaScelta(experienceLevel);
       setStep('referral');
     } else if (step === 'referral' && referralSource) {
-      trackOnboardingStepCompleted('referral');
-      trackOnboardingReferralSelected(referralSource);
+      tracciaOnboardingStepCompletato('referral');
+      tracciaOnboardingScopertaScelta(referralSource);
+      // Save onboarding answers — retry once on failure to prevent silent data loss
+      const onboardingData = {
+        experienceLevel,
+        referralSource,
+        onboardingCompleted: true,
+        onboardingCompletedAt: new Date().toISOString(),
+      };
       try {
-        await setDoc(doc(db, 'users', userId), {
-          experienceLevel,
-          referralSource,
-          onboardingCompleted: true,
-          onboardingCompletedAt: new Date().toISOString(),
-        }, { merge: true });
-        trackOnboardingCompleted();
-      } catch (e) {}
+        await setDoc(doc(db, 'users', userId), onboardingData, { merge: true });
+        tracciaOnboardingCompletato();
+      } catch (e) {
+        console.warn('[Onboarding] First save failed, retrying...', e);
+        try {
+          await setDoc(doc(db, 'users', userId), onboardingData, { merge: true });
+          tracciaOnboardingCompletato();
+        } catch (e2) {
+          console.error('[Onboarding] Save failed after retry:', e2);
+        }
+      }
       // Request push notification permission right after onboarding
       pushNotificationService.initialize(userId).catch(() => {});
       onComplete();
@@ -279,7 +289,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
         mode="step"
         forceShow
         onResolved={() => {
-          trackOnboardingStepCompleted('consent');
+          tracciaOnboardingStepCompletato('consent');
           setStep('experience');
         }}
       />
@@ -368,7 +378,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
           <TouchableOpacity
             style={[styles.backBtn, isLiquidGlassSupported && styles.backBtnGlass]}
             onPress={() => {
-              trackOnboardingBack(step);
+              tracciaOnboardingIndietro(step);
               setStep(
                 step === 'referral' ? 'experience' :
                 step === 'experience' ? 'consent' :

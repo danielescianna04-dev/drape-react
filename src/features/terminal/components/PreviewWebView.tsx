@@ -7,7 +7,7 @@ import { PreviewLoadingScreen } from './PreviewServerStatus';
 import { PreviewLog } from '../../../hooks/api/usePreviewLogs';
 import type { ViewportMode } from './PreviewToolbar';
 import { TerminalWebView } from './TerminalWebView';
-import { trackPreviewError, trackElementSelected } from '../../../core/services/analyticsService';
+import { tracciaErroreAnteprima, tracciaElementoSelezionato } from '../../../core/services/analyticsService';
 
 export interface PreviewWebViewProps {
   // WebView config
@@ -715,7 +715,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                       userMsg = t('terminal:preview.errorContainerUnreachable');
                     }
                     setPreviewError({ message: userMsg, timestamp: new Date() });
-                    trackPreviewError(userMsg);
+                    tracciaErroreAnteprima(userMsg);
                     setServerStatus('stopped');
                     setIsStarting(false);
                   }
@@ -727,7 +727,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                       return;
                     }
                     setPreviewError({ message: buildMsg, timestamp: new Date() });
-                    trackPreviewError(buildMsg);
+                    tracciaErroreAnteprima(buildMsg);
                     setServerStatus('stopped');
                     setIsStarting(false);
                   }
@@ -762,7 +762,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                     }
                     // Always update selection to the new element (replaces previous)
                     setSelectedElement({ selector: elementSelector, text: (el.text?.trim()?.substring(0, 40) || '') + (el.text?.length > 40 ? '...' : ''), tag: el.tag, className: typeof el.className === 'string' ? el.className : (el.className?.baseVal || ''), id: el.id, innerHTML: el.innerHTML });
-                    trackElementSelected(elementSelector);
+                    tracciaElementoSelezionato(elementSelector);
                     // Stay in inspect mode -- user exits by pressing the button again
                   }
                 } catch (error) { }

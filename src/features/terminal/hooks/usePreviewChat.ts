@@ -7,7 +7,7 @@ import { useChatStore } from '../../../core/terminal/chatStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
 import type { AIMessage } from '../components/PreviewAIChat';
 import i18next from 'i18next';
-import { trackChatMessage, trackNewChat, trackChatOpenPreview, trackInspectMode, trackElementSelected } from '../../../core/services/analyticsService';
+import { tracciaMessaggioChat, tracciaNuovaChat, tracciaAnteprimaDaChat, tracciaModalitaIspettore, tracciaElementoSelezionato } from '../../../core/services/analyticsService';
 
 // ── Engine → AIMessage mapping ───────────────────────────────────────────────
 
@@ -341,7 +341,7 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
   const toggleInspectMode = () => {
     const newMode = !isInspectMode;
     setIsInspectMode(newMode);
-    trackInspectMode(newMode ? 'true' : 'false');
+    tracciaModalitaIspettore(newMode ? 'true' : 'false');
 
     if (newMode) {
       webViewRef.current?.injectJavaScript(INSPECT_MODE_JS);
@@ -417,7 +417,7 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     if (isFirstMessage || !chatId) {
       chatId = `preview-${Date.now()}`;
       setPreviewChatId(chatId);
-      trackNewChat('preview');
+      tracciaNuovaChat('preview');
       let title = `${userMessage.slice(0, 35)}`;
       if (userMessage.length > 35) title += '...';
       useChatStore.getState().addChat({
@@ -445,7 +445,7 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     // Reset engine + agent for new run
     engine.reset();
     resetAgent();
-    trackChatMessage(selectedModel, 'preview');
+    tracciaMessaggioChat(selectedModel, 'preview');
     startAgent(prompt, currentWorkstationId, selectedModel, conversationHistory, [], 'minimal', previewContext);
   };
 
@@ -481,7 +481,7 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
 
   // ── FAB expand/collapse ─────────────────────────────────────────────────
   const expandFab = () => {
-    trackChatOpenPreview();
+    tracciaAnteprimaDaChat();
     LayoutAnimation.configureNext({
       duration: 300,
       create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },

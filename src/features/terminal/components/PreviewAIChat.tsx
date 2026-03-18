@@ -15,7 +15,7 @@ import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { ThinkingIndicator } from '../../../shared/components/atoms/ThinkingIndicator';
 import { useTranslation } from 'react-i18next';
-import { trackChatMinimize, trackModelSelect } from '../../../core/services/analyticsService';
+import { tracciaChatMinimizzata, tracciaModelloSelezionato, tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
 
 const AI_MODELS = [
   { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, isPremium: true, thinkingLevels: [] as string[] },
@@ -248,9 +248,9 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                     isLocked && { opacity: 0.45 },
                   ]}
                   onPress={() => {
-                    if (isLocked) { navigateTo('plans'); return; }
+                    if (isLocked) { tracciaPaginaPianiVista('preview_model'); navigateTo('plans'); return; }
                     setSelectedModel(model.id);
-                    trackModelSelect(model.id);
+                    tracciaModelloSelezionato(model.id);
                     if (hasThinkingOptions) {
                       setThinkingLevel(model.id.includes('flash') ? 'medium' : 'low');
                     }
@@ -454,7 +454,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                         update: { type: LayoutAnimation.Types.easeInEaseOut },
                         delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
                       });
-                      trackChatMinimize(isMessagesCollapsed ? 'expand' : 'collapse');
+                      tracciaChatMinimizzata(isMessagesCollapsed ? 'expand' : 'collapse');
                       setIsMessagesCollapsed(!isMessagesCollapsed);
                     }} style={{ padding: 4 }} activeOpacity={0.7}>
                       <Ionicons name={isMessagesCollapsed ? "chevron-up" : "chevron-down"} size={16} color="rgba(255,255,255,0.5)" />
@@ -609,7 +609,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                               {t('terminal:preview.upgradeMessage')}
                             </Text>
                             <TouchableOpacity
-                              onPress={() => useNavigationStore.getState().navigateTo('plans')}
+                              onPress={() => { tracciaPaginaPianiVista('preview_budget'); useNavigationStore.getState().navigateTo('plans'); }}
                               style={{ marginTop: 10, backgroundColor: AppColors.primary, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 16, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6 }}
                               activeOpacity={0.7}
                             >
