@@ -26,7 +26,7 @@ import { AppColors } from '../../shared/theme/colors';
 import { DrapeLogo } from '../../shared/components/icons/DrapeLogo';
 import { useAuthStore } from '../../core/auth/authStore';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import { tracciaLogin, tracciaRegistrazione, tracciaResetPassword, tracciaErrore } from '../../core/services/analyticsService';
+import { tracciaLogin, tracciaRegistrazione, tracciaResetPassword, tracciaErrore, tracciaErroreLogin, tracciaErroreRegistrazione } from '../../core/services/analyticsService';
 
 const TERMS_URL = 'https://www.drape-dev.it/terms-of-service.html';
 const PRIVACY_URL = 'https://www.drape-dev.it/privacy-policy.html';
@@ -687,6 +687,11 @@ export const AuthScreen = () => {
       }
     } catch (err: any) {
       tracciaErrore(err?.message || 'Auth error', mode);
+      if (mode === 'login') {
+        tracciaErroreLogin('email', err?.message || 'Unknown error');
+      } else if (mode === 'register') {
+        tracciaErroreRegistrazione(err?.message || 'Unknown error');
+      }
     }
   };
 
@@ -738,6 +743,7 @@ export const AuthScreen = () => {
       if (err.message !== t('auth:errors.appleLoginCancelled')) {
         setLocalError(err.message || t('auth:errors.appleLoginError'));
         tracciaErrore(err.message || 'Apple login error', 'apple_sign_in');
+        tracciaErroreLogin('apple', err.message || 'Unknown error');
       }
     }
   };

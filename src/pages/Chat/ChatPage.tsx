@@ -28,7 +28,7 @@ import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { ToolService } from '../../core/ai/toolService';
-import { tracciaMessaggioChat, tracciaComandoTerminaleChat, tracciaErrore, tracciaModelloSelezionato, tracciaImmagineCaricata, tracciaModalitaChatCambiata, tracciaPaginaPianiVista } from '../../core/services/analyticsService';
+import { tracciaMessaggioChat, tracciaComandoTerminaleChat, tracciaErrore, tracciaModelloSelezionato, tracciaImmagineCaricata, tracciaModalitaChatCambiata, tracciaPaginaPianiVista, tracciaErroreRispostaAI } from '../../core/services/analyticsService';
 import { useAuthStore } from '../../core/auth/authStore';
 import { config } from '../../config/config';
 import { getAuthToken, getAuthHeaders } from '../../core/api/getAuthToken';
@@ -2820,6 +2820,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     } catch (error) {
       console.error('❌ [ChatPage] AI request failed:', error);
       tracciaErrore(error instanceof Error ? error.message : 'Unknown error', 'chat');
+      tracciaErroreRispostaAI(selectedModel, error instanceof Error ? error.message : 'Unknown error');
 
       // Remove isThinking from the placeholder item so "Thinking..." disappears
       useTabStore.setState((state) => ({

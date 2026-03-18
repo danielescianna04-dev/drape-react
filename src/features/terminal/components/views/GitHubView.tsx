@@ -15,7 +15,7 @@ import { config } from '../../../../config/config';
 import { getAuthHeaders } from '../../../../core/api/getAuthToken';
 import { AddGitAccountModal } from '../../../settings/components/AddGitAccountModal';
 import { githubService, GitHubCommit } from '../../../../core/github/githubService';
-import { tracciaAzioneGit, tracciaCommitCreato, tracciaCambioBranch, tracciaTabGitCambiato, tracciaCronologiaCommit, tracciaAccountGitCollegato, tracciaAccountGitScollegato, tracciaAccountGitRimosso, tracciaErrore } from '../../../../core/services/analyticsService';
+import { tracciaAzioneGit, tracciaCommitCreato, tracciaCambioBranch, tracciaTabGitCambiato, tracciaCronologiaCommit, tracciaAccountGitCollegato, tracciaAccountGitScollegato, tracciaAccountGitRimosso, tracciaErrore, tracciaPullEffettuato, tracciaErrorePull, tracciaErrorePush, tracciaErroreCommit } from '../../../../core/services/analyticsService';
 
 // Tab bar height constant
 const TAB_BAR_HEIGHT = 44;
@@ -335,13 +335,19 @@ export const GitHubView = ({ tab }: Props) => {
 
       const result = await response.json();
       if (result.success) {
+        if (action === 'pull') tracciaPullEffettuato();
         Alert.alert(t('common:success'), t('terminal:git.actionCompleted', { action: t(`terminal:git.${action}`) }));
         await loadGitData();
       } else {
-        Alert.alert(t('common:error'), result.message || t('terminal:git.actionError', { action: t(`terminal:git.${action}`) }));
+        const errMsg = result.message || t('terminal:git.actionError', { action: t(`terminal:git.${action}`) });
+        if (action === 'pull') tracciaErrorePull(errMsg);
+        if (action === 'push') tracciaErrorePush(errMsg);
+        Alert.alert(t('common:error'), errMsg);
       }
     } catch (error) {
       console.error(`Git ${action} error:`, error);
+      if (action === 'pull') tracciaErrorePull('Network error');
+      if (action === 'push') tracciaErrorePush('Network error');
       Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action: t(`terminal:git.${action}`) }));
     } finally {
       setActionLoading(null);
@@ -383,6 +389,7 @@ export const GitHubView = ({ tab }: Props) => {
       }
     } catch (error) {
       console.error('Git commit error:', error);
+      tracciaErroreCommit('Commit failed');
       Alert.alert(t('common:error'), t('terminal:git.unableToCommit'));
     } finally {
       setActionLoading(null);

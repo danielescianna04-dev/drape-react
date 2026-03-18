@@ -21,7 +21,7 @@ import { githubService, GitHubCommit } from '../../../core/github/githubService'
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { ConnectRepoModal } from './ConnectRepoModal';
 import { useTranslation } from 'react-i18next';
-import { tracciaAzioneGit, tracciaCommitCreato, tracciaCambioBranch, tracciaAuthGit, tracciaAuthGitRiuscita, tracciaErroreAuthGit, tracciaRepoConnesso, tracciaTabGitCambiato, tracciaBranchCreato, tracciaCronologiaCommit, tracciaSelezionaTuttoGit, tracciaAccountGitCollegato, tracciaConnettiRepo, tracciaPushEffettuato, tracciaErrore } from '../../../core/services/analyticsService';
+import { tracciaAzioneGit, tracciaCommitCreato, tracciaCambioBranch, tracciaAuthGit, tracciaAuthGitRiuscita, tracciaErroreAuthGit, tracciaRepoConnesso, tracciaTabGitCambiato, tracciaBranchCreato, tracciaCronologiaCommit, tracciaSelezionaTuttoGit, tracciaAccountGitCollegato, tracciaConnettiRepo, tracciaPushEffettuato, tracciaErrore, tracciaPullEffettuato, tracciaErrorePull, tracciaErrorePush, tracciaErroreCommit, tracciaErroreCambioBranch, tracciaErroreCreazioneBranch } from '../../../core/services/analyticsService';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const MODAL_HEIGHT = SCREEN_HEIGHT * 0.65;
@@ -818,9 +818,11 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         isLoadingRef.current = false;
         await loadGitData();
       } else {
+        tracciaErrorePush(data.output || data.error || 'Push failed');
         Alert.alert(t('common:error'), data.output || data.error || 'Push failed');
       }
     } catch (e: any) {
+      tracciaErrorePush(e.message || 'Push failed');
       Alert.alert(t('common:error'), e.message || 'Push failed');
     } finally {
       setActionLoading(null);
@@ -850,6 +852,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       });
       const data = await response.json();
       if (data.success) {
+        tracciaPullEffettuato();
         Alert.alert(t('common:success'), 'Pull complete');
         useGitCacheStore.getState().clearCache(currentWorkstation!.id);
         useFileCacheStore.getState().clearCache(currentWorkstation!.id);
@@ -859,9 +862,11 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         isLoadingRef.current = false;
         await loadGitData();
       } else {
+        tracciaErrorePull(data.output || data.error || 'Pull failed');
         Alert.alert(t('common:error'), data.output || data.error || 'Pull failed');
       }
     } catch (e: any) {
+      tracciaErrorePull(e.message || 'Pull failed');
       Alert.alert(t('common:error'), e.message || 'Pull failed');
     } finally {
       setActionLoading(null);
@@ -885,13 +890,19 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
       const data = await response.json();
       if (response.ok && data.success) {
+        if (action === 'pull') tracciaPullEffettuato();
         Alert.alert(t('common:success'), t('terminal:git.actionCompleted', { action: action.charAt(0).toUpperCase() + action.slice(1) }));
         isLoadingRef.current = false;
         await loadGitData();
       } else {
-        Alert.alert(t('common:error'), data.error || data.output || data.message || t('terminal:git.actionError', { action }));
+        const errMsg = data.error || data.output || data.message || t('terminal:git.actionError', { action });
+        if (action === 'pull') tracciaErrorePull(errMsg);
+        if (action === 'push') tracciaErrorePush(errMsg);
+        Alert.alert(t('common:error'), errMsg);
       }
     } catch (error) {
+      if (action === 'pull') tracciaErrorePull('Network error');
+      if (action === 'push') tracciaErrorePush('Network error');
       Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action }));
     } finally {
       setActionLoading(null);
@@ -960,6 +971,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           body: JSON.stringify({ action: 'pop' }),
         }).catch(() => {});
       }
+      tracciaErroreCambioBranch(branchName, 'Checkout failed');
       Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action: 'checkout' }));
     } finally {
       setActionLoading(null);
@@ -1008,6 +1020,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         Alert.alert(t('common:error'), error.message || t('terminal:git.actionError', { action: 'create branch' }));
       }
     } catch (error) {
+      tracciaErroreCreazioneBranch(name, 'Branch creation failed');
       Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action: 'create branch' }));
     } finally {
       setActionLoading(null);
@@ -1343,6 +1356,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         return false;
       }
     } catch (error) {
+      tracciaErroreCommit('Commit failed');
       Alert.alert(t('common:error'), t('terminal:git.unableToCommit'));
       return false;
     } finally {
@@ -1433,6 +1447,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         Alert.alert('Error', result.error || result.output || 'Branch creation failed');
       }
     } catch (e: any) {
+      tracciaErroreCreazioneBranch(branchName, e.message || 'Branch creation failed');
       Alert.alert('Error', e.message || 'Branch creation failed');
     } finally {
       setActionLoading(null);
@@ -1699,6 +1714,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                           Alert.alert('Error', result.output || 'Checkout failed');
                         }
                       } catch (e: any) {
+                        tracciaErroreCambioBranch(previousBranchRef.current || currentBranch || 'main', e.message || 'Checkout failed');
                         Alert.alert('Error', e.message);
                       } finally {
                         setActionLoading(null);
@@ -2609,6 +2625,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                       setCommitDescription('');
                       setSelectedFiles(new Set());
                     } catch (e: any) {
+                      tracciaErroreCommit(e.message || 'Commit failed');
                       Alert.alert(t('common:error'), e.message || t('terminal:git.commitError'));
                       setActionLoading(null);
                       return;
@@ -2765,6 +2782,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                               body: JSON.stringify({ action: 'pop' }),
                             }).catch(() => {});
                           }
+                          tracciaErroreCambioBranch(hash, e.message || 'Checkout failed');
                           Alert.alert('Error', e.message || 'Checkout failed');
                         } finally {
                           setActionLoading(null);

@@ -28,7 +28,7 @@ import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 // DescriptionInput no longer used — step 1 uses inline textarea
 import { liveActivityService } from '../../core/services/liveActivityService';
-import { tracciaProgettoCreato, tracciaErrore, tracciaSchermata, tracciaOnboardingIdeaChip } from '../../core/services/analyticsService';
+import { tracciaProgettoCreato, tracciaErrore, tracciaSchermata, tracciaOnboardingIdeaChip, tracciaErroreCreazioneProgetto } from '../../core/services/analyticsService';
 import { useAgentStream, AgentMode } from '../../core/ai/useAgentStream';
 import { useAgentStore } from '../../core/ai/agentStore';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
@@ -857,6 +857,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     } catch (error: any) {
       console.error('[CreateProject] Error starting agent:', error);
       tracciaErrore(error.message || 'Unknown error', 'project_create');
+      tracciaErroreCreazioneProgetto(error.message || 'Unknown error');
       liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
       Alert.alert(t('common:error'), t('alerts.unableToStartAgent'));
       setIsCreating(false);
@@ -937,8 +938,9 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       // 2. Start polling
       restartPolling(taskId, apiUrl);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating project:', error);
+      tracciaErroreCreazioneProgetto(error?.message || 'Unknown error');
       liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
       Alert.alert(t('common:error'), t('alerts.unableToCreateProject'));
       setIsCreating(false);

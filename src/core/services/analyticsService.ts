@@ -516,3 +516,71 @@ export function tracciaCopiaCodicePremuto() {
   trackEvent('copia_codice');
 }
 
+// ── Errori per flussi critici ───────────────────────
+
+export function tracciaErroreLogin(metodo: string, messaggio: string) {
+  trackEvent('errore_login', { metodo, messaggio: messaggio.substring(0, 200) });
+}
+
+export function tracciaErroreAperturaProgetto(nome: string, messaggio: string) {
+  trackEvent('errore_apertura_progetto', { nome, messaggio: messaggio.substring(0, 200) });
+}
+
+export function tracciaErroreCreazioneProgetto(messaggio: string) {
+  trackEvent('errore_creazione_progetto', { messaggio: messaggio.substring(0, 200) });
+}
+
+export function tracciaErroreRispostaAI(modello: string, messaggio: string) {
+  trackEvent('errore_risposta_ai', { modello, messaggio: messaggio.substring(0, 200) });
+}
+
+export function tracciaErroreRegistrazione(messaggio: string) {
+  trackEvent('errore_registrazione', { messaggio: messaggio.substring(0, 200) });
+}
+
+// ── Operazioni Git complete (successo + errore) ─────
+
+export function tracciaPullEffettuato() {
+  trackEvent('pull_effettuato');
+}
+
+export function tracciaErrorePull(messaggio: string) {
+  trackEvent('errore_pull', { messaggio: messaggio.substring(0, 200) });
+}
+
+export function tracciaErrorePush(messaggio: string) {
+  trackEvent('errore_push', { messaggio: messaggio.substring(0, 200) });
+}
+
+export function tracciaErroreCommit(messaggio: string) {
+  trackEvent('errore_commit', { messaggio: messaggio.substring(0, 200) });
+}
+
+export function tracciaMergeEffettuato(branch: string) {
+  trackEvent('merge_effettuato', { branch: branch.substring(0, 100) });
+}
+
+export function tracciaErroreMerge(branch: string, messaggio: string) {
+  trackEvent('errore_merge', { branch: branch.substring(0, 100), messaggio: messaggio.substring(0, 200) });
+}
+
+export function tracciaStashCreato() {
+  trackEvent('stash_creato');
+}
+
+export function tracciaStashApplicato() {
+  trackEvent('stash_applicato');
+}
+
+export function tracciaErroreStash(messaggio: string) {
+  trackEvent('errore_stash', { messaggio: messaggio.substring(0, 200) });
+}
+
+export function tracciaErroreCambioBranch(branch: string, messaggio: string) {
+  trackEvent('errore_cambio_branch', { branch: branch.substring(0, 100), messaggio: messaggio.substring(0, 200) });
+}
+
+export function tracciaErroreCreazioneBranch(branch: string, messaggio: string) {
+  trackEvent('errore_creazione_branch', { branch: branch.substring(0, 100), messaggio: messaggio.substring(0, 200) });
+}
+

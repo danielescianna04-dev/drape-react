@@ -27,7 +27,7 @@ import { gitAccountService } from '../../core/git/gitAccountService';
 import { githubService } from '../../core/github/githubService';
 import { useGitCacheStore } from '../../core/cache/gitCacheStore';
 import { liveActivityService } from '../../core/services/liveActivityService';
-import { tracciaProgettoAperto, tracciaErrore, tracciaImportGitAvviato, tracciaProgettoEliminato, tracciaProgettoDuplicato, tracciaProgettoCondiviso, tracciaProgettoRinominato, tracciaEsploraFile, tracciaSchermata } from '../../core/services/analyticsService';
+import { tracciaProgettoAperto, tracciaErrore, tracciaImportGitAvviato, tracciaProgettoEliminato, tracciaProgettoDuplicato, tracciaProgettoCondiviso, tracciaProgettoRinominato, tracciaEsploraFile, tracciaSchermata, tracciaErroreAperturaProgetto } from '../../core/services/analyticsService';
 import { pushNotificationService } from '../../core/services/pushNotificationService';
 import { useTranslation } from 'react-i18next';
 
@@ -765,6 +765,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
    } catch (error: any) {
     console.error('❌ [Home] handleProjectOpen error:', error.message);
     tracciaErrore(error.message || 'Unknown error', 'project_open');
+    tracciaErroreAperturaProgetto(loadingProjectName || 'unknown', error.message || 'Unknown error');
     liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
     if (progressTimerRef.current) clearInterval(progressTimerRef.current);
     setIsLoadingProject(false);
