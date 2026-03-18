@@ -6,6 +6,7 @@ import { AgentLoop } from '../services/agent-loop.service';
 import { getToolDefinitions } from '../tools';
 import { getTodos } from '../tools/todo-write';
 import { log } from '../utils/logger';
+import { auditService } from '../services/audit.service';
 
 export const agentRouter = Router();
 
@@ -177,6 +178,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
       userPlan,
     });
 
+    auditService.log({ userId, action: 'agent_stream_start', resource: projectId, details: `mode: ${mode}, model: ${model || 'default'}`, ip: req.ip });
     log.info(`[Agent] Starting stream for project ${projectId}, mode: ${mode}, model: ${model || 'default'}`);
 
     // Enhance Cloud Mode prompts: ensure SQLite database creation

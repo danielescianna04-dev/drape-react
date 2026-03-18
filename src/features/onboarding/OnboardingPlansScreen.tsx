@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Dimensions,
   Animated,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,7 +15,8 @@ import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../shared/theme/colors';
 import { useIAPStore } from '../../core/iap/iapStore';
 import { IAP_PRODUCT_IDS } from '../../core/iap/iapConstants';
-import { trackPlanSelect, trackScreenView, trackOnboardingPlanSelected } from '../../core/services/analyticsService';
+import { trackPlanSelect, trackScreenView, trackOnboardingPlanSelected, trackLegalView } from '../../core/services/analyticsService';
+import { LegalPage } from '../settings/components/LegalPage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -27,6 +29,7 @@ interface Props {
 export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser = false, onSelectPlan }) => {
   const { t } = useTranslation(['projects', 'common']);
   const { products: iapProducts } = useIAPStore();
+  const [showLegal, setShowLegal] = useState<'privacy' | 'terms' | null>(null);
   const goProduct = iapProducts.find(p => p.productId === IAP_PRODUCT_IDS.GO_MONTHLY);
   const goMonthlyPrice = goProduct?.localizedPrice || '€22.99';
   const goIntroPrice = goProduct?.introductoryPrice
@@ -71,6 +74,11 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
       {/* Background orbs */}
       <View style={styles.orbTop} />
       <View style={styles.orbBottom} />
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
 
       {/* Header */}
       <Animated.View style={[styles.header, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -203,6 +211,29 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
           </TouchableOpacity>
         </Animated.View>
       </View>
+
+      {/* Subscription Terms (Apple requirement: visible before purchase) */}
+      <View style={styles.subscriptionTerms}>
+        <Text style={styles.subscriptionTermsText}>
+          {t('projects:onboardingPlans.subscriptionTerms')}
+        </Text>
+        <View style={styles.legalLinks}>
+          <TouchableOpacity onPress={() => { trackLegalView('terms'); setShowLegal('terms'); }}>
+            <Text style={styles.legalLinkText}>{t('projects:onboardingPlans.termsOfService')}</Text>
+          </TouchableOpacity>
+          <Text style={styles.legalLinkSeparator}>  ·  </Text>
+          <TouchableOpacity onPress={() => { trackLegalView('privacy'); setShowLegal('privacy'); }}>
+            <Text style={styles.legalLinkText}>{t('projects:onboardingPlans.privacyPolicy')}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      </ScrollView>
+
+      {/* Legal overlay */}
+      {showLegal && (
+        <LegalPage type={showLegal} onClose={() => setShowLegal(null)} />
+      )}
     </View>
   );
 };
@@ -211,8 +242,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0A0A0F',
-    paddingHorizontal: 20,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 40,
   },
   orbTop: {
     position: 'absolute',
@@ -407,5 +442,34 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.4)',
+  },
+
+  // Subscription Terms
+  subscriptionTerms: {
+    marginTop: 20,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  subscriptionTermsText: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: 'rgba(255, 255, 255, 0.3)',
+    textAlign: 'center',
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  legalLinkText: {
+    fontSize: 11,
+    color: 'rgba(139, 92, 246, 0.7)',
+    fontWeight: '500',
+    textDecorationLine: 'underline',
+  },
+  legalLinkSeparator: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.2)',
   },
 });

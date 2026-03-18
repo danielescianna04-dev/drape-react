@@ -180,7 +180,7 @@ class PushNotificationService {
     // "action: openPreview" — sent by usePreviewStartup when preview is ready
     if (action === 'openPreview') {
       const { useUIStore } = require('../terminal/uiStore');
-      useNavigationStore.getState().navigateTo('terminal');
+      useNavigationStore.getState().navigateTo('home');
       useUIStore.getState().setOpenPreviewRequested(true);
       return;
     }
@@ -199,7 +199,7 @@ class PushNotificationService {
             terminalStore.setWorkstation(workstation);
           }
         }
-        useNavigationStore.getState().navigateTo('terminal');
+        useNavigationStore.getState().navigateTo('home');
         break;
       }
 

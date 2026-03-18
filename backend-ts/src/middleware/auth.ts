@@ -1,8 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { execSync } from 'child_process';
+import { FieldValue } from 'firebase-admin/firestore';
 import { firebaseService } from '../services/firebase.service';
 import { config } from '../config';
 import { log } from '../utils/logger';
+import { auditService } from '../services/audit.service';
 
 // Extend Express Request to include userId
 declare global {
@@ -103,6 +105,7 @@ export async function requireAuth(
     setCachedToken(token, decodedToken.uid);
     next();
   } catch (err: any) {
+    auditService.log({ userId: 'unknown', action: 'auth_failed', resource: req.path, details: err.message, ip: req.ip });
     log.warn(`[Auth] Token verification failed: ${err.message}`);
     res.status(401).json({ success: false, error: 'Invalid or expired token' });
   }
@@ -291,7 +294,8 @@ export async function getLifetimeCreationCounts(userId: string): Promise<Creatio
 }
 
 /**
- * incrementCreationCounter — Increments the lifetime creation counter for the given type.
+ * incrementCreationCounter — Atomically increments the lifetime creation counter for the given type.
+ * Uses Firestore's FieldValue.increment() to avoid TOCTOU race conditions.
  * Call AFTER a project is successfully created/cloned.
  */
 export async function incrementCreationCounter(userId: string, type: 'created' | 'cloned' | 'local'): Promise<void> {
@@ -300,10 +304,11 @@ export async function incrementCreationCounter(userId: string, type: 'created' |
     if (!db) return;
 
     const userRef = db.collection('users').doc(userId);
-    const doc = await userRef.get();
-    const current = (doc.data()?.creationCounters as CreationCounters | undefined) || { created: 0, cloned: 0, local: 0 };
-
-    await userRef.set({ creationCounters: { ...current, [type]: (current[type] || 0) + 1 } }, { merge: true });
+    await userRef.set({
+      creationCounters: {
+        [type]: FieldValue.increment(1),
+      },
+    }, { merge: true });
   } catch (err: any) {
     log.warn(`[Auth] incrementCreationCounter error for ${userId}: ${err.message}`);
   }
@@ -363,11 +368,17 @@ export async function getUserStorageMb(userId: string): Promise<number> {
 }
 
 export async function verifyProjectOwnership(userId: string, projectId: string): Promise<boolean> {
-  const allowBypass = config.allowInsecureOwnershipBypass;
+  // CRITICAL: Never allow insecure bypass in production
+  let allowBypass = config.allowInsecureOwnershipBypass;
+  if (allowBypass && config.nodeEnv === 'production') {
+    auditService.log({ userId, action: 'ownership_bypass_blocked', resource: projectId, details: 'Insecure bypass attempted in production' });
+    log.error('[Auth] CRITICAL: Insecure ownership bypass enabled in production! Ignoring.');
+    allowBypass = false;
+  }
 
   if (!userId || userId === 'anonymous') {
     if (allowBypass) {
-      log.warn(`[Auth] Anonymous ownership bypass enabled for project ${projectId}`);
+      log.warn(`[Auth] Anonymous ownership bypass enabled for project ${projectId} (dev only)`);
       return true;
     }
     return false;
@@ -417,10 +428,12 @@ export async function verifyProjectOwnership(userId: string, projectId: string):
     }
 
     if (allowBypass) {
+      auditService.log({ userId, action: 'ownership_bypass_used', resource: projectId, details: 'Project not found, bypass enabled' });
       log.warn(`[Auth] Project ${projectId} not found for user ${userId} — bypass enabled`);
       setCachedOwnership(userId, projectId, true);
       return true;
     }
+    auditService.log({ userId, action: 'ownership_denied', resource: projectId, details: 'Not owner' });
     setCachedOwnership(userId, projectId, false);
     return false;
   } catch (err: any) {

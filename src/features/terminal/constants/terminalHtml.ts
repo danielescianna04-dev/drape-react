@@ -14,9 +14,45 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
 <link rel="stylesheet" href="https://unpkg.com/@xterm/xterm@5.5.0/css/xterm.css"/>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #0d1117; }
-  #terminal { width: 100%; height: 100%; padding: 4px 0 4px 14px; }
-  .xterm { height: 100%; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 50% 28%, rgba(124, 92, 255, 0.12), transparent 28%),
+      linear-gradient(180deg, #07070B 0%, #0D0B14 30%, #1A1033 70%, #0A0A12 100%);
+  }
+  #terminal {
+    width: 100%;
+    height: 100%;
+    padding: 14px 10px 16px 16px;
+    background: transparent;
+  }
+  .xterm { height: 100%; background: transparent !important; }
+  .xterm-helpers {
+    position: fixed !important;
+    left: -9999px !important;
+    top: auto !important;
+    bottom: 0 !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+  }
+  .xterm-viewport,
+  .xterm-screen,
+  .xterm-scroll-area { background: transparent !important; }
+  .xterm-helpers,
+  .xterm-helper-textarea {
+    background: transparent !important;
+    position: fixed !important;
+    left: -9999px !important;
+    top: auto !important;
+    bottom: 0 !important;
+    width: 1px !important;
+    height: 1px !important;
+    opacity: 0 !important;
+  }
   .xterm-screen { padding-left: 0 !important; }
   .xterm-viewport::-webkit-scrollbar { width: 4px; }
   .xterm-viewport::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
@@ -52,23 +88,25 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
     } catch(e) {}
   }
 
-  // Calculate optimal font size: fit ~80 cols on screen
-  // Monospace char width ≈ fontSize * 0.6. Subtract padding (8px left) + scrollbar (~10px) + safety margin
-  var availW = window.innerWidth - 30;
-  var optimalSize = Math.max(10, Math.min(14, Math.floor(availW / (80 * 0.605))));
+  // Calculate optimal font size: fit ~80 cols on screen, but bias slightly larger for readability.
+  // Monospace char width ≈ fontSize * 0.6. Subtract padding + scrollbar + safety margin.
+  var availW = window.innerWidth - 36;
+  var optimalSize = Math.max(11, Math.min(15, Math.floor(availW / (80 * 0.595))));
 
   // Create terminal
   var term = new Terminal({
+    cols: 80,
+    rows: 24,
     cursorBlink: true,
     cursorStyle: 'bar',
     fontSize: optimalSize,
     fontFamily: "'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
-    lineHeight: 1.2,
+    lineHeight: 1.28,
     theme: {
-      background: '#0d1117',
+      background: '#00000000',
       foreground: '#c9d1d9',
       cursor: '#58a6ff',
-      cursorAccent: '#0d1117',
+      cursorAccent: '#0D0B14',
       selectionBackground: 'rgba(56,139,253,0.3)',
       black: '#484f58',
       red: '#ff7b72',
@@ -86,6 +124,7 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
       brightMagenta: '#d2a8ff',
       brightCyan: '#56d364',
       brightWhite: '#f0f6fc',
+      transparent: '#00000000',
     },
     allowProposedApi: true,
     scrollback: 5000,
@@ -102,6 +141,43 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
 
   var container = document.getElementById('terminal');
   term.open(container);
+  postRN('ready', { cols: term.cols, rows: term.rows });
+
+  function getSafeSize() {
+    var cols = term.cols || 0;
+    var rows = term.rows || 0;
+    if (cols <= 0 || rows <= 0) {
+      cols = 80;
+      rows = 24;
+      try {
+        term.resize(cols, rows);
+      } catch (e) {}
+    }
+    return { cols: cols, rows: rows };
+  }
+
+  function focusTerminal() {
+    try {
+      term.focus();
+      if (term.textarea && term.textarea.focus) {
+        try {
+          term.textarea.focus({ preventScroll: true });
+        } catch (_) {
+          term.textarea.focus();
+        }
+      }
+    } catch(e) {}
+  }
+  window.__DRAPE_TERM_FOCUS = focusTerminal;
+  window.__DRAPE_TERM_SEND = function(encoded) {
+    try {
+      if (ws && ws.readyState === WebSocket.OPEN && encoded) {
+        ws.send(JSON.stringify({ type: 'terminal_input', data: encoded }));
+      }
+    } catch(e) {}
+  };
+  container.addEventListener('touchstart', focusTerminal, { passive: true });
+  container.addEventListener('mousedown', focusTerminal);
 
   // Fit terminal to container and resize when keyboard appears/disappears
   function doFit() {
@@ -111,6 +187,11 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
         container.style.height = window.visualViewport.height + 'px';
       }
       fitAddon.fit();
+      var size = getSafeSize();
+      postRN('fit', size);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'terminal_resize', cols: size.cols, rows: size.rows }));
+      }
     } catch(e) {}
   }
   doFit();
@@ -133,6 +214,19 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
   var reconnectTimer = null;
   var reconnectAttempts = 0;
   var MAX_RECONNECT = 5;
+  var authScanBuffer = '';
+  var lastPostedAuthUrl = null;
+  var decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null;
+
+  function maybePostAuthUrl(text) {
+    if (!text) return;
+    authScanBuffer = (authScanBuffer + text).slice(-12000);
+    var match = authScanBuffer.match(/https:\/\/claude\.ai\/oauth\/authorize[^\s"'<>]+/);
+    if (match && match[0] && match[0] !== lastPostedAuthUrl) {
+      lastPostedAuthUrl = match[0];
+      postRN('auth_url', { url: match[0] });
+    }
+  }
 
   function connect() {
     if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
@@ -145,8 +239,14 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
     ws.onopen = function() {
       connected = true;
       reconnectAttempts = 0;
+      var size = getSafeSize();
       // Request terminal start
-      ws.send(JSON.stringify({ type: 'terminal_start', projectId: PROJECT_ID }));
+      ws.send(JSON.stringify({
+        type: 'terminal_start',
+        projectId: PROJECT_ID,
+        cols: size.cols,
+        rows: size.rows,
+      }));
     };
 
     ws.onmessage = function(event) {
@@ -155,8 +255,11 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
         switch (msg.type) {
           case 'terminal_started':
             postRN('connected', {});
-            // Send resize so PTY knows dimensions
-            ws.send(JSON.stringify({ type: 'terminal_resize', cols: term.cols, rows: term.rows }));
+            // Fit after mount and send a non-zero terminal size to the PTY.
+            doFit();
+            setTimeout(doFit, 50);
+            setTimeout(doFit, 150);
+            setTimeout(doFit, 400);
             // Auto-run start command if provided
             if (START_CMD) {
               setTimeout(function() {
@@ -167,7 +270,13 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
             break;
           case 'terminal_output':
             if (msg.data) {
-              term.write(Uint8Array.from(atob(msg.data), function(c) { return c.charCodeAt(0); }));
+              var bytes = Uint8Array.from(atob(msg.data), function(c) { return c.charCodeAt(0); });
+              term.write(bytes);
+              if (decoder) {
+                try {
+                  maybePostAuthUrl(decoder.decode(bytes, { stream: true }));
+                } catch (_) {}
+              }
             }
             break;
           case 'terminal_exit':
@@ -212,8 +321,9 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
     clearTimeout(resizeTimeout);
     resizeTimeout = setTimeout(function() {
       fitAddon.fit();
+      var size = getSafeSize();
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'terminal_resize', cols: term.cols, rows: term.rows }));
+        ws.send(JSON.stringify({ type: 'terminal_resize', cols: size.cols, rows: size.rows }));
       }
     }, 150);
   }
@@ -239,7 +349,7 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
 
   // Start connection
   connect();
-  term.focus();
+  focusTerminal();
 })();
 </script>
 </body>

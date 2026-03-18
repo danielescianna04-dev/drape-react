@@ -103,7 +103,7 @@ bitbucketRouter.post('/callback', asyncHandler(async (req: Request, res: Respons
         scopes: data.scopes,
       });
     } else {
-      log.warn('[Bitbucket] Token exchange failed:', data);
+      log.warn(`[Bitbucket] Token exchange failed: ${data.error || 'unknown_error'} — ${data.error_description || 'no description'}`);
       res.status(400).json({
         error: data.error || 'token_exchange_failed',
         error_description: data.error_description || 'Failed to exchange code for token',
@@ -169,7 +169,7 @@ bitbucketRouter.post('/refresh', asyncHandler(async (req: Request, res: Response
         scopes: data.scopes,
       });
     } else {
-      log.warn('[Bitbucket] Token refresh failed:', data);
+      log.warn(`[Bitbucket] Token refresh failed: ${data.error || 'unknown_error'} — ${data.error_description || 'no description'}`);
       res.status(400).json({
         error: data.error || 'refresh_failed',
         error_description: data.error_description || 'Failed to refresh token',

@@ -206,7 +206,10 @@
       "previews": "5 preview per progetto",
       "aiBudget": "Budget AI base",
       "storage": "500MB Storage"
-    }
+    },
+    "subscriptionTerms": "Il pagamento verrà addebitato sul tuo account Apple ID alla conferma dell'acquisto. L'abbonamento si rinnova automaticamente a meno che non venga annullato almeno 24 ore prima della scadenza del periodo corrente. Il tuo account verrà addebitato per il rinnovo entro 24 ore prima della fine del periodo corrente. Puoi gestire e annullare i tuoi abbonamenti nelle impostazioni del tuo account App Store dopo l'acquisto.",
+    "termsOfService": "Termini di Servizio",
+    "privacyPolicy": "Privacy Policy"
   },
   "problem": {
     "title": "Il Problema",

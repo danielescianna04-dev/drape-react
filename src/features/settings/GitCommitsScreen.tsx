@@ -9,11 +9,11 @@ import {
   Animated,
   Image,
   RefreshControl,
-  Linking,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { githubService, GitHubCommit } from '../../core/github/githubService';
@@ -111,7 +111,7 @@ export const GitCommitsScreen = ({ repositoryUrl, onClose }: Props) => {
   };
 
   const handleOpenInGitHub = (url: string) => {
-    Linking.openURL(url);
+    WebBrowser.openBrowserAsync(url);
   };
 
   const renderSkeletonCard = (index: number) => {

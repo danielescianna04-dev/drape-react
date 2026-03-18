@@ -103,6 +103,18 @@
     "activeDevice": "Active device",
     "onlyThisDevice": "Only this device can access"
   },
+  "dataExport": {
+    "sectionTitle": "Your Data",
+    "downloadTitle": "Download My Data",
+    "downloadSubtitle": "Export all your data as JSON (GDPR)",
+    "shareTitle": "Export My Data",
+    "successTitle": "Export Complete",
+    "successMessage": "Your data has been exported successfully.",
+    "errorTitle": "Export Failed",
+    "errorMessage": "Unable to export your data. Please try again later.",
+    "rateLimitTitle": "Please Wait",
+    "rateLimitMessage": "You can export your data once per hour. Please try again in {minutes} minutes."
+  },
   "logout": {
     "title": "Sign out",
     "confirm": "Are you sure you want to sign out?",
@@ -153,6 +165,9 @@
     "firstMonth": "First month — then regular price",
     "restoring": "Restoring...",
     "restorePurchases": "Restore Purchases",
+    "restoreSuccess": "Purchases restored successfully",
+    "restoreNoPurchases": "No purchases to restore",
+    "restoreError": "Unable to restore purchases. Please try again.",
     "legalNotice": "Payment will be charged to your Apple ID account upon confirmation. Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions in your Apple ID account Settings.",
     "privacyPolicy": "Privacy Policy",
     "termsOfService": "Terms of Service",

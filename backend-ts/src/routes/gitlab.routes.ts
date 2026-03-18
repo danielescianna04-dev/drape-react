@@ -100,7 +100,7 @@ gitlabRouter.post('/callback', asyncHandler(async (req: Request, res: Response) 
         scope: data.scope,
       });
     } else {
-      log.warn('[GitLab] Token exchange failed:', data);
+      log.warn(`[GitLab] Token exchange failed: ${data.error || 'unknown_error'} — ${data.error_description || 'no description'}`);
       res.status(400).json({
         error: data.error || 'token_exchange_failed',
         error_description: data.error_description || 'Failed to exchange code for token',
@@ -165,7 +165,7 @@ gitlabRouter.post('/refresh', asyncHandler(async (req: Request, res: Response) =
         scope: data.scope,
       });
     } else {
-      log.warn('[GitLab] Token refresh failed:', data);
+      log.warn(`[GitLab] Token refresh failed: ${data.error || 'unknown_error'} — ${data.error_description || 'no description'}`);
       res.status(400).json({
         error: data.error || 'refresh_failed',
         error_description: data.error_description || 'Failed to refresh token',

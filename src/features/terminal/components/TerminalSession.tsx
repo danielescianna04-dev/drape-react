@@ -1,27 +1,27 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
+  ActivityIndicator,
+  Keyboard,
+  Linking,
+  Platform,
   ScrollView,
   StyleSheet,
-  Platform,
-  InputAccessoryView,
+  Text,
+  TextInput,
   TouchableOpacity,
-  Keyboard,
+  View,
 } from 'react-native';
-import { useTerminalPTY } from '../hooks/useTerminalPTY';
-import { parseAnsiLines, type AnsiSegment } from '../utils/ansiParser';
-import { TerminalAccessoryBar } from './TerminalAccessoryBar';
-
-const FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
-const FONT_SIZE = 13;
-const LINE_HEIGHT = 18;
-const MAX_LINES = 5000;
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { TerminalWebView, type TerminalWebViewHandle } from './TerminalWebView';
+import { getAuthToken } from '../../../core/api/getAuthToken';
+import { config } from '../../../config/config';
+import { AppColors } from '../../../shared/theme/colors';
 
 interface TerminalSessionProps {
   projectId: string;
   sessionId: string;
+  sessionTitle?: string;
   isActive: boolean;
   onExit?: () => void;
   onConnectionChange?: (connected: boolean) => void;
@@ -29,192 +29,273 @@ interface TerminalSessionProps {
 
 export const TerminalSession = React.memo(({
   projectId,
-  sessionId,
+  sessionTitle = 'bash',
   isActive,
   onExit,
   onConnectionChange,
 }: TerminalSessionProps) => {
+  const insets = useSafeAreaInsets();
+  const terminalRef = React.useRef<TerminalWebViewHandle>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [lines, setLines] = useState<AnsiSegment[][]>([]);
-  const [inputText, setInputText] = useState('');
-  const [statusMsg, setStatusMsg] = useState('Initializing...');
-  const scrollRef = useRef<ScrollView>(null);
-  const inputRef = useRef<TextInput>(null);
-  const accessoryId = `terminal-accessory-${sessionId}`;
-  const partialLineRef = useRef('');
-  const onConnectionChangeRef = useRef(onConnectionChange);
-  onConnectionChangeRef.current = onConnectionChange;
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [isLoadingToken, setIsLoadingToken] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState('');
+  const [pendingAuthUrl, setPendingAuthUrl] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const lastOpenedAuthUrlRef = React.useRef<string | null>(null);
+  const inputRef = React.useRef<TextInput>(null);
 
-  const handleOutput = useCallback((data: string) => {
-    setStatusMsg(''); // Clear status once we get any output
-    const raw = partialLineRef.current + data;
-    const parts = raw.split('\n');
-    partialLineRef.current = parts.pop() ?? '';
-
-    if (parts.length === 0 && partialLineRef.current) {
-      setLines(prev => {
-        const parsed = parseAnsiLines(partialLineRef.current);
-        if (prev.length === 0) return parsed;
-        const updated = [...prev];
-        if (parsed.length > 0) {
-          updated[updated.length - 1] = parsed[0];
-        }
-        return updated.slice(-MAX_LINES);
-      });
-      return;
+  const loadAuthToken = useCallback(async () => {
+    setIsLoadingToken(true);
+    setErrorMsg(null);
+    try {
+      const token = await getAuthToken(true);
+      if (!token) {
+        throw new Error('Authentication required to open terminal');
+      }
+      setAuthToken(token);
+    } catch (error: any) {
+      setAuthToken(null);
+      setErrorMsg(error?.message || 'Unable to initialize terminal');
+      onConnectionChange?.(false);
+    } finally {
+      setIsLoadingToken(false);
     }
-
-    const newLines = parseAnsiLines(parts.join('\n'));
-    setLines(prev => [...prev, ...newLines].slice(-MAX_LINES));
-  }, []);
-
-  const handleExit = useCallback(() => {
-    setStatusMsg('Session ended.');
-    onExit?.();
-  }, [onExit]);
-
-  const handleError = useCallback((msg: string) => {
-    setStatusMsg(`Error: ${msg}`);
-    setLines(prev => [...prev, [{ text: `[Error] ${msg}`, style: { color: '#cd3131' } }]]);
-  }, []);
-
-  const { isConnected, isConnecting, connect, sendInput } = useTerminalPTY({
-    projectId,
-    sessionId,
-    onOutput: handleOutput,
-    onExit: handleExit,
-    onError: handleError,
-  });
+  }, [onConnectionChange]);
 
   useEffect(() => {
-    if (isConnecting) setStatusMsg(`Connecting to ${projectId}...`);
-    else if (isConnected) setStatusMsg('Connected. Waiting for shell...');
-    else setStatusMsg(prev => prev || 'Disconnected.');
-  }, [isConnecting, isConnected, projectId]);
+    if (!isActive) return;
+    loadAuthToken();
+  }, [isActive, loadAuthToken, projectId]);
 
-  const prevConnectedRef = useRef<boolean | null>(null);
-  useEffect(() => {
-    if (prevConnectedRef.current !== isConnected) {
-      prevConnectedRef.current = isConnected;
-      onConnectionChangeRef.current?.(isConnected);
-    }
-  }, [isConnected]);
-
-  const hasConnectedRef = useRef(false);
-  useEffect(() => {
-    if (isActive && !hasConnectedRef.current) {
-      hasConnectedRef.current = true;
-      connect();
-    }
-  }, [isActive, connect]);
-
-  const linesLenRef = useRef(0);
-  useEffect(() => {
-    if (lines.length !== linesLenRef.current) {
-      linesLenRef.current = lines.length;
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 50);
-    }
-  }, [lines.length]);
-
-  // Track keyboard height to push input bar above keyboard
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSub = Keyboard.addListener(showEvent, (e) => {
-      setKeyboardHeight(e.endCoordinates.height);
+
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates?.height || 0);
     });
     const hideSub = Keyboard.addListener(hideEvent, () => {
       setKeyboardHeight(0);
     });
-    return () => { showSub.remove(); hideSub.remove(); };
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
   }, []);
 
-  useEffect(() => {
-    if (isActive) {
-      setTimeout(() => inputRef.current?.focus(), 300);
+  const handleConnected = useCallback(() => {
+    setErrorMsg(null);
+    onConnectionChange?.(true);
+  }, [onConnectionChange]);
+
+  const handleExit = useCallback(() => {
+    onConnectionChange?.(false);
+    onExit?.();
+  }, [onConnectionChange, onExit]);
+
+  const handleError = useCallback((message: string) => {
+    setErrorMsg(message);
+    onConnectionChange?.(false);
+  }, [onConnectionChange]);
+
+  const handleAuthUrl = useCallback(async (url: string) => {
+    setPendingAuthUrl(url);
+    if (lastOpenedAuthUrlRef.current === url) return;
+    lastOpenedAuthUrlRef.current = url;
+
+    try {
+      await Linking.openURL(url);
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Unable to open browser for Claude sign in');
     }
-  }, [isActive]);
+  }, []);
 
-  const handleAccessoryKey = useCallback((data: string) => {
-    sendInput(data);
-  }, [sendInput]);
+  const handleSubmitInput = useCallback(() => {
+    if (!inputValue) return;
+    terminalRef.current?.sendInput(`${inputValue}\r`);
+    setInputValue('');
+  }, [inputValue]);
 
-  const handleSubmit = useCallback(() => {
-    sendInput(inputText + '\r');
-    setInputText('');
-  }, [inputText, sendInput]);
-
-  const handleReconnect = useCallback(() => {
-    hasConnectedRef.current = false;
-    setStatusMsg('Reconnecting...');
-    connect();
-    hasConnectedRef.current = true;
-  }, [connect]);
-
-  const renderLine = useCallback((segments: AnsiSegment[], index: number) => (
-    <Text key={index} style={styles.line} selectable>
-      {segments.map((seg, i) => (
-        <Text key={i} style={[styles.text, seg.style]}>{seg.text}</Text>
-      ))}
-    </Text>
-  ), []);
+  const showTerminal = useMemo(
+    () => isActive && !!authToken && !isLoadingToken,
+    [authToken, isActive, isLoadingToken],
+  );
 
   return (
-    <View style={[styles.container, keyboardHeight > 0 && { paddingBottom: keyboardHeight }]}>
-      {/* Terminal output — takes all available space */}
-      <ScrollView
-        ref={scrollRef}
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="always"
-        keyboardDismissMode="none"
-        onTouchEnd={() => inputRef.current?.focus()}
-      >
-        {statusMsg ? (
-          <View style={styles.statusRow}>
-            <Text style={styles.statusText}>{statusMsg}</Text>
-            {!isConnected && !isConnecting && (
-              <TouchableOpacity onPress={handleReconnect} style={styles.reconnectBtn}>
-                <Text style={styles.reconnectText}>Reconnect</Text>
+    <View style={styles.container}>
+      {showTerminal ? (
+        <View style={styles.terminalViewport}>
+          <TerminalWebView
+            ref={terminalRef}
+            key={`${projectId}-${reloadKey}`}
+            projectId={projectId}
+            wsUrl={config.wsUrl}
+            authToken={authToken!}
+            onConnected={handleConnected}
+            onExit={handleExit}
+            onError={handleError}
+            onAuthUrl={handleAuthUrl}
+          />
+        </View>
+      ) : (
+        <View style={styles.loadingState}>
+          {isLoadingToken ? (
+            <>
+              <ActivityIndicator size="small" color={AppColors.primary} />
+              <Text style={styles.loadingText}>Connecting terminal...</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.errorTitle}>{sessionTitle}</Text>
+              <Text style={styles.errorText}>{errorMsg || 'Terminal unavailable'}</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setReloadKey((prev) => prev + 1);
+                  loadAuthToken();
+                }}
+                activeOpacity={0.8}
+                style={[styles.retryButton, { marginBottom: insets.bottom || 0 }]}
+              >
+                <Text style={styles.retryButtonText}>Retry</Text>
               </TouchableOpacity>
-            )}
-          </View>
-        ) : null}
-        {lines.map(renderLine)}
-      </ScrollView>
-
-      {/* Input bar — ALWAYS visible at bottom */}
-      <View style={styles.inputBar}>
-        <Text style={styles.prompt}>$</Text>
-        <TextInput
-          ref={inputRef}
-          style={styles.input}
-          value={inputText}
-          onChangeText={setInputText}
-          onSubmitEditing={handleSubmit}
-          placeholder="command..."
-          placeholderTextColor="#4A4A62"
-          autoCapitalize="none"
-          autoCorrect={false}
-          autoComplete="off"
-          spellCheck={false}
-          keyboardType="ascii-capable"
-          keyboardAppearance="dark"
-          inputAccessoryViewID={accessoryId}
-          blurOnSubmit={false}
-          returnKeyType="send"
-        />
-        <TouchableOpacity onPress={handleSubmit} style={styles.sendBtn}>
-          <Text style={styles.sendText}>Run</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Accessory bar — appears above keyboard when TextInput is focused */}
-      {Platform.OS === 'ios' && (
-        <InputAccessoryView nativeID={accessoryId}>
-          <TerminalAccessoryBar onKeyPress={handleAccessoryKey} />
-        </InputAccessoryView>
+            </>
+          )}
+        </View>
       )}
+
+      {errorMsg && showTerminal ? (
+        <View style={[styles.errorBanner, { bottom: insets.bottom + 12 }]}>
+          <Text style={styles.errorBannerText}>{errorMsg}</Text>
+          <TouchableOpacity
+            onPress={() => {
+              setReloadKey((prev) => prev + 1);
+              loadAuthToken();
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.errorBannerAction}>Reconnect</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {pendingAuthUrl && showTerminal ? (
+        <View
+          style={[
+            styles.authBanner,
+            {
+              bottom: (keyboardHeight > 0 ? keyboardHeight : insets.bottom) + 56,
+            },
+          ]}
+        >
+          <Text style={styles.authBannerText}>Claude sign-in detected</Text>
+          <TouchableOpacity
+            onPress={() => Linking.openURL(pendingAuthUrl)}
+            activeOpacity={0.8}
+            style={styles.authBannerButton}
+          >
+            <Text style={styles.authBannerButtonText}>Open browser</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {showTerminal ? (
+        <View
+          style={[
+            styles.inputDock,
+            { bottom: (keyboardHeight > 0 ? keyboardHeight : insets.bottom) + 54 },
+          ]}
+        >
+          <TouchableOpacity
+            onPress={() => inputRef.current?.focus()}
+            activeOpacity={0.7}
+            style={styles.inputDockAction}
+          >
+            <Ionicons name="create-outline" size={18} color="rgba(255,255,255,0.7)" />
+          </TouchableOpacity>
+
+          <TextInput
+            ref={inputRef}
+            style={styles.inputDockField}
+            value={inputValue}
+            onChangeText={setInputValue}
+            placeholder="Type into terminal..."
+            placeholderTextColor={AppColors.white.w35}
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+            autoComplete="off"
+            keyboardAppearance="dark"
+            returnKeyType="send"
+            onSubmitEditing={handleSubmitInput}
+            blurOnSubmit={false}
+          />
+
+          <TouchableOpacity
+            onPress={handleSubmitInput}
+            activeOpacity={0.8}
+            disabled={!inputValue}
+            style={[
+              styles.inputDockSend,
+              inputValue ? styles.inputDockSendActive : styles.inputDockSendIdle,
+            ]}
+          >
+            <Ionicons
+              name="arrow-up"
+              size={16}
+              color={inputValue ? '#FFFFFF' : 'rgba(255,255,255,0.3)'}
+            />
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {showTerminal ? (
+        <View
+          style={[
+            styles.mobileToolbarWrap,
+            { bottom: (keyboardHeight > 0 ? keyboardHeight : insets.bottom) + 10 },
+          ]}
+        >
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.mobileToolbar}
+            keyboardShouldPersistTaps="always"
+          >
+            {[
+              { label: '1', data: '1\r' },
+              { label: '2', data: '2\r' },
+              { label: '3', data: '3\r' },
+              { label: '4', data: '4\r' },
+              { label: '5', data: '5\r' },
+              { label: '6', data: '6\r' },
+              { label: '↑', data: '\u001b[A' },
+              { label: '↓', data: '\u001b[B' },
+              { label: 'Esc', data: '\u001b' },
+              { label: 'Enter', data: '\r' },
+            ].map((key) => (
+              <TouchableOpacity
+                key={key.label}
+                onPress={() => terminalRef.current?.sendInput(key.data)}
+                activeOpacity={0.75}
+                style={styles.mobileKey}
+              >
+                <Text style={styles.mobileKeyText}>{key.label}</Text>
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity
+              onPress={() => terminalRef.current?.focus()}
+              activeOpacity={0.75}
+              style={[styles.mobileKey, styles.mobileKeyFocus]}
+            >
+              <Ionicons name="keypad-outline" size={14} color="#FFFFFF" />
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      ) : null}
     </View>
   );
 });
@@ -222,84 +303,180 @@ export const TerminalSession = React.memo(({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0C',
+    backgroundColor: 'transparent',
   },
-  scrollView: {
+  loadingState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 10,
+  },
+  terminalViewport: {
     flex: 1,
   },
-  scrollContent: {
-    paddingHorizontal: 10,
-    paddingTop: 10,
-    paddingBottom: 8,
+  loadingText: {
+    color: AppColors.white.w50,
+    fontSize: 14,
   },
-  line: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  errorTitle: {
+    color: AppColors.white.w80,
+    fontSize: 16,
+    fontWeight: '600',
+    textTransform: 'lowercase',
   },
-  text: {
-    fontFamily: FONT,
-    fontSize: FONT_SIZE,
-    lineHeight: LINE_HEIGHT,
-    color: '#E0E0E0',
+  errorText: {
+    color: AppColors.white.w50,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
-  statusRow: {
+  retryButton: {
+    marginTop: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: AppColors.primaryAlpha.a20,
+    borderWidth: 1,
+    borderColor: AppColors.primaryAlpha.a40,
+  },
+  retryButtonText: {
+    color: AppColors.white.full,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  errorBanner: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    justifyContent: 'space-between',
     gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
+    backgroundColor: 'rgba(17, 17, 22, 0.94)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.24)',
   },
-  statusText: {
-    fontFamily: FONT,
-    fontSize: FONT_SIZE,
-    color: '#6A6A82',
-    fontStyle: 'italic',
-  },
-  reconnectBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    backgroundColor: '#2A2A2E',
-    borderRadius: 6,
-  },
-  reconnectText: {
-    fontFamily: FONT,
+  errorBannerText: {
+    flex: 1,
+    color: '#FF8D8D',
     fontSize: 12,
-    color: '#7C3AED',
+    lineHeight: 18,
   },
-  inputBar: {
+  errorBannerAction: {
+    color: AppColors.white.full,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  authBanner: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#161619',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    minHeight: 44,
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
+    backgroundColor: 'rgba(17, 17, 22, 0.94)',
+    borderWidth: 1,
+    borderColor: AppColors.primaryAlpha.a40,
   },
-  prompt: {
-    fontFamily: FONT,
-    fontSize: FONT_SIZE,
-    color: '#0dbc79',
-    marginRight: 8,
-  },
-  input: {
+  authBannerText: {
     flex: 1,
-    fontFamily: FONT,
-    fontSize: FONT_SIZE,
-    color: '#E0E0E0',
-    padding: 0,
-    margin: 0,
-  },
-  sendBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#7C3AED',
-    borderRadius: 6,
-    marginLeft: 8,
-  },
-  sendText: {
-    fontFamily: FONT,
+    color: AppColors.white.w80,
     fontSize: 12,
-    color: '#fff',
+    fontWeight: '600',
+  },
+  authBannerButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: AppColors.primaryAlpha.a20,
+    borderWidth: 1,
+    borderColor: AppColors.primaryAlpha.a40,
+  },
+  authBannerButtonText: {
+    color: AppColors.white.full,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  inputDock: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: 'rgba(17, 17, 22, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    gap: 8,
+  },
+  inputDockAction: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  inputDockField: {
+    flex: 1,
+    color: AppColors.white.w90,
+    fontSize: 15,
+    paddingVertical: 0,
+  },
+  inputDockSend: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inputDockSendIdle: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  inputDockSendActive: {
+    backgroundColor: AppColors.primary,
+  },
+  mobileToolbarWrap: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+  },
+  mobileToolbar: {
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 2,
+  },
+  mobileKey: {
+    minWidth: 38,
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(17, 17, 22, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  mobileKeyFocus: {
+    paddingHorizontal: 10,
+    backgroundColor: AppColors.primaryAlpha.a20,
+    borderColor: AppColors.primaryAlpha.a40,
+  },
+  mobileKeyText: {
+    color: AppColors.white.w80,
+    fontSize: 12,
     fontWeight: '600',
   },
 });

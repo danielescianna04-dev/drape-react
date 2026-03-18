@@ -1,0 +1,21 @@
+Copyright (c) 2024-2026 Drape Dev. All rights reserved.
+
+This software is proprietary and confidential. Unauthorized copying,
+modification, distribution, or use of this software, via any medium,
+is strictly prohibited.
+
+For licensing inquiries, contact: legal@drape.info
+
+---
+
+Third-Party Software Notices:
+
+This software includes the following third-party packages under their
+respective licenses. See THIRD_PARTY_NOTICES.md for full details.
+
+- node-forge: Used under BSD-3-Clause license (dual-licensed BSD-3-Clause OR GPL-2.0)
+- argparse: Used under Python-2.0 license
+- lightningcss: Used under MPL-2.0 license
+
+All other dependencies are licensed under MIT, Apache-2.0, ISC, or
+BSD-2-Clause/BSD-3-Clause permissive licenses.

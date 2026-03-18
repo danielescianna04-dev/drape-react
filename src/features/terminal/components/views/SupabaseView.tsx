@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { Button } from '../../../../shared/components/atoms/Button';
@@ -7,6 +7,7 @@ import { Input } from '../../../../shared/components/atoms/Input';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
+import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 
@@ -159,12 +160,12 @@ export const SupabaseView = ({ tab }: Props) => {
     if (config.projectUrl) {
       const match = config.projectUrl.match(/https:\/\/([^.]+)\.supabase\.co/);
       if (match) {
-        Linking.openURL(`https://supabase.com/dashboard/project/${match[1]}`);
+        WebBrowser.openBrowserAsync(`https://supabase.com/dashboard/project/${match[1]}`);
       } else {
-        Linking.openURL('https://supabase.com/dashboard');
+        WebBrowser.openBrowserAsync('https://supabase.com/dashboard');
       }
     } else {
-      Linking.openURL('https://supabase.com/dashboard');
+      WebBrowser.openBrowserAsync('https://supabase.com/dashboard');
     }
   };
 
@@ -325,7 +326,7 @@ export const SupabaseView = ({ tab }: Props) => {
 
           <TouchableOpacity
             style={styles.helpLink}
-            onPress={() => Linking.openURL('https://supabase.com/docs/guides/getting-started')}
+            onPress={() => WebBrowser.openBrowserAsync('https://supabase.com/docs/guides/getting-started')}
           >
             <Ionicons name="help-circle-outline" size={16} color="rgba(255,255,255,0.4)" />
             <Text style={styles.helpLinkText}>Come trovo le credenziali?</Text>
@@ -566,7 +567,7 @@ export const SupabaseView = ({ tab }: Props) => {
                     style={styles.openBrowserBtn}
                     onPress={() => {
                       const match = config.projectUrl.match(/https:\/\/([^.]+)\.supabase\.co/);
-                      if (match) Linking.openURL(`https://supabase.com/dashboard/project/${match[1]}/sql`);
+                      if (match) WebBrowser.openBrowserAsync(`https://supabase.com/dashboard/project/${match[1]}/sql`);
                     }}
                   >
                     <Text style={styles.openBrowserBtnText}>Open in Browser</Text>
@@ -586,7 +587,7 @@ export const SupabaseView = ({ tab }: Props) => {
                     style={styles.openBrowserBtn}
                     onPress={() => {
                       const match = config.projectUrl.match(/https:\/\/([^.]+)\.supabase\.co/);
-                      if (match) Linking.openURL(`https://supabase.com/dashboard/project/${match[1]}/auth/users`);
+                      if (match) WebBrowser.openBrowserAsync(`https://supabase.com/dashboard/project/${match[1]}/auth/users`);
                     }}
                   >
                     <Text style={styles.openBrowserBtnText}>Open in Browser</Text>
@@ -606,7 +607,7 @@ export const SupabaseView = ({ tab }: Props) => {
                     style={styles.openBrowserBtn}
                     onPress={() => {
                       const match = config.projectUrl.match(/https:\/\/([^.]+)\.supabase\.co/);
-                      if (match) Linking.openURL(`https://supabase.com/dashboard/project/${match[1]}/storage/buckets`);
+                      if (match) WebBrowser.openBrowserAsync(`https://supabase.com/dashboard/project/${match[1]}/storage/buckets`);
                     }}
                   >
                     <Text style={styles.openBrowserBtnText}>Open in Browser</Text>

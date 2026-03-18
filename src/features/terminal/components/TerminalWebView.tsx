@@ -1,7 +1,9 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useImperativeHandle } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { encode as btoa } from 'base-64';
 import { getTerminalHtml } from '../constants/terminalHtml';
+import { AppColors } from '../../../shared/theme/colors';
 
 interface TerminalWebViewProps {
   projectId: string;
@@ -11,9 +13,15 @@ interface TerminalWebViewProps {
   onConnected?: () => void;
   onExit?: () => void;
   onError?: (message: string) => void;
+  onAuthUrl?: (url: string) => void;
 }
 
-export const TerminalWebView: React.FC<TerminalWebViewProps> = ({
+export interface TerminalWebViewHandle {
+  focus: () => void;
+  sendInput: (data: string) => void;
+}
+
+export const TerminalWebView = React.forwardRef<TerminalWebViewHandle, TerminalWebViewProps>(({
   projectId,
   wsUrl,
   authToken,
@@ -21,7 +29,8 @@ export const TerminalWebView: React.FC<TerminalWebViewProps> = ({
   onConnected,
   onExit,
   onError,
-}) => {
+  onAuthUrl,
+}, ref) => {
   const webViewRef = useRef<WebView>(null);
 
   const html = React.useMemo(
@@ -45,16 +54,35 @@ export const TerminalWebView: React.FC<TerminalWebViewProps> = ({
         case 'disconnected':
           onError?.('Terminal disconnected');
           break;
+        case 'auth_url':
+          if (msg.data?.url) onAuthUrl?.(msg.data.url);
+          break;
       }
     } catch {}
-  }, [onConnected, onExit, onError]);
+  }, [onAuthUrl, onConnected, onExit, onError]);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      webViewRef.current?.injectJavaScript(`
+        window.__DRAPE_TERM_FOCUS && window.__DRAPE_TERM_FOCUS();
+        true;
+      `);
+    },
+    sendInput: (data: string) => {
+      const encoded = btoa(data);
+      webViewRef.current?.injectJavaScript(`
+        window.__DRAPE_TERM_SEND && window.__DRAPE_TERM_SEND('${encoded}');
+        true;
+      `);
+    },
+  }), []);
 
   return (
     <View style={styles.container}>
       <WebView
         ref={webViewRef}
         source={{ html }}
-        originWhitelist={['*']}
+        originWhitelist={['https://*', 'http://localhost*', 'http://127.0.0.1*', 'about:*']}
         javaScriptEnabled={true}
         domStorageEnabled={true}
         style={styles.webview}
@@ -67,15 +95,17 @@ export const TerminalWebView: React.FC<TerminalWebViewProps> = ({
       />
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0d1117',
+    backgroundColor: AppColors.dark.backgroundAlt,
   },
   webview: {
     flex: 1,
-    backgroundColor: '#0d1117',
+    backgroundColor: AppColors.dark.backgroundAlt,
   },
 });
+
+TerminalWebView.displayName = 'TerminalWebView';

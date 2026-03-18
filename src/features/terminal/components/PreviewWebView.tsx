@@ -775,6 +775,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
               mixedContentMode="compatibility"
               allowsInlineMediaPlayback={true}
               mediaPlaybackRequiresUserAction={false}
+              // Preview loads user-created web apps on various origins - broad whitelist required
               originWhitelist={['https://', 'http://']}
               renderToHardwareTextureAndroid={true}
               shouldRasterizeIOS={true}

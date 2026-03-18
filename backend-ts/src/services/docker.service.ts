@@ -125,7 +125,7 @@ class DockerService {
           await client.createNetwork({
             Name: DOCKER_NETWORK,
             Driver: 'bridge',
-            Options: { 'com.docker.network.bridge.enable_icc': 'true' },
+            Options: { 'com.docker.network.bridge.enable_icc': 'false' },
           });
           log.info(`[Docker] Created network '${DOCKER_NETWORK}' on ${server.id}`);
         } else {
@@ -154,7 +154,7 @@ class DockerService {
       `${config.cacheRoot}:/data/cache:rw`,
       `${nextCacheDir}:/home/coder/project/.next:rw`,
       // Flutter SDK mounted from host; rw needed for engine stamp files
-      '/opt/flutter:/opt/flutter:rw',
+      '/opt/flutter:/opt/flutter:ro',
     ];
 
     // Remove existing container with same name (409 conflict)
@@ -208,7 +208,7 @@ class DockerService {
         },
         // Security hardening: drop all capabilities, add back only essentials
         CapDrop: ['ALL'],
-        CapAdd: ['CHOWN', 'SETUID', 'SETGID', 'NET_BIND_SERVICE'],
+        CapAdd: ['CHOWN', 'NET_BIND_SERVICE'],
         // Block cloud metadata endpoints (AWS/GCP instance metadata)
         ExtraHosts: ['metadata.google.internal:127.0.0.1', '169.254.169.254:127.0.0.1'],
         // Tmpfs mount for /tmp — explicitly exec (Docker defaults to noexec).

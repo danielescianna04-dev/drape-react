@@ -18,7 +18,7 @@ interface IAPState {
   initialize: () => Promise<void>;
   loadProducts: () => Promise<void>;
   purchase: (plan: 'go' | 'pro', cycle: 'monthly' | 'yearly') => Promise<void>;
-  restorePurchases: () => Promise<void>;
+  restorePurchases: () => Promise<{ success: boolean; plan?: string }>;
   refreshPlan: () => Promise<void>;
   clearError: () => void;
   closeCelebration: () => void;
@@ -81,15 +81,17 @@ export const useIAPStore = create<IAPState>((set, get) => ({
     set({ isRestoring: true, error: null });
     try {
       const result = await iapService.restorePurchases();
-      if (result.success && result.plan) {
+      if (result.success && result.plan && result.plan !== 'free') {
         const user = useAuthStore.getState().user;
         if (user) {
           useAuthStore.setState({ user: { ...user, plan: result.plan } });
         }
       }
       set({ isRestoring: false });
+      return result;
     } catch {
       set({ isRestoring: false, error: 'unknown' });
+      return { success: false };
     }
   },
 

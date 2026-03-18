@@ -8,6 +8,7 @@ import { sessionService } from '../services/session.service';
 import { aiProviderService } from '../services/ai-provider.service';
 import { firebaseService } from '../services/firebase.service';
 import { log } from '../utils/logger';
+import { auditService } from '../services/audit.service';
 
 // In-memory task store for project creation
 interface CreationTask {
@@ -681,6 +682,7 @@ workstationRouter.post('/delete-file', asyncHandler(async (req, res) => {
   }
 
   const result = await fileService.deleteFile(projectId, filePath);
+  auditService.log({ userId: req.userId || 'anonymous', action: 'file_delete', resource: projectId, details: `path: ${filePath}`, ip: req.ip });
   res.json(result);
 }));
 
@@ -869,6 +871,7 @@ workstationRouter.delete('/:projectId', asyncHandler(async (req, res) => {
   }
 
   await performProjectDeletion(projectId, userId);
+  auditService.log({ userId, action: 'project_delete', resource: projectId, ip: req.ip });
   res.json({ success: true, message: 'Project deleted' });
 }));
 

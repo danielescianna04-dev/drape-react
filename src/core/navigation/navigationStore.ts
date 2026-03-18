@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type Screen = 'splash' | 'auth' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
+type Screen = 'splash' | 'auth' | 'onboarding' | 'onboardingFlow' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
 
 interface NavigationStore {
   // Pending navigation request (consumed by App.tsx)

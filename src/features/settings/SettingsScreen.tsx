@@ -39,6 +39,8 @@ import { AccountActionsSection } from './components/AccountActionsSection';
 import { EditNameModal } from './components/EditNameModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { SecuritySection } from './components/SecuritySection';
+import { DataExportSection } from './components/DataExportSection';
+import { useConsentStore } from '../../core/services/consentService';
 import { ChangeEmailModal } from './components/ChangeEmailModal';
 import { auth } from '../../config/firebase';
 import { LegalPage } from './components/LegalPage';
@@ -46,6 +48,7 @@ import { PurchaseCelebrationModal } from '../../shared/components/modals/Purchas
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useIAPStore } from '../../core/iap/iapStore';
 import { IAP_PRODUCT_IDS, getProductId } from '../../core/iap/iapConstants';
+import { useToastStore } from '../../core/toast/toastStore';
 
 interface SystemStatus {
   tokens: {
@@ -763,7 +766,18 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           <Animated.View style={[styles.pvFooter, { opacity: planFooterAnim }]}>
             <Text style={styles.restoreCaption}>{t('plans.secureTransactions')}</Text>
             <TouchableOpacity
-              onPress={() => { trackRestorePurchases(); restorePurchases(); }}
+              onPress={async () => {
+                trackRestorePurchases();
+                const result = await restorePurchases();
+                const { showToast } = useToastStore.getState();
+                if (!result.success) {
+                  showToast({ message: t('plans.restoreError'), type: 'error', icon: 'alert-circle' });
+                } else if (result.plan && result.plan !== 'free') {
+                  showToast({ message: t('plans.restoreSuccess'), type: 'success', icon: 'checkmark-circle' });
+                } else {
+                  showToast({ message: t('plans.restoreNoPurchases'), type: 'info', icon: 'information-circle' });
+                }
+              }}
               disabled={isRestoring}
               style={styles.restoreButton}
             >
@@ -1108,6 +1122,26 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             loading={loading}
             t={t}
           />
+        )}
+
+        {/* Data Export (GDPR Right to Portability) */}
+        <DataExportSection
+          loading={loading}
+          t={t}
+        />
+
+        {/* DEV: Reset GDPR consent for testing — remove before production */}
+        {__DEV__ && (
+          <TouchableOpacity
+            style={{ marginHorizontal: 20, marginBottom: 12, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', alignItems: 'center' }}
+            onPress={async () => {
+              await AsyncStorage.removeItem('@drape_gdpr_consent');
+              useConsentStore.setState({ consent: null });
+              Alert.alert('Consent Reset', 'Riavvia l\'app per vedere il consent banner.');
+            }}
+          >
+            <Text style={{ color: '#EF4444', fontSize: 14, fontWeight: '600' }}>🔧 Reset GDPR Consent (DEV)</Text>
+          </TouchableOpacity>
         )}
 
         {/* Account Actions (Logout) */}

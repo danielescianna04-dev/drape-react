@@ -320,7 +320,7 @@ class DependencyService {
     onLog?: InstallLogCallback,
   ): Promise<void> {
     const maxInstallAttempts = 3;
-    let effectiveCmd = installCmd;
+    let effectiveCmd = this.withIgnoreScripts(installCmd);
 
     // Prevent bun lockfile migration issues: if using bun and the project has
     // package-lock.json but no bun.lockb, remove package-lock.json preemptively.
@@ -406,6 +406,16 @@ class DependencyService {
       }
 
       if (result.exitCode === 0) {
+        // Run rebuild to compile native addons that were skipped by --ignore-scripts
+        onProgress?.('Rebuilding native modules...');
+        onLog?.('$ npm rebuild (running postinstall scripts for native modules)');
+        const rebuildCmd = this.getRebuildCommand(effectiveCmd);
+        try {
+          await dockerService.exec(agentUrl, rebuildCmd, '/home/coder/project', 120000);
+        } catch (e: any) {
+          log.warn(`[Deps] Rebuild after install failed: ${e.message}`);
+        }
+
         // Verify native binaries aren't truncated (e.g. SWC for Next.js).
         // A truncated .node file causes SIGBUS when Node tries to dlopen it.
         const integrityOk = await this.verifyNativeBinaries(agentUrl);
@@ -618,6 +628,29 @@ process.exit(ok ? 0 : 1);
       // On error, assume OK to avoid blocking installs
       return true;
     }
+  }
+
+  /**
+   * Append --ignore-scripts to the install command for supply chain security.
+   * Scripts are run explicitly via rebuild after install completes.
+   */
+  private withIgnoreScripts(cmd: string): string {
+    // Don't double-add if already present
+    if (cmd.includes('--ignore-scripts')) return cmd;
+    // bun doesn't support --ignore-scripts the same way; skip for bun
+    if (/\bbun\b/.test(cmd)) return cmd;
+    // Append --ignore-scripts to the install command
+    // Handle "cd subdir && npm install" pattern
+    return cmd.replace(/((?:npm|pnpm|yarn)\s+install)/, '$1 --ignore-scripts');
+  }
+
+  /**
+   * Get the appropriate rebuild command based on the package manager used.
+   */
+  private getRebuildCommand(installCmd: string): string {
+    if (installCmd.includes('pnpm')) return 'pnpm rebuild';
+    if (installCmd.includes('yarn')) return 'yarn rebuild';
+    return 'npm rebuild';
   }
 
   private parseInstallLogChunk(rawChunk: string): string[] {

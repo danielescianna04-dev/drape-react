@@ -224,9 +224,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const bottomBarSlide = useRef(new Animated.Value(80)).current;
   const bottomBarOpacity = useRef(new Animated.Value(0)).current;
-  // LiquidGlass fails to init when parent has transform/opacity animations at mount.
-  // Delay LiquidGlass rendering until entrance animation settles.
-  const [glassReady, setGlassReady] = useState(false);
   const progressAnim = useRef(new Animated.Value(1)).current;
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const stepTranslateX = useRef(new Animated.Value(0)).current;
@@ -280,9 +277,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       ]).start();
     }, 500);
 
-    // Phase 5 (600ms): Enable LiquidGlass after animations settle
-    setTimeout(() => setGlassReady(true), 600);
-
     // Looping background drift — smooth slow movement only
     const bgMoveLoop = Animated.loop(
       Animated.sequence([
@@ -324,7 +318,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       headerSlide.setValue(0);
       bottomBarOpacity.setValue(1);
       bottomBarSlide.setValue(0);
-      if (!glassReady) setGlassReady(true);
     }
 
   }, [step]);
@@ -1376,8 +1369,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const bgScale1 = bgMove.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1.2, 1.25, 1.2] });
   const bgScale2 = bgMove.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1.22, 1.18, 1.22] });
 
-  // Only enable LiquidGlass after entrance animation settles
-  const useGlass = isLiquidGlassSupported && glassReady;
+  const useGlass = isLiquidGlassSupported;
 
   return (
     <View style={styles.container}>

@@ -8,7 +8,10 @@ RUN apk add --no-cache \
     python3 \
     make \
     g++ \
-    openssh-client
+    openssh-client \
+    libgcc \
+    libstdc++ \
+    ripgrep
 
 # Reuse existing 'node' user (uid 1000, gid 1000) — rename home to /home/coder
 RUN deluser node && \
@@ -19,8 +22,16 @@ RUN deluser node && \
 RUN mkdir -p /home/coder/project /home/coder/volumes/pnpm-store /data/cache && \
     chown -R coder:coder /home/coder /data/cache
 
-# Install pnpm and serve globally (serve is used as default dev server)
-RUN npm install -g pnpm@9 serve
+# Install package managers/tools globally.
+# Bun is still the default package manager in the backend project detector,
+# so it must exist in the workspace image.
+RUN npm install -g pnpm@9 serve bun
+
+# Security: disable automatic postinstall scripts to prevent supply chain attacks
+RUN npm config set ignore-scripts true && \
+    pnpm config set ignore-scripts true
+
+ENV USE_BUILTIN_RIPGREP=0
 
 # Copy workspace agent
 COPY workspace-agent.js /usr/local/bin/workspace-agent.js

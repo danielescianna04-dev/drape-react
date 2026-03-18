@@ -18,6 +18,7 @@ import { CreateProjectScreen } from './src/features/projects/CreateProjectScreen
 import { AllProjectsScreen } from './src/features/projects/AllProjectsScreen';
 import { SettingsScreen } from './src/features/settings/SettingsScreen';
 import { OnboardingFlowScreen } from './src/features/onboarding/OnboardingFlowScreen';
+import { FirstProjectChoiceScreen } from './src/features/onboarding/FirstProjectChoiceScreen';
 import { ImportGitHubModal } from './src/features/terminal/components/ImportGitHubModal';
 import { GitHubAuthModal } from './src/features/terminal/components/GitHubAuthModal';
 import { LoadingModal } from './src/shared/components/molecules/LoadingModal';
@@ -50,6 +51,8 @@ import { useUIStore } from './src/core/terminal/uiStore';
 import { getAuthToken } from './src/core/api/getAuthToken';
 import * as Notifications from 'expo-notifications';
 import { useOTAUpdates } from './src/hooks/app/useOTAUpdates';
+import { useConsentStore } from './src/core/services/consentService';
+import { ConsentBanner } from './src/core/components/ConsentBanner';
 
 // Helper to parse Git URL from any provider
 type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'gitea' | 'unknown';
@@ -128,7 +131,7 @@ const checkRepoAccess = async (
   }
 };
 
-type Screen = 'splash' | 'auth' | 'onboarding' | 'onboardingFlow' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
+type Screen = 'splash' | 'auth' | 'consent' | 'onboarding' | 'onboardingFlow' | 'firstProjectChoice' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
 
 
 function ForceUpdateScreen({ storeUrl }: { storeUrl: string }) {
@@ -165,17 +168,29 @@ export default function App() {
   };
   const [createKey, setCreateKey] = useState(0);
   const [isFirstCreate, setIsFirstCreate] = useState(false);
-  const [onboardingInitialStep, setOnboardingInitialStep] = useState<'welcome' | 'experience' | 'referral'>('welcome');
+  const [onboardingInitialStep, setOnboardingInitialStep] = useState<'welcome' | 'consent' | 'experience' | 'referral'>('welcome');
+  const [onboardingDraft, setOnboardingDraft] = useState<{
+    experienceLevel: string | null;
+    referralSource: string | null;
+  }>({
+    experienceLevel: null,
+    referralSource: null,
+  });
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [pendingRepoUrl, setPendingRepoUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [limitModal, setLimitModal] = useState<{ message: string } | null>(null);
+  const [pendingFirstProjectImportFromScreen, setPendingFirstProjectImportFromScreen] = useState<{
+    previousWorkstationId: string | null;
+  } | null>(null);
 
-  const { addWorkstation, setWorkstation, clearGlobalTerminalLog, globalTerminalLog } = useTerminalStore();
+  const { addWorkstation, setWorkstation, clearGlobalTerminalLog, globalTerminalLog, currentWorkstation } = useTerminalStore();
   const { addTerminalItem: addTerminalItemToStore, clearTerminalItems, updateTerminalItemsByType } = useTabStore();
   const { user, isInitialized, isNewUser, initialize } = useAuthStore();
+  const consent = useConsentStore((state) => state.consent);
+  const consentLoaded = useConsentStore((state) => state.hasLoaded);
 
   // Stream backend logs to terminal (always enabled when logged in)
   useBackendLogs({ enabled: isInitialized && !!user });
@@ -192,12 +207,33 @@ export default function App() {
   // Track import in progress to prevent double calls
   const importInProgress = useRef(false);
 
+  const finalizeFirstProjectSetup = () => {
+    if (!isFirstCreate) return;
+
+    const userId = useAuthStore.getState().user?.uid;
+    if (userId) {
+      useAuthStore.setState((state) => ({
+        user: state.user ? { ...state.user, hasCreatedFirstProject: true } : state.user,
+      }));
+
+      workstationService.markFirstProjectCreated(userId)
+        .catch((e: any) => console.warn('[App] Failed to mark first project:', e.message));
+    }
+
+    setOnboardingDraft({ experienceLevel: null, referralSource: null });
+    setOnboardingInitialStep('welcome');
+    setIsFirstCreate(false);
+  };
+
   // Initialize auth listener on app start
   useEffect(() => {
     initialize();
 
     // Initialize language from storage
     useLanguageStore.getState().initialize();
+
+    // Load GDPR consent from AsyncStorage (must happen before any tracking)
+    useConsentStore.getState().loadConsent();
 
     // Richiedi permesso notifiche push all'avvio (non-blocking)
     liveActivityService.requestNotificationPermission().catch(() => {});
@@ -210,37 +246,66 @@ export default function App() {
 
   // Navigate after login: new users → onboarding flow, free users → plans, paid → home
   useEffect(() => {
-    if (!isInitialized || !user) return;
+    if (!isInitialized || !user || !consentLoaded) return;
 
     // Check module-level flag (immune to React batching / Zustand race conditions)
     const pendingNew = consumePendingNewUser();
-    const shouldOnboard = isNewUser || pendingNew;
+    const shouldOnboard = isNewUser || pendingNew || user.onboardingCompleted === false;
+    const shouldResumeFirstCreate = user.onboardingCompleted === true && user.hasCreatedFirstProject === false;
+    const shouldRequestExistingUserConsent = !shouldOnboard && consent === null;
 
     // New users MUST see onboarding, regardless of current screen
     if (shouldOnboard && currentScreen !== 'onboardingFlow' && currentScreen !== 'create') {
       useAuthStore.setState({ isNewUser: false });
       setIsFirstCreate(true);
+      setOnboardingDraft({ experienceLevel: null, referralSource: null });
       setCurrentScreen('onboardingFlow');
+      return;
+    }
+
+    if (
+      shouldRequestExistingUserConsent &&
+      currentScreen !== 'consent' &&
+      currentScreen !== 'onboardingFlow'
+    ) {
+      setCurrentScreen('consent');
+      return;
+    }
+
+    // User finished onboarding but never completed the first project creation flow.
+    if (
+      shouldResumeFirstCreate &&
+      currentScreen !== 'create' &&
+      currentScreen !== 'firstProjectChoice' &&
+      currentScreen !== 'consent' &&
+      currentScreen !== 'terminal' &&
+      currentScreen !== 'onboardingFlow'
+    ) {
+      setIsFirstCreate(true);
+      setOnboardingInitialStep('referral');
+      setCurrentScreen('firstProjectChoice');
       return;
     }
 
     // Post-auth navigation (only from auth screen)
     if (currentScreen === 'auth') {
       const plan = user.plan || 'free';
-      if (plan === 'free') {
+      if (shouldRequestExistingUserConsent) {
+        setCurrentScreen('consent');
+      } else if (plan === 'free') {
         setCurrentScreen('onboarding');
       } else {
         setCurrentScreen('home');
       }
     }
-  }, [user, isInitialized, currentScreen, isNewUser]);
+  }, [user, isInitialized, currentScreen, isNewUser, consent, consentLoaded]);
 
   // Listen to navigation store for cross-component navigation
   const pendingNavigation = useNavigationStore((state) => state.pendingNavigation);
   useEffect(() => {
     if (pendingNavigation) {
       // Don't override onboarding screens — new users must complete the flow
-      if (currentScreen === 'onboardingFlow' || currentScreen === 'onboarding') {
+      if (currentScreen === 'onboardingFlow' || currentScreen === 'onboarding' || currentScreen === 'consent' || currentScreen === 'firstProjectChoice') {
         useNavigationStore.getState().clearPendingNavigation();
         return;
       }
@@ -249,10 +314,30 @@ export default function App() {
     }
   }, [pendingNavigation, currentScreen]);
 
+  useEffect(() => {
+    if (!pendingFirstProjectImportFromScreen) return;
+
+    if (currentScreen === 'terminal') {
+      setPendingFirstProjectImportFromScreen(null);
+      return;
+    }
+
+    if (currentScreen !== 'firstProjectChoice') return;
+
+    const previousWorkstationId = pendingFirstProjectImportFromScreen.previousWorkstationId;
+    const nextWorkstationId = currentWorkstation?.id || null;
+
+    if (!nextWorkstationId || nextWorkstationId === previousWorkstationId) return;
+
+    finalizeFirstProjectSetup();
+    setPendingFirstProjectImportFromScreen(null);
+    setCurrentScreen('terminal');
+  }, [pendingFirstProjectImportFromScreen, currentWorkstation?.id, currentScreen]);
+
   // Automatically track previous screen whenever currentScreen changes.
   // We skip screens like 'settings' and 'plans' because we want to return FROM them to the previous workspace.
   useEffect(() => {
-    if (currentScreen !== 'settings' && currentScreen !== 'plans' && currentScreen !== 'splash' && currentScreen !== 'auth' && currentScreen !== 'onboardingFlow') {
+    if (currentScreen !== 'settings' && currentScreen !== 'plans' && currentScreen !== 'splash' && currentScreen !== 'auth' && currentScreen !== 'onboardingFlow' && currentScreen !== 'consent' && currentScreen !== 'firstProjectChoice') {
       useNavigationStore.setState({ previousScreen: currentScreen });
     }
   }, [currentScreen]);
@@ -508,6 +593,13 @@ export default function App() {
 
     importInProgress.current = true;
 
+    const importModalWasOpen = showImportModal;
+    if (importModalWasOpen) {
+      setShowImportModal(false);
+      // iOS cannot reliably stack the loading/auth modals on top of the import modal.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
     // Set global loading message
     setLoadingMessage('Cloning repository...');
 
@@ -564,6 +656,7 @@ export default function App() {
             setIsImporting(false);
             importInProgress.current = false;
             setLoadingMessage(''); // Clear loading
+            finalizeFirstProjectSetup();
 
             // Clear state and navigate
             const { activeTabId: currentActiveTabId } = useTabStore.getState();
@@ -701,7 +794,7 @@ export default function App() {
               },
               {
                 text: 'Apri esistente',
-                onPress: async () => {
+                onPress: () => {
                   // Open the existing project
                   const workstation = {
                     id: `ws-${existingProject.id.toLowerCase()}`,
@@ -716,6 +809,7 @@ export default function App() {
                     folderId: null,
                     cloned: existingProject.cloned || false,
                   };
+                  finalizeFirstProjectSetup();
                   setWorkstation(workstation);
                   setCurrentScreen('terminal');
                 },
@@ -816,6 +910,7 @@ export default function App() {
         if (accessErr.message === '__CANCELLED__') {
           // User cancelled — silent return
           setIsImporting(false);
+          setPendingFirstProjectImportFromScreen(null);
           importInProgress.current = false;
           setLoadingMessage('');
           liveActivityService.endPreviewActivity().catch(() => {});
@@ -824,6 +919,7 @@ export default function App() {
         if (accessErr.message?.includes('non ha accesso')) {
           Alert.alert('Accesso negato', accessErr.message);
           setIsImporting(false);
+          setPendingFirstProjectImportFromScreen(null);
           importInProgress.current = false;
           setLoadingMessage('');
           liveActivityService.endPreviewActivity().catch(() => {});
@@ -841,6 +937,7 @@ export default function App() {
       if (lifetimeCounts.cloned >= maxCloned) {
         importInProgress.current = false;
         setIsImporting(false);
+        setPendingFirstProjectImportFromScreen(null);
         setLoadingMessage('');
         setShowImportModal(false);
         setTimeout(() => {
@@ -883,6 +980,7 @@ export default function App() {
       setShowImportModal(false);
       setIsImporting(false);
       importInProgress.current = false;
+      finalizeFirstProjectSetup();
 
       // Stop loading only when ready to navigate
       setLoadingMessage('');
@@ -1033,6 +1131,7 @@ export default function App() {
     } catch (error: any) {
       liveActivityService.endPreviewActivity().catch(() => {});
       setIsImporting(false);
+      setPendingFirstProjectImportFromScreen(null);
       setLoadingMessage(''); // Clear loading on error
 
       // Handle limit errors (403 with specific error codes)
@@ -1084,14 +1183,42 @@ export default function App() {
     }
   };
 
+  const handleFirstProjectClone = async (url: string, branch?: string) => {
+    const previousWorkstationId = useTerminalStore.getState().currentWorkstation?.id || null;
+
+    await handleImportRepo(url, undefined, undefined, branch);
+
+    const nextWorkstation = useTerminalStore.getState().currentWorkstation;
+    const nextWorkstationId = nextWorkstation?.id || null;
+
+    if (
+      currentScreen === 'firstProjectChoice' &&
+      nextWorkstationId &&
+      nextWorkstationId !== previousWorkstationId
+    ) {
+      finalizeFirstProjectSetup();
+      setCurrentScreen('terminal');
+    }
+  };
+
   // Handle splash screen finish - navigate based on auth state
   const handleSplashFinish = () => {
-    if (isInitialized && user) {
+    if (isInitialized && user && consentLoaded) {
       const pendingNew = consumePendingNewUser();
-      if (isNewUser || pendingNew) {
+      const shouldOnboard = isNewUser || pendingNew || user.onboardingCompleted === false;
+      const shouldResumeFirstCreate = user.onboardingCompleted === true && user.hasCreatedFirstProject === false;
+      const shouldRequestExistingUserConsent = !shouldOnboard && consent === null;
+      if (shouldOnboard) {
         useAuthStore.setState({ isNewUser: false });
         setIsFirstCreate(true);
+        setOnboardingDraft({ experienceLevel: null, referralSource: null });
         setCurrentScreen('onboardingFlow');
+      } else if (shouldRequestExistingUserConsent) {
+        setCurrentScreen('consent');
+      } else if (shouldResumeFirstCreate) {
+        setIsFirstCreate(true);
+        setOnboardingInitialStep('referral');
+        setCurrentScreen('firstProjectChoice');
       } else {
         const plan = user.plan || 'free';
         if (plan === 'free') {
@@ -1120,7 +1247,7 @@ export default function App() {
   }
 
   // Show seamless dark screen while auth is initializing (must be BEFORE auth check)
-  if (!isInitialized) {
+  if (!isInitialized || !consentLoaded) {
     return (
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0D0816' }}>
         <SafeAreaProvider style={{ backgroundColor: '#0D0816' }}>
@@ -1149,6 +1276,7 @@ export default function App() {
         <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
           <SafeAreaProvider style={{ backgroundColor: '#000' }}>
             <AuthScreen />
+
             <StatusBar style="light" />
           </SafeAreaProvider>
         </GestureHandlerRootView>
@@ -1184,10 +1312,112 @@ export default function App() {
             <OnboardingFlowScreen
               userId={user.uid}
               initialStep={onboardingInitialStep}
+              experienceLevel={onboardingDraft.experienceLevel}
+              referralSource={onboardingDraft.referralSource}
+              onExperienceLevelChange={(value) =>
+                setOnboardingDraft((current) => ({ ...current, experienceLevel: value }))
+              }
+              onReferralSourceChange={(value) =>
+                setOnboardingDraft((current) => ({ ...current, referralSource: value }))
+              }
               onComplete={() => {
                 setOnboardingInitialStep('welcome');
-                setCreateKey(k => k + 1);
-                setCurrentScreen('create');
+                setCurrentScreen('firstProjectChoice');
+              }}
+            />
+            <StatusBar style="light" />
+          </SafeAreaProvider>
+        </GestureHandlerRootView>
+      </I18nextProvider>
+    );
+  }
+
+  if (currentScreen === 'firstProjectChoice') {
+    return (
+      <I18nextProvider i18n={i18n}>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0A0A0F' }}>
+          <SafeAreaProvider style={{ backgroundColor: '#0A0A0F' }}>
+            <View style={{ flex: 1, backgroundColor: '#0A0A0F' }}>
+              <FirstProjectChoiceScreen
+                onBack={() => {
+                  setOnboardingInitialStep('referral');
+                  setCurrentScreen('onboardingFlow');
+                }}
+                onCreate={() => {
+                  setCreateKey(k => k + 1);
+                  setCurrentScreen('create');
+                }}
+                onClone={() => setShowImportModal(true)}
+              />
+
+              <ImportGitHubModal
+                visible={showImportModal}
+                onClose={() => {
+                  setShowImportModal(false);
+                  if (!isImporting) {
+                    setPendingFirstProjectImportFromScreen(null);
+                  }
+                }}
+                onImport={(url, branch) => {
+                  setPendingFirstProjectImportFromScreen({
+                    previousWorkstationId: currentWorkstation?.id || null,
+                  });
+                  handleFirstProjectClone(url, branch).catch((error) => {
+                    console.warn('[App] First project clone flow failed:', error?.message || error);
+                  });
+                }}
+                isLoading={isImporting}
+              />
+              <GitHubAuthModal
+                visible={showAuthModal}
+                onClose={() => {
+                  setShowAuthModal(false);
+                  setPendingRepoUrl('');
+                }}
+                onAuthenticated={(token) => {
+                  setShowAuthModal(false);
+                  if (pendingRepoUrl) {
+                    handleImportRepo(pendingRepoUrl, token);
+                    setPendingRepoUrl('');
+                  }
+                }}
+              />
+              <LoadingModal
+                visible={!!loadingMessage}
+                message={loadingMessage}
+              />
+              <GitAuthPopup />
+              <OfflineOverlay />
+              <InAppToast />
+              <StatusBar style="light" />
+            </View>
+          </SafeAreaProvider>
+        </GestureHandlerRootView>
+      </I18nextProvider>
+    );
+  }
+
+  if (currentScreen === 'consent') {
+    return (
+      <I18nextProvider i18n={i18n}>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0A0A0F' }}>
+          <SafeAreaProvider style={{ backgroundColor: '#0A0A0F' }}>
+            <ConsentBanner
+              mode="screen"
+              onResolved={() => {
+                const shouldResumeFirstCreate = user.onboardingCompleted === true && user.hasCreatedFirstProject === false;
+                if (shouldResumeFirstCreate) {
+                  setIsFirstCreate(true);
+                  setOnboardingInitialStep('referral');
+                  setCurrentScreen('firstProjectChoice');
+                  return;
+                }
+                const plan = user.plan || 'free';
+                if (plan === 'free') {
+                  setCurrentScreen('onboarding');
+                } else {
+                  setCurrentScreen('home');
+                }
               }}
             />
             <StatusBar style="light" />
@@ -1347,12 +1577,11 @@ export default function App() {
                   style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }}
                 >
                   <CreateProjectScreen
-                    progressOffset={isFirstCreate ? 3 : 0}
-                    progressTotal={isFirstCreate ? 6 : 3}
+                    progressOffset={isFirstCreate ? 5 : 0}
+                    progressTotal={isFirstCreate ? 8 : 3}
                     onBack={() => {
                       if (isFirstCreate) {
-                        setOnboardingInitialStep('referral');
-                        setCurrentScreen('onboardingFlow');
+                        setCurrentScreen('firstProjectChoice');
                       } else {
                         setCurrentScreen('home');
                       }
@@ -1368,12 +1597,9 @@ export default function App() {
                           userId,
                           workstation.technology || workstation.language,
                         ).catch((e: any) => console.warn('[App] Failed to save project to Firebase:', e.message));
-
-                        // Mark first project created so new user isn't sent back to create
-                        workstationService.markFirstProjectCreated(userId)
-                          .catch((e: any) => console.warn('[App] Failed to mark first project:', e.message));
                       }
 
+                      finalizeFirstProjectSetup();
                       // 1. Set the new workstation
                       setWorkstation(workstation);
 
@@ -1390,8 +1616,6 @@ export default function App() {
                           filePaths
                         );
                       }
-
-                      setIsFirstCreate(false);
                       setCurrentScreen('terminal');
 
                       // Add welcome message to chat

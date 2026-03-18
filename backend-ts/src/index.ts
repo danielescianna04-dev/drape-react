@@ -12,6 +12,7 @@ import { githubActivityService } from './services/github-activity.service';
 import { reengagementService } from './services/reengagement.service';
 import { metricsService } from './services/metrics.service';
 import { workspaceService } from './services/workspace.service';
+import { startRetentionCleanupJob, stopRetentionCleanupJob } from './jobs/retention-cleanup';
 import type { Duplex } from 'stream';
 
 async function main() {
@@ -33,6 +34,9 @@ async function main() {
   githubActivityService.start();
   reengagementService.start();
 
+  // Start GDPR data retention cleanup job (runs every 24h)
+  startRetentionCleanupJob();
+
   // Create Express app
   const app = createApp();
   const server = http.createServer(app);
@@ -53,15 +57,23 @@ async function main() {
         if (auth) {
           const decoded = await auth.verifyIdToken(token);
           userId = decoded.uid;
+        } else {
+          log.warn('[WS] Firebase Auth not available — rejecting connection');
+          ws.send(JSON.stringify({ type: 'error', message: 'Authentication service unavailable' }));
+          ws.close(4003, 'Authentication service unavailable');
+          return;
         }
       } catch (err: any) {
-        log.warn(`[WS] Invalid auth token: ${err?.message || err?.code || err}`);
+        log.warn('[WS] Invalid auth token — rejecting connection');
+        ws.send(JSON.stringify({ type: 'error', message: 'Invalid or expired auth token' }));
         ws.close(4001, 'Invalid auth token');
         return;
       }
     } else {
-      log.info('[WS] No auth token provided — allowing anonymous connection');
-      userId = 'anonymous';
+      log.warn('[WS] No auth token provided — rejecting connection');
+      ws.send(JSON.stringify({ type: 'error', message: 'Authentication required' }));
+      ws.close(4001, 'Authentication required');
+      return;
     }
 
     log.info(`[WS] Client connected (userId: ${userId})`);
@@ -144,6 +156,8 @@ async function main() {
 
           case 'terminal_start': {
             const { projectId } = msg;
+            const cols = Number.isFinite(Number(msg.cols)) && Number(msg.cols) > 0 ? Number(msg.cols) : 80;
+            const rows = Number.isFinite(Number(msg.rows)) && Number(msg.rows) > 0 ? Number(msg.rows) : 24;
             if (!projectId || !userId) {
               ws.send(JSON.stringify({ type: 'terminal_error', message: 'Missing projectId or auth' }));
               break;
@@ -158,17 +172,27 @@ async function main() {
               const session = await workspaceService.getOrCreateContainer(projectId, userId);
               const container = await dockerService.getDockerContainer(session.containerId);
               const exec = await container.exec({
-                Cmd: ['/bin/bash'],
+                Cmd: ['/bin/bash', '--noprofile', '--norc', '-i'],
                 AttachStdin: true,
                 AttachStdout: true,
                 AttachStderr: true,
                 Tty: true,
-                Env: ['TERM=xterm-256color'],
+                Env: [
+                  'TERM=xterm-256color',
+                  'PS1=\\u\\$ ',
+                  'PROMPT_COMMAND=',
+                ],
                 WorkingDir: '/home/coder/project',
               });
               const stream = await exec.start({ hijack: true, stdin: true, Tty: true }) as unknown as Duplex;
               terminalStream = stream;
               terminalExec = exec;
+
+              try {
+                await exec.resize({ h: rows, w: cols });
+              } catch (e: any) {
+                log.warn(`[WS] Initial terminal resize error: ${e.message}`);
+              }
 
               stream.on('data', (chunk: Buffer) => {
                 if (ws.readyState === WebSocket.OPEN) {
@@ -252,6 +276,7 @@ async function main() {
     containerLifecycleService.stopIdleReaper();
     githubActivityService.stop();
     reengagementService.stop();
+    stopRetentionCleanupJob();
     metricsService.cleanup();
 
     // Notify WS clients

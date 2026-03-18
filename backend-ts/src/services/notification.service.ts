@@ -37,7 +37,7 @@ class NotificationService {
 
       // Validate it's an Expo push token
       if (!token.startsWith('ExponentPushToken[') && !token.startsWith('ExpoPushToken[')) {
-        log.warn(`[Notification] Invalid Expo token format for user ${userId}: ${token.substring(0, 20)}...`);
+        log.warn(`[Notification] Invalid Expo token format for user ${userId}: [REDACTED]`);
         return false;
       }
 

@@ -25,30 +25,45 @@ import {
   trackOnboardingBack,
 } from '../../core/services/analyticsService';
 import { pushNotificationService } from '../../core/services/pushNotificationService';
+import { ConsentBanner } from '../../core/components/ConsentBanner';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 
-type Step = 'welcome' | 'experience' | 'referral';
+type Step = 'welcome' | 'consent' | 'experience' | 'referral';
 
 interface Props {
   userId: string;
   onComplete: () => void;
-  initialStep?: 'welcome' | 'experience' | 'referral';
+  initialStep?: 'welcome' | 'consent' | 'experience' | 'referral';
+  experienceLevel: string | null;
+  referralSource: string | null;
+  onExperienceLevelChange: (value: string | null) => void;
+  onReferralSourceChange: (value: string | null) => void;
 }
 
-export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, initialStep = 'welcome' }) => {
+export const OnboardingFlowScreen: React.FC<Props> = ({
+  userId,
+  onComplete,
+  initialStep = 'welcome',
+  experienceLevel,
+  referralSource,
+  onExperienceLevelChange,
+  onReferralSourceChange,
+}) => {
   const { t } = useTranslation('projects');
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState<Step>(initialStep);
-  const [experienceLevel, setExperienceLevel] = useState<string | null>(null);
-  const [referralSource, setReferralSource] = useState<string | null>(null);
 
   // Content animation
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(24)).current;
   // When coming back from Create (initialStep='referral'), start at 67 (Create's position) and animate to 50
-  const progressStartValue = initialStep === 'welcome' ? 17 : initialStep === 'experience' ? 33 : 67;
+  const progressStartValue =
+    initialStep === 'welcome' ? 14 :
+    initialStep === 'consent' ? 29 :
+    initialStep === 'experience' ? 43 :
+    57;
   const progressAnim = useRef(new Animated.Value(progressStartValue)).current;
 
   // Welcome staggered
@@ -107,7 +122,11 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
   // Step transitions
   useEffect(() => {
     trackScreenView(`onboarding_${step}`);
-    const targetPct = step === 'welcome' ? 17 : step === 'experience' ? 33 : 50;
+    const targetPct =
+      step === 'welcome' ? 14 :
+      step === 'consent' ? 29 :
+      step === 'experience' ? 43 :
+      57;
     Animated.timing(progressAnim, { toValue: targetPct, duration: 300, useNativeDriver: false }).start();
     if (step !== 'welcome') {
       slideAnim.setValue(24);
@@ -118,6 +137,9 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
   const handleNext = async () => {
     if (step === 'welcome') {
       trackOnboardingStepCompleted('welcome');
+      setStep('consent');
+    } else if (step === 'consent') {
+      trackOnboardingStepCompleted('consent');
       setStep('experience');
     } else if (step === 'experience' && experienceLevel) {
       trackOnboardingStepCompleted('experience');
@@ -141,7 +163,10 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
     }
   };
 
-  const canContinue = step === 'welcome' || (step === 'experience' && experienceLevel) || (step === 'referral' && referralSource);
+  const canContinue =
+    step === 'welcome' ||
+    (step === 'experience' && !!experienceLevel) ||
+    (step === 'referral' && !!referralSource);
 
   const features = [
     { icon: 'sparkles' as const, titleKey: 'onboardingFlow.welcome.feature1Title', descKey: 'onboardingFlow.welcome.feature1Desc' },
@@ -222,7 +247,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
                   isLiquidGlassSupported && styles.optionCardGlass,
                   sel && !isLiquidGlassSupported && styles.optionCardSel,
                 ]}
-                onPress={() => setExperienceLevel(opt.id)}
+                onPress={() => onExperienceLevelChange(opt.id)}
                 activeOpacity={0.7}
               >
                 {isLiquidGlassSupported ? (
@@ -247,6 +272,19 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
       </View>
     );
   };
+
+  const renderConsent = () => (
+    <View style={styles.consentWrap}>
+      <ConsentBanner
+        mode="step"
+        forceShow
+        onResolved={() => {
+          trackOnboardingStepCompleted('consent');
+          setStep('experience');
+        }}
+      />
+    </View>
+  );
 
   const renderReferral = () => {
     const sources = [
@@ -279,7 +317,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
                   isLiquidGlassSupported && styles.referralChipGlass,
                   sel && !isLiquidGlassSupported && styles.referralChipSel,
                 ]}
-                onPress={() => setReferralSource(src.id)}
+                onPress={() => onReferralSourceChange(src.id)}
                 activeOpacity={0.7}
               >
                 {isLiquidGlassSupported ? (
@@ -329,7 +367,14 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
         {step !== 'welcome' ? (
           <TouchableOpacity
             style={[styles.backBtn, isLiquidGlassSupported && styles.backBtnGlass]}
-            onPress={() => { trackOnboardingBack(step); setStep(step === 'referral' ? 'experience' : 'welcome'); }}
+            onPress={() => {
+              trackOnboardingBack(step);
+              setStep(
+                step === 'referral' ? 'experience' :
+                step === 'experience' ? 'consent' :
+                'welcome'
+              );
+            }}
             activeOpacity={0.7}
           >
             {isLiquidGlassSupported ? (
@@ -362,30 +407,33 @@ export const OnboardingFlowScreen: React.FC<Props> = ({ userId, onComplete, init
         </View>
       ) : (
         <Animated.View style={[styles.contentWrap, { transform: [{ translateY: slideAnim }] }]}>
+          {step === 'consent' && renderConsent()}
           {step === 'experience' && renderExperience()}
           {step === 'referral' && renderReferral()}
         </Animated.View>
       )}
 
       {/* Button */}
-      <Animated.View style={[styles.bottomWrap, { paddingBottom: insets.bottom + 20, opacity: buttonOpacity }]}>
-        <TouchableOpacity
-          style={styles.btn}
-          onPress={handleNext}
-          disabled={!canContinue}
-          activeOpacity={0.85}
-        >
-          <LinearGradient
-            colors={canContinue ? ['#6D4CFF', '#8B6FFF'] : ['rgba(255,255,255,0.06)', 'rgba(255,255,255,0.06)']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={styles.btnGrad}
+      {step !== 'consent' && (
+        <Animated.View style={[styles.bottomWrap, { paddingBottom: insets.bottom + 20, opacity: buttonOpacity }]}>
+          <TouchableOpacity
+            style={styles.btn}
+            onPress={handleNext}
+            disabled={!canContinue}
+            activeOpacity={0.85}
           >
-            <Text style={[styles.btnText, !canContinue && { color: 'rgba(255,255,255,0.25)' }]}>
-              {t('onboardingFlow.continue')}
-            </Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </Animated.View>
+            <LinearGradient
+              colors={canContinue ? ['#6D4CFF', '#8B6FFF'] : ['rgba(255,255,255,0.06)', 'rgba(255,255,255,0.06)']}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+              style={styles.btnGrad}
+            >
+              <Text style={[styles.btnText, !canContinue && { color: 'rgba(255,255,255,0.25)' }]}>
+                {t('onboardingFlow.continue')}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
     </View>
   );
 };
@@ -431,6 +479,7 @@ const styles = StyleSheet.create({
   // Content
   contentWrap: { flex: 1, justifyContent: 'center', paddingHorizontal: 32 },
   stepContent: { alignItems: 'center' },
+  consentWrap: { width: '100%' },
 
   // Welcome
   welcomeContainer: { alignItems: 'center' },

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
-import { optionalAuth, getUserPlan, getPlanProjectLimits, getUserStorageMb } from '../middleware/auth';
+import { optionalAuth, requireAuth, getUserPlan, getPlanProjectLimits, getUserStorageMb } from '../middleware/auth';
 import { log } from '../utils/logger';
 import { dockerService } from '../services/docker.service';
 import { metricsService } from '../services/metrics.service';
@@ -71,10 +71,10 @@ healthRouter.get('/logs/recent', optionalAuth, (req, res) => {
 });
 
 // GET /stats/system-status — Per-user system status for iOS SettingsScreen
-healthRouter.get('/stats/system-status', optionalAuth, asyncHandler(async (req, res) => {
+healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, res) => {
   try {
-    // Use query param userId if provided (old app versions), fall back to auth
-    const userId = (req.query.userId as string) || req.userId || 'anonymous';
+    // Always use authenticated userId — never accept from query params
+    const userId = req.userId!;
     // Always read plan from Firestore — never trust client-provided planId
     const planId = await getUserPlan(userId);
 

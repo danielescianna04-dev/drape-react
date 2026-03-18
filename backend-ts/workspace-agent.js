@@ -8,6 +8,23 @@ const path = require('path');
 const PORT = 13338;
 const PROJECT_DIR = '/home/coder/project';
 
+// Security: blocklist dangerous commands to prevent abuse
+const BLOCKED_PATTERNS = [
+  /\bxmrig\b/i, /\bcpuminer\b/i, /\bminerd?\b/i, /\bhashcat\b/i,
+  /\bnmap\b/, /\bnetcat\b/, /\bnc\s+-[elpk]/, /\bsocat\b/,
+  /\bcurl\b.*\|\s*(bash|sh|python)/,
+  /\bwget\b.*\|\s*(bash|sh|python)/,
+  /\bdd\b\s+.*of=\/dev/,
+  /\brm\s+-rf\s+\/[^h]/,  // rm -rf /anything except /home
+  /\b(apt|apk)\s+(install|add)\b/,
+  /\bchmod\b.*[+]s\b/,
+  /\btorify\b/, /\bproxychains\b/,
+];
+
+function isBlocked(cmd) {
+  return BLOCKED_PATTERNS.some(p => p.test(cmd));
+}
+
 // Log buffer for /logs endpoint
 const logLines = [];
 const MAX_LOG_LINES = 5000;
@@ -50,6 +67,12 @@ const server = http.createServer(async (req, res) => {
     const cmd = body.command || 'echo "No command"';
     const cwd = body.cwd || PROJECT_DIR;
 
+    if (isBlocked(cmd)) {
+      res.writeHead(403);
+      res.end(JSON.stringify({ stdout: '', stderr: 'Command blocked by security policy', exitCode: 1 }));
+      return;
+    }
+
     // Kill previous dev process
     if (devProcess) {
       try { devProcess.kill('SIGTERM'); } catch {}
@@ -80,6 +103,12 @@ const server = http.createServer(async (req, res) => {
     const cmd = body.command || 'echo ok';
     const cwd = body.cwd || PROJECT_DIR;
     const timeout = body.timeout || 30000;
+
+    if (isBlocked(cmd)) {
+      res.writeHead(403);
+      res.end(JSON.stringify({ stdout: '', stderr: 'Command blocked by security policy', exitCode: 1 }));
+      return;
+    }
 
     try {
       const stdout = execSync(cmd, { cwd, timeout, env: { ...process.env, HOME: '/home/coder' } }).toString();

@@ -14,6 +14,7 @@ import { firebaseService } from '../services/firebase.service';
 import { log } from '../utils/logger';
 import { config } from '../config';
 import { execShell, validateProjectId } from '../utils/helpers';
+import { auditService } from '../services/audit.service';
 
 export const flyRouter = Router();
 
@@ -235,6 +236,7 @@ flyRouter.post('/project/create', asyncHandler(async (req, res) => {
   const createType = source === 'local' ? 'local' : repositoryUrl ? 'cloned' : 'created';
   incrementCreationCounter(uid, createType).catch(() => {});
 
+  auditService.log({ userId: uid, action: 'project_create', resource: projectId, details: `type: ${createType}`, ip: req.ip });
   res.json({ success: true, projectId, filesCount: files.length, files });
 }));
 
@@ -912,6 +914,7 @@ flyRouter.delete('/project/:id/published', asyncHandler(async (req: Request, res
   // Remove from Firestore
   await db.collection('published_sites').doc(snapshot.docs[0].id).delete();
 
+  auditService.log({ userId: uid, action: 'unpublish', resource: projectId, details: `slug: ${slug}`, ip: req.ip });
   log.info(`[Publish] Unpublished ${projectId} (slug: ${slug})`);
   res.json({ success: true });
 }));
@@ -1083,6 +1086,45 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
     if (isServerSide) {
       res.status(400).json({ error: 'Server-side frameworks (Django, Laravel) cannot be published as static sites. Use the live preview instead.' });
       return;
+    }
+
+    // License compliance check — only for projects with package.json and node_modules
+    if (pkgResult.success && pkgResult.data) {
+      const hasNodeModulesForCheck = await fileService.exists(projectId, 'node_modules');
+      if (hasNodeModulesForCheck) {
+        try {
+          const licenseCheck = await execForPublish(
+            'npx --yes license-checker --json --failOn "GPL-2.0;GPL-3.0;AGPL-3.0;AGPL-1.0;SSPL-1.0;CC-BY-NC-4.0;CC-BY-NC-SA-4.0" 2>/dev/null || echo "LICENSE_CHECK_FAILED"',
+            '/home/coder/project',
+            'license-check'
+          );
+
+          if (licenseCheck.stdout.includes('LICENSE_CHECK_FAILED') || licenseCheck.exitCode !== 0) {
+            let problematicPackages: string[] = [];
+            try {
+              const licenseData = JSON.parse(licenseCheck.stderr || licenseCheck.stdout);
+              problematicPackages = Object.entries(licenseData)
+                .filter(([_, info]: [string, any]) => {
+                  const license = (info.licenses || '').toString();
+                  return /GPL|AGPL|SSPL|CC-BY-NC/i.test(license);
+                })
+                .map(([name, info]: [string, any]) => `${name}: ${(info as any).licenses}`);
+            } catch { /* parsing failed, still block if packages found */ }
+
+            if (problematicPackages.length > 0) {
+              res.status(400).json({
+                error: 'license_violation',
+                message: 'Project contains dependencies with restrictive licenses that prevent publication',
+                packages: problematicPackages,
+                suggestion: 'Replace these packages with MIT/Apache-2.0/ISC alternatives, or remove them before publishing.',
+              });
+              return;
+            }
+          }
+        } catch (licErr: any) {
+          log.warn(`[Publish] License check failed for ${projectId}, proceeding: ${licErr.message}`);
+        }
+      }
     }
 
     let srcDir: string;
@@ -1410,6 +1452,32 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       await fs.rm(path.join(destDir, '.git'), { recursive: true, force: true }).catch(() => {});
     }
 
+    // Basic content moderation scan — log suspicious patterns for manual review (non-blocking)
+    try {
+      const suspiciousPattern = /password.*input|login.*form|credit.card|phishing/i;
+      const flaggedFiles: string[] = [];
+      const scanDir = async (dir: string) => {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (flaggedFiles.length >= 5) return;
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            await scanDir(fullPath);
+          } else if (entry.isFile() && entry.name.endsWith('.html')) {
+            const content = await fs.readFile(fullPath, 'utf8');
+            if (suspiciousPattern.test(content)) {
+              flaggedFiles.push(fullPath.replace(destDir, ''));
+            }
+          }
+        }
+      };
+      await scanDir(destDir);
+      if (flaggedFiles.length > 0) {
+        log.warn(`[Publish] Suspicious content patterns detected in ${projectId} (slug: ${cleanSlug}): ${flaggedFiles.join(', ')}`);
+      }
+    } catch (scanErr: any) {
+      log.warn(`[Publish] Content scan failed for ${projectId}, proceeding: ${(scanErr as Error).message}`);
+    }
 
     // 6. Save to Firestore
     if (db) {
@@ -1424,6 +1492,7 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
 
     // 7. Return URL
     const url = `${config.publicUrl}/p/${cleanSlug}`;
+    auditService.log({ userId, action: 'publish', resource: projectId, details: `slug: ${cleanSlug}`, ip: req.ip });
     log.info(`[Publish] Published ${projectId} → ${url}`);
     res.json({ success: true, url, slug: cleanSlug });
   } catch (e: any) {

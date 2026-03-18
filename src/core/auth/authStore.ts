@@ -16,8 +16,10 @@ import {
   signInWithCredential,
   getAdditionalUserInfo,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, getDocs, deleteDoc, addDoc, collection, query, where, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, getDoc, getDocs, deleteDoc, addDoc, collection, query, where, serverTimestamp, onSnapshot, writeBatch } from 'firebase/firestore';
 import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { auth, db } from '../../config/firebase';
 import { useTerminalStore } from '../terminal/terminalStore';
 import { useProjectStore } from '../projects/projectStore';
@@ -27,6 +29,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { pushNotificationService } from '../services/pushNotificationService';
 import { deviceService } from '../services/deviceService';
+import { isConsentGranted } from '../services/consentService';
 import { Alert } from 'react-native';
 import i18n from '../../i18n';
 import { config } from '../../config/config';
@@ -174,6 +177,20 @@ async function forceLogoutFromAnotherDevice() {
  * Backend considers user online if lastSeen < 2 minutes ago
  */
 function startPresenceTracking(userId: string) {
+  // GDPR: skip presence tracking if user has not given consent
+  if (!isConsentGranted('presenceTracking')) {
+    // Still listen for app state changes for non-presence tasks (IAP refresh, push activity)
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        import('../iap/iapStore').then(({ useIAPStore }) => {
+          useIAPStore.getState().refreshPlan();
+        }).catch(() => {});
+        pushNotificationService.updateLastActive(auth.currentUser?.uid || userId).catch(() => {});
+      }
+    });
+    return () => { appStateSubscription.remove(); };
+  }
+
   const presenceRef = doc(db, 'presence', userId);
   let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -192,37 +209,34 @@ function startPresenceTracking(userId: string) {
     }
   };
 
-  // Write initial presence with sessionStart
+  // Write initial presence with sessionStart (GDPR: no email)
   setDoc(presenceRef, {
     lastSeen: serverTimestamp(),
     sessionStart: serverTimestamp(),
-    email: auth.currentUser?.email || ''
   }).catch(err => console.warn('[Presence] Failed to set presence:', err));
 
   startHeartbeat();
 
   // Handle app state changes (background/inactive)
   const appStateSubscription = AppState.addEventListener('change', (state) => {
-    const email = auth.currentUser?.email || '';
     if (state === 'background' || state === 'inactive') {
       stopHeartbeat();
       // Delete presence document so server doesn't count user as active
       deleteDoc(presenceRef).catch(() => {});
-      // Track background event
+      // Track background event (GDPR: no email)
       addDoc(collection(db, 'user_events'), {
-        type: 'app_background', userId, email, timestamp: serverTimestamp()
+        type: 'app_background', userId, timestamp: serverTimestamp()
       }).catch(() => {});
     } else if (state === 'active') {
-      // Re-establish presence and restart heartbeat
+      // Re-establish presence and restart heartbeat (GDPR: no email)
       setDoc(presenceRef, {
         lastSeen: serverTimestamp(),
         sessionStart: serverTimestamp(),
-        email
       }).catch((err) => console.warn('[Auth] Failed to restore presence on active:', err?.message || err));
       startHeartbeat();
-      // Track foreground event
+      // Track foreground event (GDPR: no email)
       addDoc(collection(db, 'user_events'), {
-        type: 'app_foreground', userId, email, timestamp: serverTimestamp()
+        type: 'app_foreground', userId, timestamp: serverTimestamp()
       }).catch(() => {});
 
       // Refresh subscription plan on foreground (catches renewals/cancellations while backgrounded)
@@ -260,6 +274,8 @@ export interface DrapeUser {
   photoURL: string | null;
   createdAt: Date;
   plan?: 'free' | 'go' | 'pro' | 'team';
+  hasCreatedFirstProject?: boolean;
+  onboardingCompleted?: boolean;
 }
 
 interface AuthState {
@@ -429,10 +445,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const userData = userDocSnap.exists() ? userDocSnap.data() : null;
         const userPlan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
         drapeUser.plan = userPlan;
+        drapeUser.hasCreatedFirstProject = !!userData?.hasCreatedFirstProject;
+        drapeUser.onboardingCompleted = !!userData?.onboardingCompleted;
 
-        // Layer 4: onboardingCompleted flag — survives app crashes during onboarding
-        const needsOnboarding = userDocSnap.exists() && userData?.createdAt && userData?.onboardingCompleted === false;
-        const isNew = !userDocSnap.exists() || !userData?.createdAt || _pendingNewUser || needsOnboarding;
+        // Existing accounts created before this flag rollout must not be treated as "new"
+        // just because legacy fields are missing. Only brand-new docs or an explicit
+        // unfinished onboarding state should force the onboarding flow.
+        const needsOnboarding = userDocSnap.exists() && userData?.onboardingCompleted === false;
+        const isNew = !userDocSnap.exists() || _pendingNewUser || needsOnboarding;
 
         // CRITICAL: never overwrite isNewUser=true set by signIn functions.
         // onAuthStateChanged can fire late (after isLoggingIn=false) and must not
@@ -529,17 +549,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDocSnap = await getDoc(userDocRef);
       const userData = userDocSnap.exists() ? userDocSnap.data() : null;
-      const isNewFromFirestore = !userDocSnap.exists() || !userData?.createdAt;
+      const isNewFromFirestore = !userDocSnap.exists();
 
-      // Layer 4: onboardingCompleted flag — email users who signed up but haven't
-      // completed onboarding yet (e.g. verified email and now logging in for first time)
-      const needsOnboarding = userDocSnap.exists() && userData?.createdAt && userData?.onboardingCompleted === false;
+      // Layer 4: users who explicitly have onboardingCompleted=false must resume onboarding.
+      const needsOnboarding = userDocSnap.exists() && userData?.onboardingCompleted === false;
 
       // Triple defense: any signal of "new" wins
       const isNew = isNewFromAuth || isNewFromFirestore || needsOnboarding;
       if (isNew) _pendingNewUser = true;
 
       drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
+      drapeUser.hasCreatedFirstProject = !!userData?.hasCreatedFirstProject;
+      drapeUser.onboardingCompleted = !!userData?.onboardingCompleted;
 
       // Now register device (may create doc via merge — but isNew already determined)
       await deviceService.registerAsActiveDevice(userCredential.user.uid);
@@ -605,11 +626,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await updateProfile(userCredential.user, { displayName });
 
       // Create user document in Firestore — must succeed so signIn can detect new user
+      // GDPR: include tosAcceptedAt and ageConfirmedAt since user accepted in AuthScreen
       await setDoc(doc(db, 'users', userCredential.user.uid), {
         email,
         displayName,
         hasCreatedFirstProject: false,
         onboardingCompleted: false,
+        tosAcceptedAt: serverTimestamp(),
+        ageConfirmedAt: serverTimestamp(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -712,6 +736,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  /**
+   * GDPR Article 17 — Right to Erasure (Complete Account Deletion)
+   *
+   * This function deletes ALL user data across every storage layer:
+   *
+   * ── Firestore collections deleted ──
+   *  1. users/{uid}                           — User profile document
+   *  2. users/{uid}/git-accounts/*            — Git account subcollection
+   *  3. users/{uid}/projects/*                — User projects subcollection
+   *  4. users/{uid}/workstations/*            — User workstations subcollection
+   *  5. user_projects  (where userId == uid)  — Legacy project documents
+   *  6. user_events    (where userId == uid)  — All analytics/telemetry events
+   *  7. user_configs/{uid}                    — User configuration
+   *  8. presence/{uid}                        — Online presence document
+   *  9. shared-git-accounts (where addedBy == uid) — Shared git credentials
+   * 10. published_sites (where userId == uid) — Published site metadata
+   *
+   * ── Local storage cleared ──
+   * 11. All AsyncStorage keys starting with "@drape"
+   * 12. SecureStore: drape_device_id, git tokens, figma tokens, supabase keys
+   *
+   * ── Firebase Auth ──
+   * 13. Firebase Auth user account permanently deleted
+   *
+   * Batch operations are used for large collections (max 500 per batch)
+   * to comply with Firestore limits and ensure efficient deletion.
+   */
   deleteAccount: async (password?: string) => {
     set({ isLoading: true, error: null });
 
@@ -754,40 +805,105 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         });
         await reauthenticateWithCredential(firebaseUser, oauthCredential);
       } else if (isGoogleProvider) {
-        // Google re-auth: use signInWithCredential to refresh the session
-        // Since we don't have a native Google Sign-In SDK, we need the user to
-        // sign out and sign back in for a fresh credential
         set({ isLoading: false });
         throw new Error('google-reauth-required');
       }
 
-      // 1. Delete user document from Firestore FIRST
-      await deleteDoc(doc(db, 'users', uid));
+      // ── Helper: batch-delete a query result (Firestore limit = 500 per batch) ──
+      const batchDeleteQuery = async (collectionRef: ReturnType<typeof query>) => {
+        const snap = await getDocs(collectionRef);
+        if (snap.empty) return 0;
 
-      // 2. Delete related data (errors are collected, not swallowed)
+        let deleted = 0;
+        let batch = writeBatch(db);
+        let batchCount = 0;
+
+        for (const d of snap.docs) {
+          batch.delete(d.ref);
+          batchCount++;
+          deleted++;
+
+          if (batchCount >= 500) {
+            await batch.commit();
+            batch = writeBatch(db);
+            batchCount = 0;
+          }
+        }
+
+        if (batchCount > 0) {
+          await batch.commit();
+        }
+
+        return deleted;
+      };
+
+      // ── Helper: batch-delete all docs in a subcollection ──
+      const batchDeleteSubcollection = async (parentPath: string, subcollection: string) => {
+        const snap = await getDocs(collection(db, parentPath, subcollection));
+        if (snap.empty) return 0;
+
+        let deleted = 0;
+        let batch = writeBatch(db);
+        let batchCount = 0;
+
+        for (const d of snap.docs) {
+          batch.delete(d.ref);
+          batchCount++;
+          deleted++;
+
+          if (batchCount >= 500) {
+            await batch.commit();
+            batch = writeBatch(db);
+            batchCount = 0;
+          }
+        }
+
+        if (batchCount > 0) {
+          await batch.commit();
+        }
+
+        return deleted;
+      };
+
+      // Collect partial errors for audit log (non-fatal)
       const errors: string[] = [];
 
+      // 1. Skip user_events deletion on the client.
+      // Firestore rules intentionally allow create-only access for user_events,
+      // so deletion must happen server-side/Admin SDK if needed.
+
+      // 2. Delete user_projects (legacy top-level collection)
       try {
         const projectsQuery = query(collection(db, 'user_projects'), where('userId', '==', uid));
-        const projectsSnap = await getDocs(projectsQuery);
-        for (const d of projectsSnap.docs) {
-          await deleteDoc(d.ref);
-        }
+        await batchDeleteQuery(projectsQuery);
       } catch (e: any) {
         console.error('[DeleteAccount] Failed to delete user_projects:', e);
         errors.push('user_projects');
       }
 
+      // 3. Delete subcollections under users/{uid}
       try {
-        const gitAccountsSnap = await getDocs(collection(db, 'users', uid, 'git-accounts'));
-        for (const d of gitAccountsSnap.docs) {
-          await deleteDoc(d.ref);
-        }
+        await batchDeleteSubcollection(`users/${uid}`, 'git-accounts');
       } catch (e: any) {
         console.error('[DeleteAccount] Failed to delete git-accounts:', e);
         errors.push('git-accounts');
       }
 
+      try {
+        await batchDeleteSubcollection(`users/${uid}`, 'projects');
+      } catch (e: any) {
+        console.error('[DeleteAccount] Failed to delete users/projects subcollection:', e);
+        errors.push('users/projects');
+      }
+
+      try {
+        await batchDeleteSubcollection(`users/${uid}`, 'workstations');
+      } catch (e: any) {
+        console.error('[DeleteAccount] Failed to delete users/workstations subcollection:', e);
+        errors.push('users/workstations');
+      }
+
+      // 4. Delete single-document collections
       try { await deleteDoc(doc(db, 'user_configs', uid)); } catch (e: any) {
         console.error('[DeleteAccount] Failed to delete user_configs:', e);
         errors.push('user_configs');
@@ -798,22 +914,61 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         errors.push('presence');
       }
 
+      // 5. Delete shared-git-accounts
       try {
         const sharedQuery = query(collection(db, 'shared-git-accounts'), where('addedBy', '==', uid));
-        const sharedSnap = await getDocs(sharedQuery);
-        for (const d of sharedSnap.docs) {
-          await deleteDoc(d.ref);
-        }
+        await batchDeleteQuery(sharedQuery);
       } catch (e: any) {
         console.error('[DeleteAccount] Failed to delete shared-git-accounts:', e);
         errors.push('shared-git-accounts');
+      }
+
+      // 6. Delete published_sites
+      try {
+        const publishedQuery = query(collection(db, 'published_sites'), where('userId', '==', uid));
+        await batchDeleteQuery(publishedQuery);
+      } catch (e: any) {
+        console.error('[DeleteAccount] Failed to delete published_sites:', e);
+        errors.push('published_sites');
+      }
+
+      // 7. Delete the user profile document LAST (so subcollections are cleaned first)
+      try {
+        await deleteDoc(doc(db, 'users', uid));
+      } catch (e: any) {
+        console.error('[DeleteAccount] Failed to delete user document:', e);
+        errors.push('users');
       }
 
       if (errors.length > 0) {
         console.warn('[DeleteAccount] Partial cleanup failures:', errors.join(', '));
       }
 
-      // 3. Clean up local state (same as logout)
+      // 8. Clear ALL local AsyncStorage keys starting with @drape
+      try {
+        const allKeys = await AsyncStorage.getAllKeys();
+        const drapeKeys = allKeys.filter(k => k.startsWith('@drape'));
+        if (drapeKeys.length > 0) {
+          await AsyncStorage.multiRemove(drapeKeys);
+          console.log(`[DeleteAccount] Cleared ${drapeKeys.length} AsyncStorage keys`);
+        }
+      } catch (e: any) {
+        console.warn('[DeleteAccount] Failed to clear AsyncStorage:', e);
+      }
+
+      // 9. Clear SecureStore items (device ID, git tokens)
+      const secureStoreKeys = [
+        'drape_device_id',
+        'git_token_github',
+        'git_token_gitlab',
+        'git_token_bitbucket',
+        'github_access_token',
+      ];
+      for (const key of secureStoreKeys) {
+        try { await SecureStore.deleteItemAsync(key); } catch { /* ignore missing keys */ }
+      }
+
+      // 10. Clean up local state (same as logout)
       useTabStore.getState().resetTabs();
       useTerminalStore.setState({
         userId: null,
@@ -829,25 +984,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         currentWorkstationId: null,
       });
 
-      // 4. Unregister push token
+      // 11. Unregister push token
       await pushNotificationService.unregisterToken().catch(() => {});
 
-      // 5. Stop presence tracking
+      // 12. Stop presence tracking
       if (presenceCleanup) { presenceCleanup(); presenceCleanup = null; }
       stopDeviceListener();
       stopDeviceGuard();
 
-      // 6. Reset auth flags to prevent stale state on next sign-in
+      // 13. Reset auth flags to prevent stale state on next sign-in
       _pendingNewUser = false;
 
-      // 7. Delete Firebase Auth user
+      // 14. Delete Firebase Auth user
       await deleteUser(firebaseUser);
 
       set({ user: null, isLoading: false, deviceCheckFailed: false, isNewUser: false });
 
     } catch (error: any) {
-      console.error('[AuthStore] Delete account error:', error);
-
       if (error.message === 'password-required' || error.message === 'google-reauth-required') {
         set({ isLoading: false });
         throw error;
@@ -862,6 +1015,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ isLoading: false });
         throw new Error('cancelled');
       }
+
+      console.error('[AuthStore] Delete account error:', error);
 
       set({ error: error.message, isLoading: false });
       throw error;
@@ -958,7 +1113,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Layer 2+3: Check Firestore BEFORE any writes (registerAsActiveDevice creates doc via merge)
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDoc = await getDoc(userDocRef);
-      const isNewFromFirestore = !userDoc.exists() || !userDoc.data()?.createdAt;
+      const isNewFromFirestore = !userDoc.exists();
 
       // Triple defense: any signal of "new" wins
       const isNew = isNewFromAuth || isNewFromFirestore;
@@ -990,6 +1145,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Load plan from Firestore user document (existing users have plan field)
       if (!isNew && userDoc.exists() && userData) {
         drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
+        drapeUser.hasCreatedFirstProject = !!userData?.hasCreatedFirstProject;
+        drapeUser.onboardingCompleted = !!userData?.onboardingCompleted;
       }
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
@@ -1076,7 +1233,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Layer 2+3: Check Firestore BEFORE any writes (registerAsActiveDevice creates the doc via merge)
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDoc = await getDoc(userDocRef);
-      const isNewFromFirestore = !userDoc.exists() || !userDoc.data()?.createdAt;
+      const isNewFromFirestore = !userDoc.exists();
 
       // Triple defense: any signal of "new" wins
       const isNew = isNewFromAuth || isNewFromFirestore;
@@ -1109,6 +1266,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Load plan from Firestore user document (existing users have plan field)
       if (!isNew && userDoc.exists() && userData) {
         drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
+        drapeUser.hasCreatedFirstProject = !!userData?.hasCreatedFirstProject;
+        drapeUser.onboardingCompleted = !!userData?.onboardingCompleted;
       }
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });

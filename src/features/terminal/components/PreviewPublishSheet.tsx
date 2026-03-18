@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, Linking, Share } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, Share } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
@@ -129,7 +130,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.publishActionButton}
-                  onPress={() => { trackPublishOpenUrl(publishedUrl); Linking.openURL(publishedUrl); }}
+                  onPress={() => { trackPublishOpenUrl(publishedUrl); WebBrowser.openBrowserAsync(publishedUrl); }}
                 >
                   <Ionicons name="open-outline" size={18} color="#fff" />
                   <Text style={styles.publishActionText}>{t('terminal:publish.open')}</Text>
@@ -176,7 +177,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                   <View style={styles.publishModalActions}>
                     <TouchableOpacity
                       style={styles.publishActionButton}
-                      onPress={() => { trackPublishOpenUrl(existingPublish.slug); Linking.openURL(existingPublish.url); }}
+                      onPress={() => { trackPublishOpenUrl(existingPublish.slug); WebBrowser.openBrowserAsync(existingPublish.url); }}
                     >
                       <Ionicons name="open-outline" size={16} color="#fff" />
                       <Text style={styles.publishActionText}>{t('terminal:publish.openSite')}</Text>

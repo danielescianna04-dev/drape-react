@@ -81,7 +81,7 @@ githubRouter.post('/poll-device', asyncHandler(async (req: Request, res: Respons
     } else if (data.error === 'authorization_pending') {
       log.debug('[GitHub] Token not ready, authorization pending');
     } else {
-      log.warn('[GitHub] Token poll result:', data.error || data);
+      log.warn(`[GitHub] Token poll result: ${data.error || 'unknown_error'} — ${data.error_description || 'no description'}`);
     }
 
     res.json(data);

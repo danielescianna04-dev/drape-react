@@ -11,8 +11,10 @@ import {
   Alert,
   Dimensions,
   Animated as RNAnimated,
-  Linking,
+  Modal,
+  ScrollView,
 } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,9 +28,143 @@ import { useAuthStore } from '../../core/auth/authStore';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { trackLogin, trackRegister, trackForgotPassword, trackError } from '../../core/services/analyticsService';
 
+const TERMS_URL = 'https://www.drape-dev.it/terms-of-service.html';
+const PRIVACY_URL = 'https://www.drape-dev.it/privacy-policy.html';
+
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type AuthMode = 'initial' | 'login' | 'register' | 'forgot' | 'verify';
+
+const padDateValue = (value: number) => value.toString().padStart(2, '0');
+const formatDateOfBirthValue = (day: number, month: number, year: number) =>
+  `${padDateValue(day)}/${padDateValue(month)}/${year}`;
+const DATE_WHEEL_ITEM_HEIGHT = 44;
+const DATE_WHEEL_VISIBLE_ITEMS = 5;
+const DATE_WHEEL_PADDING = (DATE_WHEEL_ITEM_HEIGHT * (DATE_WHEEL_VISIBLE_ITEMS - 1)) / 2;
+
+const parseDateOfBirthValue = (value: string) => {
+  const parts = value.trim().split('/');
+  if (parts.length !== 3) return null;
+  const [dayStr, monthStr, yearStr] = parts;
+  const day = parseInt(dayStr, 10);
+  const month = parseInt(monthStr, 10);
+  const year = parseInt(yearStr, 10);
+  if (Number.isNaN(day) || Number.isNaN(month) || Number.isNaN(year)) return null;
+  return { day, month, year };
+};
+
+const getDaysInMonth = (month: number, year: number) => new Date(year, month, 0).getDate();
+
+type DateWheelOption = {
+  value: number;
+  label: string;
+};
+
+const DateWheelColumn = ({
+  label,
+  options,
+  selectedValue,
+  onChange,
+  visible,
+}: {
+  label: string;
+  options: DateWheelOption[];
+  selectedValue: number;
+  onChange: (value: number) => void;
+  visible: boolean;
+}) => {
+  const scrollRef = useRef<ScrollView>(null);
+  const isProgrammaticScrollRef = useRef(false);
+  const selectedIndex = Math.max(
+    0,
+    options.findIndex((option) => option.value === selectedValue)
+  );
+
+  useEffect(() => {
+    if (!visible) return;
+    const timer = setTimeout(() => {
+      isProgrammaticScrollRef.current = true;
+      scrollRef.current?.scrollTo({
+        y: selectedIndex * DATE_WHEEL_ITEM_HEIGHT,
+        animated: false,
+      });
+      requestAnimationFrame(() => {
+        isProgrammaticScrollRef.current = false;
+      });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [visible, selectedIndex]);
+
+  const snapToIndex = (index: number, animated: boolean) => {
+    const clampedIndex = Math.max(0, Math.min(options.length - 1, index));
+    const nextValue = options[clampedIndex]?.value;
+    if (nextValue == null) return;
+    if (nextValue !== selectedValue) {
+      onChange(nextValue);
+    }
+    isProgrammaticScrollRef.current = true;
+    scrollRef.current?.scrollTo({
+      y: clampedIndex * DATE_WHEEL_ITEM_HEIGHT,
+      animated,
+    });
+    requestAnimationFrame(() => {
+      isProgrammaticScrollRef.current = false;
+    });
+  };
+
+  const handleMomentumEnd = (offsetY: number) => {
+    if (isProgrammaticScrollRef.current) return;
+    const nextIndex = Math.round(offsetY / DATE_WHEEL_ITEM_HEIGHT);
+    snapToIndex(nextIndex, false);
+  };
+
+  return (
+    <View style={styles.dateWheelColumn}>
+      <Text style={styles.dateWheelLabel}>{label}</Text>
+      <View style={styles.dateWheelFrame}>
+        <View pointerEvents="none" style={styles.dateWheelSelectionBand} />
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(21, 16, 38, 0.98)', 'rgba(21, 16, 38, 0.78)', 'transparent']}
+          style={styles.dateWheelFadeTop}
+        />
+        <LinearGradient
+          pointerEvents="none"
+          colors={['transparent', 'rgba(21, 16, 38, 0.78)', 'rgba(21, 16, 38, 0.98)']}
+          style={styles.dateWheelFadeBottom}
+        />
+        <ScrollView
+          ref={scrollRef}
+          style={styles.dateWheelScroll}
+          contentContainerStyle={styles.dateWheelContent}
+          showsVerticalScrollIndicator={false}
+          snapToInterval={DATE_WHEEL_ITEM_HEIGHT}
+          decelerationRate="fast"
+          bounces={false}
+          onMomentumScrollEnd={(event) => handleMomentumEnd(event.nativeEvent.contentOffset.y)}
+        >
+          {options.map((option, index) => (
+            <TouchableOpacity
+              key={`${label}-${option.value}`}
+              style={styles.dateWheelItem}
+              activeOpacity={0.8}
+              onPress={() => snapToIndex(index, true)}
+            >
+              <Text
+                style={[
+                  styles.dateWheelItemText,
+                  option.value === selectedValue && styles.dateWheelItemTextActive,
+                ]}
+              >
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    </View>
+  );
+};
 
 // Animated gradient background — same as Create screen
 const AnimatedGradientBg = () => {
@@ -271,6 +407,13 @@ export const AuthScreen = () => {
   const [verificationPassword, setVerificationPassword] = useState('');
   const [resendSuccess, setResendSuccess] = useState(false);
   const [isAutoLogging, setIsAutoLogging] = useState(false);
+  const [tosAccepted, setTosAccepted] = useState(false);
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pickerDay, setPickerDay] = useState(1);
+  const [pickerMonth, setPickerMonth] = useState(1);
+  const [pickerYear, setPickerYear] = useState(2000);
+  const [showParentalNotice, setShowParentalNotice] = useState(false);
   const backLabel = t('common:back');
 
   const modalHeight = useRef(new RNAnimated.Value(200)).current;
@@ -278,8 +421,24 @@ export const AuthScreen = () => {
   const blurOpacity = useRef(new RNAnimated.Value(0)).current;
   const keyboardHeight = useRef(0);
   const baseMarginBottom = useRef(90);
+  const baseModalHeight = useRef(200);
   const { signIn, signUp, signInWithApple, resetPassword, resendVerificationEmail, checkEmailVerified, isLoading, error, clearError } = useAuthStore();
   const insets = useSafeAreaInsets();
+  const currentYear = new Date().getFullYear();
+  const months = Array.from({ length: 12 }, (_, index) => ({
+    value: index + 1,
+    label: padDateValue(index + 1),
+  }));
+  const years = Array.from({ length: currentYear - 1899 }, (_, index) => currentYear - index);
+  const availableDays = Array.from(
+    { length: getDaysInMonth(pickerMonth, pickerYear) },
+    (_, index) => index + 1
+  );
+
+  useEffect(() => {
+    const maxDay = getDaysInMonth(pickerMonth, pickerYear);
+    setPickerDay((current) => Math.min(current, maxDay));
+  }, [pickerMonth, pickerYear]);
 
   // Check Apple Auth availability
   useEffect(() => {
@@ -293,20 +452,41 @@ export const AuthScreen = () => {
 
     const onShow = (e: any) => {
       keyboardHeight.current = e.endCoordinates.height;
-      RNAnimated.timing(modalBottom, {
-        toValue: keyboardHeight.current - insets.bottom + 10,
-        duration: e.duration || 250,
-        useNativeDriver: false,
-      }).start();
+      const screenH = Dimensions.get('window').height;
+      const idealBottom = keyboardHeight.current - insets.bottom + 10;
+      // Shrink modal to fit between status bar and keyboard
+      const availableH = screenH - keyboardHeight.current - insets.top - 20;
+      const currentTargetH = (modalHeight as any)._value || 500;
+      const fitHeight = Math.min(currentTargetH, availableH);
+
+      RNAnimated.parallel([
+        RNAnimated.timing(modalBottom, {
+          toValue: idealBottom,
+          duration: e.duration || 250,
+          useNativeDriver: false,
+        }),
+        RNAnimated.timing(modalHeight, {
+          toValue: fitHeight,
+          duration: e.duration || 250,
+          useNativeDriver: false,
+        }),
+      ]).start();
     };
 
     const onHide = (e: any) => {
       keyboardHeight.current = 0;
-      RNAnimated.timing(modalBottom, {
-        toValue: baseMarginBottom.current,
-        duration: e.duration || 250,
-        useNativeDriver: false,
-      }).start();
+      RNAnimated.parallel([
+        RNAnimated.timing(modalBottom, {
+          toValue: baseMarginBottom.current,
+          duration: e.duration || 250,
+          useNativeDriver: false,
+        }),
+        RNAnimated.timing(modalHeight, {
+          toValue: baseModalHeight.current,
+          duration: e.duration || 250,
+          useNativeDriver: false,
+        }),
+      ]).start();
     };
 
     const sub1 = Keyboard.addListener(showEvent, onShow);
@@ -317,13 +497,19 @@ export const AuthScreen = () => {
   useEffect(() => {
     let targetHeight = 200; // Initial state
     if (mode === 'login') targetHeight = 500; // Added Apple button
-    if (mode === 'register') targetHeight = 600; // Added Apple button
+    if (mode === 'register') targetHeight = 660; // ToS checkbox + DOB + parental notice
     if (mode === 'forgot') targetHeight = 300;
     if (mode === 'verify') targetHeight = 340;
 
     const showBlur = mode !== 'initial';
     const targetMarginBottom = mode === 'initial' ? 90 : 30;
     baseMarginBottom.current = targetMarginBottom;
+    baseModalHeight.current = targetHeight;
+
+    // When returning to initial, reset keyboard state to avoid race conditions
+    if (mode === 'initial') {
+      keyboardHeight.current = 0;
+    }
 
     // Only animate bottom if keyboard is NOT open
     const bottomTarget = keyboardHeight.current > 0
@@ -335,19 +521,23 @@ export const AuthScreen = () => {
     modalBottom.stopAnimation();
     blurOpacity.stopAnimation();
 
-    // JS-driven animations (height + margin) — separate from native-driven
-    RNAnimated.parallel([
-      RNAnimated.timing(modalHeight, {
-        toValue: targetHeight,
-        duration: 300,
-        useNativeDriver: false,
-      }),
-      RNAnimated.timing(modalBottom, {
-        toValue: bottomTarget,
-        duration: 300,
-        useNativeDriver: false,
-      }),
-    ]).start();
+    // Small delay to let keyboard dismiss animation finish before we animate
+    const delay = mode === 'initial' ? 50 : 0;
+    setTimeout(() => {
+      // JS-driven animations (height + margin) — separate from native-driven
+      RNAnimated.parallel([
+        RNAnimated.timing(modalHeight, {
+          toValue: targetHeight,
+          duration: 300,
+          useNativeDriver: false,
+        }),
+        RNAnimated.timing(modalBottom, {
+          toValue: bottomTarget,
+          duration: 300,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    }, delay);
 
     // Native-driven animation (opacity) — must run separately
     RNAnimated.timing(blurOpacity, {
@@ -436,6 +626,40 @@ export const AuthScreen = () => {
         setLocalError(t('auth:errors.weakPassword'));
         return;
       }
+      // GDPR Point 7: ToS acceptance required
+      if (!tosAccepted) {
+        setLocalError(t('auth:gdpr.tosRequired'));
+        return;
+      }
+      // GDPR Point 20: Age gate validation
+      if (!dateOfBirth.trim()) {
+        setLocalError(t('auth:gdpr.ageRequired'));
+        return;
+      }
+      const parsedDob = parseDateOfBirthValue(dateOfBirth);
+      if (!parsedDob) {
+        setLocalError(t('auth:gdpr.ageInvalidFormat'));
+        return;
+      }
+      const { day, month, year } = parsedDob;
+      if (isNaN(day) || isNaN(month) || isNaN(year) || day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > new Date().getFullYear()) {
+        setLocalError(t('auth:gdpr.ageInvalidFormat'));
+        return;
+      }
+      const birthDate = new Date(year, month - 1, day);
+      const now = new Date();
+      let age = now.getFullYear() - birthDate.getFullYear();
+      const monthDiff = now.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      if (age < 13) {
+        setLocalError(t('auth:gdpr.underAge'));
+        return;
+      }
+      if (age >= 13 && age < 16) {
+        setShowParentalNotice(true);
+      }
     }
 
     try {
@@ -445,6 +669,8 @@ export const AuthScreen = () => {
       } else if (mode === 'register') {
         await signUp(email.trim(), password, displayName.trim());
         trackRegister();
+        // GDPR Point 7 + 20: tosAcceptedAt and ageConfirmedAt are saved
+        // in authStore.signUp as part of the initial user document creation.
         // Registration successful — switch to verify mode
         setVerificationEmail(email.trim());
         setVerificationPassword(password);
@@ -466,6 +692,7 @@ export const AuthScreen = () => {
   };
 
   const switchMode = (newMode: AuthMode) => {
+    Keyboard.dismiss();
     setMode(newMode);
     setLocalError(null);
     clearError();
@@ -473,6 +700,33 @@ export const AuthScreen = () => {
     setPassword('');
     setConfirmPassword('');
     setDisplayName('');
+    setTosAccepted(false);
+    setDateOfBirth('');
+    setShowDatePicker(false);
+    setPickerDay(1);
+    setPickerMonth(1);
+    setPickerYear(2000);
+    setShowParentalNotice(false);
+  };
+
+  const openDatePicker = () => {
+    Keyboard.dismiss();
+    const parsed = parseDateOfBirthValue(dateOfBirth);
+    if (parsed) {
+      setPickerDay(parsed.day);
+      setPickerMonth(parsed.month);
+      setPickerYear(parsed.year);
+    } else {
+      setPickerDay(1);
+      setPickerMonth(1);
+      setPickerYear(2000);
+    }
+    setShowDatePicker(true);
+  };
+
+  const confirmDatePicker = () => {
+    setDateOfBirth(formatDateOfBirthValue(pickerDay, pickerMonth, pickerYear));
+    setShowDatePicker(false);
   };
 
   const handleAppleSignIn = async () => {
@@ -531,7 +785,7 @@ export const AuthScreen = () => {
 
       {/* Email Verification State */}
       {mode === 'verify' && (
-        <Animated.View entering={FadeIn.duration(300)} style={styles.formContent}>
+        <Animated.View entering={FadeIn.duration(300)} style={[styles.formContent, styles.verifyFlow]}>
           {isAutoLogging ? (
             <View style={styles.verifyContainer}>
               <View style={[styles.verifyIconContainer, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
@@ -542,7 +796,7 @@ export const AuthScreen = () => {
             </View>
           ) : (
             <>
-              <View style={styles.verifyContainer}>
+              <View style={styles.verifyContentBlock}>
                 <View style={styles.verifyIconContainer}>
                   <Ionicons name="mail-outline" size={36} color={AppColors.primary} />
                 </View>
@@ -550,9 +804,9 @@ export const AuthScreen = () => {
                 <Text style={styles.verifyMessage}>
                   {t('auth:emailVerification.message', { email: verificationEmail })}
                 </Text>
-                <View style={styles.checkingRow}>
-                  <ActivityIndicator size="small" color="rgba(255,255,255,0.4)" />
-                  <Text style={styles.checkingText}>{t('auth:emailVerification.checking')}</Text>
+                <View style={styles.verifyStatusRow}>
+                  <ActivityIndicator size="small" color="rgba(255,255,255,0.45)" />
+                  <Text style={styles.verifyStatusText}>{t('auth:emailVerification.checking')}</Text>
                 </View>
               </View>
               <TouchableOpacity
@@ -654,6 +908,8 @@ export const AuthScreen = () => {
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
+                textContentType={mode === 'login' ? 'password' : 'none'}
+                autoComplete={mode === 'login' ? 'password' : 'off'}
                 accessibilityLabel={t('auth:login.password')}
                 accessibilityHint={t('auth:a11y.enterPassword')}
               />
@@ -682,10 +938,60 @@ export const AuthScreen = () => {
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
+                textContentType="none"
+                autoComplete="off"
                 accessibilityLabel={t('auth:register.confirmPassword')}
                 accessibilityHint={t('auth:a11y.enterConfirmPassword')}
               />
             </GlassInputWrapper>
+          )}
+
+          {/* GDPR Point 20: Date of Birth / Age Gate */}
+          {mode === 'register' && (
+            <GlassInputWrapper>
+              <Ionicons name="calendar-outline" size={18} color="rgba(255,255,255,0.4)" />
+              <TouchableOpacity
+                style={styles.datePickerTrigger}
+                onPress={openDatePicker}
+                activeOpacity={0.8}
+                accessibilityLabel={t('auth:gdpr.dateOfBirth')}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.datePickerText, !dateOfBirth && styles.datePickerPlaceholder]}>
+                  {dateOfBirth || t('auth:gdpr.dateOfBirthPlaceholder')}
+                </Text>
+                <Ionicons name="chevron-down" size={18} color="rgba(255,255,255,0.35)" />
+              </TouchableOpacity>
+            </GlassInputWrapper>
+          )}
+
+          {/* GDPR Point 20: Parental consent notice for 13-16 */}
+          {mode === 'register' && showParentalNotice && (
+            <View style={styles.parentalNotice}>
+              <Ionicons name="information-circle" size={16} color="#F59E0B" />
+              <Text style={styles.parentalNoticeText}>{t('auth:gdpr.parentalConsent')}</Text>
+            </View>
+          )}
+
+          {/* GDPR Point 7: ToS / Privacy checkbox */}
+          {mode === 'register' && (
+            <TouchableOpacity
+              style={styles.tosRow}
+              onPress={() => setTosAccepted(!tosAccepted)}
+              activeOpacity={0.8}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: tosAccepted }}
+            >
+              <View style={[styles.tosCheckbox, tosAccepted && styles.tosCheckboxChecked]}>
+                {tosAccepted && <Ionicons name="checkmark" size={14} color="#fff" />}
+              </View>
+              <Text style={styles.tosText}>
+                {t('auth:gdpr.tosCheckbox')}{' '}
+                <Text style={styles.tosLink} onPress={() => WebBrowser.openBrowserAsync(TERMS_URL)}>{t('auth:gdpr.tosLink')}</Text>
+                {' '}{t('auth:gdpr.tosAnd')}{' '}
+                <Text style={styles.tosLink} onPress={() => WebBrowser.openBrowserAsync(PRIVACY_URL)}>{t('auth:gdpr.privacyLink')}</Text>
+              </Text>
+            </TouchableOpacity>
           )}
 
           {mode === 'login' && (
@@ -701,9 +1007,9 @@ export const AuthScreen = () => {
           )}
 
           <TouchableOpacity
-            style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
+            style={[styles.submitButton, (isLoading || (mode === 'register' && !tosAccepted)) && styles.submitButtonDisabled]}
             onPress={handleSubmit}
-            disabled={isLoading}
+            disabled={isLoading || (mode === 'register' && !tosAccepted)}
             activeOpacity={0.9}
             accessibilityLabel={
               mode === 'login' ? t('auth:login.loginButton') :
@@ -711,7 +1017,7 @@ export const AuthScreen = () => {
               t('auth:sendEmail')
             }
             accessibilityRole="button"
-            accessibilityState={{ disabled: isLoading, busy: isLoading }}
+            accessibilityState={{ disabled: isLoading || (mode === 'register' && !tosAccepted), busy: isLoading }}
           >
             {isLoading ? (
               <ActivityIndicator color="#fff" />
@@ -823,12 +1129,70 @@ export const AuthScreen = () => {
         <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
           <Text style={styles.footerText}>
             {t('auth:termsFooter')}{' '}
-            <Text style={styles.footerLink} onPress={() => Linking.openURL('https://www.drape-dev.it/terms-of-service.html')}>{t('auth:terms')}</Text>
+            <Text style={styles.footerLink} onPress={() => WebBrowser.openBrowserAsync('https://www.drape-dev.it/terms-of-service.html')}>{t('auth:terms')}</Text>
             {' & '}
-            <Text style={styles.footerLink} onPress={() => Linking.openURL('https://www.drape-dev.it/privacy-policy.html')}>{t('auth:privacy')}</Text>
+            <Text style={styles.footerLink} onPress={() => WebBrowser.openBrowserAsync('https://www.drape-dev.it/privacy-policy.html')}>{t('auth:privacy')}</Text>
           </Text>
         </View>
       )}
+
+      <Modal
+        visible={showDatePicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDatePicker(false)}
+      >
+        <View style={styles.datePickerOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setShowDatePicker(false)} />
+          <View style={styles.datePickerSheet}>
+            <View style={styles.datePickerToolbar}>
+              <TouchableOpacity
+                style={styles.datePickerToolbarButton}
+                onPress={() => setShowDatePicker(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.datePickerToolbarSecondaryText}>{t('common:cancel')}</Text>
+              </TouchableOpacity>
+              <Text style={styles.datePickerTitle}>{t('auth:gdpr.dateOfBirth')}</Text>
+              <TouchableOpacity
+                style={styles.datePickerToolbarButton}
+                onPress={confirmDatePicker}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.datePickerToolbarPrimaryText}>{t('common:confirm')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.datePickerPreview}>
+              {formatDateOfBirthValue(pickerDay, pickerMonth, pickerYear)}
+            </Text>
+
+            <View style={styles.datePickerColumns}>
+              <DateWheelColumn
+                label="GG"
+                options={availableDays.map((day) => ({ value: day, label: padDateValue(day) }))}
+                selectedValue={pickerDay}
+                onChange={setPickerDay}
+                visible={showDatePicker}
+              />
+              <DateWheelColumn
+                label="MM"
+                options={months}
+                selectedValue={pickerMonth}
+                onChange={setPickerMonth}
+                visible={showDatePicker}
+              />
+              <DateWheelColumn
+                label="AAAA"
+                options={years.map((year) => ({ value: year, label: year.toString() }))}
+                selectedValue={pickerYear}
+                onChange={setPickerYear}
+                visible={showDatePicker}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -1006,6 +1370,21 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginLeft: 10,
   },
+  datePickerTrigger: {
+    flex: 1,
+    height: 50,
+    marginLeft: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  datePickerText: {
+    fontSize: 15,
+    color: '#fff',
+  },
+  datePickerPlaceholder: {
+    color: 'rgba(255,255,255,0.3)',
+  },
   forgotLink: {
     alignSelf: 'flex-end',
     marginBottom: 16,
@@ -1121,6 +1500,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 8,
   },
+  verifyFlow: {
+    justifyContent: 'center',
+    transform: [{ translateY: -18 }],
+  },
+  verifyContentBlock: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    marginBottom: 18,
+  },
   verifyIconContainer: {
     width: 64,
     height: 64,
@@ -1142,18 +1530,18 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.5)',
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 8,
+    marginBottom: 12,
   },
-  checkingRow: {
+  verifyStatusText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
+  },
+  verifyStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginTop: 12,
-  },
-  checkingText: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.4)',
   },
   resendButton: {
     flexDirection: 'row',
@@ -1165,7 +1553,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    marginBottom: 8,
+    marginBottom: 14,
   },
   resendButtonSuccess: {
     backgroundColor: 'rgba(16, 185, 129, 0.1)',
@@ -1175,5 +1563,182 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.8)',
+  },
+  // GDPR: ToS checkbox styles
+  tosRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 12,
+    marginTop: 4,
+    paddingHorizontal: 4,
+  },
+  tosCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  tosCheckboxChecked: {
+    backgroundColor: AppColors.primary,
+    borderColor: AppColors.primary,
+  },
+  tosText: {
+    flex: 1,
+    fontSize: 12.5,
+    color: 'rgba(255,255,255,0.5)',
+    lineHeight: 18,
+  },
+  tosLink: {
+    color: AppColors.primary,
+    textDecorationLine: 'underline' as const,
+  },
+  // GDPR: Parental notice styles
+  parentalNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.2)',
+  },
+  parentalNoticeText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#F59E0B',
+    lineHeight: 17,
+  },
+  datePickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  datePickerSheet: {
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    backgroundColor: 'rgba(21, 16, 38, 0.98)',
+    borderWidth: 1,
+    borderColor: 'rgba(145,119,255,0.22)',
+    borderBottomWidth: 0,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 32,
+  },
+  datePickerTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
+    flex: 1,
+  },
+  datePickerToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  datePickerToolbarButton: {
+    minWidth: 70,
+    paddingVertical: 10,
+  },
+  datePickerToolbarSecondaryText: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.68)',
+    fontWeight: '500',
+  },
+  datePickerToolbarPrimaryText: {
+    fontSize: 16,
+    color: AppColors.primary,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  datePickerColumns: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 8,
+  },
+  dateWheelColumn: {
+    flex: 1,
+  },
+  dateWheelLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.42)',
+    textAlign: 'center',
+    marginBottom: 10,
+    letterSpacing: 0.8,
+  },
+  dateWheelFrame: {
+    height: DATE_WHEEL_ITEM_HEIGHT * DATE_WHEEL_VISIBLE_ITEMS,
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.035)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    position: 'relative',
+  },
+  dateWheelSelectionBand: {
+    position: 'absolute',
+    left: 8,
+    right: 8,
+    top: DATE_WHEEL_PADDING,
+    height: DATE_WHEEL_ITEM_HEIGHT,
+    borderRadius: 16,
+    backgroundColor: 'rgba(109, 76, 255, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(139,111,255,0.38)',
+    zIndex: 2,
+  },
+  dateWheelFadeTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: DATE_WHEEL_PADDING,
+    zIndex: 3,
+  },
+  dateWheelFadeBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: DATE_WHEEL_PADDING,
+    zIndex: 3,
+  },
+  dateWheelScroll: {
+    flex: 1,
+  },
+  dateWheelContent: {
+    paddingVertical: DATE_WHEEL_PADDING,
+  },
+  dateWheelItem: {
+    height: DATE_WHEEL_ITEM_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  dateWheelItemText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.35)',
+  },
+  dateWheelItemTextActive: {
+    color: '#fff',
+  },
+  datePickerPreview: {
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.7)',
+    marginBottom: 18,
+    letterSpacing: 0.6,
   },
 });

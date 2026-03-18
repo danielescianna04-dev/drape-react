@@ -1,10 +1,14 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { Platform, Dimensions } from 'react-native';
 import { db, auth } from '../firebase/firebase';
+import { isConsentGranted } from './consentService';
 
 /**
  * Lightweight analytics service — writes events to Firestore `user_events` collection.
  * Events are aggregated server-side for the admin behavior dashboard.
+ *
+ * GDPR: Every tracking call checks analytics consent before writing.
+ * Email is never included — only pseudonymized userId.
  */
 
 const getDeviceType = (): string => {
@@ -14,13 +18,15 @@ const getDeviceType = (): string => {
 };
 
 function trackEvent(type: string, data?: Record<string, string>) {
+  // GDPR: skip tracking if user has not given analytics consent
+  if (!isConsentGranted('analytics')) return;
+
   const user = auth.currentUser;
   if (!user) return;
   addDoc(collection(db, 'user_events'), {
     type,
     ...data,
     userId: user.uid,
-    email: user.email || '',
     platform: Platform.OS,
     deviceType: getDeviceType(),
     timestamp: serverTimestamp(),
@@ -50,12 +56,14 @@ export function trackLogout() {
 }
 
 export async function trackDeleteAccount() {
+  // GDPR: skip tracking if user has not given analytics consent
+  if (!isConsentGranted('analytics')) return;
+
   const user = auth.currentUser;
   if (!user) return;
   await addDoc(collection(db, 'user_events'), {
     type: 'delete_account',
     userId: user.uid,
-    email: user.email || '',
     platform: Platform.OS,
     deviceType: getDeviceType(),
     timestamp: serverTimestamp(),

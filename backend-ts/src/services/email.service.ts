@@ -179,6 +179,16 @@ const VERIFICATION_EMAIL_HTML = (displayName: string, link: string) => `
                       &copy; ${new Date().getFullYear()} Drape &middot; Code with AI
                     </td>
                   </tr>
+                  <tr>
+                    <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:11px;line-height:16px;color:#4A4A62;text-align:center;padding:8px 0 0;">
+                      Drape Dev, Italy &middot; <a href="mailto:support@drape.info" style="color:#A78BFA;">support@drape.info</a>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:10px;line-height:15px;color:#4A4A62;text-align:center;padding:8px 0 0;">
+                      This is a transactional email required for your account. To manage your email preferences, visit your account settings or contact us at <a href="mailto:support@drape.info" style="color:#A78BFA;">support@drape.info</a>.
+                    </td>
+                  </tr>
                 </table>
               </td>
             </tr>

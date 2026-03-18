@@ -287,7 +287,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.overlay}>
           {/* Backdrop blur */}
-          <BlurView intensity={20} style={StyleSheet.absoluteFill} tint="dark" />
+          <BlurView intensity={55} style={StyleSheet.absoluteFill} tint="dark" />
 
           {/* Modal card - moves up when keyboard is visible */}
           <Animated.View style={[styles.modalWrapper, { transform: [{ translateY: modalOffset }] }]}>
@@ -320,7 +320,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: AppColors.black.b80,
+    backgroundColor: 'rgba(4, 2, 10, 0.88)',
     justifyContent: 'center',
     alignItems: 'center',
   },

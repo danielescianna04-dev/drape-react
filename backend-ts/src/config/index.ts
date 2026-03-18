@@ -75,8 +75,8 @@ export const config = {
   strictNativeBinaryIntegrityCheck: optionalBool('STRICT_NATIVE_BINARY_INTEGRITY_CHECK', false),
   maxActiveContainersPerUser: optionalInt('MAX_ACTIVE_CONTAINERS_PER_USER', 3),
 
-  // Security hardening
-  allowInsecureOwnershipBypass: optionalBool('ALLOW_INSECURE_OWNERSHIP_BYPASS', false),
+  // Security hardening — NEVER allow in production regardless of env var
+  allowInsecureOwnershipBypass: isProduction ? false : optionalBool('ALLOW_INSECURE_OWNERSHIP_BYPASS', false),
 
   // Resend (email)
   resendApiKey: optional('RESEND_API_KEY', ''),

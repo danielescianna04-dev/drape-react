@@ -112,7 +112,9 @@ service cloud.firestore {
     //       against unauthorized client-side writes.
     // ============================================================
     match /published_sites/{siteId} {
-      allow read: if true;
+      // Allow reading a specific site by its slug (for public URL resolution)
+      // or by any authenticated user (for admin/owner views)
+      allow read: if request.auth != null || resource.data.slug == siteId;
       allow create: if request.auth != null
                     && request.resource.data.userId == request.auth.uid;
       allow update: if request.auth != null

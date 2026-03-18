@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { Button } from '../../../../shared/components/atoms/Button';
@@ -7,6 +7,7 @@ import { Input } from '../../../../shared/components/atoms/Input';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
+import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { FigmaLogo } from '../../../../shared/components/icons/FigmaLogo';
@@ -164,11 +165,11 @@ export const FigmaView = ({ tab }: Props) => {
 
   const openFigmaFile = () => {
     if (config.fileUrl) {
-      Linking.openURL(config.fileUrl);
+      WebBrowser.openBrowserAsync(config.fileUrl);
     } else if (config.fileKey) {
-      Linking.openURL(`https://www.figma.com/file/${config.fileKey}`);
+      WebBrowser.openBrowserAsync(`https://www.figma.com/file/${config.fileKey}`);
     } else {
-      Linking.openURL('https://www.figma.com/files/recent');
+      WebBrowser.openBrowserAsync('https://www.figma.com/files/recent');
     }
   };
 
@@ -276,7 +277,7 @@ export const FigmaView = ({ tab }: Props) => {
 
           <TouchableOpacity
             style={styles.helpLink}
-            onPress={() => Linking.openURL('https://help.figma.com/hc/en-us/articles/8085703771159-Manage-personal-access-tokens')}
+            onPress={() => WebBrowser.openBrowserAsync('https://help.figma.com/hc/en-us/articles/8085703771159-Manage-personal-access-tokens')}
           >
             <Ionicons name="help-circle-outline" size={16} color="rgba(255,255,255,0.4)" />
             <Text style={styles.helpLinkText}>Come creo un token?</Text>

@@ -14,6 +14,7 @@ import { aiRouter } from './ai.routes';
 import { iapRouter } from './iap.routes';
 import { authRouter } from './auth.routes';
 import { dbRouter } from './db.routes';
+import { dataExportRouter } from './data-export.routes';
 import { createPreviewProxy, createAssetProxy } from '../middleware/vm-router';
 import { config } from '../config';
 import { requireAuth } from '../middleware/auth';
@@ -91,6 +92,9 @@ export function mountRoutes(app: Express): void {
 
   // Database viewer
   app.use('/db', requireAuth, dbRouter);
+
+  // Data export (GDPR right to portability)
+  app.use('/data-export', requireAuth, dataExportRouter);
 
   // Root info — public
   app.get('/', (req, res) => {

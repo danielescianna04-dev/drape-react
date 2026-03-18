@@ -103,6 +103,18 @@
     "activeDevice": "Dispositivo attivo",
     "onlyThisDevice": "Solo questo dispositivo può accedere"
   },
+  "dataExport": {
+    "sectionTitle": "I Tuoi Dati",
+    "downloadTitle": "Scarica i Miei Dati",
+    "downloadSubtitle": "Esporta tutti i tuoi dati in formato JSON (GDPR)",
+    "shareTitle": "Esporta i Miei Dati",
+    "successTitle": "Esportazione Completata",
+    "successMessage": "I tuoi dati sono stati esportati con successo.",
+    "errorTitle": "Esportazione Fallita",
+    "errorMessage": "Impossibile esportare i tuoi dati. Riprova più tardi.",
+    "rateLimitTitle": "Attendi",
+    "rateLimitMessage": "Puoi esportare i tuoi dati una volta all'ora. Riprova tra {minutes} minuti."
+  },
   "logout": {
     "title": "Esci dall'account",
     "confirm": "Sei sicuro di voler uscire dal tuo account?",
@@ -153,6 +165,9 @@
     "firstMonth": "Primo mese — poi prezzo pieno",
     "restoring": "Ripristino in corso...",
     "restorePurchases": "Ripristina Acquisti",
+    "restoreSuccess": "Acquisti ripristinati con successo",
+    "restoreNoPurchases": "Nessun acquisto da ripristinare",
+    "restoreError": "Impossibile ripristinare gli acquisti. Riprova.",
     "legalNotice": "Il pagamento verrà addebitato sul tuo account Apple ID alla conferma dell'acquisto. L'abbonamento si rinnova automaticamente a meno che non venga disattivato almeno 24 ore prima della scadenza del periodo corrente. Puoi gestire e cancellare i tuoi abbonamenti nelle Impostazioni del tuo account Apple ID.",
     "privacyPolicy": "Privacy Policy",
     "termsOfService": "Termini di Servizio",

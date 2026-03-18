@@ -199,12 +199,12 @@ export function createAssetProxy() {
       const previewToken = resolvePreviewToken(req);
 
       if (!projectId) {
-        log.warn(`[Asset Proxy] No projectId for ${req.url} (cookie: ${req.headers.cookie?.substring(0, 80) || 'none'}, referer: ${req.headers.referer || 'none'})`);
+        log.warn(`[Asset Proxy] No projectId for ${req.url} (cookie: ${req.headers.cookie ? '[REDACTED]' : 'none'}, referer: ${req.headers.referer || 'none'})`);
         res.status(404).json({ error: 'No active preview session', detail: 'projectId not inferable for asset request' });
         return;
       }
       if (!previewToken) {
-        log.warn(`[Asset Proxy] No previewToken for ${req.url} (project: ${projectId}, cookie: ${req.headers.cookie?.substring(0, 80) || 'none'})`);
+        log.warn(`[Asset Proxy] No previewToken for ${req.url} (project: ${projectId}, cookie: ${req.headers.cookie ? '[REDACTED]' : 'none'})`);
         res.status(401).json({ error: 'Preview access token required' });
         return;
       }

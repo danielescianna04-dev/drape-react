@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,6 +7,7 @@ import Animated, { FadeIn, useAnimatedStyle } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useSidebarOffset } from '../context/SidebarContext';
+import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
@@ -179,12 +180,12 @@ export const SupabasePanel = ({ onClose }: Props) => {
       // Extract project ref from URL
       const match = config.projectUrl.match(/https:\/\/([^.]+)\.supabase\.co/);
       if (match) {
-        Linking.openURL(`https://supabase.com/dashboard/project/${match[1]}`);
+        WebBrowser.openBrowserAsync(`https://supabase.com/dashboard/project/${match[1]}`);
       } else {
-        Linking.openURL('https://supabase.com/dashboard');
+        WebBrowser.openBrowserAsync('https://supabase.com/dashboard');
       }
     } else {
-      Linking.openURL('https://supabase.com/dashboard');
+      WebBrowser.openBrowserAsync('https://supabase.com/dashboard');
     }
   };
 
@@ -320,7 +321,7 @@ export const SupabasePanel = ({ onClose }: Props) => {
 
               <TouchableOpacity
                 style={styles.helpLink}
-                onPress={() => Linking.openURL('https://supabase.com/docs/guides/getting-started')}
+                onPress={() => WebBrowser.openBrowserAsync('https://supabase.com/docs/guides/getting-started')}
               >
                 <Ionicons name="help-circle-outline" size={16} color="rgba(255,255,255,0.4)" />
                 <Text style={styles.helpLinkText}>Come trovo le credenziali?</Text>
@@ -379,7 +380,7 @@ export const SupabasePanel = ({ onClose }: Props) => {
                 onPress={() => {
                   const match = config.projectUrl.match(/https:\/\/([^.]+)\.supabase\.co/);
                   if (match) {
-                    Linking.openURL(`https://supabase.com/dashboard/project/${match[1]}/editor`);
+                    WebBrowser.openBrowserAsync(`https://supabase.com/dashboard/project/${match[1]}/editor`);
                   }
                 }}
               >
@@ -394,7 +395,7 @@ export const SupabasePanel = ({ onClose }: Props) => {
                 onPress={() => {
                   const match = config.projectUrl.match(/https:\/\/([^.]+)\.supabase\.co/);
                   if (match) {
-                    Linking.openURL(`https://supabase.com/dashboard/project/${match[1]}/auth/users`);
+                    WebBrowser.openBrowserAsync(`https://supabase.com/dashboard/project/${match[1]}/auth/users`);
                   }
                 }}
               >
@@ -409,7 +410,7 @@ export const SupabasePanel = ({ onClose }: Props) => {
                 onPress={() => {
                   const match = config.projectUrl.match(/https:\/\/([^.]+)\.supabase\.co/);
                   if (match) {
-                    Linking.openURL(`https://supabase.com/dashboard/project/${match[1]}/storage/buckets`);
+                    WebBrowser.openBrowserAsync(`https://supabase.com/dashboard/project/${match[1]}/storage/buckets`);
                   }
                 }}
               >
@@ -424,7 +425,7 @@ export const SupabasePanel = ({ onClose }: Props) => {
                 onPress={() => {
                   const match = config.projectUrl.match(/https:\/\/([^.]+)\.supabase\.co/);
                   if (match) {
-                    Linking.openURL(`https://supabase.com/dashboard/project/${match[1]}/functions`);
+                    WebBrowser.openBrowserAsync(`https://supabase.com/dashboard/project/${match[1]}/functions`);
                   }
                 }}
               >
