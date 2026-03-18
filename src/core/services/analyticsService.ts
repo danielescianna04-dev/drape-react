@@ -4,11 +4,11 @@ import { db, auth } from '../firebase/firebase';
 import { isConsentGranted } from './consentService';
 
 /**
- * Lightweight analytics service — writes events to Firestore `user_events` collection.
- * Events are aggregated server-side for the admin behavior dashboard.
+ * Servizio analytics — scrive eventi nella collezione Firestore `user_events`.
+ * Gli eventi vengono aggregati lato server per la dashboard admin.
  *
- * GDPR: Every tracking call checks analytics consent before writing.
- * Email is never included — only pseudonymized userId.
+ * GDPR: ogni chiamata di tracking controlla il consenso analytics prima di scrivere.
+ * L'email non è mai inclusa — solo userId pseudonimizzato.
  */
 
 const getDeviceType = (): string => {
@@ -33,36 +33,32 @@ function trackEvent(type: string, data?: Record<string, string>) {
   }).catch(() => {});
 }
 
-// Screen navigation
-export function trackScreenView(screen: string) {
-  trackEvent('screen_view', { screen });
+// ── Autenticazione ──────────────────────────────────
+
+export function tracciaLogin(metodo: string) {
+  trackEvent('login', { metodo });
 }
 
-// Auth actions
-export function trackLogin(method: string) {
-  trackEvent('login', { method });
+export function tracciaRegistrazione() {
+  trackEvent('registrazione');
 }
 
-export function trackRegister() {
-  trackEvent('register');
+export function tracciaResetPassword() {
+  trackEvent('reset_password');
 }
 
-export function trackForgotPassword() {
-  trackEvent('forgot_password');
-}
-
-export function trackLogout() {
+export function tracciaLogout() {
   trackEvent('logout');
 }
 
-export async function trackDeleteAccount() {
+export async function tracciaEliminaAccount() {
   // GDPR: skip tracking if user has not given analytics consent
   if (!isConsentGranted('analytics')) return;
 
   const user = auth.currentUser;
   if (!user) return;
   await addDoc(collection(db, 'user_events'), {
-    type: 'delete_account',
+    type: 'elimina_account',
     userId: user.uid,
     platform: Platform.OS,
     deviceType: getDeviceType(),
@@ -70,406 +66,559 @@ export async function trackDeleteAccount() {
   });
 }
 
-// Project actions
-export function trackProjectOpen(projectName: string) {
-  trackEvent('project_open', { projectName });
+export function tracciaErrore(messaggio: string, contesto: string) {
+  trackEvent('errore_app', { messaggio: messaggio.substring(0, 200), contesto });
 }
 
-export function trackProjectCreate(projectName: string, language: string, mode: string, description?: string) {
-  trackEvent('project_create', { projectName, language, mode, ...(description ? { description: description.substring(0, 200) } : {}) });
+// ── Navigazione ─────────────────────────────────────
+
+export function tracciaSchermata(schermata: string) {
+  trackEvent('schermata', { schermata });
+}
+
+// ── Progetti ────────────────────────────────────────
+
+export function tracciaProgettoCreato(nome: string, linguaggio: string, modalita: string, descrizione?: string) {
+  trackEvent('progetto_creato', { nome, linguaggio, modalita, ...(descrizione ? { descrizione: descrizione.substring(0, 200) } : {}) });
+}
+
+export function tracciaProgettoAperto(nome: string) {
+  trackEvent('progetto_aperto', { nome });
+}
+
+export function tracciaProgettoEliminato(nome: string) {
+  trackEvent('progetto_eliminato', { nome });
+}
+
+export function tracciaProgettoRinominato(vecchio_nome: string, nuovo_nome: string) {
+  trackEvent('progetto_rinominato', { vecchio_nome, nuovo_nome });
+}
+
+export function tracciaProgettoDuplicato(nome: string) {
+  trackEvent('progetto_duplicato', { nome });
+}
+
+export function tracciaProgettoCondiviso(nome: string) {
+  trackEvent('progetto_condiviso', { nome });
+}
+
+export function tracciaProgettoFiltro(filtro: string) {
+  trackEvent('progetto_filtro', { filtro });
 }
 
-export function trackProjectDelete(projectName: string) {
-  trackEvent('project_delete', { projectName });
+export function tracciaProgettoEliminaMultipli(quantita: string) {
+  trackEvent('progetto_elimina_multipli', { quantita });
 }
 
-export function trackProjectRename(oldName: string, newName: string) {
-  trackEvent('project_rename', { oldName, newName });
+// ── Chat & AI ───────────────────────────────────────
+
+export function tracciaMessaggioChat(modello: string, modalita_agente: string) {
+  trackEvent('messaggio_chat', { modello, modalita_agente });
+}
+
+export function tracciaComandoTerminaleChat() {
+  trackEvent('comando_terminale_chat');
+}
+
+export function tracciaNuovaChat(tipo: string) {
+  trackEvent('nuova_chat', { tipo });
+}
+
+export function tracciaChatMinimizzata(compressa: string) {
+  trackEvent('chat_minimizzata', { compressa });
 }
 
-export function trackProjectDuplicate(projectName: string) {
-  trackEvent('project_duplicate', { projectName });
+export function tracciaChatSelezionata(titolo: string) {
+  trackEvent('chat_selezionata', { titolo: titolo.substring(0, 100) });
 }
 
-export function trackProjectShare(projectName: string) {
-  trackEvent('project_share', { projectName });
+export function tracciaChatEliminata() {
+  trackEvent('chat_eliminata');
 }
 
-// Panel / tab actions
-export function trackPanelOpen(panel: string) {
-  trackEvent('panel_open', { panel });
+export function tracciaChatRinominata(nuovo_titolo: string) {
+  trackEvent('chat_rinominata', { nuovo_titolo: nuovo_titolo.substring(0, 100) });
 }
 
-export function trackPanelClose(panel: string) {
-  trackEvent('panel_close', { panel });
+export function tracciaChatFissata(fissata: string) {
+  trackEvent('chat_fissata', { fissata });
 }
 
-export function trackTabOpen(tab: string) {
-  trackEvent('tab_open', { tab });
+export function tracciaChatSpostataCartella() {
+  trackEvent('chat_spostata_cartella');
 }
 
-export function trackTabSwitch(tabType: string) {
-  trackEvent('tab_switch', { tabType });
+export function tracciaAnteprimaDaChat() {
+  trackEvent('anteprima_da_chat');
 }
 
-export function trackTabClose(tabType: string) {
-  trackEvent('tab_close', { tabType });
+export function tracciaChatBenvenutoChiuso() {
+  trackEvent('chat_benvenuto_chiuso');
 }
 
-// Chat actions
-export function trackChatMessage(model: string, agentMode: string) {
-  trackEvent('chat_message', { model, agentMode });
+export function tracciaModelloSelezionato(modello: string) {
+  trackEvent('modello_selezionato', { modello });
 }
+
+// ── Editor / Pannelli / Tab ─────────────────────────
 
-export function trackChatTerminalCommand() {
-  trackEvent('chat_terminal_command');
+export function tracciaPannelloAperto(pannello: string) {
+  trackEvent('pannello_aperto', { pannello });
 }
 
-export function trackNewChat(chatType: string) {
-  trackEvent('new_chat', { chatType });
+export function tracciaPannelloChiuso(pannello: string) {
+  trackEvent('pannello_chiuso', { pannello });
 }
 
-export function trackChatMinimize(collapsed: string) {
-  trackEvent('chat_minimize', { collapsed });
+export function tracciaTabAperto(tab: string) {
+  trackEvent('tab_aperto', { tab });
 }
 
-export function trackChatSelect(chatTitle: string) {
-  trackEvent('chat_select', { chatTitle: chatTitle.substring(0, 100) });
+export function tracciaTabCambiato(tipo_tab: string) {
+  trackEvent('tab_cambiato', { tipo_tab });
 }
 
-export function trackChatDelete() {
-  trackEvent('chat_delete');
+export function tracciaTabChiuso(tipo_tab: string) {
+  trackEvent('tab_chiuso', { tipo_tab });
 }
 
-export function trackChatRename(newTitle: string) {
-  trackEvent('chat_rename', { newTitle: newTitle.substring(0, 100) });
+export function tracciaFileAperto(nome_file: string) {
+  trackEvent('file_aperto', { nome_file });
 }
 
-export function trackChatPin(pinned: string) {
-  trackEvent('chat_pin', { pinned });
+export function tracciaFileCreato(nome_file: string, tipo_file: string) {
+  trackEvent('file_creato', { nome_file, tipo_file });
 }
 
-export function trackChatMoveFolder() {
-  trackEvent('chat_move_folder');
+export function tracciaFileEliminato(nome_file: string) {
+  trackEvent('file_eliminato', { nome_file });
 }
 
-// Model selection
-export function trackModelSelect(model: string) {
-  trackEvent('model_select', { model });
+export function tracciaFileRinominato(vecchio_nome: string, nuovo_nome: string) {
+  trackEvent('file_rinominato', { vecchio_nome, nuovo_nome });
 }
 
-// File operations
-export function trackFileOpen(fileName: string) {
-  trackEvent('file_open', { fileName });
+export function tracciaRicercaFile(query: string, modalita: string) {
+  trackEvent('ricerca_file', { query: query.substring(0, 100), modalita });
 }
 
-export function trackFileCreate(fileName: string, fileType: string) {
-  trackEvent('file_create', { fileName, fileType });
+export function tracciaEsploraFile() {
+  trackEvent('esplora_file');
 }
 
-export function trackFileDelete(fileName: string) {
-  trackEvent('file_delete', { fileName });
+export function tracciaLayoutGriglia() {
+  trackEvent('layout_griglia');
 }
 
-export function trackFileRename(oldName: string, newName: string) {
-  trackEvent('file_rename', { oldName, newName });
+export function tracciaModalitaIspettore(attivo: string) {
+  trackEvent('modalita_ispettore', { attivo });
 }
 
-// Preview actions
-export function trackPreviewStart(projectName: string) {
-  trackEvent('preview_start', { projectName });
+export function tracciaElementoSelezionato(selettore: string) {
+  trackEvent('elemento_selezionato', { selettore: selettore.substring(0, 200) });
 }
 
-export function trackPreviewReady(projectName: string) {
-  trackEvent('preview_ready', { projectName });
+export function tracciaCambioViewport(modalita: string) {
+  trackEvent('cambio_viewport', { modalita });
 }
 
-export function trackPreviewRefresh() {
-  trackEvent('preview_refresh');
+// ── Anteprima ───────────────────────────────────────
+
+export function tracciaAnteprimaAvviata(nome_progetto: string) {
+  trackEvent('anteprima_avviata', { nome_progetto });
 }
 
-export function trackPreviewStop() {
-  trackEvent('preview_stop');
+export function tracciaAnteprimaPronta(nome_progetto: string) {
+  trackEvent('anteprima_pronta', { nome_progetto });
 }
 
-export function trackPreviewError(errorMessage: string) {
-  trackEvent('preview_error', { errorMessage: errorMessage.substring(0, 200) });
+export function tracciaAnteprimaAggiornata() {
+  trackEvent('anteprima_aggiornata');
 }
 
-export function trackPreviewFixWithAI() {
-  trackEvent('preview_fix_ai');
+export function tracciaAnteprimaFermata() {
+  trackEvent('anteprima_fermata');
 }
 
-// Publish actions
-export function trackPublish(slug: string) {
-  trackEvent('publish', { slug });
+export function tracciaErroreAnteprima(messaggio_errore: string) {
+  trackEvent('errore_anteprima', { messaggio_errore: messaggio_errore.substring(0, 200) });
 }
 
-export function trackPublishSuccess(slug: string, url: string) {
-  trackEvent('publish_success', { slug, url: url.substring(0, 200) });
+export function tracciaFixAIAnteprima() {
+  trackEvent('fix_ai_anteprima');
 }
+
+// ── Pubblicazione ───────────────────────────────────
 
-export function trackPublishError(errorMessage: string) {
-  trackEvent('publish_error', { errorMessage: errorMessage.substring(0, 200) });
+export function tracciaPubblicazioneAvviata(slug: string) {
+  trackEvent('pubblicazione_avviata', { slug });
 }
 
-export function trackPublishShare(slug: string) {
-  trackEvent('publish_share', { slug });
+export function tracciaPubblicazioneRiuscita(slug: string, url: string) {
+  trackEvent('pubblicazione_riuscita', { slug, url: url.substring(0, 200) });
 }
 
-export function trackPublishOpenUrl(slug: string) {
-  trackEvent('publish_open_url', { slug });
+export function tracciaErrorePubblicazione(messaggio_errore: string) {
+  trackEvent('errore_pubblicazione', { messaggio_errore: messaggio_errore.substring(0, 200) });
 }
 
-export function trackUnpublish(slug: string) {
-  trackEvent('unpublish', { slug });
+export function tracciaLinkPubblicazioneCondiviso(slug: string) {
+  trackEvent('link_pubblicazione_condiviso', { slug });
 }
 
-// UI actions
-export function trackGridButton() {
-  trackEvent('grid_button');
+export function tracciaUrlPubblicazioneAperto(slug: string) {
+  trackEvent('url_pubblicazione_aperto', { slug });
 }
 
-export function trackChatOpenPreview() {
-  trackEvent('chat_open_preview');
+export function tracciaDePubblicato(slug: string) {
+  trackEvent('de_pubblicato', { slug });
 }
 
-export function trackInspectMode(enabled: string) {
-  trackEvent('inspect_mode', { enabled });
+// ── Git ─────────────────────────────────────────────
+
+export function tracciaAzioneGit(azione: string) {
+  trackEvent('azione_git', { azione });
 }
 
-export function trackElementSelected(selector: string) {
-  trackEvent('element_selected', { selector: selector.substring(0, 200) });
+export function tracciaCommitCreato() {
+  trackEvent('commit_creato');
 }
 
-export function trackViewportChange(mode: string) {
-  trackEvent('viewport_change', { mode });
+export function tracciaCambioBranch(branch: string) {
+  trackEvent('cambio_branch', { branch: branch.substring(0, 100) });
 }
 
-export function trackGitImport() {
-  trackEvent('git_import');
+export function tracciaPushEffettuato() {
+  trackEvent('push_effettuato');
 }
 
-export function trackGitImportCancel() {
-  trackEvent('git_import_cancel');
+export function tracciaAuthGit(provider: string) {
+  trackEvent('auth_git', { provider });
 }
 
-export function trackGitImportConfirm(repoUrl: string) {
-  trackEvent('git_import_confirm', { repoUrl: repoUrl.substring(0, 200) });
+export function tracciaAuthGitRiuscita(provider: string) {
+  trackEvent('auth_git_riuscita', { provider });
 }
 
-export function trackFileSearch(query: string, mode: string) {
-  trackEvent('file_search', { query: query.substring(0, 100), mode });
+export function tracciaErroreAuthGit(provider: string, messaggio_errore: string) {
+  trackEvent('errore_auth_git', { provider, messaggio_errore: messaggio_errore.substring(0, 200) });
 }
 
-export function trackBrowseFiles() {
-  trackEvent('browse_files');
+export function tracciaAccountGitRimosso(provider: string) {
+  trackEvent('account_git_rimosso', { provider });
 }
 
-export function trackSettingsModalOpen(modal: string) {
-  trackEvent('settings_modal_open', { modal });
+export function tracciaRepoConnesso(url_repo: string) {
+  trackEvent('repo_connesso', { url_repo: url_repo.substring(0, 200) });
 }
 
-export function trackSettingsModalClose(modal: string) {
-  trackEvent('settings_modal_close', { modal });
+export function tracciaRepoImportato(nome_repo: string) {
+  trackEvent('repo_importato', { nome_repo: nome_repo.substring(0, 100) });
 }
 
-// Git operations
-export function trackGitAction(action: string) {
-  trackEvent('git_action', { action });
+export function tracciaImportGitAvviato() {
+  trackEvent('import_git_avviato');
 }
 
-export function trackGitCommit() {
-  trackEvent('git_commit');
+export function tracciaImportGitAnnullato() {
+  trackEvent('import_git_annullato');
 }
 
-export function trackGitCheckout(branch: string) {
-  trackEvent('git_checkout', { branch: branch.substring(0, 100) });
+export function tracciaImportGitConfermato(url_repo: string) {
+  trackEvent('import_git_confermato', { url_repo: url_repo.substring(0, 200) });
 }
 
-export function trackGitAuth(provider: string) {
-  trackEvent('git_auth', { provider });
+export function tracciaTabGitCambiato(tab: string) {
+  trackEvent('tab_git_cambiato', { tab });
 }
 
-export function trackGitAuthSuccess(provider: string) {
-  trackEvent('git_auth_success', { provider });
+export function tracciaBranchCreato(branch: string) {
+  trackEvent('branch_creato', { branch: branch.substring(0, 100) });
 }
 
-export function trackGitAuthError(provider: string, errorMessage: string) {
-  trackEvent('git_auth_error', { provider, errorMessage: errorMessage.substring(0, 200) });
+export function tracciaCronologiaCommit() {
+  trackEvent('cronologia_commit');
 }
 
-export function trackGitAccountRemove(provider: string) {
-  trackEvent('git_account_remove', { provider });
+export function tracciaSelezionaTuttoGit() {
+  trackEvent('seleziona_tutto_git');
 }
 
-export function trackGitRepoConnect(repoUrl: string) {
-  trackEvent('git_repo_connect', { repoUrl: repoUrl.substring(0, 200) });
+export function tracciaAccountGitCollegato(provider: string) {
+  trackEvent('account_git_collegato', { provider });
 }
 
-export function trackGitRepoImport(repoName: string) {
-  trackEvent('git_repo_import', { repoName: repoName.substring(0, 100) });
+export function tracciaAccountGitScollegato(provider: string) {
+  trackEvent('account_git_scollegato', { provider });
 }
 
-export function trackGitTabSwitch(tab: string) {
-  trackEvent('git_tab_switch', { tab });
+export function tracciaConnettiRepo() {
+  trackEvent('connetti_repo');
 }
+
+// ── Impostazioni ────────────────────────────────────
 
-export function trackGitBranchCreate(branch: string) {
-  trackEvent('git_branch_create', { branch: branch.substring(0, 100) });
+export function tracciaImpostazioniAperte(modale: string) {
+  trackEvent('impostazioni_aperte', { modale });
 }
 
-export function trackGitCommitView() {
-  trackEvent('git_commit_view');
+export function tracciaImpostazioniChiuse(modale: string) {
+  trackEvent('impostazioni_chiuse', { modale });
 }
 
-export function trackGitSelectAll() {
-  trackEvent('git_select_all');
+export function tracciaLinguaCambiata(lingua: string) {
+  trackEvent('lingua_cambiata', { lingua });
 }
 
-export function trackGitLinkAccount(provider: string) {
-  trackEvent('git_link_account', { provider });
+export function tracciaPasswordCambiata() {
+  trackEvent('password_cambiata');
 }
 
-export function trackGitUnlinkAccount(provider: string) {
-  trackEvent('git_unlink_account', { provider });
+export function tracciaErroreCambioPassword(messaggio_errore: string) {
+  trackEvent('errore_cambio_password', { messaggio_errore: messaggio_errore.substring(0, 200) });
 }
 
-export function trackGitConnectRepo() {
-  trackEvent('git_connect_repo');
+export function tracciaEmailCambiata() {
+  trackEvent('email_cambiata');
 }
 
-export function trackGitPush() {
-  trackEvent('git_push');
+export function tracciaErroreCambioEmail(messaggio_errore: string) {
+  trackEvent('errore_cambio_email', { messaggio_errore: messaggio_errore.substring(0, 200) });
 }
 
-// Env vars
-export function trackEnvVarAdd(key: string) {
-  trackEvent('env_var_add', { key: key.substring(0, 50) });
+export function tracciaNomeCambiato() {
+  trackEvent('nome_cambiato');
 }
 
-export function trackEnvVarDelete(key: string) {
-  trackEvent('env_var_delete', { key: key.substring(0, 50) });
+export function tracciaVarAmbienteAggiunta(chiave: string) {
+  trackEvent('var_ambiente_aggiunta', { chiave: chiave.substring(0, 50) });
 }
 
-// Settings
-export function trackLanguageChange(language: string) {
-  trackEvent('language_change', { language });
+export function tracciaVarAmbienteRimossa(chiave: string) {
+  trackEvent('var_ambiente_rimossa', { chiave: chiave.substring(0, 50) });
 }
 
-export function trackPasswordChange() {
-  trackEvent('password_change');
+export function tracciaNotificheToggle(tipo: string, attivo: string) {
+  trackEvent('notifiche_toggle', { tipo, attivo });
 }
 
-export function trackPasswordChangeError(errorMessage: string) {
-  trackEvent('password_change_error', { errorMessage: errorMessage.substring(0, 200) });
+export function tracciaAcquistiRipristinati() {
+  trackEvent('acquisti_ripristinati');
 }
 
-export function trackEmailChange() {
-  trackEvent('email_change');
+export function tracciaDocumentoLegaleVisto(tipo: string) {
+  trackEvent('documento_legale_visto', { tipo });
 }
 
-export function trackEmailChangeError(errorMessage: string) {
-  trackEvent('email_change_error', { errorMessage: errorMessage.substring(0, 200) });
+// ── Piani & Fatturazione ────────────────────────────
+
+export function tracciaPianoVisualizzato(piano: string) {
+  trackEvent('piano_visualizzato', { piano });
 }
 
-export function trackNameChange() {
-  trackEvent('name_change');
+export function tracciaAcquistoAvviato(prodotto: string) {
+  trackEvent('acquisto_avviato', { prodotto });
 }
 
-export function trackRestorePurchases() {
-  trackEvent('restore_purchases');
+export function tracciaAcquistoCompletato(prodotto: string, piano: string) {
+  trackEvent('acquisto_completato', { prodotto, piano });
 }
 
-// Plan & IAP
-export function trackPlanSelect(plan: string) {
-  trackEvent('plan_select', { plan });
+export function tracciaErroreAcquisto(prodotto: string, tipo_errore: string) {
+  trackEvent('errore_acquisto', { prodotto, tipo_errore });
 }
 
-export function trackPurchaseStart(productId: string) {
-  trackEvent('purchase_start', { productId });
+export function tracciaPaginaPianiVista(sorgente: string) {
+  trackEvent('pagina_piani_vista', { sorgente });
 }
 
-export function trackPurchaseSuccess(productId: string, plan: string) {
-  trackEvent('purchase_success', { productId, plan });
+export function tracciaPaginaPianiChiusa() {
+  trackEvent('pagina_piani_chiusa');
 }
 
-export function trackPurchaseError(productId: string, errorType: string) {
-  trackEvent('purchase_error', { productId, errorType });
+export function tracciaCicloFatturazioneCambiato(ciclo: string) {
+  trackEvent('ciclo_fatturazione_cambiato', { ciclo });
 }
+
+// ── Onboarding ──────────────────────────────────────
 
-// Project filter
-export function trackProjectFilter(filter: string) {
-  trackEvent('project_filter', { filter });
+export function tracciaOnboardingStepCompletato(step: string) {
+  trackEvent('onboarding_step_completato', { step });
 }
 
-export function trackProjectBulkDelete(count: string) {
-  trackEvent('project_bulk_delete', { count });
+export function tracciaOnboardingStepSaltato(step: string) {
+  trackEvent('onboarding_step_saltato', { step });
 }
 
-// Plans UI
-export function trackPlansView(source: string) {
-  trackEvent('plans_view', { source });
+export function tracciaOnboardingEsperienzaScelta(livello: string) {
+  trackEvent('onboarding_esperienza_scelta', { livello });
 }
 
-export function trackPlansClose() {
-  trackEvent('plans_close');
+export function tracciaOnboardingScopertaScelta(fonte: string) {
+  trackEvent('onboarding_scoperta_scelta', { fonte });
 }
 
-export function trackBillingCycleChange(cycle: string) {
-  trackEvent('billing_cycle_change', { cycle });
+export function tracciaOnboardingCompletato() {
+  trackEvent('onboarding_completato');
 }
 
-export function trackLegalView(legalType: string) {
-  trackEvent('legal_view', { legalType });
+export function tracciaOnboardingPianoScelto(piano: string) {
+  trackEvent('onboarding_piano_scelto', { piano });
 }
 
-export function trackNotificationToggle(type: string, enabled: string) {
-  trackEvent('notification_toggle', { notificationType: type, enabled });
+export function tracciaOnboardingIndietro(da_step: string) {
+  trackEvent('onboarding_indietro', { da_step });
 }
 
-// Onboarding
-export function trackOnboardingStepCompleted(step: string) {
-  trackEvent('onboarding_step_completed', { step });
+export function tracciaTutorialStepAvanzato(indice: string, nome_step: string) {
+  trackEvent('tutorial_step_avanzato', { indice, nome_step });
 }
 
-export function trackOnboardingSkip(step: string) {
-  trackEvent('onboarding_skip', { step });
+export function tracciaTutorialSaltato(indice: string) {
+  trackEvent('tutorial_saltato', { indice });
 }
 
-export function trackOnboardingExperienceSelected(experienceLevel: string) {
-  trackEvent('onboarding_experience_selected', { experienceLevel });
+// ── 9 Nuove Funzioni ───────────────────────────────
+
+export function tracciaOnboardingSceltaProgetto(scelta: string) {
+  trackEvent('onboarding_scelta_progetto', { scelta });
 }
 
-export function trackOnboardingReferralSelected(referralSource: string) {
-  trackEvent('onboarding_referral_selected', { referralSource });
+export function tracciaOnboardingIdeaChip(idea: string) {
+  trackEvent('onboarding_idea_chip', { idea });
 }
 
-export function trackOnboardingCompleted() {
-  trackEvent('onboarding_completed');
+export function tracciaImmagineCaricata(sorgente: string) {
+  trackEvent('immagine_caricata', { sorgente });
 }
 
-export function trackOnboardingPlanSelected(plan: string) {
-  trackEvent('onboarding_plan_selected', { plan });
+export function tracciaModalitaChatCambiata(modalita: string) {
+  trackEvent('modalita_chat_cambiata', { modalita });
 }
 
-export function trackOnboardingBack(fromStep: string) {
-  trackEvent('onboarding_back', { fromStep });
+export function tracciaPianoApprovatoAgente() {
+  trackEvent('piano_approvato_agente');
 }
 
-export function trackTutorialStepAdvance(stepIndex: string, stepName: string) {
-  trackEvent('tutorial_step_advance', { stepIndex, stepName });
+export function tracciaTemaCambiato(tema: string) {
+  trackEvent('tema_cambiato', { tema });
 }
 
-export function trackTutorialSkip(stepIndex: string) {
-  trackEvent('tutorial_skip', { stepIndex });
+export function tracciaProgettoImportato(nome: string, url_repo: string) {
+  trackEvent('progetto_importato', { nome, url_repo: url_repo.substring(0, 200) });
 }
 
-export function trackChatWelcomeDismissed() {
-  trackEvent('chat_welcome_dismissed');
+export function tracciaSidebarToggle(aperta: string) {
+  trackEvent('sidebar_toggle', { aperta });
 }
 
-// Errors
-export function trackError(errorMessage: string, context: string) {
-  trackEvent('error', { errorMessage: errorMessage.substring(0, 200), context });
+export function tracciaCopiaCodicePremuto() {
+  trackEvent('copia_codice');
 }
+
+// ── Backward Compatibility Aliases ──────────────────
+// These will be removed after all consumers are migrated
+
+export { tracciaLogin as trackLogin };
+export { tracciaRegistrazione as trackRegister };
+export { tracciaResetPassword as trackForgotPassword };
+export { tracciaLogout as trackLogout };
+export { tracciaEliminaAccount as trackDeleteAccount };
+export { tracciaErrore as trackError };
+export { tracciaSchermata as trackScreenView };
+export { tracciaProgettoCreato as trackProjectCreate };
+export { tracciaProgettoAperto as trackProjectOpen };
+export { tracciaProgettoEliminato as trackProjectDelete };
+export { tracciaProgettoRinominato as trackProjectRename };
+export { tracciaProgettoDuplicato as trackProjectDuplicate };
+export { tracciaProgettoCondiviso as trackProjectShare };
+export { tracciaProgettoFiltro as trackProjectFilter };
+export { tracciaProgettoEliminaMultipli as trackProjectBulkDelete };
+export { tracciaMessaggioChat as trackChatMessage };
+export { tracciaComandoTerminaleChat as trackChatTerminalCommand };
+export { tracciaNuovaChat as trackNewChat };
+export { tracciaChatMinimizzata as trackChatMinimize };
+export { tracciaChatSelezionata as trackChatSelect };
+export { tracciaChatEliminata as trackChatDelete };
+export { tracciaChatRinominata as trackChatRename };
+export { tracciaChatFissata as trackChatPin };
+export { tracciaChatSpostataCartella as trackChatMoveFolder };
+export { tracciaAnteprimaDaChat as trackChatOpenPreview };
+export { tracciaChatBenvenutoChiuso as trackChatWelcomeDismissed };
+export { tracciaModelloSelezionato as trackModelSelect };
+export { tracciaPannelloAperto as trackPanelOpen };
+export { tracciaPannelloChiuso as trackPanelClose };
+export { tracciaTabAperto as trackTabOpen };
+export { tracciaTabCambiato as trackTabSwitch };
+export { tracciaTabChiuso as trackTabClose };
+export { tracciaFileAperto as trackFileOpen };
+export { tracciaFileCreato as trackFileCreate };
+export { tracciaFileEliminato as trackFileDelete };
+export { tracciaFileRinominato as trackFileRename };
+export { tracciaRicercaFile as trackFileSearch };
+export { tracciaEsploraFile as trackBrowseFiles };
+export { tracciaLayoutGriglia as trackGridButton };
+export { tracciaModalitaIspettore as trackInspectMode };
+export { tracciaElementoSelezionato as trackElementSelected };
+export { tracciaCambioViewport as trackViewportChange };
+export { tracciaAnteprimaAvviata as trackPreviewStart };
+export { tracciaAnteprimaPronta as trackPreviewReady };
+export { tracciaAnteprimaAggiornata as trackPreviewRefresh };
+export { tracciaAnteprimaFermata as trackPreviewStop };
+export { tracciaErroreAnteprima as trackPreviewError };
+export { tracciaFixAIAnteprima as trackPreviewFixWithAI };
+export { tracciaPubblicazioneAvviata as trackPublish };
+export { tracciaPubblicazioneRiuscita as trackPublishSuccess };
+export { tracciaErrorePubblicazione as trackPublishError };
+export { tracciaLinkPubblicazioneCondiviso as trackPublishShare };
+export { tracciaUrlPubblicazioneAperto as trackPublishOpenUrl };
+export { tracciaDePubblicato as trackUnpublish };
+export { tracciaAzioneGit as trackGitAction };
+export { tracciaCommitCreato as trackGitCommit };
+export { tracciaCambioBranch as trackGitCheckout };
+export { tracciaPushEffettuato as trackGitPush };
+export { tracciaAuthGit as trackGitAuth };
+export { tracciaAuthGitRiuscita as trackGitAuthSuccess };
+export { tracciaErroreAuthGit as trackGitAuthError };
+export { tracciaAccountGitRimosso as trackGitAccountRemove };
+export { tracciaRepoConnesso as trackGitRepoConnect };
+export { tracciaRepoImportato as trackGitRepoImport };
+export { tracciaImportGitAvviato as trackGitImport };
+export { tracciaImportGitAnnullato as trackGitImportCancel };
+export { tracciaImportGitConfermato as trackGitImportConfirm };
+export { tracciaTabGitCambiato as trackGitTabSwitch };
+export { tracciaBranchCreato as trackGitBranchCreate };
+export { tracciaCronologiaCommit as trackGitCommitView };
+export { tracciaSelezionaTuttoGit as trackGitSelectAll };
+export { tracciaAccountGitCollegato as trackGitLinkAccount };
+export { tracciaAccountGitScollegato as trackGitUnlinkAccount };
+export { tracciaConnettiRepo as trackGitConnectRepo };
+export { tracciaImpostazioniAperte as trackSettingsModalOpen };
+export { tracciaImpostazioniChiuse as trackSettingsModalClose };
+export { tracciaLinguaCambiata as trackLanguageChange };
+export { tracciaPasswordCambiata as trackPasswordChange };
+export { tracciaErroreCambioPassword as trackPasswordChangeError };
+export { tracciaEmailCambiata as trackEmailChange };
+export { tracciaErroreCambioEmail as trackEmailChangeError };
+export { tracciaNomeCambiato as trackNameChange };
+export { tracciaVarAmbienteAggiunta as trackEnvVarAdd };
+export { tracciaVarAmbienteRimossa as trackEnvVarDelete };
+export { tracciaNotificheToggle as trackNotificationToggle };
+export { tracciaAcquistiRipristinati as trackRestorePurchases };
+export { tracciaDocumentoLegaleVisto as trackLegalView };
+export { tracciaPianoVisualizzato as trackPlanSelect };
+export { tracciaAcquistoAvviato as trackPurchaseStart };
+export { tracciaAcquistoCompletato as trackPurchaseSuccess };
+export { tracciaErroreAcquisto as trackPurchaseError };
+export { tracciaPaginaPianiVista as trackPlansView };
+export { tracciaPaginaPianiChiusa as trackPlansClose };
+export { tracciaCicloFatturazioneCambiato as trackBillingCycleChange };
+export { tracciaOnboardingStepCompletato as trackOnboardingStepCompleted };
+export { tracciaOnboardingStepSaltato as trackOnboardingSkip };
+export { tracciaOnboardingEsperienzaScelta as trackOnboardingExperienceSelected };
+export { tracciaOnboardingScopertaScelta as trackOnboardingReferralSelected };
+export { tracciaOnboardingCompletato as trackOnboardingCompleted };
+export { tracciaOnboardingPianoScelto as trackOnboardingPlanSelected };
+export { tracciaOnboardingIndietro as trackOnboardingBack };
+export { tracciaTutorialStepAvanzato as trackTutorialStepAdvance };
+export { tracciaTutorialSaltato as trackTutorialSkip };
