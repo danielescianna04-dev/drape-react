@@ -142,17 +142,15 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
 
   const handleNext = async () => {
     if (step === 'welcome') {
-      tracciaOnboardingStepCompletato('Benvenuto');
+      tracciaOnboardingStepCompletato('Ha premuto Continua');
       setStep('consent');
     } else if (step === 'consent') {
-      tracciaOnboardingStepCompletato('Privacy e Consenso');
+      // consent is handled by ConsentBanner onResolved
       setStep('experience');
     } else if (step === 'experience' && experienceLevel) {
-      tracciaOnboardingStepCompletato('Livello Esperienza');
       tracciaOnboardingEsperienzaScelta(experienceLevel);
       setStep('referral');
     } else if (step === 'referral' && referralSource) {
-      tracciaOnboardingStepCompletato('Come ci hai trovato');
       tracciaOnboardingScopertaScelta(referralSource);
       // Save onboarding answers — retry once on failure to prevent silent data loss
       const onboardingData = {
@@ -295,7 +293,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
         mode="step"
         forceShow
         onResolved={() => {
-          tracciaOnboardingStepCompletato('Privacy e Consenso');
+          tracciaOnboardingStepCompletato('Ha accettato i consensi');
           setStep('experience');
         }}
       />
