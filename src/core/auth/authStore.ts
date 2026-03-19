@@ -1122,23 +1122,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Now register device (may create doc via merge — but isNew already determined)
       await deviceService.registerAsActiveDevice(userCredential.user.uid);
 
-      if (isNew) {
-        await setDoc(userDocRef, {
-          email: userCredential.user.email,
-          displayName: userCredential.user.displayName,
-          photoURL: userCredential.user.photoURL,
+      // Always write essential fields with merge to handle partially created accounts
+      await setDoc(userDocRef, {
+        email: userCredential.user.email,
+        displayName: userCredential.user.displayName,
+        photoURL: userCredential.user.photoURL,
+        provider: 'google',
+        updatedAt: serverTimestamp(),
+        ...(isNew ? {
           hasCreatedFirstProject: false,
           onboardingCompleted: false,
           createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          provider: 'google',
-        });
-      } else {
-        await setDoc(userDocRef, {
-          updatedAt: serverTimestamp(),
+        } : {
           lastLogin: serverTimestamp(),
-        }, { merge: true });
-      }
+        }),
+      }, { merge: true });
 
       const userData = isNew ? null : userDoc.data();
 
@@ -1243,23 +1241,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await deviceService.registerAsActiveDevice(userCredential.user.uid);
 
       // Create/update user document in Firestore
-      if (isNew) {
-        await setDoc(userDocRef, {
-          email: userCredential.user.email,
-          displayName: drapeUser.displayName,
-          photoURL: userCredential.user.photoURL,
+      // Always write essential fields with merge to handle partially created accounts
+      // (e.g. first sign-in failed after registerAsActiveDevice but before setDoc)
+      await setDoc(userDocRef, {
+        email: userCredential.user.email,
+        displayName: drapeUser.displayName,
+        photoURL: userCredential.user.photoURL,
+        provider: 'apple',
+        updatedAt: serverTimestamp(),
+        ...(isNew ? {
           hasCreatedFirstProject: false,
           onboardingCompleted: false,
           createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          provider: 'apple',
-        });
-      } else {
-        await setDoc(userDocRef, {
-          updatedAt: serverTimestamp(),
+        } : {
           lastLogin: serverTimestamp(),
-        }, { merge: true });
-      }
+        }),
+      }, { merge: true });
 
       const userData = isNew ? null : userDoc.data();
 
