@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, Share } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
-import { tracciaLinkPubblicazioneCondiviso, tracciaUrlPubblicazioneAperto, tracciaDePubblicato, tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
+import { tracciaLinkPubblicazioneCondiviso, tracciaUrlPubblicazioneAperto, tracciaDePubblicato, tracciaPaginaPianiVista, tracciaPaywallPubblicaMostrato } from '../../../core/services/analyticsService';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
 
 export interface PreviewPublishSheetProps {
@@ -37,6 +37,13 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
   isFreeUser,
 }) => {
   const { t } = useTranslation();
+
+  useEffect(() => {
+    if (visible && isFreeUser && !existingPublish) {
+      tracciaPaywallPubblicaMostrato();
+    }
+  }, [visible]);
+
   return (
     <Modal
       visible={visible}

@@ -60,6 +60,7 @@ export async function tracciaEliminaAccount() {
   await addDoc(collection(db, 'user_events'), {
     type: 'elimina_account',
     userId: user.uid,
+    email: user.email || '',
     platform: Platform.OS,
     deviceType: getDeviceType(),
     timestamp: serverTimestamp(),
@@ -80,6 +81,38 @@ export function tracciaSchermata(schermata: string) {
 
 export function tracciaProgettoCreato(nome: string, linguaggio: string, modalita: string, descrizione?: string) {
   trackEvent('progetto_creato', { nome, linguaggio, modalita, ...(descrizione ? { descrizione: descrizione.substring(0, 200) } : {}) });
+}
+
+export function tracciaContinuaPremuto(da_step: string) {
+  trackEvent('continua_premuto', { da_step });
+}
+
+export function tracciaLinguaggioSelezionato(linguaggio: string, consigliato: boolean) {
+  trackEvent('linguaggio_selezionato', { linguaggio, consigliato: consigliato ? 'sì' : 'no' });
+}
+
+export function tracciaNomeProgetto(nome: string) {
+  trackEvent('nome_progetto_inserito', { nome });
+}
+
+export function tracciaGenerazioneAvviata(nome: string, linguaggio: string) {
+  trackEvent('generazione_avviata', { nome, linguaggio });
+}
+
+export function tracciaEntrataNelProgetto(nome: string) {
+  trackEvent('entrato_nel_progetto', { nome });
+}
+
+export function tracciaTemplateCancellato(template: string) {
+  trackEvent('template_idea_cancellato', { template });
+}
+
+export function tracciaCloudMode(attivo: boolean) {
+  trackEvent('cloud_mode_toggle', { attivo: attivo ? 'sì' : 'no' });
+}
+
+export function tracciaDescrizionePersonalizzata() {
+  trackEvent('descrizione_personalizzata');
 }
 
 export function tracciaProgettoAperto(nome: string) {
@@ -250,6 +283,14 @@ export function tracciaFixAIAnteprima() {
 
 // ── Pubblicazione ───────────────────────────────────
 
+export function tracciaPubblicaPremuto() {
+  trackEvent('pubblica_premuto');
+}
+
+export function tracciaPaywallPubblicaMostrato() {
+  trackEvent('paywall_pubblica_mostrato');
+}
+
 export function tracciaPubblicazioneAvviata(slug: string) {
   trackEvent('pubblicazione_avviata', { slug });
 }
@@ -326,6 +367,10 @@ export function tracciaImportGitAnnullato() {
 
 export function tracciaImportGitConfermato(url_repo: string) {
   trackEvent('import_git_confermato', { url_repo: url_repo.substring(0, 200) });
+}
+
+export function tracciaImportGitRepoNonValida(url_repo: string) {
+  trackEvent('import_git_repo_non_valida', { url_repo: url_repo.substring(0, 200) });
 }
 
 export function tracciaTabGitCambiato(tab: string) {
@@ -468,6 +513,10 @@ export function tracciaOnboardingPianoScelto(piano: string) {
 
 export function tracciaOnboardingIndietro(da_step: string) {
   trackEvent('onboarding_indietro', { da_step });
+}
+
+export function tracciaNavigazioneIndietro(a_schermata: string) {
+  trackEvent('navigazione_indietro', { a_schermata });
 }
 
 export function tracciaTutorialStepAvanzato(indice: string, nome_step: string) {

@@ -28,7 +28,7 @@ import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 // DescriptionInput no longer used — step 1 uses inline textarea
 import { liveActivityService } from '../../core/services/liveActivityService';
-import { tracciaProgettoCreato, tracciaErrore, tracciaSchermata, tracciaOnboardingIdeaChip, tracciaErroreCreazioneProgetto } from '../../core/services/analyticsService';
+import { tracciaProgettoCreato, tracciaErrore, tracciaSchermata, tracciaOnboardingIdeaChip, tracciaErroreCreazioneProgetto, tracciaNavigazioneIndietro, tracciaContinuaPremuto, tracciaLinguaggioSelezionato, tracciaNomeProgetto, tracciaGenerazioneAvviata, tracciaEntrataNelProgetto, tracciaTemplateCancellato, tracciaCloudMode, tracciaDescrizionePersonalizzata } from '../../core/services/analyticsService';
 import { useAgentStream, AgentMode } from '../../core/ai/useAgentStream';
 import { useAgentStore } from '../../core/ai/agentStore';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
@@ -142,6 +142,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const inputRef = useRef<TextInput>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const activeTaskIdRef = useRef<string | null>(null);
+  const activeChipRef = useRef<{ id: string; prompt: string } | null>(null);
+  const hasTrackedCustomDesc = useRef(false);
 
   // Agent system state
   const [showModeModal, setShowModeModal] = useState(false);
@@ -194,6 +196,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   ];
 
   const handleCloudToggle = () => {
+    tracciaCloudMode(!cloudEnabled);
     setCloudEnabled(!cloudEnabled);
   };
 
@@ -297,9 +300,15 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   }, []);
 
   useEffect(() => {
-    // Track screen view for each step
-    const stepNames = ['', 'Crea Progetto - Idea', 'Crea Progetto - Linguaggio', 'Crea Progetto - Nome'];
-    tracciaSchermata(stepNames[step] || 'Crea Progetto');
+    // Track screen view for each step (step 2 tracked after AI recommendation in analyzeRequirements)
+    if (step !== 2) {
+      const stepNames = ['', 'Crea Progetto - Descrivi la tua idea', '', 'Crea Progetto - Nome del progetto'];
+      tracciaSchermata(stepNames[step] || 'Crea Progetto');
+    }
+    // Reset custom description tracking when returning to step 1
+    if (step === 1) {
+      hasTrackedCustomDesc.current = false;
+    }
 
     // Animate progress bar
     Animated.timing(progressAnim, {
@@ -418,6 +427,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                   setTimeout(() => {
                     setIsCreating(false);
                     setCreationTask(null);
+                    tracciaEntrataNelProgetto(pName);
                     onCreate(workstation);
                   }, 500);
                   return;
@@ -511,6 +521,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           setShowPostCreationPaywall(true);
           await AsyncStorage.setItem('hasSeenPostCreationPaywall', 'true');
         } else {
+          tracciaEntrataNelProgetto(workstation.name);
           onCreate(workstation);
         }
       }, 800);
@@ -533,6 +544,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       setTimeout(() => {
         setIsCreating(false);
         resetStream();
+        tracciaEntrataNelProgetto(workstation.name);
         onCreate(workstation);
       }, 800);
     }
@@ -627,6 +639,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             setTimeout(() => {
               setIsCreating(false);
               setCreationTask(null);
+              tracciaEntrataNelProgetto(pName);
               onCreate(workstation);
             }, 1200);
           } else if (task.status === 'failed') {
@@ -669,6 +682,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       // Project name stays empty — user fills it in step 3
 
       Keyboard.dismiss();
+      tracciaContinuaPremuto('Descrivi la tua idea');
 
       // AI Analysis
       analyzeRequirements();
@@ -679,9 +693,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         return;
       }
       Keyboard.dismiss();
-      // Track language selection with the specific language chosen
       const lang = languages.find(l => l.id === selectedLanguage);
-      tracciaSchermata(`Crea Progetto - Linguaggio: ${lang?.name || selectedLanguage}`);
+      tracciaContinuaPremuto('Seleziona linguaggio');
       animateStepTransition(3, 'forward');
     }
   };
@@ -743,11 +756,17 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           if (!languageCategories[0].items.includes(match.id)) {
             setShowAllLangs(true);
           }
+          tracciaSchermata(`Crea Progetto - Scegli il linguaggio (${match.name} consigliato)`);
+        } else {
+          tracciaSchermata('Crea Progetto - Scegli il linguaggio');
         }
+      } else {
+        if (isMounted) tracciaSchermata('Crea Progetto - Scegli il linguaggio');
       }
     } catch (error) {
       if (isMounted) {
         console.error("AI recommendation failed", error);
+        tracciaSchermata('Crea Progetto - Scegli il linguaggio');
       }
       // Fail silently, let user choose
     } finally {
@@ -759,6 +778,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
   const handleBack = () => {
     if (step > 1) {
+      const stepNames = ['', 'Descrivi la tua idea', 'Scegli il linguaggio', 'Nome del progetto'];
+      tracciaNavigazioneIndietro(stepNames[step - 1]);
       animateStepTransition(step - 1, 'back');
     } else {
       // Clear any polling interval when leaving the screen
@@ -766,12 +787,16 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
+      tracciaNavigazioneIndietro('Scelta Primo Progetto');
       onBack();
     }
   };
 
   const handleCreate = async () => {
     Keyboard.dismiss();
+    tracciaNomeProgetto(projectName.trim());
+    tracciaContinuaPremuto('Nome del progetto');
+    tracciaGenerazioneAvviata(projectName.trim(), selectedLanguage);
 
     // Use agent system directly in fast mode
     if (useAgentSystem) {
@@ -966,9 +991,29 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     const chip = ideaChips.find(c => c.id === chipId);
     if (chip) {
       tracciaOnboardingIdeaChip(chipId);
+      activeChipRef.current = { id: chipId, prompt: chip.prompt };
       setDescription(chip.prompt);
       inputRef.current?.focus();
     }
+  };
+
+  const handleDescriptionChange = (text: string) => {
+    if (text.length > 500) return;
+    // If user had a template selected and now cleared/changed it
+    if (activeChipRef.current && text !== activeChipRef.current.prompt) {
+      tracciaTemplateCancellato(activeChipRef.current.id);
+      activeChipRef.current = null;
+    }
+    // Track when user starts writing their own description (fire once)
+    if (!activeChipRef.current && text.length > 0 && !hasTrackedCustomDesc.current) {
+      hasTrackedCustomDesc.current = true;
+      tracciaDescrizionePersonalizzata();
+    }
+    // Reset if user clears everything
+    if (text.length === 0) {
+      hasTrackedCustomDesc.current = false;
+    }
+    setDescription(text);
   };
 
   const renderStep1 = () => (
@@ -1025,9 +1070,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
               placeholder={t('create.startTyping')}
               placeholderTextColor="rgba(255,255,255,0.25)"
               value={description}
-              onChangeText={(text) => {
-                if (text.length <= 500) setDescription(text);
-              }}
+              onChangeText={handleDescriptionChange}
               maxLength={500}
               multiline
               scrollEnabled={true}
@@ -1059,9 +1102,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
               placeholder={t('create.startTyping')}
               placeholderTextColor="rgba(255,255,255,0.25)"
               value={description}
-              onChangeText={(text) => {
-                if (text.length <= 500) setDescription(text);
-              }}
+              onChangeText={handleDescriptionChange}
               maxLength={500}
               multiline
               scrollEnabled={true}
@@ -1209,7 +1250,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                       useGlass && styles.langCardGlass,
                       isSelected && { borderColor: lang.color, backgroundColor: useGlass ? 'transparent' : 'rgba(255,255,255,0.08)' }
                     ]}
-                    onPress={() => setSelectedLanguage(lang.id)}
+                    onPress={() => { setSelectedLanguage(lang.id); tracciaLinguaggioSelezionato(lang.name, lang.id === aiRecommendedLang); }}
                     activeOpacity={0.7}
                   >
                     {useGlass ? (
@@ -1668,7 +1709,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                 style={styles.upgradeDismiss}
                 onPress={() => {
                   setShowPostCreationPaywall(false);
-                  if (pendingWorkstation) onCreate(pendingWorkstation);
+                  if (pendingWorkstation) {
+                    tracciaEntrataNelProgetto(pendingWorkstation.name);
+                    onCreate(pendingWorkstation);
+                  }
                 }}
               >
                 <Text style={styles.upgradeDismissText}>{t('limit.notNow')}</Text>

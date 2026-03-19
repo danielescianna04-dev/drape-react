@@ -9,7 +9,7 @@ import { config } from '../../../config/config';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
 import { useTranslation } from 'react-i18next';
 import * as Clipboard from 'expo-clipboard';
-import { tracciaImportGitAnnullato, tracciaImportGitConfermato } from '../../../core/services/analyticsService';
+import { tracciaImportGitAnnullato, tracciaImportGitConfermato, tracciaImportGitRepoNonValida } from '../../../core/services/analyticsService';
 
 interface Props {
   visible: boolean;
@@ -138,9 +138,17 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
     );
   };
 
+  const [urlError, setUrlError] = useState('');
+
   const handleImport = () => {
     const url = String(repoUrl || '').trim();
     if (url) {
+      if (!isGitUrl(url)) {
+        tracciaImportGitRepoNonValida(url);
+        setUrlError(t('terminal:import.invalidUrl', 'Link non valido'));
+        return;
+      }
+      setUrlError('');
       tracciaImportGitConfermato(url);
       onImport(url, selectedBranch || undefined);
       setRepoUrl('');
@@ -215,7 +223,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
           <TextInput
             style={styles.input}
             value={String(repoUrl || '')}
-            onChangeText={(text) => setRepoUrl(String(text || ''))}
+            onChangeText={(text) => { setRepoUrl(String(text || '')); if (urlError) setUrlError(''); }}
             placeholder={t('terminal:connectRepo.urlPlaceholder')}
             placeholderTextColor={AppColors.white.w35}
             autoCapitalize="none"
@@ -228,12 +236,15 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
           {repoUrl.length > 0 && !isLoading && (
             <TouchableOpacity
               style={styles.clearButton}
-              onPress={() => setRepoUrl('')}
+              onPress={() => { setRepoUrl(''); setUrlError(''); }}
             >
               <Ionicons name="close-circle" size={18} color={AppColors.white.w40} />
             </TouchableOpacity>
           )}
         </View>
+        {urlError ? (
+          <Text style={{ color: '#ef4444', fontSize: 13, marginTop: 6, marginLeft: 4 }}>{urlError}</Text>
+        ) : null}
       </View>
 
       {/* Branch selector */}

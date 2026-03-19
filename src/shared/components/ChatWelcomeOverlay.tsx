@@ -33,7 +33,7 @@ export const ChatWelcomeOverlay = () => {
 
   useEffect(() => {
     if (visible) {
-      tracciaSchermata('Benvenuto Chat');
+      tracciaSchermata('Modale tutorial prima registrazione');
       fadeAnim.setValue(0);
       scaleAnim.setValue(0.9);
       Animated.parallel([

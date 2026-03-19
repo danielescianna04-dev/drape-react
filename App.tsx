@@ -46,7 +46,7 @@ import { useFileCacheStore } from './src/core/cache/fileCacheStore';
 import { useBackendLogs } from './src/hooks/api/useBackendLogs';
 import { useFileSync } from './src/hooks/business/useFileSync';
 import { useNavigationStore } from './src/core/navigation/navigationStore';
-import { tracciaSchermata } from './src/core/services/analyticsService';
+import { tracciaSchermata, tracciaEntrataNelProgetto } from './src/core/services/analyticsService';
 import { useUIStore } from './src/core/terminal/uiStore';
 import { getAuthToken } from './src/core/api/getAuthToken';
 import * as Notifications from 'expo-notifications';
@@ -165,11 +165,12 @@ export default function App() {
       if (next !== prev && next !== 'splash') {
         // Map internal screen names to Italian labels for analytics
         const screenLabels: Record<string, string> = {
-          auth: 'Login', home: 'Home', create: 'Crea Progetto',
-          terminal: 'Editor', allProjects: 'Tutti i Progetti',
+          auth: 'Login', home: 'Home',
+          allProjects: 'Tutti i Progetti',
           settings: 'Impostazioni', plans: 'Piani',
           firstProjectChoice: 'Scelta Primo Progetto',
           // onboarding/onboardingFlow: tracked by OnboardingFlowScreen with specific step names
+          // create: tracked by CreateProjectScreen with specific step names (Idea/Linguaggio/Nome)
         };
         // Skip screens that self-track (onboarding steps track themselves)
         if (!screenLabels[next]) return next;
@@ -600,7 +601,7 @@ export default function App() {
     };
   }, []);
 
-  const handleImportRepo = async (url: string, newToken?: string, forceCopy?: boolean, branch?: string) => {
+  const handleImportRepo = async (url: string, newToken?: string, forceCopy?: boolean, branch?: string, skipLimitCheck?: boolean) => {
     // Guard against double calls
     if (importInProgress.current) {
       return;
@@ -945,11 +946,12 @@ export default function App() {
       }
 
       // Pre-check clone limits using lifetime counters (never reset on delete)
+      // Skip during onboarding first project — user must always be able to create their first project
       const userPlan = useAuthStore.getState().user?.plan || 'free';
       const planCloneLimits: Record<string, number> = { free: 1, go: 5, pro: 25, team: 100 };
       const maxCloned = planCloneLimits[userPlan] || 1;
       const lifetimeCounts = await workstationService.getLifetimeCreationCounts(userId);
-      if (lifetimeCounts.cloned >= maxCloned) {
+      if (!skipLimitCheck && lifetimeCounts.cloned >= maxCloned) {
         importInProgress.current = false;
         setIsImporting(false);
         setPendingFirstProjectImportFromScreen(null);
@@ -969,7 +971,14 @@ export default function App() {
       }
 
       const project = await workstationService.saveGitProject(url, userId, copyNumber);
-      const wsResult = await workstationService.createWorkstationForProject(project, githubToken, branch);
+      let wsResult;
+      try {
+        wsResult = await workstationService.createWorkstationForProject(project, githubToken, branch);
+      } catch (wsError: any) {
+        // Clone failed — clean up the project doc created above
+        await workstationService.deleteProject(project.id).catch(() => {});
+        throw wsError;
+      }
 
       const workstation = {
         id: wsResult.workstationId || project.id,
@@ -1010,6 +1019,7 @@ export default function App() {
       // ALSO clear the global terminal log!
       clearGlobalTerminalLog();
 
+      tracciaEntrataNelProgetto(workstation.name || repoName);
       setCurrentScreen('terminal');
 
       // Add loading message to chat and clone repository
@@ -1133,6 +1143,8 @@ export default function App() {
               }
             } else {
               liveActivityService.endPreviewActivity().catch(() => {});
+              // Clone failed — delete the project so it doesn't count toward limits
+              await workstationService.deleteProject(workstation.projectId).catch(() => {});
               addTerminalItemToStore(currentTab.id, {
                 id: `error-${Date.now()}`,
                 type: 'error',
@@ -1201,7 +1213,7 @@ export default function App() {
   const handleFirstProjectClone = async (url: string, branch?: string) => {
     const previousWorkstationId = useTerminalStore.getState().currentWorkstation?.id || null;
 
-    await handleImportRepo(url, undefined, undefined, branch);
+    await handleImportRepo(url, undefined, undefined, branch, true);
 
     const nextWorkstation = useTerminalStore.getState().currentWorkstation;
     const nextWorkstationId = nextWorkstation?.id || null;

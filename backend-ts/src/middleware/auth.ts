@@ -277,11 +277,12 @@ export async function getLifetimeCreationCounts(userId: string): Promise<Creatio
     if (data) {
       return { created: data.created || 0, cloned: data.cloned || 0, local: data.local || 0 };
     }
-    // Fallback for old accounts without creationCounters: count existing projects
+    // Fallback for old accounts without creationCounters: count existing projects (exclude failed/creating)
     const projectsSnap = await db.collection('user_projects').where('userId', '==', userId).get();
     let created = 0, cloned = 0, local = 0;
     projectsSnap.docs.forEach(d => {
       const p = d.data();
+      if (p.status === 'creating' || p.status === 'failed') return;
       if (p.source === 'local') local++;
       else if (p.repositoryUrl) cloned++;
       else created++;

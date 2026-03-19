@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Alert } from 'react-native';
 import i18next from 'i18next';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
-import { tracciaPubblicazioneAvviata, tracciaPubblicazioneRiuscita, tracciaErrorePubblicazione } from '../../../core/services/analyticsService';
+import { tracciaPubblicazioneAvviata, tracciaPubblicazioneRiuscita, tracciaErrorePubblicazione, tracciaPubblicaPremuto } from '../../../core/services/analyticsService';
 
 interface PublishState {
   showPublishModal: boolean;
@@ -129,6 +129,7 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
   };
 
   const openPublishModal = () => {
+    tracciaPubblicaPremuto();
     setPublishSlug(existingPublish?.slug || '');
     setPublishStatus('idle');
     setPublishedUrl(null);
