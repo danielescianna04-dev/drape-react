@@ -135,7 +135,7 @@
     "upgradeToCreate": "per crearne fino a 5",
     "features": {
       "projects": "5 progetti + 3 clonati",
-      "previews": "Fino a 20 preview/mese",
+      "previews": "Preview illimitate",
       "budget": "Budget AI raddoppiato"
     },
     "notNow": "Non ora",
@@ -192,11 +192,17 @@
     "recommended": "Consigliato",
     "perMonth": "/mese",
     "introOffer": "Primo mese — poi {{price}}/mese",
+    "freeTrialGeneric": "Prova gratis",
+    "freeTrialDays": "{{count}} giorni gratis",
+    "freeTrialWeeks": "{{count}} settimane gratis",
+    "freeTrialMonths": "{{count}} mesi gratis",
+    "freeTrialYears": "{{count}} anni gratis",
+    "freeTrialThen": "Poi {{price}}/mese",
     "startGo": "Inizia con Go",
     "continueFree": "Continua gratis",
     "goFeatures": {
       "projects": "5 progetti + 5 clonati",
-      "previews": "20 preview al mese",
+      "previews": "Preview illimitate",
       "aiBudget": "Budget AI potenziato",
       "storage": "2GB Storage Cloud",
       "support": "Supporto email"

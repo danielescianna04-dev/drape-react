@@ -140,7 +140,7 @@
     "go": {
       "name": "Go",
       "description": "Per chi vuole creare sul serio.",
-      "features": ["10 progetti + 5 clonati", "20 preview per progetto", "Budget AI potenziato", "Pubblica progetti", "5GB Storage Cloud", "Supporto email"]
+      "features": ["10 progetti + 5 clonati", "Preview illimitate", "Budget AI potenziato", "Pubblica progetti", "5GB Storage Cloud", "Supporto email"]
     },
     "pro": {
       "name": "Pro",
@@ -155,13 +155,19 @@
     "elevateDesc": "Scatena la potenza dell'AI nei tuoi progetti con i piani Drape.",
     "secureTransactions": "Transazioni sicure via Stripe. Gestione abbonamento semplice e veloce dalle impostazioni.",
     "upgradeTo": "Passa a {{plan}}",
-    "upgradeFeatures": "Piu progetti, 20 preview per progetto e budget AI raddoppiato.",
+    "upgradeFeatures": "Piu progetti, preview illimitate e budget AI raddoppiato.",
     "currentPlan": "Piano Attuale",
     "freePlan": "Piano Gratuito",
     "recommended": "CONSIGLIATO",
     "active": "ATTIVO",
     "perMonth": "/mese",
     "perYear": "/anno",
+    "thenPrice": "poi {{price}}{{period}}",
+    "freeTrialGeneric": "Prova gratis",
+    "freeTrialDays": "{{count}} giorni gratis",
+    "freeTrialWeeks": "{{count}} settimane gratis",
+    "freeTrialMonths": "{{count}} mesi gratis",
+    "freeTrialYears": "{{count}} anni gratis",
     "firstMonth": "Primo mese — poi prezzo pieno",
     "restoring": "Ripristino in corso...",
     "restorePurchases": "Ripristina Acquisti",
@@ -189,7 +195,8 @@
     "active": "attive",
     "projects": "Progetti",
     "projectsActive": "attivi",
-    "perProject": "per progetto"
+    "perProject": "per progetto",
+    "unlimited": "Illimitate"
   },
   "language": {
     "title": "Lingua",

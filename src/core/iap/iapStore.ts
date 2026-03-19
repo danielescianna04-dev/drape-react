@@ -5,6 +5,8 @@ import { iapService, IAPProduct, IAPError } from './iapService';
 import { getProductId, PRODUCT_TO_PLAN } from './iapConstants';
 import { useAuthStore } from '../auth/authStore';
 
+type AppPlan = 'free' | 'go' | 'pro' | 'team';
+
 interface IAPState {
   products: IAPProduct[];
   currentProductId: string | null;
@@ -16,7 +18,7 @@ interface IAPState {
   celebrationPlan: string | null;
 
   initialize: () => Promise<void>;
-  loadProducts: () => Promise<void>;
+  loadProducts: (forceRefresh?: boolean) => Promise<void>;
   purchase: (plan: 'go' | 'pro', cycle: 'monthly' | 'yearly') => Promise<void>;
   restorePurchases: () => Promise<{ success: boolean; plan?: string }>;
   refreshPlan: () => Promise<void>;
@@ -40,10 +42,10 @@ export const useIAPStore = create<IAPState>((set, get) => ({
     await get().loadProducts();
   },
 
-  loadProducts: async () => {
+  loadProducts: async (forceRefresh = false) => {
     set({ isLoadingProducts: true });
     try {
-      const products = await iapService.getProducts();
+      const products = await iapService.getProducts(forceRefresh);
       set({ products, isLoadingProducts: false });
     } catch {
       set({ isLoadingProducts: false });
@@ -57,12 +59,13 @@ export const useIAPStore = create<IAPState>((set, get) => ({
     try {
       await iapService.requestPurchase(productId, {
         onComplete: async (resultPlan) => {
+          const normalizedPlan = resultPlan as AppPlan;
           // Update plan directly in authStore from the server response
           const user = useAuthStore.getState().user;
           if (user) {
-            useAuthStore.setState({ user: { ...user, plan: resultPlan } });
+            useAuthStore.setState({ user: { ...user, plan: normalizedPlan } });
           }
-          set({ isPurchasing: false, currentProductId: productId, showCelebration: true, celebrationPlan: resultPlan });
+          set({ isPurchasing: false, currentProductId: productId, showCelebration: true, celebrationPlan: normalizedPlan });
         },
         onError: (error) => {
           if (error !== 'cancelled') {
@@ -82,9 +85,10 @@ export const useIAPStore = create<IAPState>((set, get) => ({
     try {
       const result = await iapService.restorePurchases();
       if (result.success && result.plan && result.plan !== 'free') {
+        const normalizedPlan = result.plan as AppPlan;
         const user = useAuthStore.getState().user;
         if (user) {
-          useAuthStore.setState({ user: { ...user, plan: result.plan } });
+          useAuthStore.setState({ user: { ...user, plan: normalizedPlan } });
         }
       }
       set({ isRestoring: false });

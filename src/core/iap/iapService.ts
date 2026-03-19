@@ -103,7 +103,11 @@ class IAPService {
     }
   }
 
-  async getProducts(): Promise<IAPProduct[]> {
+  async getProducts(forceRefresh = false): Promise<IAPProduct[]> {
+    if (forceRefresh) {
+      this.products = [];
+    }
+
     if (this.products.length > 0) return this.products;
 
     if (!this.initialized) {
@@ -129,7 +133,7 @@ class IAPService {
         if (!introAmount && s.subscriptionOffers) {
           const offers = Array.isArray(s.subscriptionOffers) ? s.subscriptionOffers : [];
           const introOffer = offers.find((o: any) => o.type === 'introductory' || o.type === 'Introductory');
-          if (introOffer?.price != null && introOffer.price > 0) {
+          if (introOffer?.price != null) {
             introAmount = String(introOffer.price);
           }
         }
@@ -137,13 +141,13 @@ class IAPService {
         // 2. subscriptionInfoIOS.introductoryOffer
         if (!introAmount && s.subscriptionInfoIOS?.introductoryOffer) {
           const offer = s.subscriptionInfoIOS.introductoryOffer;
-          if (offer.price != null && offer.price > 0) {
+          if (offer.price != null) {
             introAmount = String(offer.price);
           }
         }
 
         // 3. Direct iOS fields
-        if (!introAmount && s.introductoryPriceAsAmountIOS != null && Number(s.introductoryPriceAsAmountIOS) > 0) {
+        if (!introAmount && s.introductoryPriceAsAmountIOS != null) {
           introAmount = String(s.introductoryPriceAsAmountIOS);
         } else if (!introAmount && s.introductoryPriceIOS) {
           const match = s.introductoryPriceIOS.match(/[\d,.]+/);

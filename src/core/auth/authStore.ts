@@ -451,7 +451,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // Existing accounts created before this flag rollout must not be treated as "new"
         // just because legacy fields are missing. Only brand-new docs or an explicit
         // unfinished onboarding state should force the onboarding flow.
-        const needsOnboarding = userDocSnap.exists() && userData?.onboardingCompleted === false;
+        const needsOnboarding =
+          userDocSnap.exists() &&
+          userData?.onboardingCompleted === false &&
+          !userData?.hasCreatedFirstProject;
         const isNew = !userDocSnap.exists() || _pendingNewUser || needsOnboarding;
 
         // CRITICAL: never overwrite isNewUser=true set by signIn functions.
@@ -552,7 +555,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const isNewFromFirestore = !userDocSnap.exists();
 
       // Layer 4: users who explicitly have onboardingCompleted=false must resume onboarding.
-      const needsOnboarding = userDocSnap.exists() && userData?.onboardingCompleted === false;
+      const needsOnboarding =
+        userDocSnap.exists() &&
+        userData?.onboardingCompleted === false &&
+        !userData?.hasCreatedFirstProject;
 
       // Triple defense: any signal of "new" wins
       const isNew = isNewFromAuth || isNewFromFirestore || needsOnboarding;

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Alert, ActivityIndicator, Share } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { GlassCard } from './GlassCard';
 import { SettingItem } from './SettingItem';
@@ -62,8 +62,7 @@ export const DataExportSection: React.FC<DataExportSectionProps> = ({ loading, t
 
       await FileSystem.writeAsStringAsync(
         filePath,
-        JSON.stringify(result.data, null, 2),
-        { encoding: FileSystem.EncodingType.UTF8 }
+        JSON.stringify(result.data, null, 2)
       );
 
       // Share the file using React Native's built-in Share API

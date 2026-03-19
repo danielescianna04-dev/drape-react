@@ -140,7 +140,7 @@
     "go": {
       "name": "Go",
       "description": "For those who want to create seriously.",
-      "features": ["10 projects + 5 cloned", "20 previews per project", "Enhanced AI budget", "Publish projects", "5GB Cloud Storage", "Email support"]
+      "features": ["10 projects + 5 cloned", "Unlimited previews", "Enhanced AI budget", "Publish projects", "5GB Cloud Storage", "Email support"]
     },
     "pro": {
       "name": "Pro",
@@ -155,13 +155,19 @@
     "elevateDesc": "Unleash AI power in your projects with Drape plans.",
     "secureTransactions": "Secure transactions via Stripe. Simple and fast subscription management from settings.",
     "upgradeTo": "Upgrade to {{plan}}",
-    "upgradeFeatures": "More projects, 20 previews per project and doubled AI budget.",
+    "upgradeFeatures": "More projects, unlimited previews and doubled AI budget.",
     "currentPlan": "Current Plan",
     "freePlan": "Free Plan",
     "recommended": "RECOMMENDED",
     "active": "ACTIVE",
     "perMonth": "/month",
     "perYear": "/year",
+    "thenPrice": "then {{price}}{{period}}",
+    "freeTrialGeneric": "Free trial",
+    "freeTrialDays": "{{count}} days free",
+    "freeTrialWeeks": "{{count}} weeks free",
+    "freeTrialMonths": "{{count}} months free",
+    "freeTrialYears": "{{count}} years free",
     "firstMonth": "First month — then regular price",
     "restoring": "Restoring...",
     "restorePurchases": "Restore Purchases",
@@ -189,7 +195,8 @@
     "active": "active",
     "projects": "Projects",
     "projectsActive": "active",
-    "perProject": "per project"
+    "perProject": "per project",
+    "unlimited": "Unlimited"
   },
   "language": {
     "title": "Language",

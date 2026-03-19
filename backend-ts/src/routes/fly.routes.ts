@@ -80,8 +80,8 @@ flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  // Enforce preview limit per project (free: 5, go: 20, pro: 75, team: 300)
-  const previewLimits: Record<string, number> = { free: 5, go: 20, pro: 75, team: 300 };
+  // Enforce preview limit per project (free: 5, go/pro: unlimited, team: 300)
+  const previewLimits: Record<string, number> = { free: 5, go: -1, pro: -1, team: 300 };
   const userPlan = await getUserPlan(uid);
   const maxPreviews = previewLimits[userPlan] || previewLimits.free;
   const fbDb = firebaseService.getFirestore();
@@ -89,8 +89,8 @@ flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response
     const projectRef = fbDb.collection('user_projects').doc(projectId as string);
     const projectDoc = await projectRef.get();
     const currentCount = projectDoc.exists ? (projectDoc.data()?.previewCount || 0) : 0;
-    log.info(`[Fly] Preview count for ${projectId}: ${currentCount}/${maxPreviews} (plan: ${userPlan})`);
-    if (currentCount >= maxPreviews) {
+    log.info(`[Fly] Preview count for ${projectId}: ${currentCount}/${maxPreviews < 0 ? 'unlimited' : maxPreviews} (plan: ${userPlan})`);
+    if (maxPreviews >= 0 && currentCount >= maxPreviews) {
       log.warn(`[Fly] Preview limit reached for project ${projectId}: ${currentCount}/${maxPreviews}`);
       return res.status(403).json({
         error: 'PREVIEW_LIMIT_EXCEEDED',

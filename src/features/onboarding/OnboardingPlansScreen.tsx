@@ -28,13 +28,37 @@ interface Props {
 
 export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser = false, onSelectPlan }) => {
   const { t } = useTranslation(['projects', 'common']);
-  const { products: iapProducts } = useIAPStore();
+  const { products: iapProducts, loadProducts } = useIAPStore();
   const [showLegal, setShowLegal] = useState<'privacy' | 'terms' | null>(null);
   const goProduct = iapProducts.find(p => p.productId === IAP_PRODUCT_IDS.GO_MONTHLY);
   const goMonthlyPrice = goProduct?.localizedPrice || '€22.99';
   const goIntroPrice = goProduct?.introductoryPrice
     ? `${goProduct.currency === 'EUR' ? '€' : goProduct.currency === 'USD' ? '$' : goProduct.currency || '€'}${goProduct.introductoryPrice}`
     : undefined;
+  const goIntroValue = goProduct?.introductoryPrice ? Number(String(goProduct.introductoryPrice).replace(',', '.')) : NaN;
+  const isGoFreeTrial = Number.isFinite(goIntroValue) && goIntroValue === 0;
+
+  const getTrialUnit = (period?: string): string | null => {
+    if (!period) return null;
+    const upper = period.toUpperCase();
+    if (upper.includes('DAY') || upper.includes('P1D') || upper.includes('D')) return 'day';
+    if (upper.includes('WEEK') || upper.includes('W')) return 'week';
+    if (upper.includes('MONTH') || upper.includes('M')) return 'month';
+    if (upper.includes('YEAR') || upper.includes('Y')) return 'year';
+    return null;
+  };
+
+  const goTrialText = (() => {
+    if (!isGoFreeTrial) return undefined;
+    const count = goProduct?.introductoryPriceNumberOfPeriods;
+    const unit = getTrialUnit(goProduct?.introductoryPriceSubscriptionPeriod);
+    if (!count || !unit) return t('projects:onboardingPlans.freeTrialGeneric');
+    if (unit === 'day') return t('projects:onboardingPlans.freeTrialDays', { count });
+    if (unit === 'week') return t('projects:onboardingPlans.freeTrialWeeks', { count });
+    if (unit === 'month') return t('projects:onboardingPlans.freeTrialMonths', { count });
+    if (unit === 'year') return t('projects:onboardingPlans.freeTrialYears', { count });
+    return t('projects:onboardingPlans.freeTrialGeneric');
+  })();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -45,6 +69,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
 
   useEffect(() => {
     tracciaSchermata('Onboarding Piani');
+    loadProducts(true).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -129,18 +154,22 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
             <View style={styles.planHeader}>
               <Text style={styles.planName}>Go</Text>
               <View style={styles.planPriceRow}>
-                <Text style={styles.planPrice}>{goIntroPrice || goMonthlyPrice}</Text>
-                <Text style={styles.planPricePeriod}>{t('projects:onboardingPlans.perMonth')}</Text>
-                {goIntroPrice && (
+                <Text style={styles.planPrice}>{goTrialText || goIntroPrice || goMonthlyPrice}</Text>
+                {!goTrialText && <Text style={styles.planPricePeriod}>{t('projects:onboardingPlans.perMonth')}</Text>}
+                {goIntroPrice && !goTrialText && (
                   <Text style={styles.planPriceOriginal}>{goMonthlyPrice}</Text>
                 )}
               </View>
             </View>
-            {goIntroPrice && (
+            {goTrialText ? (
+              <Text style={styles.introOfferText}>
+                {t('projects:onboardingPlans.freeTrialThen', { price: goMonthlyPrice })}
+              </Text>
+            ) : goIntroPrice ? (
               <Text style={styles.introOfferText}>
                 {t('projects:onboardingPlans.introOffer', { price: goMonthlyPrice })}
               </Text>
-            )}
+            ) : null}
 
             <View style={styles.planFeatures}>
               {[

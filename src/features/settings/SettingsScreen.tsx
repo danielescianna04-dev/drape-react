@@ -10,6 +10,7 @@ import {
   Dimensions,
   PanResponder,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Circle, Rect, Line, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -40,12 +41,10 @@ import { EditNameModal } from './components/EditNameModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { SecuritySection } from './components/SecuritySection';
 import { DataExportSection } from './components/DataExportSection';
-import { useConsentStore } from '../../core/services/consentService';
 import { ChangeEmailModal } from './components/ChangeEmailModal';
 import { auth } from '../../config/firebase';
 import { LegalPage } from './components/LegalPage';
 import { PurchaseCelebrationModal } from '../../shared/components/modals/PurchaseCelebrationModal';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useIAPStore } from '../../core/iap/iapStore';
 import { IAP_PRODUCT_IDS, getProductId } from '../../core/iap/iapConstants';
 import { useToastStore } from '../../core/toast/toastStore';
@@ -107,6 +106,7 @@ const SIDE_INSET = (SCREEN_WIDTH - CARD_WIDTH) / 2;
 
 export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanIndex = 0 }: Props) => {
   const insets = useSafeAreaInsets();
+  const isUnlimitedPreviews = (limit?: number) => typeof limit === 'number' && limit < 0;
   const { user, logout, deleteAccount } = useAuthStore();
   const { t } = useTranslation('settings');
   const { language, setLanguage: setAppLanguage } = useLanguageStore();
@@ -138,7 +138,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const planScrollRef = useRef<ScrollView>(null);
   const didInitialPlanScrollRef = useRef(false);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
-  const { products: iapProducts, currentProductId, isPurchasing, isRestoring, purchase: iapPurchase, restorePurchases, showCelebration, celebrationPlan, closeCelebration } = useIAPStore();
+  const { products: iapProducts, currentProductId, isPurchasing, isRestoring, purchase: iapPurchase, restorePurchases, showCelebration, celebrationPlan, closeCelebration, loadProducts } = useIAPStore();
   const [showEditName, setShowEditName] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showChangeEmail, setShowChangeEmail] = useState(false);
@@ -210,6 +210,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
   useEffect(() => {
     if (showPlanSelection) {
+      loadProducts(true).catch(() => {});
       planExitAnim.setValue(1);
       planHeaderAnim.setValue(0);
       planToggleAnim.setValue(0);
@@ -509,6 +510,34 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       return `${getCurrencySymbol(product.currency)}${product.introductoryPrice}`;
     };
 
+    const getTrialUnit = (period?: string): string | null => {
+      if (!period) return null;
+      const upper = period.toUpperCase();
+      if (upper.includes('DAY') || upper.includes('P1D') || upper.includes('D')) return 'day';
+      if (upper.includes('WEEK') || upper.includes('W')) return 'week';
+      if (upper.includes('MONTH') || upper.includes('M')) return 'month';
+      if (upper.includes('YEAR') || upper.includes('Y')) return 'year';
+      return null;
+    };
+
+    const getTrialText = (productId: string): string | undefined => {
+      const product = iapProducts.find(p => p.productId === productId);
+      if (!product?.introductoryPrice) return undefined;
+
+      const introValue = Number(String(product.introductoryPrice).replace(',', '.'));
+      if (!Number.isFinite(introValue) || introValue !== 0) return undefined;
+
+      const count = product.introductoryPriceNumberOfPeriods;
+      const unit = getTrialUnit(product.introductoryPriceSubscriptionPeriod);
+      if (!count || !unit) return t('plans.freeTrialGeneric');
+
+      if (unit === 'day') return t('plans.freeTrialDays', { count });
+      if (unit === 'week') return t('plans.freeTrialWeeks', { count });
+      if (unit === 'month') return t('plans.freeTrialMonths', { count });
+      if (unit === 'year') return t('plans.freeTrialYears', { count });
+      return t('plans.freeTrialGeneric');
+    };
+
     const currentCyclePaidProduct = iapProducts.find((p) =>
       billingCycle === 'monthly'
         ? p.productId === IAP_PRODUCT_IDS.GO_MONTHLY || p.productId === IAP_PRODUCT_IDS.PRO_MONTHLY
@@ -534,6 +563,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           ? getPrice(IAP_PRODUCT_IDS.GO_MONTHLY, '€22.99')
           : getPrice(IAP_PRODUCT_IDS.GO_YEARLY, '€229.99'),
         introPrice: billingCycle === 'monthly' ? getIntroPrice(IAP_PRODUCT_IDS.GO_MONTHLY) : undefined,
+        trialText: billingCycle === 'monthly' ? getTrialText(IAP_PRODUCT_IDS.GO_MONTHLY) : undefined,
         description: t('plans.go.description'),
         features: t('plans.go.features', { returnObjects: true }) as string[],
         color: AppColors.primary,
@@ -546,6 +576,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           ? getPrice(IAP_PRODUCT_IDS.PRO_MONTHLY, '€39.99')
           : getPrice(IAP_PRODUCT_IDS.PRO_YEARLY, '€449.99'),
         introPrice: billingCycle === 'monthly' ? getIntroPrice(IAP_PRODUCT_IDS.PRO_MONTHLY) : undefined,
+        trialText: billingCycle === 'monthly' ? getTrialText(IAP_PRODUCT_IDS.PRO_MONTHLY) : undefined,
         description: t('plans.pro.description'),
         features: t('plans.pro.features', { returnObjects: true }) as string[],
         color: '#F472B6'
@@ -692,7 +723,24 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                         <Text style={styles.pvDesc}>{plan.description}</Text>
                       </View>
                       <View style={styles.pvPriceBlock}>
-                        {plan.introPrice ? (
+                        {plan.trialText ? (
+                          <View style={styles.pvTrialBlock}>
+                            <Text
+                              style={[styles.pvTrialText, isPopular && { color: '#fff' }]}
+                              numberOfLines={2}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.8}
+                            >
+                              {plan.trialText}
+                            </Text>
+                            <Text style={styles.pvTrialSubtext}>
+                              {t('plans.thenPrice', {
+                                price: plan.price,
+                                period: billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear'),
+                              })}
+                            </Text>
+                          </View>
+                        ) : plan.introPrice ? (
                           <>
                             <Text style={[styles.pvPrice, isPopular && { color: '#fff' }]}>{plan.introPrice}</Text>
                             <View style={styles.pvPriceMeta}>
@@ -913,7 +961,9 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }} numberOfLines={1}>{p.name}</Text>
                         </View>
-                        <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{p.used}/{p.limit}</Text>
+                        <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>
+                          {p.used}/{isUnlimitedPreviews(p.limit) ? '∞' : p.limit}
+                        </Text>
                       </View>
                     ))}
                     {systemStatus.previews.byProject.length > 3 && (
@@ -924,7 +974,9 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                   </View>
                 ) : (
                   <Text style={[styles.usageSubtext, { marginTop: 4 }]}>
-                    {systemStatus?.previews?.limit || 5} {t('resources.perProject')}
+                    {isUnlimitedPreviews(systemStatus?.previews?.limit)
+                      ? t('resources.unlimited')
+                      : `${systemStatus?.previews?.limit || 5} ${t('resources.perProject')}`}
                   </Text>
                 )}
               </BlurView>
@@ -1129,20 +1181,6 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           loading={loading}
           t={t}
         />
-
-        {/* DEV: Reset GDPR consent for testing — remove before production */}
-        {__DEV__ && (
-          <TouchableOpacity
-            style={{ marginHorizontal: 20, marginBottom: 12, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', alignItems: 'center' }}
-            onPress={async () => {
-              await AsyncStorage.removeItem('@drape_gdpr_consent');
-              useConsentStore.setState({ consent: null });
-              Alert.alert('Consent Reset', 'Riavvia l\'app per vedere il consent banner.');
-            }}
-          >
-            <Text style={{ color: '#EF4444', fontSize: 14, fontWeight: '600' }}>🔧 Reset GDPR Consent (DEV)</Text>
-          </TouchableOpacity>
-        )}
 
         {/* Account Actions (Logout) */}
         <AccountActionsSection
@@ -1491,12 +1529,34 @@ const styles = StyleSheet.create({
   },
   pvPriceBlock: {
     alignItems: 'flex-end',
+    flexShrink: 1,
+    maxWidth: '58%',
   },
   pvPrice: {
     fontSize: 32,
     fontWeight: '800',
     color: 'rgba(255,255,255,0.7)',
     letterSpacing: -1,
+  },
+  pvTrialBlock: {
+    alignItems: 'flex-end',
+    maxWidth: 220,
+    gap: 4,
+  },
+  pvTrialText: {
+    fontSize: 22,
+    lineHeight: 24,
+    fontWeight: '900',
+    color: 'rgba(255,255,255,0.82)',
+    letterSpacing: -0.8,
+    textAlign: 'right',
+  },
+  pvTrialSubtext: {
+    fontSize: 13,
+    lineHeight: 16,
+    color: 'rgba(255,255,255,0.42)',
+    fontWeight: '700',
+    textAlign: 'right',
   },
   pvPriceMeta: {
     flexDirection: 'row',

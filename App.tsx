@@ -262,7 +262,10 @@ export default function App() {
 
     // Check module-level flag (immune to React batching / Zustand race conditions)
     const pendingNew = consumePendingNewUser();
-    const shouldOnboard = isNewUser || pendingNew || user.onboardingCompleted === false;
+    const shouldOnboard =
+      isNewUser ||
+      pendingNew ||
+      (user.onboardingCompleted === false && !user.hasCreatedFirstProject);
     const shouldResumeFirstCreate = user.onboardingCompleted === true && user.hasCreatedFirstProject === false;
     const shouldRequestExistingUserConsent = !shouldOnboard && consent === null;
 
@@ -1217,7 +1220,10 @@ export default function App() {
   const handleSplashFinish = () => {
     if (isInitialized && user && consentLoaded) {
       const pendingNew = consumePendingNewUser();
-      const shouldOnboard = isNewUser || pendingNew || user.onboardingCompleted === false;
+      const shouldOnboard =
+        isNewUser ||
+        pendingNew ||
+        (user.onboardingCompleted === false && !user.hasCreatedFirstProject);
       const shouldResumeFirstCreate = user.onboardingCompleted === true && user.hasCreatedFirstProject === false;
       const shouldRequestExistingUserConsent = !shouldOnboard && consent === null;
       if (shouldOnboard) {
