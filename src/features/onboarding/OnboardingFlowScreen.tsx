@@ -119,9 +119,15 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
     ]).start();
   }, []);
 
-  // Step transitions
+  // Step transitions — track each step with a clear Italian name
+  const stepScreenNames: Record<Step, string> = {
+    welcome: 'Benvenuto',
+    consent: 'Privacy e Consenso',
+    experience: 'Livello Esperienza',
+    referral: 'Come ci hai trovato',
+  };
   useEffect(() => {
-    tracciaSchermata(step === 'welcome' ? 'Benvenuto' : step === 'experience' ? 'Esperienza' : step === 'referral' ? 'Come ci hai trovato' : 'Onboarding');
+    tracciaSchermata(stepScreenNames[step]);
     const targetPct =
       step === 'welcome' ? 14 :
       step === 'consent' ? 29 :
@@ -136,17 +142,17 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
 
   const handleNext = async () => {
     if (step === 'welcome') {
-      tracciaOnboardingStepCompletato('welcome');
+      tracciaOnboardingStepCompletato('Benvenuto');
       setStep('consent');
     } else if (step === 'consent') {
-      tracciaOnboardingStepCompletato('consent');
+      tracciaOnboardingStepCompletato('Privacy e Consenso');
       setStep('experience');
     } else if (step === 'experience' && experienceLevel) {
-      tracciaOnboardingStepCompletato('experience');
+      tracciaOnboardingStepCompletato('Livello Esperienza');
       tracciaOnboardingEsperienzaScelta(experienceLevel);
       setStep('referral');
     } else if (step === 'referral' && referralSource) {
-      tracciaOnboardingStepCompletato('referral');
+      tracciaOnboardingStepCompletato('Come ci hai trovato');
       tracciaOnboardingScopertaScelta(referralSource);
       // Save onboarding answers — retry once on failure to prevent silent data loss
       const onboardingData = {
@@ -289,7 +295,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
         mode="step"
         forceShow
         onResolved={() => {
-          tracciaOnboardingStepCompletato('consent');
+          tracciaOnboardingStepCompletato('Privacy e Consenso');
           setStep('experience');
         }}
       />
@@ -378,7 +384,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
           <TouchableOpacity
             style={[styles.backBtn, isLiquidGlassSupported && styles.backBtnGlass]}
             onPress={() => {
-              tracciaOnboardingIndietro(step);
+              tracciaOnboardingIndietro(stepScreenNames[step]);
               setStep(
                 step === 'referral' ? 'experience' :
                 step === 'experience' ? 'consent' :
