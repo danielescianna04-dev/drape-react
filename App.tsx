@@ -1333,6 +1333,11 @@ export default function App() {
                 setOnboardingDraft((current) => ({ ...current, referralSource: value }))
               }
               onComplete={() => {
+                // Update local state BEFORE navigation so useEffect doesn't redirect back
+                useAuthStore.setState(state => ({
+                  user: state.user ? { ...state.user, onboardingCompleted: true } : state.user,
+                  isNewUser: false,
+                }));
                 setOnboardingInitialStep('welcome');
                 setCurrentScreen('firstProjectChoice');
               }}
