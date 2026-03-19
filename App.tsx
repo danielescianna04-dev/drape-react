@@ -168,9 +168,11 @@ export default function App() {
           auth: 'Login', home: 'Home', create: 'Crea Progetto',
           terminal: 'Editor', allProjects: 'Tutti i Progetti',
           settings: 'Impostazioni', plans: 'Piani',
-          onboarding: 'Onboarding', onboardingFlow: 'Onboarding',
-          firstProjectChoice: 'Scelta Primo Progetto', consent: 'Consenso',
+          firstProjectChoice: 'Scelta Primo Progetto',
+          // onboarding/onboardingFlow: tracked by OnboardingFlowScreen with specific step names
         };
+        // Skip screens that self-track (onboarding steps track themselves)
+        if (!screenLabels[next]) return next;
         tracciaSchermata(screenLabels[next] || next);
       }
       return next;
