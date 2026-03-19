@@ -209,7 +209,7 @@
     },
     "freeFeatures": {
       "projects": "2 projects + 1 cloned",
-      "previews": "5 previews per project",
+      "previews": "20 previews per project",
       "aiBudget": "Base AI budget",
       "storage": "500MB storage"
     },

@@ -80,7 +80,7 @@ healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, r
 
     // Plan limits
     const planLimits: Record<string, { tokens: number; previews: number; projects: number; search: number }> = {
-      free:    { tokens: 50000, previews: 5, projects: 3, search: 999999 },
+      free:    { tokens: 50000, previews: 20, projects: 3, search: 999999 },
       go:      { tokens: 500000, previews: -1, projects: 15, search: 999999 },
       pro:     { tokens: 2000000, previews: -1, projects: 75, search: 999999 },
       team:    { tokens: 10000000, previews: 300, projects: 300, search: 999999 },

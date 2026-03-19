@@ -135,7 +135,7 @@
     "free": {
       "name": "Starter",
       "description": "For those wanting to explore the basics.",
-      "features": ["2 projects + 1 cloned", "5 previews per project", "Basic AI budget", "1GB Cloud Storage"]
+      "features": ["2 projects + 1 cloned", "20 previews per project", "Basic AI budget", "1GB Cloud Storage"]
     },
     "go": {
       "name": "Go",

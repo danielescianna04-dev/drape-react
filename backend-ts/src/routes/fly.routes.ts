@@ -80,8 +80,8 @@ flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  // Enforce preview limit per project (free: 5, go/pro: unlimited, team: 300)
-  const previewLimits: Record<string, number> = { free: 5, go: -1, pro: -1, team: 300 };
+  // Enforce preview limit per project (free: 20, go/pro: unlimited, team: 300)
+  const previewLimits: Record<string, number> = { free: 20, go: -1, pro: -1, team: 300 };
   const userPlan = await getUserPlan(uid);
   const maxPreviews = previewLimits[userPlan] || previewLimits.free;
   const fbDb = firebaseService.getFirestore();
