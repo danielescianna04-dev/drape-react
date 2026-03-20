@@ -1187,6 +1187,7 @@ export default function App() {
       // Handle limit errors (403 with specific error codes)
       const errorCode = error.response?.data?.error;
       const errorMsg = error.response?.data?.message;
+      console.error('🔴 [Import] 403 details:', { errorCode, errorMsg, status: error.response?.status, data: error.response?.data });
       if (error.response?.status === 403 && (errorCode === 'CLONE_LIMIT_EXCEEDED' || errorCode === 'PROJECT_LIMIT_EXCEEDED' || errorCode === 'STORAGE_LIMIT_EXCEEDED')) {
         importInProgress.current = false;
         // Close import modal first — iOS can't present two modals simultaneously
@@ -1194,6 +1195,17 @@ export default function App() {
         setTimeout(() => {
           setLimitModal({ message: errorMsg || i18n.t('projects:alerts.cloneLimitMessage', { max: 1 }) });
         }, 400);
+        return;
+      }
+
+      // Handle 403 that's not a limit error — likely ownership or access issue
+      if (error.response?.status === 403 && !errorCode) {
+        importInProgress.current = false;
+        setLoadingMessage('');
+        Alert.alert(
+          'Errore di accesso',
+          errorMsg || 'Non è stato possibile creare il progetto. Il server ha rifiutato la richiesta. Riprova o contatta il supporto.',
+        );
         return;
       }
 
