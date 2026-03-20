@@ -918,7 +918,13 @@ export default function App() {
               const recheck = await checkRepoAccess(url, authToken, parsed);
 
               if (!recheck.accessible) {
-                throw new Error(`L'account collegato non ha accesso a questa repository.`);
+                throw new Error(
+                  recheck.status === 404
+                    ? `Repository non trovata o non accessibile con questo account.\n\nVerifica che:\n• L'URL sia corretto\n• L'account collegato abbia accesso alla repository\n• La repository non sia stata eliminata`
+                    : recheck.status === 403
+                      ? `L'account collegato non ha i permessi per accedere a questa repository. Prova con un account diverso.`
+                      : `Impossibile accedere alla repository. Verifica l'URL e riprova.`
+                );
               }
               // Auth successful, restore loading for clone
               setLoadingMessage('Cloning repository...');
