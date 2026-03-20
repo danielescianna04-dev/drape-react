@@ -1026,7 +1026,6 @@ export default function App() {
       setShowImportModal(false);
       setIsImporting(false);
       importInProgress.current = false;
-      finalizeFirstProjectSetup();
 
       // Stop loading only when ready to navigate
       setLoadingMessage('');
@@ -1042,7 +1041,11 @@ export default function App() {
       clearGlobalTerminalLog();
 
       tracciaEntrataNelProgetto(workstation.name || repoName);
+
+      // Navigate BEFORE finalizing first project — prevents useEffect from
+      // re-navigating to firstProjectChoice during the state update
       setCurrentScreen('terminal');
+      finalizeFirstProjectSetup();
 
       // Add loading message to chat and clone repository
       setTimeout(async () => {
