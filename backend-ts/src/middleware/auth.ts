@@ -315,6 +315,31 @@ export async function incrementCreationCounter(userId: string, type: 'created' |
   }
 }
 
+/**
+ * decrementCreationCounter — Atomically decrements the lifetime creation counter.
+ * Call when a project is deleted or a clone fails after the counter was already incremented.
+ * Ensures counter never goes below 0.
+ */
+export async function decrementCreationCounter(userId: string, type: 'created' | 'cloned' | 'local'): Promise<void> {
+  try {
+    const db = firebaseService.getFirestore();
+    if (!db) return;
+
+    const userRef = db.collection('users').doc(userId);
+    const userDoc = await userRef.get();
+    const current = userDoc.data()?.creationCounters?.[type] || 0;
+    if (current <= 0) return; // Don't go below 0
+
+    await userRef.set({
+      creationCounters: {
+        [type]: FieldValue.increment(-1),
+      },
+    }, { merge: true });
+  } catch (err: any) {
+    log.warn(`[Auth] decrementCreationCounter error for ${userId}: ${err.message}`);
+  }
+}
+
 // ── User storage cache ──
 const USER_STORAGE_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 const userStorageCache = new Map<string, { mb: number; expiresAt: number }>();

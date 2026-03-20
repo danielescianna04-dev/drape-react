@@ -3,7 +3,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
-import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter } from '../middleware/auth';
+import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter, decrementCreationCounter } from '../middleware/auth';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
 import { fileService } from '../services/file.service';

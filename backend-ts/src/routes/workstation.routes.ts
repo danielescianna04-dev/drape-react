@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
-import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter } from '../middleware/auth';
+import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter, decrementCreationCounter } from '../middleware/auth';
 import { fileService } from '../services/file.service';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
@@ -870,7 +870,18 @@ workstationRouter.delete('/:projectId', asyncHandler(async (req, res) => {
     });
   }
 
+  // Determine project type before deletion for counter decrement
+  const db = firebaseService.getFirestore();
+  let projectType: 'created' | 'cloned' | 'local' = 'created';
+  if (db) {
+    const projDoc = await db.collection('user_projects').doc(projectId).get();
+    const projData = projDoc.data();
+    if (projData?.source === 'local') projectType = 'local';
+    else if (projData?.repositoryUrl) projectType = 'cloned';
+  }
+
   await performProjectDeletion(projectId, userId);
+  decrementCreationCounter(userId, projectType).catch(() => {});
   auditService.log({ userId, action: 'project_delete', resource: projectId, ip: req.ip });
   res.json({ success: true, message: 'Project deleted' });
 }));
@@ -918,7 +929,23 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
   await fileService.ensureProjectDir(projectId);
 
   if (repositoryUrl) {
-    const cloneResult = await workspaceService.cloneRepository(projectId, repositoryUrl, githubToken);
+    const cloneTimeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Clone timeout after 45s')), 45000)
+    );
+    let cloneResult;
+    try {
+      cloneResult = await Promise.race([
+        workspaceService.cloneRepository(projectId, repositoryUrl, githubToken),
+        cloneTimeout,
+      ]) as any;
+    } catch (timeoutErr: any) {
+      await fileService.deleteProject(projectId).catch(() => {});
+      return res.status(408).json({
+        success: false,
+        error: 'CLONE_TIMEOUT',
+        message: 'Clone timed out. The repository may be too large or unreachable.',
+      });
+    }
     if (!cloneResult.success) {
       await fileService.deleteProject(projectId).catch(() => {});
       return res.status(400).json({
