@@ -870,18 +870,7 @@ workstationRouter.delete('/:projectId', asyncHandler(async (req, res) => {
     });
   }
 
-  // Determine project type before deletion for counter decrement
-  const db = firebaseService.getFirestore();
-  let projectType: 'created' | 'cloned' | 'local' = 'created';
-  if (db) {
-    const projDoc = await db.collection('user_projects').doc(projectId).get();
-    const projData = projDoc.data();
-    if (projData?.source === 'local') projectType = 'local';
-    else if (projData?.repositoryUrl) projectType = 'cloned';
-  }
-
   await performProjectDeletion(projectId, userId);
-  decrementCreationCounter(userId, projectType).catch(() => {});
   auditService.log({ userId, action: 'project_delete', resource: projectId, ip: req.ip });
   res.json({ success: true, message: 'Project deleted' });
 }));
