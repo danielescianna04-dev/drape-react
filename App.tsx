@@ -126,8 +126,9 @@ const checkRepoAccess = async (
       status: response.status
     };
   } catch (e) {
-    console.warn('📥 [checkRepoAccess] Error:', e);
-    return { accessible: true, status: 200 }; // Allow clone attempt on network errors
+    console.warn('📥 [checkRepoAccess] Network error:', e);
+    // Don't assume accessible on network errors — trigger auth flow instead
+    return { accessible: false, status: 0 };
   }
 };
 
@@ -882,27 +883,17 @@ export default function App() {
       try {
         const { accessible, status } = await checkRepoAccess(url, githubToken, parsed);
 
-        // 404 with token = repo truly doesn't exist (authenticated but not found)
-        // 404 without token on GitHub = could be private, so let auth flow handle it
-        if (!accessible && status === 404 && githubToken) {
-          Alert.alert(
-            i18n.t('common:error'),
-            i18n.t('terminal:import.repoNotFound', 'Repository non trovata. Verifica che l\'URL sia corretto.')
-          );
-          setIsImporting(false);
-          setPendingFirstProjectImportFromScreen(null);
-          importInProgress.current = false;
-          setLoadingMessage('');
-          liveActivityService.endPreviewActivity().catch(() => {});
-          return;
-        }
+        // 404 with token: could be "not found" OR "private repo the current account can't see"
+        // GitHub returns 404 for both cases. Don't block — let the auth flow offer to try another account.
+        // Only block if status is truly a non-auth error (e.g. 400, 500)
 
         if (!accessible) {
           // Repo is private or not accessible with current token (401/403/404 without token)
 
-          // Close the import modal FIRST to avoid iOS modal conflict
+          // Hide loading modal AND import modal to avoid covering the auth popup
+          setLoadingMessage('');
           setShowImportModal(false);
-          // Wait for modal dismiss animation to complete
+          // Wait for modals to dismiss before showing auth popup
           await new Promise(resolve => setTimeout(resolve, 500));
 
           // Update Live Activity
@@ -921,6 +912,7 @@ export default function App() {
 
             if (authToken) {
               githubToken = authToken;
+              setLoadingMessage('Verifica accesso...');
 
               // Re-verify with new token
               const recheck = await checkRepoAccess(url, authToken, parsed);
@@ -928,6 +920,8 @@ export default function App() {
               if (!recheck.accessible) {
                 throw new Error(`L'account collegato non ha accesso a questa repository.`);
               }
+              // Auth successful, restore loading for clone
+              setLoadingMessage('Cloning repository...');
             }
           } catch (authErr: any) {
             liveActivityService.endPreviewActivity().catch(() => {});
