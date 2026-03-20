@@ -46,7 +46,7 @@ import { useFileCacheStore } from './src/core/cache/fileCacheStore';
 import { useBackendLogs } from './src/hooks/api/useBackendLogs';
 import { useFileSync } from './src/hooks/business/useFileSync';
 import { useNavigationStore } from './src/core/navigation/navigationStore';
-import { tracciaSchermata, tracciaEntrataNelProgetto } from './src/core/services/analyticsService';
+import { tracciaSchermata, tracciaEntrataNelProgetto, tracciaErrore } from './src/core/services/analyticsService';
 import { useUIStore } from './src/core/terminal/uiStore';
 import { getAuthToken } from './src/core/api/getAuthToken';
 import * as Notifications from 'expo-notifications';
@@ -882,8 +882,23 @@ export default function App() {
       try {
         const { accessible, status } = await checkRepoAccess(url, githubToken, parsed);
 
+        // 404 with token = repo truly doesn't exist (authenticated but not found)
+        // 404 without token on GitHub = could be private, so let auth flow handle it
+        if (!accessible && status === 404 && githubToken) {
+          Alert.alert(
+            i18n.t('common:error'),
+            i18n.t('terminal:import.repoNotFound', 'Repository non trovata. Verifica che l\'URL sia corretto.')
+          );
+          setIsImporting(false);
+          setPendingFirstProjectImportFromScreen(null);
+          importInProgress.current = false;
+          setLoadingMessage('');
+          liveActivityService.endPreviewActivity().catch(() => {});
+          return;
+        }
+
         if (!accessible) {
-          // Repo is private or not accessible with current token
+          // Repo is private or not accessible with current token (401/403/404 without token)
 
           // Close the import modal FIRST to avoid iOS modal conflict
           setShowImportModal(false);
@@ -973,10 +988,17 @@ export default function App() {
       const project = await workstationService.saveGitProject(url, userId, copyNumber);
       let wsResult;
       try {
-        wsResult = await workstationService.createWorkstationForProject(project, githubToken, branch);
+        const cloneTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Clone timeout: la repository impiega troppo tempo. Riprova più tardi.')), 60000)
+        );
+        wsResult = await Promise.race([
+          workstationService.createWorkstationForProject(project, githubToken, branch),
+          cloneTimeout,
+        ]) as any;
       } catch (wsError: any) {
-        // Clone failed — clean up the project doc created above
+        // Clone failed or timed out — clean up the project doc created above
         await workstationService.deleteProject(project.id).catch(() => {});
+        tracciaErrore(wsError.message?.includes('timeout') ? 'Clone timeout' : (wsError.message || 'Clone fallito'), 'import_clone');
         throw wsError;
       }
 
@@ -1145,6 +1167,7 @@ export default function App() {
               liveActivityService.endPreviewActivity().catch(() => {});
               // Clone failed — delete the project so it doesn't count toward limits
               await workstationService.deleteProject(workstation.projectId).catch(() => {});
+              tracciaErrore(err.message || 'Clone fallito', 'import_clone_files');
               addTerminalItemToStore(currentTab.id, {
                 id: `error-${Date.now()}`,
                 type: 'error',
