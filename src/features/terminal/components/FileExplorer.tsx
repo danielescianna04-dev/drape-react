@@ -195,6 +195,13 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     }
   };
 
+  const clearSearch = useCallback(() => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchError(null);
+    setSearching(false);
+  }, []);
+
   const getFileIcon = (filename: string) => {
     const ext = filename.split('.').pop()?.toLowerCase();
     const iconMap: { [key: string]: { icon: string; color: string } } = {
@@ -995,7 +1002,12 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
                   autoCorrect={false}
                 />
                 {searchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+                  <TouchableOpacity
+                    onPress={clearSearch}
+                    style={styles.clearButton}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    activeOpacity={0.7}
+                  >
                     <Ionicons name="close-circle" size={14} color={AppColors.white.w40} />
                   </TouchableOpacity>
                 )}
@@ -1018,7 +1030,12 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
                 autoCorrect={false}
               />
               {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity
+                  onPress={clearSearch}
+                  style={styles.clearButton}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  activeOpacity={0.7}
+                >
                   <Ionicons name="close-circle" size={14} color={AppColors.white.w40} />
                 </TouchableOpacity>
               )}
@@ -1237,6 +1254,8 @@ const styles = StyleSheet.create({
   },
   clearButton: {
     padding: 8,
+    zIndex: 2,
+    elevation: 2,
   },
   searchModeToggle: {
     padding: 6,

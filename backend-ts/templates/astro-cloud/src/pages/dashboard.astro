@@ -1,0 +1,349 @@
+---
+import Layout from '../layouts/Layout.astro';
+import db from '../lib/db';
+import type { Item } from '../lib/db';
+
+const items = db.prepare('SELECT * FROM items ORDER BY created_at DESC').all() as Item[];
+const activeCount = items.filter(i => i.status === 'active').length;
+const completedCount = items.filter(i => i.status === 'completed').length;
+---
+
+<Layout title="Dashboard - Cloud Mode">
+  <section class="pt-28 pb-16 px-4 min-h-screen">
+    <div class="max-w-6xl mx-auto">
+      <!-- Header -->
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+        <div>
+          <div class="flex items-center gap-3 mb-2">
+            <h1 class="text-3xl font-bold text-white">Dashboard</h1>
+            <span id="item-count-badge" class="px-3 py-1 text-sm font-medium rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
+              {items.length} items
+            </span>
+          </div>
+          <p class="text-slate-300">Manage your items with full CRUD operations powered by SQLite.</p>
+        </div>
+        <button id="btn-add" class="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/25 hover:-translate-y-0.5 active:translate-y-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          Add Item
+        </button>
+      </div>
+
+      <!-- Stats -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <div class="bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl rounded-xl p-4">
+          <div id="stat-total" class="text-2xl font-bold text-white">{items.length}</div>
+          <div class="text-sm text-slate-300">Total Items</div>
+        </div>
+        <div class="bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl rounded-xl p-4">
+          <div id="stat-active" class="text-2xl font-bold text-green-400">{activeCount}</div>
+          <div class="text-sm text-slate-300">Active</div>
+        </div>
+        <div class="bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl rounded-xl p-4">
+          <div id="stat-completed" class="text-2xl font-bold text-blue-400">{completedCount}</div>
+          <div class="text-sm text-slate-300">Completed</div>
+        </div>
+      </div>
+
+      <!-- Items Grid -->
+      <div id="items-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {items.map((item) => (
+          <div class="item-card bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl rounded-xl p-5 hover:bg-white/[0.08] transition-all duration-300 hover:-translate-y-0.5 group" data-id={item.id}>
+            <div class="flex items-start justify-between mb-3">
+              <h3 class="text-lg font-semibold text-white group-hover:text-purple-400 transition-colors line-clamp-1 item-title">
+                {item.title}
+              </h3>
+              <button
+                class="btn-toggle-status shrink-0 ml-2 px-2.5 py-1 text-xs font-medium rounded-full transition-colors cursor-pointer"
+                data-status={item.status}
+                style={item.status === 'active'
+                  ? 'background: rgba(34,197,94,0.1); color: rgb(74,222,128); border: 1px solid rgba(34,197,94,0.2);'
+                  : 'background: rgba(59,130,246,0.1); color: rgb(96,165,250); border: 1px solid rgba(59,130,246,0.2);'}
+              >
+                {item.status}
+              </button>
+            </div>
+            {item.description && (
+              <p class="text-sm text-slate-300 mb-4 line-clamp-2 item-description">{item.description}</p>
+            )}
+            <div class="flex items-center justify-between mt-auto pt-3 border-t border-white/5">
+              <span class="text-xs text-slate-300 item-date">{new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+              <div class="flex items-center gap-1">
+                <button class="btn-edit p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors" title="Edit">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
+                <button class="btn-delete p-1.5 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <!-- Empty State -->
+      {items.length === 0 && (
+        <div class="bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-12 text-center" id="empty-state">
+          <div class="text-4xl mb-4">&#128466;</div>
+          <h3 class="text-lg font-semibold text-white mb-2">No items yet</h3>
+          <p class="text-slate-300 mb-6">Create your first item to get started.</p>
+          <button class="btn-add-empty inline-flex items-center gap-2 px-8 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 transition-all duration-300">
+            Create First Item
+          </button>
+        </div>
+      )}
+    </div>
+  </section>
+
+  <!-- Modal -->
+  <div id="modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" id="modal-backdrop"></div>
+    <div class="relative w-full max-w-md bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-6">
+        <h2 id="modal-title" class="text-xl font-bold text-white">New Item</h2>
+        <button id="modal-close" class="p-1 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div id="modal-error" class="hidden mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm"></div>
+
+      <form id="item-form">
+        <input type="hidden" id="form-id" value="" />
+        <div class="space-y-4">
+          <div>
+            <label for="form-title" class="block text-sm font-medium text-slate-300 mb-1.5">Title</label>
+            <input id="form-title" type="text" placeholder="Enter item title..." class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-400 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-colors" />
+          </div>
+          <div>
+            <label for="form-description" class="block text-sm font-medium text-slate-300 mb-1.5">Description</label>
+            <textarea id="form-description" placeholder="Enter description..." rows="3" class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-400 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-colors resize-none"></textarea>
+          </div>
+          <div>
+            <label for="form-status" class="block text-sm font-medium text-slate-300 mb-1.5">Status</label>
+            <select id="form-status" class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-colors">
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 mt-6">
+          <button type="button" id="btn-cancel" class="flex-1 px-8 py-3 rounded-xl font-semibold bg-white/5 backdrop-blur-xl border border-white/10 hover:bg-white/10 transition-all duration-300 text-center text-white">Cancel</button>
+          <button type="submit" id="btn-submit" class="flex-1 px-8 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 transition-all duration-300 text-center">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  let items: any[] = [];
+
+  async function loadItems() {
+    const res = await fetch('/api/items');
+    items = await res.json();
+    renderItems();
+    updateStats();
+  }
+
+  function formatDate(dateStr: string): string {
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function updateStats() {
+    const total = items.length;
+    const active = items.filter(i => i.status === 'active').length;
+    const completed = items.filter(i => i.status === 'completed').length;
+    const statTotal = document.getElementById('stat-total');
+    const statActive = document.getElementById('stat-active');
+    const statCompleted = document.getElementById('stat-completed');
+    const badge = document.getElementById('item-count-badge');
+    if (statTotal) statTotal.textContent = String(total);
+    if (statActive) statActive.textContent = String(active);
+    if (statCompleted) statCompleted.textContent = String(completed);
+    if (badge) badge.textContent = `${total} items`;
+  }
+
+  function createCardHtml(item: any): string {
+    const statusStyle = item.status === 'active'
+      ? 'background: rgba(34,197,94,0.1); color: rgb(74,222,128); border: 1px solid rgba(34,197,94,0.2);'
+      : 'background: rgba(59,130,246,0.1); color: rgb(96,165,250); border: 1px solid rgba(59,130,246,0.2);';
+    const descHtml = item.description
+      ? `<p class="text-sm text-slate-300 mb-4 line-clamp-2 item-description">${item.description}</p>`
+      : '';
+    return `
+      <div class="item-card bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl rounded-xl p-5 hover:bg-white/[0.08] transition-all duration-300 hover:-translate-y-0.5 group" data-id="${item.id}">
+        <div class="flex items-start justify-between mb-3">
+          <h3 class="text-lg font-semibold text-white group-hover:text-purple-400 transition-colors line-clamp-1 item-title">${item.title}</h3>
+          <button class="btn-toggle-status shrink-0 ml-2 px-2.5 py-1 text-xs font-medium rounded-full transition-colors cursor-pointer" data-status="${item.status}" style="${statusStyle}">${item.status}</button>
+        </div>
+        ${descHtml}
+        <div class="flex items-center justify-between mt-auto pt-3 border-t border-white/5">
+          <span class="text-xs text-slate-300 item-date">${formatDate(item.created_at)}</span>
+          <div class="flex items-center gap-1">
+            <button class="btn-edit p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors" title="Edit">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+            </button>
+            <button class="btn-delete p-1.5 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderItems() {
+    const grid = document.getElementById('items-grid');
+    const emptyState = document.getElementById('empty-state');
+    if (!grid) return;
+
+    if (items.length === 0) {
+      grid.innerHTML = '';
+      if (emptyState) emptyState.classList.remove('hidden');
+      return;
+    }
+
+    if (emptyState) emptyState.classList.add('hidden');
+    grid.innerHTML = items.map(createCardHtml).join('');
+    attachCardListeners();
+  }
+
+  function attachCardListeners() {
+    document.querySelectorAll('.btn-edit').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const card = (e.currentTarget as HTMLElement).closest('.item-card') as HTMLElement;
+        const id = Number(card.dataset.id);
+        const item = items.find(i => i.id === id);
+        if (item) openModal(item);
+      });
+    });
+
+    document.querySelectorAll('.btn-delete').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const card = (e.currentTarget as HTMLElement).closest('.item-card') as HTMLElement;
+        const id = Number(card.dataset.id);
+        if (!confirm('Are you sure you want to delete this item?')) return;
+        await fetch(`/api/items/${id}`, { method: 'DELETE' });
+        items = items.filter(i => i.id !== id);
+        renderItems();
+        updateStats();
+      });
+    });
+
+    document.querySelectorAll('.btn-toggle-status').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const card = (e.currentTarget as HTMLElement).closest('.item-card') as HTMLElement;
+        const id = Number(card.dataset.id);
+        const item = items.find(i => i.id === id);
+        if (!item) return;
+        const newStatus = item.status === 'active' ? 'completed' : 'active';
+        const res = await fetch(`/api/items/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus }),
+        });
+        const updated = await res.json();
+        items = items.map(i => i.id === updated.id ? updated : i);
+        renderItems();
+        updateStats();
+      });
+    });
+  }
+
+  const modal = document.getElementById('modal')!;
+  const modalTitle = document.getElementById('modal-title')!;
+  const modalError = document.getElementById('modal-error')!;
+  const formId = document.getElementById('form-id') as HTMLInputElement;
+  const formTitle = document.getElementById('form-title') as HTMLInputElement;
+  const formDescription = document.getElementById('form-description') as HTMLTextAreaElement;
+  const formStatus = document.getElementById('form-status') as HTMLSelectElement;
+  const btnSubmit = document.getElementById('btn-submit')!;
+  const form = document.getElementById('item-form')!;
+
+  function openModal(item?: any) {
+    if (item) {
+      modalTitle.textContent = 'Edit Item';
+      btnSubmit.textContent = 'Update';
+      formId.value = String(item.id);
+      formTitle.value = item.title;
+      formDescription.value = item.description;
+      formStatus.value = item.status;
+    } else {
+      modalTitle.textContent = 'New Item';
+      btnSubmit.textContent = 'Create';
+      formId.value = '';
+      formTitle.value = '';
+      formDescription.value = '';
+      formStatus.value = 'active';
+    }
+    modalError.classList.add('hidden');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    formTitle.focus();
+  }
+
+  function closeModal() {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  }
+
+  document.getElementById('btn-add')?.addEventListener('click', () => openModal());
+  document.querySelector('.btn-add-empty')?.addEventListener('click', () => openModal());
+  document.getElementById('modal-close')?.addEventListener('click', closeModal);
+  document.getElementById('btn-cancel')?.addEventListener('click', closeModal);
+  document.getElementById('modal-backdrop')?.addEventListener('click', closeModal);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = formTitle.value.trim();
+    if (!title) {
+      modalError.textContent = 'Title is required';
+      modalError.classList.remove('hidden');
+      return;
+    }
+
+    const id = formId.value;
+    const payload = {
+      title,
+      description: formDescription.value.trim(),
+      status: formStatus.value,
+    };
+
+    try {
+      if (id) {
+        const res = await fetch(`/api/items/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const updated = await res.json();
+        items = items.map(i => i.id === updated.id ? updated : i);
+      } else {
+        const res = await fetch('/api/items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const created = await res.json();
+        items = [created, ...items];
+      }
+      renderItems();
+      updateStats();
+      closeModal();
+    } catch (err) {
+      modalError.textContent = 'Something went wrong';
+      modalError.classList.remove('hidden');
+    }
+  });
+
+  // Initial setup
+  attachCardListeners();
+</script>

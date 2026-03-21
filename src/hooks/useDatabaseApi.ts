@@ -48,7 +48,7 @@ async function apiFetch(path: string, options?: RequestInit) {
 }
 
 export function useDatabaseApi(projectId: string | undefined) {
-  const discover = useCallback(async (): Promise<{ databases: DatabaseFile[]; pgDetected: boolean; containerReady?: boolean }> => {
+  const discover = useCallback(async (): Promise<{ databases: DatabaseFile[]; pgDetected: boolean; supabaseDetected?: boolean; supabaseUrl?: string; containerReady?: boolean }> => {
     if (!projectId) throw new Error('No project');
     return apiFetch(`/db/discover/${projectId}`);
   }, [projectId]);

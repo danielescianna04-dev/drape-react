@@ -163,6 +163,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const [cloudEnabled, setCloudEnabled] = useState(false);
   const [showCloudInfo, setShowCloudInfo] = useState(false);
   const [cloudInfoVisible, setCloudInfoVisible] = useState(false);
+  const [glassReady, setGlassReady] = useState(false);
   const cloudOverlayAnim = useRef(new Animated.Value(0)).current;
   const cloudSheetAnim = useRef(new Animated.Value(600)).current;
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
@@ -297,6 +298,15 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         pollIntervalRef.current = null;
       }
     };
+  }, []);
+
+  useEffect(() => {
+    // Some large LiquidGlass surfaces initialize unreliably if mounted while the
+    // whole screen is still animating with transforms. Delay only these surfaces
+    // by a short amount; the entrance animation itself stays unchanged.
+    setGlassReady(false);
+    const timer = setTimeout(() => setGlassReady(true), 560);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -839,6 +849,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           projectName: projectName.trim(),
           technology: selectedLanguage,
           description: description.trim(),
+          cloudEnabled,
           userId,
         }),
       });
@@ -1035,7 +1046,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             activeOpacity={0.7}
             onPress={() => handleChipPress(chip.id)}
           >
-            {useGlass ? (
+            {useGlass && glassReady ? (
               <LiquidGlassView
                 style={styles.chipLiquid}
                 interactive={true}
@@ -1057,7 +1068,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
       {/* Large text area */}
       <View style={[styles.ideaInputWrapper, keyboardVisible && { marginBottom: 76 }]}>
-        {useGlass ? (
+        {useGlass && glassReady ? (
           <LiquidGlassView
             style={[styles.ideaInputContainer, { backgroundColor: 'transparent' }, keyboardHeight > 0 && { maxHeight: 180 }]}
             interactive={true}
@@ -1081,10 +1092,11 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             />
             <View style={styles.ideaToolbar}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
+                {/* Cloud Mode hidden in production */}
+                {__DEV__ && <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
                   <Ionicons name={cloudEnabled ? 'checkmark' : 'add'} size={16} color={cloudEnabled ? '#fff' : 'rgba(255,255,255,0.6)'} />
                   <Text style={[styles.cloudPillText, cloudEnabled && styles.cloudPillTextActive]}>{t('create.cloudMode')}</Text>
-                </TouchableOpacity>
+                </TouchableOpacity>}
                 <Pressable style={styles.cloudInfoBtn} onPress={openCloudInfo} hitSlop={8}>
                   <Ionicons name="information-circle-outline" size={20} color="rgba(255,255,255,0.4)" />
                 </Pressable>
@@ -1113,10 +1125,11 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             />
             <View style={styles.ideaToolbar}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
+                {/* Cloud Mode hidden in production */}
+                {__DEV__ && <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
                   <Ionicons name={cloudEnabled ? 'checkmark' : 'add'} size={16} color={cloudEnabled ? '#fff' : 'rgba(255,255,255,0.6)'} />
                   <Text style={[styles.cloudPillText, cloudEnabled && styles.cloudPillTextActive]}>{t('create.cloudMode')}</Text>
-                </TouchableOpacity>
+                </TouchableOpacity>}
                 <Pressable style={styles.cloudInfoBtn} onPress={openCloudInfo} hitSlop={8}>
                   <Ionicons name="information-circle-outline" size={20} color="rgba(255,255,255,0.4)" />
                 </Pressable>

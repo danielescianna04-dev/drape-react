@@ -1,0 +1,72 @@
+@extends('layouts.app')
+@section('title', 'About — MyApp')
+
+@section('content')
+<section class="relative overflow-hidden">
+    <div class="absolute top-10 right-1/3 w-80 h-80 bg-indigo-600/15 rounded-full blur-3xl animate-float"></div>
+    <div class="absolute bottom-10 left-1/4 w-64 h-64 bg-purple-600/15 rounded-full blur-3xl animate-float-delayed"></div>
+
+    <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-20 sm:pt-32 sm:pb-28">
+        <div class="max-w-3xl mx-auto">
+            <h1 class="text-4xl sm:text-5xl font-extrabold text-white animate-fade-in-up">
+                About <span class="bg-gradient-to-r from-purple-400 via-blue-400 to-indigo-400 bg-clip-text text-transparent">MyApp</span>
+            </h1>
+            <p class="mt-6 text-lg text-gray-400 leading-relaxed animate-fade-in-up animation-delay-100">
+                We believe in building software that is both powerful and elegant. Our mission is to provide
+                developers with the tools they need to create outstanding web applications without compromise.
+            </p>
+        </div>
+    </div>
+</section>
+
+<section class="py-16 sm:py-24">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div class="glass-card rounded-2xl p-8 text-center scroll-animate">
+                <div class="text-4xl font-extrabold bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">10K+</div>
+                <p class="mt-2 text-gray-400">Developers</p>
+            </div>
+            <div class="glass-card rounded-2xl p-8 text-center scroll-animate">
+                <div class="text-4xl font-extrabold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">99.9%</div>
+                <p class="mt-2 text-gray-400">Uptime</p>
+            </div>
+            <div class="glass-card rounded-2xl p-8 text-center scroll-animate">
+                <div class="text-4xl font-extrabold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">50+</div>
+                <p class="mt-2 text-gray-400">Countries</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="py-16 sm:py-24">
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="space-y-12 scroll-animate">
+            <div>
+                <h2 class="text-2xl font-bold text-white">Our Story</h2>
+                <p class="mt-4 text-gray-400 leading-relaxed">
+                    Founded with a simple idea: web development should be enjoyable. We started as a small team
+                    of passionate developers who were tired of bloated frameworks and ugly defaults.
+                    Today, we are building tools that make the web a more beautiful place.
+                </p>
+            </div>
+            <div>
+                <h2 class="text-2xl font-bold text-white">Our Values</h2>
+                <ul class="mt-4 space-y-3 text-gray-400">
+                    <li class="flex items-start gap-3">
+                        <span class="mt-1.5 w-2 h-2 rounded-full bg-purple-400 flex-shrink-0"></span>
+                        <span><strong class="text-gray-200">Simplicity</strong> &mdash; Clean code, clear documentation, intuitive APIs.</span>
+                    </li>
+                    <li class="flex items-start gap-3">
+                        <span class="mt-1.5 w-2 h-2 rounded-full bg-blue-400 flex-shrink-0"></span>
+                        <span><strong class="text-gray-200">Performance</strong> &mdash; Every millisecond matters. We optimize relentlessly.</span>
+                    </li>
+                    <li class="flex items-start gap-3">
+                        <span class="mt-1.5 w-2 h-2 rounded-full bg-indigo-400 flex-shrink-0"></span>
+                        <span><strong class="text-gray-200">Craft</strong> &mdash; We care about the details that make software delightful.</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</section>
+@endsection

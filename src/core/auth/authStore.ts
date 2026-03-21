@@ -9,7 +9,6 @@ import {
   reauthenticateWithCredential,
   EmailAuthProvider,
   User,
-  sendPasswordResetEmail,
   sendEmailVerification,
   GoogleAuthProvider,
   OAuthProvider,
@@ -49,6 +48,18 @@ async function sendBackendVerificationEmail(email: string, displayName?: string)
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, ...(displayName ? { displayName } : {}) }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+}
+
+async function sendBackendPasswordResetEmail(email: string): Promise<void> {
+  const response = await fetch(`${config.apiUrl}/auth/send-password-reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
   });
 
   if (!response.ok) {
@@ -1071,18 +1082,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
-      await sendPasswordResetEmail(auth, email);
+      await sendBackendPasswordResetEmail(email);
       set({ isLoading: false });
     } catch (error: any) {
-      console.error('❌ [AuthStore] Password reset error:', error.code);
+      console.error('❌ [AuthStore] Password reset error:', error?.message || error);
 
       let errorMessage = i18n.t('auth:errors.errorDuringPasswordReset');
-      switch (error.code) {
+      const rawMessage = typeof error?.message === 'string' ? error.message : '';
+      switch (rawMessage) {
+        case 'invalid email format':
         case 'auth/invalid-email':
           errorMessage = i18n.t('auth:errors.invalidEmail');
-          break;
-        case 'auth/user-not-found':
-          errorMessage = i18n.t('auth:errors.userNotFound');
           break;
       }
 

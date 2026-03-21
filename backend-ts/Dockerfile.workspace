@@ -36,6 +36,10 @@ ENV USE_BUILTIN_RIPGREP=0
 # Copy workspace agent
 COPY workspace-agent.js /usr/local/bin/workspace-agent.js
 
+# Copy boilerplate templates
+COPY templates/ /usr/local/share/drape-templates/
+RUN chmod -R 755 /usr/local/share/drape-templates/ && chown -R coder:coder /usr/local/share/drape-templates/
+
 WORKDIR /home/coder/project
 
 # Start the workspace agent (port 13338)

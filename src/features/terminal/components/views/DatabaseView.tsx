@@ -15,6 +15,8 @@ interface DbState {
   screen: Screen;
   databases: { path: string; fullPath: string }[];
   pgDetected: boolean;
+  supabaseDetected: boolean;
+  supabaseUrl: string;
   containerReady: boolean;
   selectedDb: string | null;
   tables: { name: string; rowCount: number }[];
@@ -26,7 +28,7 @@ interface DbState {
 type DbAction =
   | { type: 'SET_LOADING'; loading: boolean }
   | { type: 'SET_ERROR'; error: string | null }
-  | { type: 'SET_DATABASES'; databases: DbState['databases']; pgDetected: boolean; containerReady: boolean }
+  | { type: 'SET_DATABASES'; databases: DbState['databases']; pgDetected: boolean; supabaseDetected?: boolean; supabaseUrl?: string; containerReady: boolean }
   | { type: 'SELECT_DB'; dbPath: string }
   | { type: 'SET_TABLES'; tables: DbState['tables'] }
   | { type: 'SELECT_TABLE'; table: string }
@@ -44,6 +46,8 @@ function reducer(state: DbState, action: DbAction): DbState {
         ...state,
         databases: action.databases,
         pgDetected: action.pgDetected,
+        supabaseDetected: action.supabaseDetected || false,
+        supabaseUrl: action.supabaseUrl || '',
         containerReady: action.containerReady,
         screen: action.databases.length === 1 ? 'table-list' : 'db-list',
         selectedDb: action.databases.length === 1 ? action.databases[0].path : null,
@@ -73,6 +77,8 @@ const initialState: DbState = {
   screen: 'discovering',
   databases: [],
   pgDetected: false,
+  supabaseDetected: false,
+  supabaseUrl: '',
   containerReady: true,
   selectedDb: null,
   tables: [],
@@ -96,9 +102,8 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
     if (!projectId) return;
     dispatch({ type: 'SET_LOADING', loading: true });
     api.discover().then(data => {
-      dispatch({ type: 'SET_DATABASES', databases: data.databases, pgDetected: data.pgDetected, containerReady: data.containerReady !== false });
+      dispatch({ type: 'SET_DATABASES', databases: data.databases, pgDetected: data.pgDetected, supabaseDetected: data.supabaseDetected, supabaseUrl: data.supabaseUrl, containerReady: data.containerReady !== false });
     }).catch(() => {
-      // Network/container error → treat as no databases (container not ready)
       dispatch({ type: 'SET_DATABASES', databases: [], pgDetected: false, containerReady: false });
     });
   }, [projectId]);
@@ -114,12 +119,25 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
     });
   }, [state.selectedDb]);
 
+  // If Supabase is detected, auto-select it as the database so we enter table list view
+  useEffect(() => {
+    if (state.supabaseDetected && state.supabaseUrl && !state.isLoading && state.screen === 'db-list') {
+      // Auto-select Supabase as the "database" — uses __supabase__ as the db path marker
+      const hasSupabaseDb = state.databases.some(d => d.path === '__supabase__');
+      if (hasSupabaseDb) {
+        dispatch({ type: 'SELECT_DB', dbPath: '__supabase__' });
+      }
+    }
+  }, [state.supabaseDetected, state.databases, state.isLoading, state.screen]);
+
   return (
     <View style={styles.container}>
       {(state.screen === 'discovering' || state.screen === 'db-list') && (
         <DatabaseDiscovery
           databases={state.databases}
           pgDetected={state.pgDetected}
+          supabaseDetected={state.supabaseDetected}
+          supabaseUrl={state.supabaseUrl}
           containerReady={state.containerReady}
           isLoading={state.isLoading}
           error={state.error}
@@ -127,7 +145,7 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
           onRetry={() => {
             dispatch({ type: 'SET_LOADING', loading: true });
             api.discover().then(data => {
-              dispatch({ type: 'SET_DATABASES', databases: data.databases, pgDetected: data.pgDetected, containerReady: data.containerReady !== false });
+              dispatch({ type: 'SET_DATABASES', databases: data.databases, pgDetected: data.pgDetected, supabaseDetected: data.supabaseDetected, supabaseUrl: data.supabaseUrl, containerReady: data.containerReady !== false });
             }).catch(() => {
               dispatch({ type: 'SET_DATABASES', databases: [], pgDetected: false, containerReady: false });
             });

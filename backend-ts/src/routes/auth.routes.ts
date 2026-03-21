@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
-import { sendVerificationEmail } from '../services/email.service';
+import { sendPasswordResetEmail, sendVerificationEmail } from '../services/email.service';
 import { log } from '../utils/logger';
 
 export const authRouter = Router();
@@ -34,6 +34,42 @@ authRouter.post('/send-verification', asyncHandler(async (req, res) => {
     res.status(502).json({
       success: false,
       error: 'Unable to send verification email right now',
+    });
+  }
+}));
+
+authRouter.post('/send-password-reset', asyncHandler(async (req, res) => {
+  const rawEmail = typeof req.body?.email === 'string' ? req.body.email : '';
+  const email = rawEmail.trim().toLowerCase();
+
+  if (!email) {
+    return res.status(400).json({ error: 'email is required' });
+  }
+
+  if (!EMAIL_REGEX.test(email)) {
+    return res.status(400).json({ error: 'invalid email format' });
+  }
+
+  try {
+    const { messageId } = await sendPasswordResetEmail(email);
+    return res.json({ success: true, messageId });
+  } catch (err: any) {
+    const code = err?.code || err?.errorInfo?.code;
+    const message = err?.message || String(err);
+    const isSilentMissingUser =
+      code === 'auth/user-not-found' ||
+      message === 'password-provider-not-enabled' ||
+      message.includes('There is no user record');
+
+    if (isSilentMissingUser) {
+      log.info(`[Auth] Password reset requested for non-resettable account ${maskEmail(email)}; returning success`);
+      return res.json({ success: true });
+    }
+
+    log.warn(`[Auth] Failed to send password reset email to ${maskEmail(email)}: ${message}`);
+    return res.status(502).json({
+      success: false,
+      error: 'Unable to send password reset email right now',
     });
   }
 }));

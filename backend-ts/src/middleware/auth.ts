@@ -201,7 +201,7 @@ export interface PlanProjectLimits {
 const PLAN_PROJECT_LIMITS: Record<string, PlanProjectLimits> = {
   free:    { maxCreated: 2, maxCloned: 1, maxLocal: 1, maxStorageMb: 1024 },
   go:      { maxCreated: 10, maxCloned: 5, maxLocal: 3, maxStorageMb: 5120 },
-  pro:     { maxCreated: 50, maxCloned: 25, maxLocal: 10, maxStorageMb: 10240 },
+  pro:     { maxCreated: 50, maxCloned: 25, maxLocal: 10, maxStorageMb: 20480 },
   team:    { maxCreated: 200, maxCloned: 100, maxLocal: 20, maxStorageMb: 51200 },
 };
 

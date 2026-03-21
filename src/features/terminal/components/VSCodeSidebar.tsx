@@ -492,7 +492,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
             <Animated.View entering={FadeInDown.delay(400).duration(500)}>
               <IconButton iconName="eye" size={24} color={AppColors.icon.default} onPress={() => togglePanel('preview')} isActive={showPreviewPanel} activeColor={AppColors.primary} accessibilityLabel="Preview panel" />
             </Animated.View>
-            {!currentWorkstation?.repositoryUrl && !currentWorkstation?.githubUrl && (
+            {/* Database icon — show only in DEV (Cloud Mode is hidden in production) */}
+            {__DEV__ && !currentWorkstation?.repositoryUrl && !currentWorkstation?.githubUrl && (
               <Animated.View entering={FadeInDown.delay(450).duration(500)}>
                 <IconButton iconName="server-outline" size={24} color={AppColors.icon.default} onPress={handleDatabaseClick} isActive={activeTab?.type === 'database'} activeColor={AppColors.primary} accessibilityLabel="Database" />
               </Animated.View>

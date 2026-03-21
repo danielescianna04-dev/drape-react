@@ -1,7 +1,9 @@
 import { Router } from 'express';
+import axios from 'axios';
 import { asyncHandler } from '../middleware/async-handler';
 import { sessionService } from '../services/session.service';
 import { dockerService } from '../services/docker.service';
+import { config } from '../config';
 import { log } from '../utils/logger';
 
 export const dbRouter = Router();
@@ -77,8 +79,68 @@ dbRouter.get('/discover/:projectId', asyncHandler(async (req, res) => {
   const pgCheck = await dockerService.exec(agentUrl, `ss -tlnp 2>/dev/null | grep -q :5432 && echo yes || echo no`, '/home/coder/project', 3000, true);
   if (pgCheck.stdout.trim() === 'yes') pgDetected = true;
 
-  res.json({ databases: files, pgDetected, containerReady: true });
+  // Check for Supabase connection (.env.local with SUPABASE_URL)
+  let supabaseDetected = false;
+  let supabaseUrl = '';
+  const supabaseCheck = await dockerService.exec(
+    agentUrl,
+    `grep -s NEXT_PUBLIC_SUPABASE_URL .env.local .env 2>/dev/null | head -1 || true`,
+    '/home/coder/project', 3000, true,
+  );
+  const supabaseMatch = supabaseCheck.stdout.match(/NEXT_PUBLIC_SUPABASE_URL=(.+)/);
+  if (supabaseMatch) {
+    supabaseDetected = true;
+    supabaseUrl = supabaseMatch[1].trim();
+  }
+
+  // Also read anon key and service role key for Supabase API access
+  let supabaseAnonKey = '';
+  let supabaseServiceKey = '';
+  if (supabaseDetected) {
+    const keysCheck = await dockerService.exec(
+      agentUrl,
+      `grep -s 'NEXT_PUBLIC_SUPABASE_ANON_KEY\\|SUPABASE_SERVICE_ROLE_KEY' .env.local .env 2>/dev/null || true`,
+      '/home/coder/project', 3000, true,
+    );
+    const anonMatch = keysCheck.stdout.match(/NEXT_PUBLIC_SUPABASE_ANON_KEY=(.+)/);
+    if (anonMatch) supabaseAnonKey = anonMatch[1].trim();
+    const svcMatch = keysCheck.stdout.match(/SUPABASE_SERVICE_ROLE_KEY=(.+)/);
+    if (svcMatch) supabaseServiceKey = svcMatch[1].trim();
+
+    // Return Supabase as a "database" so the existing UI flow works
+    if (supabaseUrl) {
+      files.push({ path: '__supabase__', fullPath: supabaseUrl });
+    }
+  }
+
+  res.json({ databases: files, pgDetected, supabaseDetected, supabaseUrl, supabaseAnonKey, supabaseServiceKey, containerReady: true });
 }));
+
+// ─── Helper: query Supabase via REST API ───
+async function supabaseQuery(url: string, serviceKey: string, sql: string): Promise<any[]> {
+  const res = await axios.post(
+    `${url}/rest/v1/rpc/`,
+    {},
+    { headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` }, timeout: 10000 }
+  );
+  return res.data;
+}
+
+async function supabaseSQL(url: string, serviceKey: string, sql: string): Promise<any> {
+  // Use the Supabase Management API to run SQL
+  const projectRef = url.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1];
+  if (!projectRef) throw new Error('Invalid Supabase URL');
+
+  const accessToken = config.supabaseAccessToken;
+  if (!accessToken) throw new Error('Supabase access token not configured');
+
+  const res = await axios.post(
+    `https://api.supabase.com/v1/projects/${projectRef}/database/query`,
+    { query: sql },
+    { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+  );
+  return res.data;
+}
 
 // ─── GET /db/tables/:projectId ───
 // List tables with row counts for a given database
@@ -86,6 +148,38 @@ dbRouter.get('/tables/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
   const dbPath = req.query.db as string;
   if (!dbPath) return res.status(400).json({ error: 'db query param required' });
+
+  // Supabase tables — query via Management API
+  if (dbPath === '__supabase__') {
+    const uid = req.userId!;
+    const agentUrl = await getAgentUrl(projectId, uid);
+    const envCheck = await dockerService.exec(
+      agentUrl,
+      `grep -s NEXT_PUBLIC_SUPABASE_URL .env.local .env 2>/dev/null | head -1 || true`,
+      '/home/coder/project', 3000, true,
+    );
+    const urlMatch = envCheck.stdout.match(/NEXT_PUBLIC_SUPABASE_URL=(.+)/);
+    if (!urlMatch) return res.status(400).json({ error: 'Supabase URL not found' });
+    const supabaseUrl = urlMatch[1].trim();
+
+    try {
+      // Single query to get all tables with row counts (much faster than N queries)
+      const tables = await supabaseSQL(supabaseUrl, '', `
+        SELECT
+          schemaname || '.' || relname as full_name,
+          relname as name,
+          n_live_tup as "rowCount"
+        FROM pg_stat_user_tables
+        WHERE schemaname = 'public'
+        ORDER BY relname
+      `);
+
+      return res.json({ tables: tables.map((t: any) => ({ name: t.name, rowCount: parseInt(t.rowCount) || 0 })) });
+    } catch (err: any) {
+      log.warn(`[DB] Supabase tables query failed: ${err.message}`);
+      return res.status(500).json({ error: `Supabase query failed: ${err.message}` });
+    }
+  }
 
   const uid = req.userId!;
   const agentUrl = await getAgentUrl(projectId, uid);
@@ -121,6 +215,54 @@ dbRouter.get('/rows/:projectId', asyncHandler(async (req, res) => {
   const filterVal = req.query.filterVal as string;
 
   if (!dbPath || !table) return res.status(400).json({ error: 'db and table query params required' });
+
+  // Supabase rows
+  if (dbPath === '__supabase__') {
+    const uid = req.userId!;
+    const agentUrl = await getAgentUrl(projectId, uid);
+    const envCheck = await dockerService.exec(agentUrl, `grep -s NEXT_PUBLIC_SUPABASE_URL .env.local .env 2>/dev/null | head -1 || true`, '/home/coder/project', 3000, true);
+    const urlMatch = envCheck.stdout.match(/NEXT_PUBLIC_SUPABASE_URL=(.+)/);
+    if (!urlMatch) return res.status(400).json({ error: 'Supabase URL not found' });
+    const supabaseUrl = urlMatch[1].trim();
+
+    try {
+      let whereClause = '';
+      if (filterCol && filterOp && filterVal !== undefined) {
+        const ops: Record<string, string> = { eq: '=', neq: '!=', gt: '>', lt: '<', like: 'LIKE' };
+        const sqlOp = ops[filterOp] || '=';
+        const val = filterOp === 'like' ? `'%${filterVal.replace(/'/g, "''")}%'` : `'${filterVal.replace(/'/g, "''")}'`;
+        whereClause = `WHERE "${filterCol}" ${sqlOp} ${val}`;
+      }
+
+      const offset = page * limit;
+      const countResult = await supabaseSQL(supabaseUrl, '', `SELECT count(*) as c FROM public."${table}" ${whereClause}`);
+      const totalRows = countResult[0]?.c || 0;
+      const rows = await supabaseSQL(supabaseUrl, '', `SELECT * FROM public."${table}" ${whereClause} LIMIT ${limit} OFFSET ${offset}`);
+
+      // Get column info
+      const colResult = await supabaseSQL(supabaseUrl, '', `
+        SELECT column_name, data_type, is_nullable, column_default
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = '${table}'
+        ORDER BY ordinal_position
+      `);
+      const columns = colResult.map((c: any) => ({
+        name: c.column_name,
+        type: c.data_type,
+        nullable: c.is_nullable === 'YES',
+        defaultValue: c.column_default,
+      }));
+
+      // Normalize to match SQLite format: columns as string[], total as number
+      return res.json({
+        rows,
+        columns: columns.map((c: any) => c.name),
+        total: typeof totalRows === 'number' ? totalRows : parseInt(totalRows) || 0,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: `Supabase query failed: ${err.message}` });
+    }
+  }
 
   const uid = req.userId!;
   const agentUrl = await getAgentUrl(projectId, uid);

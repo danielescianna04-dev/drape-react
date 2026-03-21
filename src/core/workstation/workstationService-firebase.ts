@@ -167,7 +167,7 @@ export const workstationService = {
         ...(technology ? { technology } : {}),
       };
 
-      await setDoc(doc(db, COLLECTION, projectId), project);
+      await setDoc(doc(db, COLLECTION, projectId), project, { merge: true });
 
       return { ...project, id: projectId };
     } catch (error) {

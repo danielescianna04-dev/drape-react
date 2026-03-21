@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import { execSync } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
 import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter, decrementCreationCounter } from '../middleware/auth';
@@ -7,8 +10,46 @@ import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
 import { aiProviderService } from '../services/ai-provider.service';
 import { firebaseService } from '../services/firebase.service';
+import { config } from '../config';
 import { log } from '../utils/logger';
 import { auditService } from '../services/audit.service';
+import { getProjectCreationSystemPrompt, getProjectCreationUserPrompt, getExcludedFiles } from '../services/project-creation-prompt';
+import { supabaseManagementService, SupabaseCredentials } from '../services/supabase-management.service';
+
+async function applyBoilerplateTemplate(projectId: string, technology: string, cloudMode: boolean = false): Promise<boolean> {
+  // Templates are in the backend root directory (synced via deploy), NOT inside Docker containers
+  // __dirname at runtime is /opt/drape-backend/dist/routes/ → go up 2 levels to /opt/drape-backend/
+  const backendRoot = path.resolve(__dirname, '..', '..');
+  const templateDir = path.join(backendRoot, 'templates', technology);
+  const cloudDir = path.join(backendRoot, 'templates', `${technology}-cloud`);
+  const projectDir = path.join(config.projectsRoot, projectId);
+
+  try {
+    // Check if template exists
+    if (!fs.existsSync(templateDir)) {
+      log.info(`[Template] No boilerplate for ${technology}, will use AI generation`);
+      return false;
+    }
+
+    // Copy base template files to project directory
+    execSync(`cp -a ${templateDir}/. ${projectDir}/`, { timeout: 10000 });
+
+    // If cloud mode enabled, overlay cloud files on top
+    if (cloudMode && fs.existsSync(cloudDir)) {
+      execSync(`cp -a ${cloudDir}/. ${projectDir}/`, { timeout: 10000 });
+      log.info(`[Template] Applied cloud overlay for ${technology} to ${projectId}`);
+    }
+
+    // Fix ownership
+    execSync(`chown -R 1000:1000 ${projectDir}`, { timeout: 5000 });
+
+    log.info(`[Template] Applied boilerplate template for ${technology}${cloudMode ? ' + cloud' : ''} to ${projectId}`);
+    return true;
+  } catch (err: any) {
+    log.warn(`[Template] Failed to apply template for ${technology}: ${err.message}`);
+    return false;
+  }
+}
 
 // In-memory task store for project creation
 interface CreationTask {
@@ -1004,6 +1045,9 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
   const id = projectId || `project-${Date.now()}`;
   await fileService.ensureProjectDir(id);
 
+  // Apply boilerplate template to give AI a foundation to work with
+  await applyBoilerplateTemplate(id, technology || 'nextjs', cloudEnabled === true);
+
   // Increment lifetime creation counter
   if (userId !== 'anonymous') {
     incrementCreationCounter(userId, 'created').catch(() => {});
@@ -1087,7 +1131,37 @@ async function generateProject(
     task.step = step;
   };
 
-  update(10, 'Preparing AI Model...', 'Configuration');
+  update(2, 'Initializing project...', 'Setup');
+  const templateApplied = await applyBoilerplateTemplate(projectId, technology, cloudMode);
+  update(5, 'Template ready', 'Setup');
+  const isCloudMode = cloudMode || (description ? /cloud\s*mode/i.test(description) : false);
+  update(8, 'Preparing AI model...', 'Setup');
+
+  // Create Supabase project if Cloud Mode and Supabase is configured
+  let supabaseCredentials: SupabaseCredentials | null = null;
+  if (isCloudMode && supabaseManagementService.isConfigured) {
+    try {
+      update(10, 'Creating Supabase database...', 'Cloud Setup');
+      supabaseCredentials = await supabaseManagementService.createProject(projectName, userId, (pct, msg) => {
+        update(pct, msg, 'Cloud Setup');
+      });
+
+      // Write .env file with Supabase credentials
+      const envContent = [
+        `NEXT_PUBLIC_SUPABASE_URL=${supabaseCredentials.url}`,
+        `NEXT_PUBLIC_SUPABASE_ANON_KEY=${supabaseCredentials.anonKey}`,
+        `SUPABASE_SERVICE_ROLE_KEY=${supabaseCredentials.serviceRoleKey}`,
+        `SUPABASE_DB_PASSWORD=${supabaseCredentials.dbPassword}`,
+      ].join('\n');
+      await fileService.writeFile(projectId, '.env.local', envContent);
+
+      update(40, 'Supabase ready!', 'AI Generating');
+      log.info(`[CreateProject] Supabase project created: ${supabaseCredentials.url}`);
+    } catch (err: any) {
+      log.warn(`[CreateProject] Supabase creation failed, falling back to SQLite: ${err.message}`);
+      // Don't fail the whole creation — fall back to SQLite template
+    }
+  }
 
   const techMap: Record<string, string> = {
     nextjs: 'Next.js 15 with App Router, TypeScript, and Tailwind CSS',
@@ -1115,7 +1189,7 @@ async function generateProject(
   };
   const techDesc = techMap[technology] || techMap['nextjs'];
 
-  update(22, 'Progettazione struttura...', 'AI Generating');
+  update(15, 'Designing architecture...', 'AI Generating');
 
   // Build the list of config files the AI should NOT generate (they are auto-created by the template system)
   const excludedConfigFiles: Record<string, string[]> = {
@@ -1135,9 +1209,7 @@ async function generateProject(
     ? `\n- Do NOT include these files (they are auto-generated): ${excluded.join(', ')}`
     : '';
 
-  // Detect Cloud Mode from explicit flag OR from the frontend suffix in the description
-  const isCloudMode = cloudMode || (description ? /cloud\s*mode/i.test(description) : false);
-  if (isCloudMode) log.info(`[Workstation] Cloud Mode detected for "${projectName}" — will enforce SQLite database generation`);
+  if (isCloudMode) log.info(`[Workstation] Cloud Mode detected for "${projectName}" — will enforce ${supabaseCredentials ? 'Supabase' : 'SQLite'} database generation`);
   const cloudDbRequirements = isCloudMode ? `
 
 CLOUD MODE — DATABASE REQUIRED:
@@ -1218,16 +1290,36 @@ CRITICAL RULES to avoid build errors:
 
 Return ONLY the JSON, no markdown fences, no explanation.`;
 
-  update(24, 'Starting AI generation...', 'AI Generating');
+  // Protected files set — used during streaming to skip template files
+  const protectedFilesSet = new Set([
+    'package.json', 'tsconfig.json', 'vite.config.ts', 'vite.config.js',
+    'next.config.ts', 'next.config.js', 'postcss.config.mjs', 'postcss.config.js',
+    'nuxt.config.ts', 'svelte.config.js', 'angular.json', 'tsconfig.app.json',
+    'astro.config.mjs', 'app.config.ts', 'composer.json',
+    'app.json', 'pubspec.yaml', 'analysis_options.yaml',
+    'app/globals.css', 'src/index.css', 'src/style.css', 'src/app.css',
+    'src/app.html', 'assets/css/main.css', 'src/styles.css', 'style.css',
+    'app/tailwind.css', 'src/styles/global.css',
+    'app/layout.tsx', 'src/main.tsx', 'src/main.ts', 'src/App.vue', 'app.vue',
+    'app/root.tsx', 'src/app.tsx', 'src/entry-server.tsx', 'src/entry-client.tsx',
+    'index.html', 'src/app/app.component.ts',
+    'manage.py', 'artisan', 'public/index.php', 'bootstrap/app.php',
+    'server/db.js', 'database.py', 'src/lib/server/db.ts',
+  ]);
+
+  const streamWrittenFiles: string[] = [];
+  update(17, 'Starting AI generation...', 'AI Generating');
 
   // Fast-first fallback chain on Gemini as requested.
   // Keep two flash attempts before escalating to pro.
-  const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3.1-pro'];
-  const systemPrompt = isCloudMode
-    ? 'You are a senior full-stack developer. You generate complete, working project scaffolds with SQLite databases using better-sqlite3. The database MUST be a real .db file with tables and seed data. Always return valid JSON.'
-    : 'You are a senior full-stack developer. You generate complete, working project scaffolds. Always return valid JSON.';
-  const chatMessages = [{ role: 'user' as const, content: prompt }];
-  const chatOptions = { temperature: 0.4, maxTokens: isCloudMode ? 12000 : 8000 };
+  const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3-flash'];
+  // Use the dedicated project creation prompt (knows about templates)
+  const systemPrompt = getProjectCreationSystemPrompt(technology, isCloudMode, supabaseCredentials);
+  const userPrompt = templateApplied
+    ? getProjectCreationUserPrompt(technology, projectName, description, isCloudMode, supabaseCredentials)
+    : prompt; // Fallback to old prompt if no template was applied
+  const chatMessages = [{ role: 'user' as const, content: userPrompt }];
+  const chatOptions = { temperature: 0.4, maxTokens: isCloudMode ? 80000 : 40000 };
 
   try {
     let fullText = '';
@@ -1283,9 +1375,9 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
         // - Uses 1 - e^(-t/τ) so it NEVER stops, just slows down naturally
         // - Chunk arrivals give a small forward boost
         // - Single ticker avoids competing progress emitters
-        const AI_START = 24;
-        const AI_CEILING = 95; // reserve 95-100 for deterministic post-processing
-        const TAU = 40; // time constant: ~63% at 40s, ~86% at 80s, ~95% at 120s
+        const AI_START = supabaseCredentials ? 40 : 17;
+        const AI_CEILING = 80; // reserve 80-100 for review, build check, install
+        const TAU = supabaseCredentials ? 50 : 35;
 
         generationTicker = setInterval(() => {
           const elapsed = (Date.now() - streamStart) / 1000;
@@ -1297,17 +1389,69 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
           update(progress, message, 'AI Generating');
         }, 600);
 
+        // === STREAMING FILE EXTRACTION ===
+        // Parse and write files AS they arrive in the stream, not after
+        let extractionBuffer = '';
+
+        const extractAndWriteFiles = async () => {
+          // Try to find complete file objects in the accumulated text
+          // Pattern: {"path":"...","content":"..."} — content may have escaped chars
+          const fileRegex = /\{\s*"path"\s*:\s*"([^"]+)"\s*,\s*"content"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}/g;
+          let match;
+          const found: { path: string; content: string; fullMatch: string }[] = [];
+
+          while ((match = fileRegex.exec(fullText)) !== null) {
+            const filePath = match[1];
+            if (streamWrittenFiles.includes(filePath)) continue; // Already written
+            try {
+              const content = JSON.parse(`"${match[2]}"`); // Unescape the content
+              found.push({ path: filePath, content, fullMatch: match[0] });
+            } catch { /* incomplete escape sequence, skip */ }
+          }
+
+          for (const file of found) {
+            if (streamWrittenFiles.includes(file.path)) continue;
+            // Skip protected template files
+            if (templateApplied && protectedFilesSet.has(file.path)) continue;
+            // Quick inline fix: blocked icon libs
+            let content = file.content;
+            content = content.replace(/import\s+\{[^}]+\}\s+from\s+['"](?:lucide-react|@heroicons\/react[^'"]*|@fortawesome[^'"]*)['"]/g, '');
+            content = content.replace(/import\s+(\w+)\s+from\s+['"]better-sqlite3['"]/g, "const $1 = require('better-sqlite3')");
+            // Add missing 'use client' for files with hooks
+            if ((file.path.endsWith('.tsx') || file.path.endsWith('.jsx')) &&
+                /\b(useState|useEffect|useCallback|useMemo|useRef|useReducer)\b/.test(content) &&
+                !content.startsWith("'use client'") && !content.startsWith('"use client"')) {
+              content = "'use client';\n\n" + content;
+            }
+            if (content.trim().length === 0) continue;
+            await fileService.writeFile(projectId, file.path, content);
+            streamWrittenFiles.push(file.path);
+          }
+        };
+
         for await (const chunk of stream) {
           if (chunk.type === 'text') {
             fullText += chunk.text;
             chunkCount++;
+            // Every ~20 chunks, try to extract files
+            if (chunkCount % 20 === 0) {
+              await extractAndWriteFiles();
+              if (streamWrittenFiles.length > 0) {
+                update(Math.min(AI_CEILING, AI_START + Math.floor((streamWrittenFiles.length / 20) * (AI_CEILING - AI_START))),
+                  `Writing ${streamWrittenFiles[streamWrittenFiles.length - 1]}...`, 'Generating & Writing');
+              }
+            }
           }
         }
+        // Final extraction for any remaining files
+        await extractAndWriteFiles();
+
         if (generationTicker) {
           clearInterval(generationTicker);
           generationTicker = null;
         }
-        update(96, 'Finalizing AI response...', 'Processing');
+        update(80, `${streamWrittenFiles.length} files written`, 'Processing');
+        log.info(`[CreateProject] Stream-wrote ${streamWrittenFiles.length} files during generation`);
         break; // Success — exit retry loop
       } catch (retryErr: any) {
         if (generationTicker) {
@@ -1316,25 +1460,19 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
         }
         log.warn(`[CreateProject] Attempt ${attempt + 1} failed: ${retryErr.message}`);
         if (attempt === models.length - 1) throw retryErr;
-        update(26, `Retrying generation (attempt ${attempt + 2})...`, 'AI Generating');
+        update(20, `Retrying generation (attempt ${attempt + 2})...`, 'AI Generating');
         await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
       }
     }
 
-    update(97, 'Analyzing generated code...', 'Processing');
+    // Parse any remaining files not caught by streaming extraction
+    update(82, 'Processing remaining files...', 'Processing');
+    let cleanJson = fullText.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
 
-    // Parse the JSON response
-    let cleanJson = fullText.trim();
-    // Remove markdown fences if present
-    if (cleanJson.startsWith('```')) {
-      cleanJson = cleanJson.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    }
-
-    let parsed: { files: { path: string; content: string }[] } = null as any;
+    let parsed: { files: { path: string; content: string }[] } = { files: [] };
     try {
       parsed = JSON.parse(cleanJson);
     } catch {
-      // AI may append text after valid JSON — truncate at last '}'
       for (let i = cleanJson.lastIndexOf('}'); i > 0; i = cleanJson.lastIndexOf('}', i - 1)) {
         try {
           parsed = JSON.parse(cleanJson.substring(0, i + 1));
@@ -1342,12 +1480,20 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
         } catch { /* try earlier brace */ }
       }
       if (!parsed) {
-        // Last resort: regex extract
-        const jsonMatch = cleanJson.match(/\{[\s\S]*"files"[\s\S]*\}/);
-        if (jsonMatch) {
-          parsed = JSON.parse(jsonMatch[0]);
+        // Last resort: find all complete file entries and reconstruct JSON
+        const filePattern = /\{\s*"path"\s*:\s*"([^"]+)"\s*,\s*"content"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}/g;
+        const files: { path: string; content: string }[] = [];
+        let m;
+        while ((m = filePattern.exec(cleanJson)) !== null) {
+          try {
+            files.push({ path: m[1], content: JSON.parse(`"${m[2]}"`) });
+          } catch { /* skip malformed entry */ }
+        }
+        if (files.length > 0) {
+          parsed = { files };
+          log.info(`[CreateProject] Recovered ${files.length} files from truncated JSON`);
         } else {
-          throw new Error('AI returned invalid JSON');
+          throw new Error('AI returned invalid JSON — could not recover any files');
         }
       }
     }
@@ -1358,60 +1504,216 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
 
     parsed.files = normalizeGeneratedFiles(parsed.files, technology, projectName);
 
-    update(98, 'Preparing files...', 'Processing');
+    // If template was applied, protect critical template files from being overwritten
+    if (templateApplied) {
+      const protectedFiles = new Set([
+        // Config files — never overwrite
+        'package.json', 'tsconfig.json', 'vite.config.ts', 'vite.config.js',
+        'next.config.ts', 'next.config.js', 'postcss.config.mjs', 'postcss.config.js',
+        'nuxt.config.ts', 'svelte.config.js', 'angular.json', 'tsconfig.app.json',
+        'astro.config.mjs', 'app.config.ts', 'composer.json',
+        'app.json', 'pubspec.yaml', 'analysis_options.yaml',
+        // CSS/design system files — never overwrite (contain Tailwind setup)
+        'app/globals.css', 'src/index.css', 'src/style.css', 'src/app.css',
+        'src/app.html', 'assets/css/main.css', 'src/styles.css', 'style.css',
+        'app/tailwind.css', 'src/styles/global.css',
+        'static/css/custom.css', 'public/css/custom.css',
+        // Layout files — never overwrite (import CSS, set up app shell)
+        'app/layout.tsx', 'src/main.tsx', 'src/main.ts', 'src/App.vue', 'app.vue',
+        'app/root.tsx', 'src/app.tsx', 'src/entry-server.tsx', 'src/entry-client.tsx',
+        'index.html', 'src/app/app.component.ts',
+        // Entry points
+        'manage.py', 'artisan', 'public/index.php', 'bootstrap/app.php',
+        // Cloud mode database files — protect base setup
+        'server/db.js', 'database.py', 'src/lib/server/db.ts',
+      ]);
+      const before = parsed.files.length;
+      parsed.files = parsed.files.filter(f => !protectedFiles.has(f.path));
+      const dropped = before - parsed.files.length;
+      if (dropped > 0) {
+        log.info(`[CreateProject] Protected ${dropped} template files from AI overwrite`);
+      }
+    }
 
-    // Write files to NVMe
-    const writtenFiles: string[] = [];
-    for (let i = 0; i < parsed.files.length; i++) {
-      const file = parsed.files[i];
-      if (!file.path || file.content === undefined) continue;
+    // Write only files NOT already written during streaming
+    update(84, 'Writing remaining files...', 'Processing');
+    const writtenFiles: string[] = [...streamWrittenFiles];
 
-      const progress = 98 + Math.floor((i / parsed.files.length) * 1.5); // 98 → 99
-      update(progress, `Writing ${file.path}`, 'Writing files');
+    // Filter: skip protected, empty, already streamed
+    const remainingFiles = (parsed.files || []).filter(f =>
+      f.path && f.content && f.content.trim().length > 0 &&
+      !streamWrittenFiles.includes(f.path) &&
+      !(templateApplied && protectedFilesSet.has(f.path))
+    );
 
-      await fileService.writeFile(projectId, file.path, file.content);
+    for (const file of remainingFiles) {
+      // Quick inline fixes (same as streaming)
+      let content = file.content;
+      content = content.replace(/import\s+\{[^}]+\}\s+from\s+['"](?:lucide-react|@heroicons[^'"]*|@fortawesome[^'"]*)['"]/g, '');
+      content = content.replace(/import\s+(\w+)\s+from\s+['"]better-sqlite3['"]/g, "const $1 = require('better-sqlite3')");
+      if ((file.path.endsWith('.tsx') || file.path.endsWith('.jsx')) &&
+          /\b(useState|useEffect|useCallback|useMemo|useRef|useReducer)\b/.test(content) &&
+          !content.startsWith("'use client'") && !content.startsWith('"use client"')) {
+        content = "'use client';\n\n" + content;
+      }
+      await fileService.writeFile(projectId, file.path, content);
       writtenFiles.push(file.path);
     }
 
-    update(99, 'Starting workspace...', 'Finalizing');
+    log.info(`[CreateProject] Total files: ${writtenFiles.length} (${streamWrittenFiles.length} streamed + ${remainingFiles.length} post-stream)`);
+
+    // Run Supabase migrations if available
+    if (supabaseCredentials) {
+      const schemaFile = parsed.files.find(f => f.path === 'supabase/schema.sql');
+      if (schemaFile) {
+        try {
+          log.info(`[CreateProject] Running Supabase schema migration...`);
+          await supabaseManagementService.runSQL(supabaseCredentials.projectRef, schemaFile.content);
+          log.info(`[CreateProject] Supabase schema applied successfully`);
+        } catch (err: any) {
+          log.warn(`[CreateProject] Supabase migration failed: ${err.message}`);
+        }
+      }
+    }
+
+    // Save Supabase credentials to Firestore for the app's SupabasePanel
+    if (supabaseCredentials) {
+      try {
+        const db = firebaseService.getFirestore();
+        if (db) {
+          await db.collection('user_projects').doc(projectId).set({
+            userId,
+            supabase: {
+              projectRef: supabaseCredentials.projectRef,
+              url: supabaseCredentials.url,
+              anonKey: supabaseCredentials.anonKey,
+            }
+          }, { merge: true });
+        }
+      } catch (err: any) {
+        log.warn(`[CreateProject] Failed to save Supabase credentials: ${err.message}`);
+      }
+    }
+
+    update(90, 'Starting workspace...', 'Building');
 
     log.info(`[CreateProject] Generated ${writtenFiles.length} files for ${projectName}`);
 
-    // Pre-warm: create container + install deps + start dev server in background.
-    // When the frontend calls startPreview, the fast path finds the server already running.
-    workspaceService.warmProject(projectId, userId).then(async () => {
-      // For Cloud Mode projects, initialize the SQLite database after warm-up
-      if (cloudMode && writtenFiles.some(f => f.includes('db.'))) {
-        try {
-          const { sessionService } = await import('../services/session.service');
-          const session = await sessionService.get(projectId, userId);
-          const agentUrl = session?.agentUrl;
-          if (!agentUrl) throw new Error('No agent URL found');
-          // Run the db initialization script to create the .db file
-          const initScript = `
-try {
-  const path = require('path');
-  const fs = require('fs');
-  const dbFiles = fs.readdirSync('/home/coder/project/lib').filter(f => f.startsWith('db.'));
-  if (dbFiles.length > 0) {
-    require('/home/coder/project/lib/' + dbFiles[0]);
-    console.log('DB initialized');
-  }
-} catch(e) { console.error('DB init error:', e.message); }`;
-          const { default: fetch } = await import('node-fetch');
-          await fetch(`${agentUrl}/exec`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: `node -e "${initScript.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, cwd: '/home/coder/project', timeout: 15000 }),
-          });
-          log.info(`[CreateProject] Cloud Mode DB initialized for ${projectId}`);
-        } catch (dbErr: any) {
-          log.warn(`[CreateProject] Cloud Mode DB init failed for ${projectId}: ${dbErr.message}`);
+    // Pre-warm: create container + install deps + start dev server
+    update(91, 'Installing dependencies...', 'Building');
+    try {
+      await workspaceService.warmProject(projectId, userId);
+    } catch (warmErr: any) {
+      log.warn(`[CreateProject] Warm failed: ${warmErr.message}`);
+    }
+
+    // === BUILD CHECK + AUTO-FIX LOOP (max 3 attempts) ===
+    const MAX_FIX_ATTEMPTS = 3;
+    for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS; attempt++) {
+      try {
+        // Wait for dev server to compile
+        await new Promise(r => setTimeout(r, attempt === 0 ? 3000 : 2000));
+        const checkPct = 93 + attempt * 2;
+        update(checkPct, attempt > 0 ? `Fixing errors (attempt ${attempt + 1})...` : 'Checking build...', 'Build Check');
+
+        // Read dev server logs for errors
+        const logsResult = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -80');
+        const serverLog = logsResult.stdout || '';
+
+        // Also try to curl the dev server to trigger compilation
+        const curlResult = await workspaceService.exec(projectId, userId, 'curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null || echo 000');
+        const httpCode = curlResult.stdout?.trim() || '000';
+
+        // Re-read logs after curl (compilation may have happened)
+        const logsResult2 = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -80');
+        const fullLog = (serverLog + '\n' + (logsResult2.stdout || '')).trim();
+
+        // Extract errors
+        const errorPatterns = [
+          /(?:Error|ERROR):\s*(.*(?:Cannot find module|Module not found|is not defined|Unexpected token|SyntaxError|TypeError|ReferenceError|Cannot resolve|Failed to resolve)[^\n]*)/gi,
+          /error\s+TS\d+:\s*([^\n]*)/gi,
+          /(?:ENOENT):\s*([^\n]*no such file[^\n]*)/gi,
+          /Unexpected token[^\n]*/gi,
+          /Invalid src prop[^\n]*/gi,
+        ];
+
+        const buildErrors: string[] = [];
+        for (const pattern of errorPatterns) {
+          let m;
+          while ((m = pattern.exec(fullLog)) !== null) {
+            const err = (m[1] || m[0]).trim();
+            if (!buildErrors.some(e => e.includes(err.substring(0, 40))) && buildErrors.length < 8) {
+              buildErrors.push(err);
+            }
+          }
         }
+
+        if (buildErrors.length === 0 && httpCode !== '000' && httpCode !== '500') {
+          log.info(`[BuildCheck] Build OK (HTTP ${httpCode}) on attempt ${attempt + 1}`);
+          break; // Build is clean!
+        }
+
+        if (buildErrors.length === 0 && attempt > 0) {
+          log.info(`[BuildCheck] No more errors detected on attempt ${attempt + 1}`);
+          break;
+        }
+
+        if (buildErrors.length === 0) continue; // No errors found yet, maybe server is still starting
+
+        log.info(`[BuildCheck] Attempt ${attempt + 1}: ${buildErrors.length} errors found`);
+        update(checkPct + 1, `Fixing ${buildErrors.length} error${buildErrors.length > 1 ? 's' : ''}...`, 'Auto-Fix');
+
+        // Read the broken files for AI context
+        const brokenFiles: { path: string; content: string }[] = [];
+        for (const err of buildErrors) {
+          // Extract file path from error
+          const fileMatch = err.match(/(?:\/home\/coder\/project\/|\.\/)?([a-zA-Z0-9_\-/.]+\.(?:tsx?|jsx?|vue|svelte|astro))/);
+          if (fileMatch) {
+            const relPath = fileMatch[1].replace(/^\/home\/coder\/project\//, '');
+            try {
+              const readResult = await workspaceService.exec(projectId, userId, `cat /home/coder/project/${relPath} 2>/dev/null`);
+              if (readResult.stdout) {
+                brokenFiles.push({ path: relPath, content: readResult.stdout });
+              }
+            } catch { /* ignore */ }
+          }
+        }
+
+        const fileContext = brokenFiles.map(f => `--- ${f.path} ---\n${f.content}`).join('\n\n');
+
+        const fixPrompt = `Fix these ${technology} build errors:\n\n${buildErrors.join('\n')}\n\n${fileContext ? `Current file contents:\n${fileContext}\n\n` : ''}Return JSON array of fixed files: [{"path": "file/path", "content": "complete fixed content"}]\nRules:\n- Return the COMPLETE file content, not just the changed lines\n- For 'use client' errors: add 'use client' at the very top of the file\n- For missing import/module errors: add the correct import statement\n- For 'is not defined' errors: add the import for the missing symbol\n- For next/image Invalid src: replace <Image> with <img> and remove the next/image import\n- NEVER import from lucide-react, @heroicons, @fortawesome — use react-icons instead\n- Return valid JSON only`;
+
+        try {
+          const fixStream = aiProviderService.chatStream('gemini-3-flash',
+            [{ role: 'user', content: fixPrompt }],
+            undefined, 'Fix build errors. Return only valid JSON.', { temperature: 0.1, maxTokens: 30000 }
+          );
+          let fixText = '';
+          for await (const chunk of fixStream) { fixText += chunk; }
+
+          const fixMatch = fixText.match(/\[[\s\S]*?\]/);
+          if (fixMatch) {
+            const fixes: { path: string; content: string }[] = JSON.parse(fixMatch[0]);
+            let fixCount = 0;
+            for (const fix of fixes) {
+              if (fix.path && fix.content && fix.content.trim().length > 0) {
+                await fileService.writeFile(projectId, fix.path, fix.content);
+                log.info(`[BuildCheck] Fixed: ${fix.path}`);
+                fixCount++;
+              }
+            }
+            log.info(`[BuildCheck] Applied ${fixCount} fixes on attempt ${attempt + 1}`);
+          }
+        } catch (fixErr: any) {
+          log.warn(`[BuildCheck] AI fix failed on attempt ${attempt + 1}: ${fixErr.message}`);
+          break; // Don't retry if AI fails
+        }
+
+      } catch (checkErr: any) {
+        log.warn(`[BuildCheck] Check failed on attempt ${attempt + 1}: ${checkErr.message}`);
+        break;
       }
-    }).catch(err => {
-      log.warn(`[CreateProject] Pre-warm failed for ${projectId}: ${err.message}`);
-    });
+    }
 
     // Complete
     update(100, 'Project Created Successfully!', 'Complete');

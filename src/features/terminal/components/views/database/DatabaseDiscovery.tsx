@@ -7,6 +7,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 interface Props {
   databases: { path: string; fullPath: string }[];
   pgDetected: boolean;
+  supabaseDetected?: boolean;
+  supabaseUrl?: string;
   containerReady: boolean;
   isLoading: boolean;
   error: string | null;
@@ -14,7 +16,7 @@ interface Props {
   onRetry: () => void;
 }
 
-export const DatabaseDiscovery: React.FC<Props> = ({ databases, pgDetected, containerReady, isLoading, error, onSelectDb, onRetry }) => {
+export const DatabaseDiscovery: React.FC<Props> = ({ databases, pgDetected, supabaseDetected, supabaseUrl, containerReady, isLoading, error, onSelectDb, onRetry }) => {
   const insets = useSafeAreaInsets();
 
   if (isLoading) {
@@ -48,6 +50,57 @@ export const DatabaseDiscovery: React.FC<Props> = ({ databases, pgDetected, cont
           <Text style={styles.retryBtnText}>Retry</Text>
         </TouchableOpacity>
       </View>
+    );
+  }
+
+  // Supabase detected — show connection info
+  if (supabaseDetected && supabaseUrl) {
+    const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1] || '';
+    return (
+      <ScrollView contentContainerStyle={[styles.emptyContainer, { paddingTop: insets.top + 80 }]}>
+        <View style={styles.glowWrap}>
+          <View style={[styles.glowRing, { borderColor: 'rgba(62, 207, 142, 0.2)' }]}>
+            <LinearGradient
+              colors={['rgba(62, 207, 142, 0.15)', 'rgba(62, 207, 142, 0.03)']}
+              style={styles.glowGradient}
+            />
+          </View>
+          <View style={[styles.iconBox, { backgroundColor: 'rgba(62, 207, 142, 0.12)' }]}>
+            <Ionicons name="cloud-done-outline" size={28} color="#3ECF8E" />
+          </View>
+        </View>
+
+        <Text style={styles.emptyTitle}>Supabase Connected</Text>
+        <Text style={styles.emptySubtitle}>
+          Your project is connected to a Supabase database with PostgreSQL, Auth, and Storage.
+        </Text>
+
+        <View style={{ marginTop: 20, gap: 10, width: '100%', paddingHorizontal: 20 }}>
+          <View style={{ backgroundColor: 'rgba(62, 207, 142, 0.08)', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: 'rgba(62, 207, 142, 0.15)' }}>
+            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, marginBottom: 4 }}>PROJECT URL</Text>
+            <Text style={{ color: '#3ECF8E', fontSize: 13, fontFamily: 'monospace' }} numberOfLines={1}>{supabaseUrl}</Text>
+          </View>
+
+          <TouchableOpacity
+            style={{ backgroundColor: 'rgba(62, 207, 142, 0.12)', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: 'rgba(62, 207, 142, 0.2)' }}
+            onPress={() => {
+              const url = projectRef
+                ? `https://supabase.com/dashboard/project/${projectRef}`
+                : 'https://supabase.com/dashboard';
+              require('expo-web-browser').openBrowserAsync(url);
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="open-outline" size={16} color="#3ECF8E" />
+            <Text style={{ color: '#3ECF8E', fontSize: 14, fontWeight: '600' }}>Open Supabase Dashboard</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity style={[styles.retryBtn, { marginTop: 20 }]} onPress={onRetry} activeOpacity={0.7}>
+          <Ionicons name="refresh-outline" size={16} color="#fff" />
+          <Text style={styles.retryBtnText}>Scan again</Text>
+        </TouchableOpacity>
+      </ScrollView>
     );
   }
 
