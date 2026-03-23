@@ -1300,8 +1300,8 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
     'app/globals.css', 'src/index.css', 'src/style.css', 'src/app.css',
     'src/app.html', 'assets/css/main.css', 'src/styles.css', 'style.css',
     'app/tailwind.css', 'src/styles/global.css',
-    'app/layout.tsx', 'src/main.tsx', 'src/main.ts', 'src/App.vue', 'app.vue',
-    'app/root.tsx', 'src/app.tsx', 'src/entry-server.tsx', 'src/entry-client.tsx',
+    'src/main.tsx', 'src/main.ts', 'src/App.vue', 'app.vue',
+    'src/app.tsx', 'src/entry-server.tsx', 'src/entry-client.tsx',
     'index.html', 'src/app/app.component.ts',
     'manage.py', 'artisan', 'public/index.php', 'bootstrap/app.php',
     'server/db.js', 'database.py', 'src/lib/server/db.ts',
@@ -1429,6 +1429,7 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
           }
         };
 
+        let streamUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
         for await (const chunk of stream) {
           if (chunk.type === 'text') {
             fullText += chunk.text;
@@ -1442,9 +1443,18 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
               }
             }
           }
+          if (chunk.type === 'done' && chunk.usage) {
+            streamUsage = {
+              inputTokens: chunk.usage.inputTokens || 0,
+              outputTokens: chunk.usage.outputTokens || 0,
+              cachedTokens: (chunk.usage as any).cacheReadTokens || 0,
+            };
+          }
         }
         // Final extraction for any remaining files
         await extractAndWriteFiles();
+
+        log.info(`[CreateProject] Tokens: model=${models[attempt]}, input=${streamUsage.inputTokens}, output=${streamUsage.outputTokens}`);
 
         if (generationTicker) {
           clearInterval(generationTicker);

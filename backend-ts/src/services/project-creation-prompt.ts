@@ -294,9 +294,21 @@ A boilerplate template with Tailwind CSS v4 is already set up in the project. Yo
 === FILES YOU MUST NEVER GENERATE (they already exist and work) ===
 - package.json, tsconfig.json, any config file (vite.config, next.config, postcss.config, etc.)
 - CSS files (globals.css, index.css, style.css, app.css, tailwind.css, main.css)
-- Root layout files (layout.tsx, App.tsx, app.vue, root.tsx, +layout.svelte, app.html)
 - index.html, entry files (main.tsx, main.ts, entry-server.tsx, entry-client.tsx)
-If you include ANY of these files, the app will BREAK.
+If you include ANY of these config/CSS files, the app will BREAK.
+
+=== LAYOUT FILES — YOU CAN MODIFY BUT MUST KEEP CSS IMPORT ===
+If you need to wrap the app with a Context Provider (e.g., AppProvider), you MUST generate a layout.tsx/App.tsx that:
+1. KEEPS the CSS import: import './globals.css' (Next.js) or import './index.css' (React)
+2. WRAPS children with your Provider
+Example for Next.js:
+\`\`\`tsx
+import './globals.css'
+import { AppProvider } from './context/AppContext'
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return <html lang="en"><body><AppProvider>{children}</AppProvider></body></html>
+}
+\`\`\`
 
 === DESIGN — UNIQUE FOR EVERY APP ===
 DO NOT use dark theme by default. Choose the color scheme that BEST FITS the app:
@@ -394,7 +406,8 @@ Format: https://images.unsplash.com/{photo-id}?w=800&h=600&fit=crop
 The project has react-icons installed. Use it freely for ALL icons. It has 40,000+ icons from multiple icon sets.
 
 PREFERRED icon sets and import patterns:
-- Heroicons (modern, clean): import { HiOutlineSearch, HiOutlineHeart, HiOutlineStar } from 'react-icons/hi2'
+- Heroicons v2 (modern, clean): import { HiOutlineMagnifyingGlass, HiOutlineHeart, HiOutlineStar, HiBars3, HiXMark, HiOutlineShoppingBag, HiOutlineUser } from 'react-icons/hi2'
+  IMPORTANT: In hi2, menu icon is HiBars3 (NOT HiOutlineMenu), close is HiXMark (NOT HiOutlineX), search is HiOutlineMagnifyingGlass (NOT HiOutlineSearch)
 - Feather Icons (minimal): import { FiSearch, FiHeart, FiSettings } from 'react-icons/fi'
 - Phosphor Icons (rich): import { PiDumbbell, PiShoppingCart, PiCookingPot } from 'react-icons/pi'
 - Bootstrap Icons: import { BsCart3, BsHeart, BsFilter } from 'react-icons/bs'

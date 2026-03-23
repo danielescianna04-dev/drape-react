@@ -20,7 +20,7 @@ import { tracciaChatMinimizzata, tracciaModelloSelezionato, tracciaPaginaPianiVi
 const AI_MODELS = [
   { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, isPremium: true, thinkingLevels: [] as string[] },
   { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, isPremium: false, thinkingLevels: [] as string[] },
-  { id: 'gpt-5-3', name: 'GPT 5.3', IconComponent: OpenAIIcon, isPremium: true, thinkingLevels: [] as string[] },
+  { id: 'gpt-5-4', name: 'GPT 5.4', IconComponent: OpenAIIcon, isPremium: true, thinkingLevels: [] as string[] },
   { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, isPremium: true, thinkingLevels: ['low', 'high'] },
   { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, isPremium: false, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
 ];
@@ -318,7 +318,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
         const contextWindows: Record<string, number> = {
           'claude-4-6-opus': 200000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
           'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3.1-pro': 1000000,
-          'gpt-5-3': 128000, 'llama-3.3-70b': 128000,
+          'gpt-5-4': 128000, 'llama-3.3-70b': 128000,
         };
         const windowK = Math.round((contextWindows[selectedModel] || 200000) / 1000);
         const compactionAt = 90;

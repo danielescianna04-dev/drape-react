@@ -86,7 +86,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
 
   // Determine if we should show thinking state (either from parent isLoading or item.isThinking)
   const showThinking = isLoading || item?.isThinking;
-  const canRetryTool = !!onRetryTool && item?.toolInfo?.status === 'error' && !!item.toolInfo?.tool;
+  const canRetryTool = false;
 
   // Determine if tool is executing (pulsing animation but with content visible)
   const isExecuting = item?.isExecuting;
@@ -265,13 +265,21 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
       content.startsWith('Multi-edit ') ||
       content.startsWith('Patch ') ||
       content.startsWith('List files') ||
-      content.startsWith('Search ') ||
+      content.startsWith('Search "') ||
       content.startsWith('Execute:') ||
       content.startsWith('Glob ') ||
+      content.startsWith('glob_search') ||
+      content.startsWith('grep_search') ||
       content.startsWith('Todo List') ||
       content.startsWith('Web Search') ||
       content.startsWith('User Question') ||
-      content.startsWith('Agent:');
+      content.startsWith('Agent:') ||
+      content.startsWith('Diagnostics') ||
+      content.startsWith('LSP:') ||
+      content.startsWith('Skill:') ||
+      content.startsWith('Fetch:') ||
+      content.startsWith('Fetch URL') ||
+      content.startsWith('web_fetch');
 
     if (isToolResult) {
       // Check if it has an error at the BEGINNING of the content (not in the middle)
@@ -634,9 +642,9 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                 badgeColor = '#A371F7';
                 badgeText = t('terminal:terminalItem.badges.list');
                 iconName = 'folder-open-outline';
-              } else if (header.startsWith('Search ') || header.startsWith('Glob ')) {
+              } else if (header.startsWith('Search ') || header.startsWith('Glob ') || header.startsWith('glob_search')) {
                 badgeColor = '#A371F7';
-                badgeText = header.startsWith('Glob ')
+                badgeText = (header.startsWith('Glob ') || header.startsWith('glob_search'))
                   ? t('terminal:terminalItem.badges.glob')
                   : t('terminal:terminalItem.badges.search');
                 iconName = 'search-outline';
@@ -648,7 +656,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                 badgeColor = '#58A6FF';
                 badgeText = t('terminal:terminalItem.badges.web');
                 iconName = 'globe-outline';
-              } else if (header.startsWith('Fetch URL')) {
+              } else if (header.startsWith('Fetch URL') || header.startsWith('Fetch:') || header.startsWith('web_fetch')) {
                 badgeColor = '#58A6FF';
                 badgeText = t('terminal:terminalItem.badges.fetch');
                 iconName = 'cloud-download-outline';
@@ -664,6 +672,18 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                 badgeColor = '#BC8CFF';
                 badgeText = t('terminal:terminalItem.badges.agent');
                 iconName = 'flash-outline';
+              } else if (header.startsWith('Diagnostics')) {
+                badgeColor = '#FFA657';
+                badgeText = 'DIAG';
+                iconName = 'warning-outline';
+              } else if (header.startsWith('LSP:')) {
+                badgeColor = '#FFA657';
+                badgeText = 'LSP';
+                iconName = 'code-outline';
+              } else if (header.startsWith('Skill')) {
+                badgeColor = '#BC8CFF';
+                badgeText = 'SKILL';
+                iconName = 'book-outline';
               }
 
               // Extract the label from header (e.g., "style.css" from "Read style.css")
@@ -708,13 +728,24 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                 );
               })()
             ) : // Check if this is a Glob tool result
-              (item.content || '').startsWith('Glob ') ? (
+              ((item.content || '').startsWith('Glob ') || (item.content || '').startsWith('glob_search')) ? (
                 (() => {
                   const content = item.content || '';
-                  const lines = content.split('\n');
-                  const fullHeader = lines[0]; // "Glob pattern: **/*.ts"
-                  const pattern = fullHeader.replace('Glob pattern: ', ''); // Extract pattern
-                  const stats = lines[1]; // "└─ Found X file(s)"
+                  const contentLines = content.split('\n');
+                  const fullHeader = contentLines[0]; // "Glob pattern: **/*.ts" or "glob_search"
+                  const pattern = fullHeader.replace('Glob pattern: ', '').replace('glob_search', '').trim() || '*';
+                  const stats = contentLines[1]; // "└─ Found X file(s)" or "└─ Completed"
+
+                  // Parse file list — skip header, stats, empty line
+                  const fileLines = contentLines.slice(3).filter(l => l.trim());
+                  const files = fileLines.map(line => {
+                    let name = line.trim();
+                    // Strip /home/coder/project/ prefix for cleaner display
+                    name = name.replace(/^\/home\/coder\/project\/?/, '');
+                    if (!name) return null;
+                    const isDir = name.endsWith('/');
+                    return { name: isDir ? name.slice(0, -1) : name, isDir };
+                  }).filter(Boolean) as { name: string; isDir: boolean }[];
 
                   return (
                     <View>
@@ -724,9 +755,51 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                           <Text style={[styles.toolBadgeText, { color: '#A371F7' }]}>{t('terminal:terminalItem.badges.glob')}</Text>
                         </View>
                         <Text style={styles.readFileName}>{pattern}</Text>
+                        {stats && (
+                          <Text style={[styles.readFileName, { color: 'rgba(255,255,255,0.5)', marginLeft: 8 }]}>
+                            {stats.replace('└─ ', '')}
+                          </Text>
+                        )}
                       </View>
-                      {stats && (
-                        <Text style={styles.globStats}>{stats}</Text>
+
+                      {files.length > 0 && (
+                        <View style={styles.fileListCard}>
+                          {files.slice(0, isExpanded ? undefined : 6).map((file, index) => (
+                            <View key={index} style={styles.fileListItem}>
+                              <Ionicons
+                                name={file.isDir ? 'folder' : 'document-text-outline'}
+                                size={14}
+                                color={file.isDir ? '#A371F7' : '#8B949E'}
+                              />
+                              <Text style={[
+                                styles.fileListName,
+                                file.isDir && { color: '#A371F7' }
+                              ]} numberOfLines={1}>
+                                {file.name}
+                              </Text>
+                            </View>
+                          ))}
+
+                          {!isExpanded && files.length > 6 && (
+                            <TouchableOpacity
+                              onPress={() => setIsExpanded(true)}
+                              style={styles.showMoreButton}
+                            >
+                              <Text style={styles.showMoreText}>Show {files.length - 6} more files</Text>
+                              <Ionicons name="chevron-down" size={14} color="#8B949E" />
+                            </TouchableOpacity>
+                          )}
+
+                          {isExpanded && files.length > 6 && (
+                            <TouchableOpacity
+                              onPress={() => setIsExpanded(false)}
+                              style={styles.showLessButton}
+                            >
+                              <Text style={styles.showMoreText}>{t('common:showLess')}</Text>
+                              <Ionicons name="chevron-up" size={14} color="#8B949E" />
+                            </TouchableOpacity>
+                          )}
+                        </View>
                       )}
                     </View>
                   );
@@ -1126,7 +1199,165 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                           </View>
                         );
                       })()
-                    ) : // Check if this is a Web Search result
+                    ) : // Check if this is a Search/Grep result
+                      ((item.content || '').startsWith('Search "') || (item.content || '').startsWith('grep_search')) ? (
+                        (() => {
+                          const content = item.content || '';
+                          const contentLines = content.split('\n');
+                          const fullHeader = contentLines[0]; // 'Search "pattern"' or 'grep_search'
+                          const queryMatch = fullHeader.match(/Search "(.+)"/);
+                          const query = queryMatch ? queryMatch[1] : fullHeader.replace('grep_search', '').trim() || 'pattern';
+                          const stats = contentLines[1]; // "└─ X matches"
+
+                          // Parse match lines — skip header, stats, empty line
+                          const matchLines = contentLines.slice(3).filter(l => l.trim());
+
+                          return (
+                            <View>
+                              <View style={styles.readFileInline}>
+                                <View style={[styles.toolBadge, styles.toolBadgeSearch]}>
+                                  <Ionicons name="search-outline" size={12} color="#FFA657" />
+                                  <Text style={[styles.toolBadgeText, { color: '#FFA657' }]}>GREP</Text>
+                                </View>
+                                <Text style={styles.readFileName} numberOfLines={1}>{query}</Text>
+                                {stats && (
+                                  <Text style={[styles.readFileName, { color: 'rgba(255,255,255,0.5)', marginLeft: 8 }]}>
+                                    {stats.replace('└─ ', '')}
+                                  </Text>
+                                )}
+                              </View>
+
+                              {matchLines.length > 0 && (
+                                <View style={styles.fileListCard}>
+                                  {matchLines.slice(0, isExpanded ? undefined : 8).map((line, index) => {
+                                    // Format: "file.tsx:42: const foo = bar"
+                                    const colonIdx = line.indexOf(':');
+                                    const file = colonIdx > 0 ? line.substring(0, colonIdx).replace(/^\/home\/coder\/project\/?/, '') : '';
+                                    const rest = colonIdx > 0 ? line.substring(colonIdx + 1) : line;
+
+                                    return (
+                                      <View key={index} style={styles.fileListItem}>
+                                        <Ionicons name="code-slash-outline" size={13} color="#FFA657" />
+                                        <Text style={[styles.fileListName, { color: '#FFA657' }]} numberOfLines={1}>
+                                          {file}
+                                        </Text>
+                                        <Text style={[styles.fileListName, { color: '#8B949E', flex: 1 }]} numberOfLines={1}>
+                                          {rest}
+                                        </Text>
+                                      </View>
+                                    );
+                                  })}
+
+                                  {!isExpanded && matchLines.length > 8 && (
+                                    <TouchableOpacity
+                                      onPress={() => setIsExpanded(true)}
+                                      style={styles.showMoreButton}
+                                    >
+                                      <Text style={styles.showMoreText}>Show {matchLines.length - 8} more matches</Text>
+                                      <Ionicons name="chevron-down" size={14} color="#8B949E" />
+                                    </TouchableOpacity>
+                                  )}
+
+                                  {isExpanded && matchLines.length > 8 && (
+                                    <TouchableOpacity
+                                      onPress={() => setIsExpanded(false)}
+                                      style={styles.showLessButton}
+                                    >
+                                      <Text style={styles.showMoreText}>{t('common:showLess')}</Text>
+                                      <Ionicons name="chevron-up" size={14} color="#8B949E" />
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })()
+                      ) : // Check if this is a Fetch/web_fetch result
+                      ((item.content || '').startsWith('Fetch:') || (item.content || '').startsWith('Fetch URL') || (item.content || '').startsWith('web_fetch')) ? (
+                        (() => {
+                          const content = item.content || '';
+                          const contentLines = content.split('\n');
+                          const fullHeader = contentLines[0]; // "Fetch: https://example.com..."
+                          const urlMatch = fullHeader.match(/(?:Fetch:?\s*(?:URL\s*)?|web_fetch\s*)(.*)/);
+                          const url = (urlMatch && urlMatch[1].trim()) || 'URL';
+                          const displayUrl = url.length > 50 ? url.substring(0, 50) + '...' : url;
+                          const stats = contentLines[1]; // "└─ Completed"
+
+                          return (
+                            <View>
+                              <View style={styles.readFileInline}>
+                                <View style={[styles.toolBadge, { backgroundColor: 'rgba(88, 166, 255, 0.15)', borderColor: 'rgba(88, 166, 255, 0.3)' }]}>
+                                  <Ionicons name="cloud-download-outline" size={12} color="#58A6FF" />
+                                  <Text style={[styles.toolBadgeText, { color: '#58A6FF' }]}>FETCH</Text>
+                                </View>
+                                <Text style={styles.readFileName} numberOfLines={1}>{displayUrl}</Text>
+                              </View>
+                              {stats && (
+                                <Text style={styles.globStats}>{stats}</Text>
+                              )}
+                            </View>
+                          );
+                        })()
+                      ) : // Check if this is a Diagnostics result
+                      ((item.content || '').startsWith('Diagnostics') || (item.content || '').startsWith('LSP:')) ? (
+                        (() => {
+                          const content = item.content || '';
+                          const contentLines = content.split('\n');
+                          const fullHeader = contentLines[0];
+                          const stats = contentLines[1];
+                          const isDiag = fullHeader.startsWith('Diagnostics');
+                          const label = isDiag ? fullHeader.replace('Diagnostics ', '').trim() || 'project' : fullHeader.replace('LSP: ', '').trim();
+
+                          const detailLines = contentLines.slice(3).filter(l => l.trim());
+
+                          return (
+                            <View>
+                              <View style={styles.readFileInline}>
+                                <View style={[styles.toolBadge, { backgroundColor: 'rgba(255, 166, 87, 0.15)', borderColor: 'rgba(255, 166, 87, 0.3)' }]}>
+                                  <Ionicons name={isDiag ? 'warning-outline' : 'code-outline'} size={12} color="#FFA657" />
+                                  <Text style={[styles.toolBadgeText, { color: '#FFA657' }]}>{isDiag ? 'DIAG' : 'LSP'}</Text>
+                                </View>
+                                <Text style={styles.readFileName} numberOfLines={1}>{label}</Text>
+                                {stats && (
+                                  <Text style={[styles.readFileName, { color: 'rgba(255,255,255,0.5)', marginLeft: 8 }]}>
+                                    {stats.replace('└─ ', '')}
+                                  </Text>
+                                )}
+                              </View>
+
+                              {detailLines.length > 0 && (
+                                <View style={styles.fileListCard}>
+                                  {detailLines.slice(0, isExpanded ? undefined : 6).map((line, index) => (
+                                    <View key={index} style={styles.fileListItem}>
+                                      <Ionicons
+                                        name={line.toLowerCase().includes('error') ? 'close-circle-outline' : 'alert-circle-outline'}
+                                        size={13}
+                                        color={line.toLowerCase().includes('error') ? '#F85149' : '#FFA657'}
+                                      />
+                                      <Text style={[styles.fileListName, { color: '#C9D1D9' }]} numberOfLines={2}>
+                                        {line.replace(/^\/home\/coder\/project\/?/, '')}
+                                      </Text>
+                                    </View>
+                                  ))}
+
+                                  {!isExpanded && detailLines.length > 6 && (
+                                    <TouchableOpacity onPress={() => setIsExpanded(true)} style={styles.showMoreButton}>
+                                      <Text style={styles.showMoreText}>Show {detailLines.length - 6} more</Text>
+                                      <Ionicons name="chevron-down" size={14} color="#8B949E" />
+                                    </TouchableOpacity>
+                                  )}
+                                  {isExpanded && detailLines.length > 6 && (
+                                    <TouchableOpacity onPress={() => setIsExpanded(false)} style={styles.showLessButton}>
+                                      <Text style={styles.showMoreText}>{t('common:showLess')}</Text>
+                                      <Ionicons name="chevron-up" size={14} color="#8B949E" />
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })()
+                      ) : // Check if this is a Web Search result
                       (item.content || '').startsWith('Web Search') ? (
                         (() => {
                           const content = item.content || '';

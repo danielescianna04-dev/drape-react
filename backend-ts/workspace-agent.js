@@ -163,4 +163,18 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[workspace-agent] Listening on port ${PORT}`);
+
+  // Start OpenCode serve in background (AI coding agent)
+  try {
+    const opencodeServe = spawn('opencode', ['serve', '--port', '4096', '--hostname', '0.0.0.0'], {
+      cwd: PROJECT_DIR,
+      env: { ...process.env, HOME: '/home/coder' },
+      stdio: 'ignore',
+      detached: true,
+    });
+    opencodeServe.unref();
+    addLog('[agent] OpenCode serve starting on port 4096');
+  } catch (e) {
+    addLog(`[agent] OpenCode serve failed to start: ${e.message}`);
+  }
 });

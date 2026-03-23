@@ -92,7 +92,7 @@ const parseUndoData = (result: string): { cleanResult: string; undoData: any | n
 const AI_MODELS = [
   { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, hasThinking: true, isPremium: true },
   { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
-  { id: 'gpt-5-3', name: 'GPT 5.3', IconComponent: OpenAIIcon, hasThinking: false, isPremium: true },
+  { id: 'gpt-5-4', name: 'GPT 5.4', IconComponent: OpenAIIcon, hasThinking: false, isPremium: true },
   { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'low', 'high'], isPremium: true },
   { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'minimal', 'low', 'medium', 'high'] },
 ];
@@ -327,6 +327,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       'search_in_files': (i) => { const p = i?.pattern || i?.query; return p ? `Search "${p}"\n└─ Searching...` : `Search\n└─ Searching...`; },
       'grep_search': (i) => { const p = i?.pattern || i?.query; return p ? `Search "${p}"\n└─ Searching...` : `Search\n└─ Searching...`; },
       'glob_files': (i) => { const p = i?.pattern; return p ? `Glob pattern: ${p}\n└─ Searching...` : `Glob\n└─ Searching...`; },
+      'glob_search': (i) => { const p = i?.pattern; return p ? `Glob pattern: ${p}\n└─ Searching...` : `Glob\n└─ Searching...`; },
       'run_command': (i) => { const c = i?.command; return c ? `Run command\n└─ ${c.substring(0, 50)}...` : `Run command\n└─ Executing...`; },
       'execute_command': (i) => { const c = i?.command; return c ? `Run command\n└─ ${c.substring(0, 50)}...` : `Run command\n└─ Executing...`; },
       'web_search': (i) => { const q = i?.query; return q ? `Web search\n└─ "${q}"...` : `Web search\n└─ Searching...`; },
@@ -348,6 +349,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         return `User Question\n└─ Waiting for response...`;
       },
       'todo_write': () => `Todo List\n└─ Updating...`,
+      'todo_read': () => `Todo List\n└─ Reading...`,
+      'sub_agent': (i) => { const p = i?.prompt?.substring(0, 60) || 'Processing...'; return `Agent: sub-agent\n└─ ${p}`; },
+      'user_question': (i) => {
+        const q = i?.question || i?.text || '';
+        return q ? `User Question\n└─ ${q}` : `User Question\n└─ Waiting for response...`;
+      },
+      'diagnostics': (i) => { const f = getFileName(i); return f ? `Diagnostics ${f}\n└─ Checking...` : `Diagnostics\n└─ Checking...`; },
+      'code_search': (i) => { const q = i?.query || i?.pattern || ''; return q ? `Search "${q}"\n└─ Searching code...` : `Search code\n└─ Searching...`; },
+      'skill': (i) => { const n = i?.name || i?.path || ''; return n ? `Skill: ${n}\n└─ Loading...` : `Skill\n└─ Loading...`; },
+      'lsp': (i) => { const a = i?.action || ''; return a ? `LSP: ${a}\n└─ Processing...` : `LSP\n└─ Processing...`; },
     };
 
     const getMessage = toolMessages[tool];
@@ -404,7 +415,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       if (hasError) return `Edit ${f || 'file'}\n└─ Error: ${errorMessage}`;
       return `Edit ${f || 'file'}\n└─ File modified${result ? `\n\n${result}` : ''}`;
     }
-    if (tool === 'glob_files') {
+    if (tool === 'glob_files' || tool === 'glob_search') {
       const pattern = input?.pattern || 'files';
       const fileCount = result ? result.split('\n').filter((l: string) => l.trim()).length : 0;
       return `Glob pattern: ${pattern}\n└─ Found ${fileCount} file(s)\n\n${result}`;
@@ -546,6 +557,39 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       } catch { /* ignore */ }
       const qaLines = questions.map((q: any, idx: number) => `${q.question || ''}|${answers[`q${idx}`] || 'No answer'}`).join('\n');
       return `User Question\n└─ ${questions.length} question${questions.length !== 1 ? 's' : ''} answered\n\n${qaLines}`;
+    }
+    if (tool === 'sub_agent') {
+      const description = input?.prompt?.substring(0, 80) || 'Task';
+      if (hasError) return `Agent: sub-agent\n└─ Error: ${errorMessage}`;
+      return `Agent: sub-agent\n└─ Completed\n\n${description}${result ? `\n\n${result.substring(0, 1000)}` : ''}`;
+    }
+    if (tool === 'todo_read') {
+      return `Todo List\n└─ Read\n\n${result}`;
+    }
+    if (tool === 'user_question') {
+      const question = input?.question || input?.text || '';
+      return `User Question\n└─ Answered\n\n${question}`;
+    }
+    if (tool === 'diagnostics') {
+      const f = getFileName(input);
+      if (hasError) return `Diagnostics ${f || ''}\n└─ Error: ${errorMessage}`;
+      const issueCount = result ? result.split('\n').filter((l: string) => l.trim()).length : 0;
+      return `Diagnostics ${f || 'project'}\n└─ ${issueCount} issue${issueCount !== 1 ? 's' : ''}\n\n${result}`;
+    }
+    if (tool === 'code_search') {
+      const query = input?.query || input?.pattern || 'code';
+      const matches = result ? result.split('\n').filter((l: string) => l.trim()).length : 0;
+      return `Search "${query}"\n└─ ${matches} result${matches !== 1 ? 's' : ''}\n\n${result}`;
+    }
+    if (tool === 'skill') {
+      const name = input?.name || input?.path || 'skill';
+      if (hasError) return `Skill: ${name}\n└─ Error: ${errorMessage}`;
+      return `Skill: ${name}\n└─ Loaded`;
+    }
+    if (tool === 'lsp') {
+      const action = input?.action || 'query';
+      if (hasError) return `LSP: ${action}\n└─ Error: ${errorMessage}`;
+      return `LSP: ${action}\n└─ Completed\n\n${result.substring(0, 1500)}`;
     }
     return `${tool}\n└─ Completed\n\n${result}`;
   };
@@ -1872,7 +1916,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             if (trimmed.length === 0) return false;
             return !content.startsWith('Read ') &&
               !content.startsWith('Write ') && !content.startsWith('Edit ') &&
-              !content.startsWith('Execute:') && !content.startsWith('Glob ') &&
+              !content.startsWith('Execute:') && !content.startsWith('Glob ') && !content.startsWith('glob_search') &&
+              !content.startsWith('grep_search') && !content.startsWith('Search "') &&
+              !content.startsWith('Diagnostics') && !content.startsWith('LSP:') && !content.startsWith('Skill:') &&
+              !content.startsWith('Fetch:') && !content.startsWith('Fetch URL') && !content.startsWith('web_fetch') &&
               !content.startsWith('Web Search') && !content.startsWith('Agent:') &&
               !content.startsWith('Todo List') && !content.startsWith('User Question') &&
               !content.startsWith('List files') && content !== '__BUDGET_EXCEEDED__';
@@ -1922,7 +1969,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       'claude-haiku-3.5': 200000,
       'gemini-3-flash': 1000000,
       'gemini-3.1-pro': 1000000,
-      'gpt-5-3': 128000,
+      'gpt-5-4': 128000,
       'llama-3.3-70b': 128000,
     };
     const windowTokens = contextWindows[selectedModel] || 200000;
@@ -2333,9 +2380,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       formattedOutput = `Search "${args.pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${cleanResult}`;
                     } else if (name === 'execute_command') {
                       formattedOutput = `Execute: ${args.command}\n└─ Command completed\n\n${cleanResult}`;
-                    } else if (name === 'glob_files') {
-                      // For glob_files, just use the result as-is (it's already formatted from backend)
-                      formattedOutput = cleanResult;
+                    } else if (name === 'glob_files' || name === 'glob_search') {
+                      const pattern = args.pattern || 'files';
+                      const fileCount = cleanResult.split('\n').filter((line: string) => line.trim()).length;
+                      formattedOutput = `Glob pattern: ${pattern}\n└─ Found ${fileCount} file(s)\n\n${cleanResult}`;
                     } else if (name === 'list_directory') {
                       formattedOutput = `List directory: ${args.dirPath || '.'}\n└─ Completed\n\n${cleanResult}`;
                     } else if (name === 'create_folder') {
@@ -3703,7 +3751,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 const contextWindows: Record<string, number> = {
                   'claude-4-6-opus': 200000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
                   'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3.1-pro': 1000000,
-                  'gpt-5-3': 128000, 'llama-3.3-70b': 128000,
+                  'gpt-5-4': 128000, 'llama-3.3-70b': 128000,
                 };
                 const windowK = Math.round((contextWindows[selectedModel] || 200000) / 1000);
                 const compactionAt = 90;

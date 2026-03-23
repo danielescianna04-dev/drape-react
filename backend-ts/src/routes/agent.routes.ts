@@ -2,18 +2,18 @@ import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
 import { getUserPlan, verifyProjectOwnership } from '../middleware/auth';
-import { AgentLoop } from '../services/agent-loop.service';
-import { getToolDefinitions } from '../tools';
-import { getTodos } from '../tools/todo-write';
+import { streamOpenCodeFromContainer, mapDrapeModelToOpenCode } from '../services/opencode-adapter.service';
+import { dockerService } from '../services/docker.service';
+import { workspaceService } from '../services/workspace.service';
 import { log } from '../utils/logger';
 import { auditService } from '../services/audit.service';
+import { metricsService } from '../services/metrics.service';
 
 export const agentRouter = Router();
 
-// GET /tools - Returns tool definitions
+// GET /tools - Returns tool definitions (OpenCode handles tools internally)
 agentRouter.get('/tools', asyncHandler(async (req, res) => {
-  const tools = getToolDefinitions();
-  res.json({ success: true, tools });
+  res.json({ success: true, tools: ['read', 'write', 'edit', 'bash', 'glob', 'grep', 'webfetch'] });
 }));
 
 // GET /status - Agent capabilities
@@ -165,60 +165,65 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
   });
 
   try {
-    // Create AgentLoop with options and mode
-    const agentLoop = new AgentLoop({
-      projectId,
-      mode,
-      model: model || 'claude-sonnet-4',
-      conversationHistory: conversationHistory || [],
-      thinkingLevel,
-      executionPlan: mode === 'execute' ? plan : undefined,
-      previewContext: previewContext || null,
-      userId,
-      userPlan,
-    });
+    auditService.log({ userId, action: 'agent_stream_start', resource: projectId, details: `mode: ${mode}, model: ${model || 'gemini-3-flash'}`, ip: req.ip });
+    log.info(`[Agent] Starting OpenCode stream for project ${projectId}, model: ${model || 'gemini-3-flash'}`);
 
-    auditService.log({ userId, action: 'agent_stream_start', resource: projectId, details: `mode: ${mode}, model: ${model || 'default'}`, ip: req.ip });
-    log.info(`[Agent] Starting stream for project ${projectId}, mode: ${mode}, model: ${model || 'default'}`);
-
-    // Enhance Cloud Mode prompts: ensure SQLite database creation
-    let finalPrompt = prompt;
-    if (/cloud\s*mode/i.test(prompt) && !/better-sqlite3/i.test(prompt)) {
-      finalPrompt = prompt.replace(
-        /IMPORTANT:\s*Enable Cloud mode\.[^]*/i,
-        `IMPORTANT: Enable Cloud mode. You MUST create a full-stack app with:
-1. A SQLite database using better-sqlite3 — create a .db file in the project root with proper schema tables
-2. A db.js or lib/db.ts utility that initializes the database and creates tables on first run
-3. Next.js API routes (app/api/) that read/write to the SQLite database
-4. All data MUST persist in the .db file — NEVER use in-memory or mock data
-5. Initialize with seed data so the database is not empty on first load
-6. Install better-sqlite3 in package.json dependencies`
-      );
-      log.info(`[Agent] Enhanced Cloud Mode prompt for project ${projectId}`);
-    }
-
-    // Send a real SSE event immediately so mobile proxies don't time out waiting
-    // for data before Claude sends its first token (TTFT can be 20-30s)
+    // Send initial processing event immediately
     writeSseEvent('processing', {
       type: 'processing',
-      message: 'Preparazione contesto e avvio esecuzione...',
+      message: 'Connecting to AI agent...',
       elapsedSec: 0,
     });
 
-    // Stream events from agent loop
-    for await (const event of agentLoop.run(finalPrompt, images)) {
-      if (res.writableEnded) {
-        log.warn(`[Agent] Response ended, stopping stream for project ${projectId}`);
-        break;
-      }
-
-      // Use named SSE events so react-native-sse addEventListener works
-      const eventType = (event as any).type || 'message';
-      writeSseEvent(eventType, event as any);
+    // Get or create container for this project
+    const session = await workspaceService.getOrCreateContainer(projectId, userId);
+    if (!session?.containerId) {
+      writeSseEvent('error', { type: 'error', error: 'Container not ready' });
+      writeSseEvent('done', { type: 'done' });
+      cleanup();
+      return;
     }
 
-    // Send completion event
-    writeSseEvent('done', { type: 'done' });
+    // Get Docker container object
+    const container = await dockerService.getDockerContainer(session.containerId);
+
+    // Build the prompt — include preview context if an element was selected
+    let fullPrompt = prompt;
+    if (previewContext?.elementSummary) {
+      const lang = previewContext.language === 'it' ? 'it' : 'en';
+      const contextPrefix = lang === 'it'
+        ? `L'utente sta guardando la preview del sito e ha selezionato questo elemento: ${previewContext.elementSummary}\nLa sua richiesta è: `
+        : `The user is viewing the site preview and selected this element: ${previewContext.elementSummary}\nTheir request is: `;
+      fullPrompt = contextPrefix + prompt;
+    }
+
+    // Stream from OpenCode — intercept usage event for metrics tracking
+    const usedModel = model || 'gemini-3-flash';
+    await streamOpenCodeFromContainer(
+      container,
+      fullPrompt,
+      usedModel,
+      `project-${projectId}`,
+      (event) => {
+        if (clientDisconnected || res.writableEnded) return;
+        const eventType = event.type || 'message';
+        writeSseEvent(eventType, event.data || event);
+
+        // Track AI usage when usage event arrives
+        if (event.type === 'usage' && event.data) {
+          const { costEur, tokensUsed } = event.data;
+          metricsService.trackAIUsage({
+            userId,
+            model: usedModel,
+            inputTokens: tokensUsed?.input || 0,
+            outputTokens: tokensUsed?.output || 0,
+            costEur: costEur || 0,
+          });
+          log.info(`[Agent] Usage tracked: model=${usedModel}, input=${tokensUsed?.input || 0}, output=${tokensUsed?.output || 0}, cost=${costEur || 0}`);
+        }
+      },
+      () => { /* onDone — cleanup handled below */ },
+    );
 
     log.info(`[Agent] Stream completed for project ${projectId}`);
   } catch (error: any) {
@@ -278,15 +283,14 @@ agentRouter.post('/execute-tool', asyncHandler(async (req, res) => {
   log.info(`[Agent] Executing tool ${tool} for project ${projectId}`);
 
   try {
-    // Create a temporary agent loop to execute the tool
-    const userPlan = await getUserPlan(userId);
-    const agentLoop = new AgentLoop({ projectId, userId, userPlan });
-    const result = await agentLoop.executeTool(tool, input);
+    // Execute tool via container exec (OpenCode handles tools internally)
+    const session = await workspaceService.getOrCreateContainer(projectId, userId);
+    const execResult = await workspaceService.exec(projectId, userId, `opencode run --format json "Execute tool: ${tool} with input: ${JSON.stringify(input).replace(/"/g, '\\"')}"`);
 
     res.json({
       success: true,
       tool,
-      result,
+      result: execResult.stdout || '',
     });
   } catch (error: any) {
     log.error(`[Agent] Tool execution failed for ${tool}:`, error.message);

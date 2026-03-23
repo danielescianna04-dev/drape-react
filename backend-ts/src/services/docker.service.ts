@@ -189,10 +189,16 @@ class DockerService {
         `GIT_CONFIG_COUNT=1`,
         `GIT_CONFIG_KEY_0=safe.directory`,
         `GIT_CONFIG_VALUE_0=/opt/flutter`,
+        // API keys for OpenCode AI agent (multi-provider)
+        `ANTHROPIC_API_KEY=${config.anthropicApiKey || ''}`,
+        `GOOGLE_GENERATIVE_AI_API_KEY=${config.geminiApiKey || ''}`,
+        `OPENAI_API_KEY=${config.openaiApiKey || ''}`,
+        `GROQ_API_KEY=${config.groqApiKey || ''}`,
       ],
       ExposedPorts: {
         [`${AGENT_PORT}/tcp`]: {},
         ['3000/tcp']: {},
+        ['4096/tcp']: {}, // OpenCode serve
       },
       HostConfig: {
         Memory: memoryMb * 1024 * 1024,

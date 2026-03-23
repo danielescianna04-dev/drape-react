@@ -252,38 +252,9 @@ export function useChatEngine(
       }
 
       // ── PROCESSING / HEARTBEAT ─────────────────────────────────────────
-      // Keep UI visibly alive during long model TTFT gaps.
+      // These events keep the SSE connection alive. Don't create new UI elements —
+      // the gap timer already handles the "thinking" indicator. Just skip them.
       if ((event as any).type === 'processing' || (event as any).type === 'heartbeat') {
-        const rawMessage = String((event as any).message || '').trim();
-        const rawElapsed = Number((event as any).elapsedSec);
-        const elapsedSec = Number.isFinite(rawElapsed) && rawElapsed > 0 ? Math.floor(rawElapsed) : 0;
-        const statusText = rawMessage || (elapsedSec > 0
-          ? `Ancora in elaborazione (${elapsedSec}s)...`
-          : 'Ancora in elaborazione...');
-
-        if (!currentMessageIdRef.current?.startsWith('engine-thinking-')) {
-          const newId = `engine-thinking-${Date.now()}`;
-          currentMessageIdRef.current = newId;
-          thinkingContentRef.current = statusText;
-          streamingContentRef.current = '';
-
-          setMessages(prev => [...prev, {
-            id: newId,
-            type: 'thinking',
-            content: '',
-            isThinking: true,
-            thinkingContent: statusText,
-            timestamp: new Date(),
-          }]);
-        } else {
-          thinkingContentRef.current = statusText;
-          const thinkingId = currentMessageIdRef.current;
-          setMessages(prev => prev.map(m =>
-            m.id === thinkingId
-              ? { ...m, isThinking: true, thinkingContent: statusText }
-              : m,
-          ));
-        }
         continue;
       }
 
@@ -357,11 +328,17 @@ export function useChatEngine(
           streamingContentRef.current = '';
         }
 
-        // Close and remove empty thinking messages (including gap-thinking placeholders)
+        // Close and remove status-only thinking messages (heartbeat/gap placeholders)
         // and append the new tool_start in a single setMessages call
         setMessages(prev => {
           const closed = prev
-            .filter(m => !(m.isThinking && !m.content?.trim() && !m.thinkingContent?.trim()))
+            .filter(m => {
+              if (!m.isThinking) return true;
+              // Remove all thinking items that have no real content (gap placeholders, heartbeat status)
+              // Keep thinking items that have actual model thinking content
+              const hasRealThinking = m.content?.trim() && !m.id.startsWith('engine-thinking-');
+              return hasRealThinking;
+            })
             .map(m => m.isThinking ? { ...m, isThinking: false } : m);
           return [...closed, {
             id: `${toolId}-start`,

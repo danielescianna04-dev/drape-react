@@ -1,7 +1,7 @@
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 
 # Install essentials
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     bash \
     curl \
@@ -9,14 +9,15 @@ RUN apk add --no-cache \
     make \
     g++ \
     openssh-client \
-    libgcc \
-    libstdc++ \
-    ripgrep
+    ripgrep \
+    ca-certificates \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
 
 # Reuse existing 'node' user (uid 1000, gid 1000) — rename home to /home/coder
-RUN deluser node && \
-    addgroup -g 1000 coder && \
-    adduser -u 1000 -G coder -s /bin/bash -D coder
+RUN userdel -r node 2>/dev/null; \
+    groupadd -g 1000 coder && \
+    useradd -u 1000 -g coder -s /bin/bash -m -d /home/coder coder
 
 # Create project directory and cache
 RUN mkdir -p /home/coder/project /home/coder/volumes/pnpm-store /data/cache && \
@@ -26,6 +27,11 @@ RUN mkdir -p /home/coder/project /home/coder/volumes/pnpm-store /data/cache && \
 # Bun is still the default package manager in the backend project detector,
 # so it must exist in the workspace image.
 RUN npm install -g pnpm@9 serve bun
+
+# Install OpenCode AI agent (MIT license, multi-provider coding agent)
+RUN curl -fsSL https://opencode.ai/install | bash && \
+    cp /root/.opencode/bin/opencode /usr/local/bin/opencode && \
+    chmod +x /usr/local/bin/opencode
 
 # Security: disable automatic postinstall scripts to prevent supply chain attacks
 RUN npm config set ignore-scripts true && \
@@ -39,6 +45,11 @@ COPY workspace-agent.js /usr/local/bin/workspace-agent.js
 # Copy boilerplate templates
 COPY templates/ /usr/local/share/drape-templates/
 RUN chmod -R 755 /usr/local/share/drape-templates/ && chown -R coder:coder /usr/local/share/drape-templates/
+
+# Copy OpenCode config (auto-accept all tool permissions)
+RUN mkdir -p /home/coder/.config/opencode
+COPY templates/opencode.json /home/coder/.config/opencode/config.json
+RUN chown -R coder:coder /home/coder/.config
 
 WORKDIR /home/coder/project
 
