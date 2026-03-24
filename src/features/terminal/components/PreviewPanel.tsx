@@ -54,6 +54,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const globalServerUrl = useUIStore((state) => state.previewServerUrl);
   const setPreviewServerStatus = useUIStore((state) => state.setPreviewServerStatus);
   const setPreviewServerUrl = useUIStore((state) => state.setPreviewServerUrl);
+  const setPreviewCurrentUrl = useUIStore((state) => state.setPreviewCurrentUrl);
+  const setPreviewViewportMode = useUIStore((state) => state.setPreviewViewportMode);
+  const setPreviewHandlers = useUIStore((state) => state.setPreviewHandlers);
+  const setPreviewPublishInfo = useUIStore((state) => state.setPreviewPublishInfo);
   const globalFlyMachineId = useUIStore((state) => state.flyMachineId);
   const setGlobalFlyMachineId = useUIStore((state) => state.setFlyMachineId);
   const setPreviewAccessToken = useUIStore((state) => state.setPreviewAccessToken);
@@ -1182,6 +1186,29 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     checkServerStatus();
   };
 
+  // Sync preview state to uiStore for header toolbar
+  useEffect(() => { setPreviewCurrentUrl(currentPreviewUrl); }, [currentPreviewUrl]);
+  useEffect(() => { setPreviewViewportMode(viewportMode); }, [viewportMode]);
+  useEffect(() => { setPreviewPublishInfo(publish.existingPublish); }, [publish.existingPublish]);
+
+  // Use refs so the handlers always call the latest version without re-registering
+  const handleRefreshRef = useRef(handleRefresh);
+  handleRefreshRef.current = handleRefresh;
+  const publishRef = useRef(publish.openPublishModal);
+  publishRef.current = publish.openPublishModal;
+  const setCurrentPreviewUrlRef = useRef(setCurrentPreviewUrl);
+  setCurrentPreviewUrlRef.current = setCurrentPreviewUrl;
+
+  useEffect(() => {
+    setPreviewHandlers({
+      refresh: () => handleRefreshRef.current(),
+      publish: () => publishRef.current(),
+      setViewportMode: (mode: 'mobile' | 'desktop') => { setViewportMode(mode); },
+      setUrl: (url: string) => setCurrentPreviewUrlRef.current(url),
+    });
+    return () => setPreviewHandlers({ refresh: null, publish: null, setViewportMode: null, setUrl: null });
+  }, []);
+
   const handleBannerReload = () => {
     pendingChangesRef.current = 0;
     setShowReloadBanner(false);
@@ -1691,8 +1718,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
   // Keep toolbar hidden during the initial loading mask to avoid the black strip.
   // If WEBVIEW_READY doesn't arrive, reveal it when loading settles.
-  const shouldRenderToolbar = serverStatus === 'running'
-    && (!hasWebUI || webViewReady || !isLoading);
+  // Toolbar hidden — moved to VSCodeSidebar header
+  const shouldRenderToolbar = false;
 
   // ---- Render ----
   return (
@@ -1930,6 +1957,7 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'relative',
     backgroundColor: '#0a0a0a',
+    paddingTop: 88,
   },
   reloadBanner: {
     position: 'absolute',

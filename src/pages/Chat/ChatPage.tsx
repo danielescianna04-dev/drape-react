@@ -7,6 +7,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { applyGlassEffect, removeGlassEffect, removeAllGlassEffects } from '../../shared/components/NativeGlassView';
+import { GlassCard } from '../../features/settings/components/GlassCard';
+import { WelcomeScreen } from './WelcomeScreen';
 import { useTranslation } from 'react-i18next';
 import * as MediaLibrary from 'expo-media-library';
 import * as ImagePicker from 'expo-image-picker';
@@ -1660,13 +1662,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const revealProgress = inputRevealAnim.value;
     const revealLift = interpolate(revealProgress, [0, 1], [18, 0], Extrapolate.CLAMP);
 
-    // Calcola left in base allo stato della sidebar
-    const sidebarLeft = interpolate(
-      sidebarTranslateX.value,
-      [-50, 0],
-      [0, 44],
-      Extrapolate.CLAMP
-    );
+    // DRAPEMOB: sidebar removed, always 0
+    const sidebarLeft = 0;
 
     // Calcola la posizione base
     const baseTranslateY = interpolate(
@@ -3320,35 +3317,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 );
               }}
               ListEmptyComponent={terminalItems.length === 0 ? (
-                <Animated.View style={[styles.emptyState, welcomeAnimatedStyle]}>
-                  <View style={styles.welcomeContainer}>
-                    <Text style={styles.welcomeTitle}>{t('welcomeTitle')}</Text>
-                    <Text style={styles.welcomeSubtitle}>
-                      {t('welcomeSubtitle')}
-                    </Text>
-                    <View style={styles.suggestionsGrid}>
-                      {[
-                        { icon: 'sparkles-outline', text: t('suggestionFeature') },
-                        { icon: 'bug-outline', text: t('suggestionBugs') },
-                        { icon: 'color-palette-outline', text: t('suggestionDesign') },
-                        { icon: 'rocket-outline', text: t('suggestionPerformance') },
-                      ].map((suggestion, idx) => (
-                        <TouchableOpacity
-                          key={idx}
-                          style={styles.suggestionChip}
-                          activeOpacity={0.7}
-                          onPress={() => {
-                            handleInputChange(suggestion.text);
-                            setTimeout(() => handleSend(), 100);
-                          }}
-                        >
-                          <Ionicons name={suggestion.icon as any} size={15} color="rgba(255,255,255,0.4)" />
-                          <Text style={styles.suggestionText}>{suggestion.text}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-                </Animated.View>
+                <WelcomeScreen
+                  keyboardHeight={keyboardHeight}
+                  onSuggestionPress={(text) => {
+                    handleInputChange(text);
+                    setTimeout(() => handleSend(), 100);
+                  }}
+                />
               ) : null}
               ListFooterComponent={terminalItems.length > 0 ? (
                 <>
@@ -4152,8 +4127,8 @@ const styles = StyleSheet.create({
   },
   output: {
     flex: 1,
-    paddingLeft: 16,
-    paddingTop: 100, // Further increased to add space below TabBar
+    paddingLeft: 0,
+    paddingTop: 88, // Space for minimal header
   },
   outputCardMode: {
     paddingLeft: 0, // Remove sidebar offset in card mode
@@ -4162,9 +4137,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: -16,
-    // Limita l'altezza per non finire sotto l'input bar su iPad
-    maxHeight: SCREEN_HEIGHT * 0.4,
+    paddingBottom: 120, // Push up slightly from center to account for input bar
   },
   welcomeContainer: {
     alignItems: 'center',
@@ -4198,6 +4171,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  suggestionChipGlass: {
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  suggestionChipInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
   },
   suggestionText: {
     fontSize: 13,
@@ -4249,7 +4233,7 @@ const styles = StyleSheet.create({
   topUpgradePill: {
     position: 'absolute',
     alignSelf: 'center',
-    marginLeft: 16,
+    marginLeft: 0,
     zIndex: 100,
     borderRadius: 30,
     overflow: 'hidden',
@@ -4301,7 +4285,7 @@ const styles = StyleSheet.create({
     // paddingBottom managed dynamically via state
   },
   inputContainer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingBottom: 16,
   },
   inputGradient: {
@@ -4309,7 +4293,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     elevation: 8,
-    marginHorizontal: 16,
+    marginHorizontal: 20,
     zIndex: 10,
   },
   inputGradientOverflow: {

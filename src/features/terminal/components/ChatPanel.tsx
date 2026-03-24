@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTranslation } from 'react-i18next';
+import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useChatStore } from '../../../core/terminal/chatStore';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
@@ -330,7 +331,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
 
   return (
     <>
-      <View style={styles.container}>
+      <LinearGradient colors={['#111114', '#151519', '#1C1828', '#131316']} locations={[0, 0.3, 0.7, 1]} style={styles.container}>
         <View style={styles.containerInner}>
 
           {/* New Chat Button */}
@@ -444,7 +445,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
             <Text style={styles.bottomCloseText}>{t('terminal:chat.close')}</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </LinearGradient>
 
       {/* Dropdown Menu Modal */}
       <Modal
@@ -526,19 +527,8 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    left: 44,
-    top: 0,
-    bottom: 0,
-    width: '55%',
-    maxWidth: 220,
-    backgroundColor: AppColors.dark.backgroundAlt,
-    zIndex: 1000,
-    shadowColor: '#000',
-    shadowOffset: { width: 4, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    elevation: 20,
+    flex: 1,
+    backgroundColor: '#1a1a1a',
   },
   containerInner: {
     flex: 1,
@@ -546,6 +536,7 @@ const styles = StyleSheet.create({
   },
   newChatButton: {
     marginHorizontal: 12,
+    marginRight: 140,
     marginBottom: 8,
     borderRadius: 24,
     borderWidth: 1,
@@ -568,6 +559,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 12,
+    marginRight: 140,
     marginBottom: 12,
     paddingHorizontal: 10,
     paddingVertical: 8,

@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, TouchableWithoutFeedback, InteractionManager, Keyboard, AppState } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, TouchableWithoutFeedback, TouchableOpacity, InteractionManager, Keyboard, AppState, Modal } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring, FadeInDown, ZoomIn, FadeIn } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring, FadeInDown, ZoomIn, FadeIn, interpolate, Extrapolate } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { GlassCard } from '../../../features/settings/components/GlassCard';
 import { AppColors } from '../../../shared/theme/colors';
 import { Sidebar } from './Sidebar';
 import { MultitaskingPanel } from './MultitaskingPanel';
@@ -48,6 +49,53 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const [isIntegrationsFABVisible, setIsIntegrationsFABVisible] = useState(false);
   const { tabs, setActiveTab, addTab, activeTabId } = useTabStore();
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const menuProgress = useSharedValue(0); // 0 = button, 1 = expanded menu
+
+  const MENU_WIDTH = 230;
+  const BTN_SIZE = 40;
+
+  // Preview state from store
+  const previewCurrentUrl = useUIStore((state) => state.previewCurrentUrl);
+  const previewViewportMode = useUIStore((state) => state.previewViewportMode);
+  const previewHandlers = useUIStore((state) => state.previewHandlers);
+  const previewPublishInfo = useUIStore((state) => state.previewPublishInfo);
+  const isPreviewShowing = showPreviewPanel || isPreviewPanelMounted || activeTab?.type === 'preview' || activeTab?.type === 'browser';
+
+  // Menu height depends on whether preview is active
+  const MENU_HEIGHT = isPreviewShowing ? 260 : 140;
+
+  const openMenu = useCallback(() => {
+    setShowHeaderMenu(true);
+    menuProgress.value = withTiming(1, { duration: 250, easing: Easing.out(Easing.cubic) });
+  }, []);
+
+  const closeMenu = useCallback(() => {
+    menuProgress.value = withTiming(0, { duration: 200, easing: Easing.in(Easing.cubic) });
+    setTimeout(() => setShowHeaderMenu(false), 220);
+  }, []);
+
+  const morphStyle = useAnimatedStyle(() => {
+    const p = menuProgress.value;
+    return {
+      width: BTN_SIZE + (MENU_WIDTH - BTN_SIZE) * p,
+      height: BTN_SIZE + (MENU_HEIGHT - BTN_SIZE) * p,
+      borderRadius: 20 - 4 * p, // 20 → 16
+    };
+  });
+
+  const dotsOpacity = useAnimatedStyle(() => ({
+    opacity: 1 - menuProgress.value,
+    position: 'absolute' as const,
+  }));
+
+  const menuItemsOpacity = useAnimatedStyle(() => ({
+    opacity: interpolate(menuProgress.value, [0.4, 1], [0, 1], Extrapolate.CLAMP),
+  }));
+
+  const backdropAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(menuProgress.value, [0, 1], [0, 1]),
+  }));
   const [isPreviewPanelMounted, setIsPreviewPanelMounted] = useState(false);
   const previewServerUrl = useUIStore((state) => state.previewServerUrl);
   const projectPreviewUrls = useUIStore((state) => state.projectPreviewUrls);
@@ -159,15 +207,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         setRenderedPanel(activePanel);
       }
     } else if (wasSlideablePanel) {
-      // Closing a panel - animate out then unmount
-      panelSlideX.value = withTiming(-280, {
-        duration: 250,
-        easing: Easing.in(Easing.cubic)
-      });
-      // Delay unmounting until animation completes
+      // Closing — delay unmount until drawer close animation completes
       const timeout = setTimeout(() => {
         setRenderedPanel(null);
-      }, 250);
+      }, 320);
       prevActivePanel.current = activePanel;
       return () => clearTimeout(timeout);
     }
@@ -176,11 +219,35 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   }, [activePanel]);
 
   const panelAnimatedStyle = useAnimatedStyle(() => {
-    // Calculate opacity based on position (0 = fully visible, -280 = hidden)
     const slideOpacity = Math.max(0, Math.min(1, (panelSlideX.value + 280) / 280));
     return {
       transform: [{ translateX: panelSlideX.value }],
       opacity: slideOpacity,
+    };
+  });
+
+  // Drawer-style: main content slides right, scales down, gets rounded corners
+  const DRAWER_WIDTH = 300;
+  const drawerProgress = useSharedValue(0); // 0 = closed, 1 = open
+
+  useEffect(() => {
+    if (activePanel === 'chat') {
+      drawerProgress.value = withTiming(1, { duration: 300, easing: Easing.out(Easing.cubic) });
+    } else {
+      drawerProgress.value = withTiming(0, { duration: 280, easing: Easing.in(Easing.cubic) });
+    }
+  }, [activePanel]);
+
+  const mainContentDrawerStyle = useAnimatedStyle(() => {
+    const p = drawerProgress.value;
+    return {
+      transform: [
+        { translateX: interpolate(p, [0, 1], [0, DRAWER_WIDTH]) },
+      ],
+      borderRadius: interpolate(p, [0, 1], [0, 50]),
+      borderWidth: interpolate(p, [0, 1], [0, 1]),
+      borderColor: 'rgba(255,255,255,0.15)',
+      overflow: 'hidden' as const,
     };
   });
 
@@ -441,167 +508,185 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   return (
     <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden, hideSidebar, showSidebar, forceHideToggle, setForceHideToggle }}>
-      {isSidebarHidden && (!forceHideToggle || isPreviewActive) && (
-        <View style={styles.edgeSwipeArea} pointerEvents="box-none">
-          <GestureDetector gesture={edgeSwipeGesture}>
-            <Animated.View style={[styles.slidePillContainer, pillAnimatedStyle]}>
-              {isLiquidGlassSupported ? (
-                <LiquidGlassView style={styles.slidePillGlass}>
-                  <Ionicons name="chevron-forward" size={12} color="#FFFFFF" />
-                </LiquidGlassView>
-              ) : (
-                <>
-                  <View style={[styles.slidePillBlur, { backgroundColor: AppColors.dark.backgroundAlt, opacity: 0.9 }]} />
-                  <Ionicons name="chevron-forward" size={12} color="#FFFFFF" />
-                </>
-              )}
-            </Animated.View>
-          </GestureDetector>
-        </View>
-      )}
+      {/* ─── DRAPEMOB: Sidebar, TabBar, Panels — COMMENTED OUT ─── */}
+      {/* Old sidebar edge swipe pill */}
+      {/* Old sidebar icon bar (GestureDetector + Animated.View with styles.iconBar) */}
+      {/* Old TabBar */}
+      {/* Old panels (files, chat, git) backdrop and containers */}
+      {/* Old VerticalCardSwitcher, MultitaskingPanel */}
 
-      <GestureDetector gesture={sidebarSwipeGesture}>
-        <Animated.View
-          style={[styles.iconBar, sidebarAnimatedStyle]}
-          onStartShouldSetResponder={() => true}
-          entering={FadeIn.duration(400)}
-        >
-          {/* Top icons */}
-          <View style={styles.topIcons}>
-            <Animated.View entering={FadeInDown.delay(100).duration(500)}>
-              <IconButton
-                iconName="grid-outline"
-                size={24}
-                color={AppColors.icon.default}
-                onPress={() => {
-                  tracciaLayoutGriglia();
-                  setActivePanel(null);
-                  setShowPreviewPanel(false); // Go back to tabs (hide preview)
-                }}
-                isActive={(activePanel === null || activePanel === 'multitasking') && !showPreviewPanel}
-                activeColor={AppColors.primary}
-                accessibilityLabel="Tabs view"
-              />
-            </Animated.View>
-            <Animated.View entering={FadeInDown.delay(200).duration(500)}>
-              <IconButton iconName="folder" size={24} color={AppColors.icon.default} onPress={() => togglePanel('files')} isActive={activePanel === 'files'} activeColor={AppColors.primary} accessibilityLabel="Files panel" />
-            </Animated.View>
-            <Animated.View entering={FadeInDown.delay(300).duration(500)}>
-              <IconButton iconName="chatbubbles" size={24} color={AppColors.icon.default} onPress={() => togglePanel('chat')} isActive={activePanel === 'chat'} activeColor={AppColors.primary} accessibilityLabel="Chat panel" />
-            </Animated.View>
-            <Animated.View entering={FadeInDown.delay(400).duration(500)}>
-              <IconButton iconName="eye" size={24} color={AppColors.icon.default} onPress={() => togglePanel('preview')} isActive={showPreviewPanel} activeColor={AppColors.primary} accessibilityLabel="Preview panel" />
-            </Animated.View>
-            {/* Database icon — show only in DEV (Cloud Mode is hidden in production) */}
-            {__DEV__ && !currentWorkstation?.repositoryUrl && !currentWorkstation?.githubUrl && (
-              <Animated.View entering={FadeInDown.delay(450).duration(500)}>
-                <IconButton iconName="server-outline" size={24} color={AppColors.icon.default} onPress={handleDatabaseClick} isActive={activeTab?.type === 'database'} activeColor={AppColors.primary} accessibilityLabel="Database" />
-              </Animated.View>
-            )}
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        {/* Chat drawer — behind main content */}
+        {renderedPanel === 'chat' && (
+          <View style={styles.drawerPanel}>
+            <ChatPanel onClose={handleClosePanel} onHidePreview={() => setShowPreviewPanel(false)} />
           </View>
-
-          {/* Center section with wheel - lowered */}
-          <View style={styles.centerSection}>
-            <View style={{ height: 160 }} />
-            <Animated.View entering={FadeInDown.delay(500).duration(500)}>
-              <VerticalIconSwitcher
-                icons={[
-                  { name: 'terminal-outline', action: handleTerminalClick },
-                  { name: 'receipt-outline', action: handleShellClick },
-                  { name: 'git-branch-outline', action: handleGitClick },
-                  { name: 'key-outline', action: handleEnvVarsClick },
-                ]}
-                onIconChange={() => { }}
-              />
-            </Animated.View>
-          </View>
-
-          {/* Bottom icons - always at bottom */}
-          <View style={styles.bottomIcons}>
-            <Animated.View entering={FadeInDown.delay(600).duration(500)}>
-              <IconButton iconName="exit-outline" size={24} color={AppColors.icon.default} onPress={onExit} accessibilityLabel="Exit" />
-            </Animated.View>
-          </View>
-        </Animated.View>
-      </GestureDetector>
-
-      <View style={{ flex: 1, backgroundColor: AppColors.dark.backgroundAlt }}>
-        {/* Backdrop overlay - tap to close panel with subtle blur */}
-        {renderedPanel && renderedPanel !== 'multitasking' && renderedPanel !== 'vertical' && (
-          <TouchableWithoutFeedback onPress={() => setActivePanel(null)}>
-            <BlurView intensity={25} tint="dark" style={styles.panelBackdrop} />
-          </TouchableWithoutFeedback>
         )}
 
-        {/* Global Panels Container - ensures all menus are above the blur */}
-        <Animated.View style={[styles.panelsContainer, panelAnimatedStyle]} pointerEvents="box-none">
-          {renderedPanel === 'files' && <Sidebar onClose={handleClosePanel} onOpenAllProjects={onOpenAllProjects} onHidePreview={() => setShowPreviewPanel(false)} />}
-          {renderedPanel === 'chat' && <ChatPanel onClose={handleClosePanel} onHidePreview={() => setShowPreviewPanel(false)} />}
-          {renderedPanel === 'git' && <GitPanel onClose={handleClosePanel} />}
-        </Animated.View>
+        {/* Main content — absoluteFill, slides right when drawer opens */}
+        <Animated.View style={[StyleSheet.absoluteFillObject, mainContentDrawerStyle, { backgroundColor: AppColors.dark.backgroundAlt }]}>
+          {/* Header */}
+          <View style={styles.minimalHeader}>
+            <TouchableOpacity activeOpacity={0.7} onPress={() => togglePanel('chat')}>
+              <GlassCard style={styles.headerButtonGlass}>
+                <View style={styles.headerButton}>
+                  <View style={{ width: 18, height: 14, justifyContent: 'space-between' }}>
+                    <View style={{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }} />
+                    <View style={{ width: 14, height: 2, borderRadius: 1, backgroundColor: '#fff' }} />
+                    <View style={{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }} />
+                  </View>
+                </View>
+              </GlassCard>
+            </TouchableOpacity>
 
-        <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
+            {/* URL bar — only when preview is visible */}
+            {isPreviewShowing && <GlassCard style={{ borderRadius: 20, overflow: 'hidden', flex: 1, marginLeft: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', height: 40, paddingHorizontal: 14, gap: 6 }}>
+                <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: previewCurrentUrl ? '#00D084' : '#666' }} />
+                <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }} numberOfLines={1}>/</Text>
+              </View>
+            </GlassCard>}
+          </View>
 
-        {activePanel !== 'multitasking' && (
+          {/* 3-dot morph button */}
+          {showHeaderMenu && (
+            <TouchableWithoutFeedback onPress={closeMenu}>
+              <Animated.View style={[styles.menuBackdrop, backdropAnimatedStyle]} />
+            </TouchableWithoutFeedback>
+          )}
+          <View style={styles.morphButtonWrapper} pointerEvents="box-none">
+            <TouchableOpacity activeOpacity={1} onPress={showHeaderMenu ? closeMenu : openMenu}>
+              <GlassCard style={{ borderRadius: 20, overflow: 'hidden' }}>
+                <Animated.View style={[styles.morphButton, morphStyle]}>
+                  <Animated.View style={[styles.dotsContainer, dotsOpacity]}>
+                    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#fff' }} />
+                    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#fff' }} />
+                    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#fff' }} />
+                  </Animated.View>
+                  <Animated.View style={[styles.menuContent, menuItemsOpacity]}>
+                    <TouchableOpacity
+                      style={styles.menuItem}
+                      activeOpacity={0.6}
+                      onPress={() => {
+                        closeMenu();
+                        setTimeout(() => {
+                          setShowPreviewPanel(!showPreviewPanel);
+                          if (!showPreviewPanel) setActivePanel('preview');
+                          else setActivePanel(null);
+                        }, 280);
+                      }}
+                    >
+                      <Ionicons name={showPreviewPanel ? 'eye-off-outline' : 'eye-outline'} size={20} color="#fff" />
+                      <Text style={styles.menuItemText}>
+                        {showPreviewPanel ? 'Nascondi preview' : 'Mostra preview'}
+                      </Text>
+                    </TouchableOpacity>
+                    {/* Preview actions — only when preview is showing */}
+                    {isPreviewShowing && (
+                      <>
+                        <View style={styles.menuDivider} />
+                        <TouchableOpacity
+                          style={styles.menuItem}
+                          activeOpacity={0.6}
+                          onPress={() => {
+                            closeMenu();
+                            setTimeout(() => previewHandlers.refresh?.(), 280);
+                          }}
+                        >
+                          <Ionicons name="refresh" size={20} color="#fff" />
+                          <Text style={styles.menuItemText}>Ricarica</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.menuItem}
+                          activeOpacity={0.6}
+                          onPress={() => {
+                            closeMenu();
+                            const next = previewViewportMode === 'mobile' ? 'desktop' : 'mobile';
+                            previewHandlers.setViewportMode?.(next);
+                          }}
+                        >
+                          <Ionicons
+                            name={previewViewportMode === 'desktop' ? 'phone-portrait-outline' : 'desktop-outline'}
+                            size={20}
+                            color="#fff"
+                          />
+                          <Text style={styles.menuItemText}>
+                            {previewViewportMode === 'desktop' ? 'Vista mobile' : 'Vista desktop'}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.menuItem}
+                          activeOpacity={0.6}
+                          onPress={() => {
+                            closeMenu();
+                            setTimeout(() => previewHandlers.publish?.(), 280);
+                          }}
+                        >
+                          <Ionicons
+                            name={previewPublishInfo ? 'cloud-done-outline' : 'cloud-upload-outline'}
+                            size={20}
+                            color={previewPublishInfo ? '#00D084' : '#fff'}
+                          />
+                          <Text style={styles.menuItemText}>
+                            {previewPublishInfo ? 'Aggiorna sito' : 'Pubblica'}
+                          </Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                    <View style={styles.menuDivider} />
+                    <TouchableOpacity
+                      style={styles.menuItem}
+                      activeOpacity={0.6}
+                      onPress={() => {
+                        closeMenu();
+                        setTimeout(() => onExit?.(), 280);
+                      }}
+                    >
+                      <Ionicons name="log-out-outline" size={20} color="#fff" />
+                      <Text style={styles.menuItemText}>Esci</Text>
+                    </TouchableOpacity>
+                  </Animated.View>
+                </Animated.View>
+              </GlassCard>
+            </TouchableOpacity>
+          </View>
+
+          {/* Content */}
           <Animated.View style={{ flex: 1 }} entering={FadeInDown.delay(300).duration(800)}>
             <ContentRenderer children={children} animatedStyle={{}} swipeEnabled={false} />
           </Animated.View>
-        )}
 
-        {isVerticalPanelMounted && (
-          <>
-            <Animated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: AppColors.dark.backgroundAlt }]} />
-            <Animated.View style={StyleSheet.absoluteFillObject}>
-              <VerticalCardSwitcher onClose={closeVerticalPanel} trackpadTranslation={trackpadTranslation} isTrackpadActive={isTrackpadActive} skipZoomAnimation={skipZoomAnimation}>
-                {(tab, isCardMode, cardDimensions) => children && children(tab, isCardMode, cardDimensions)}
-              </VerticalCardSwitcher>
-            </Animated.View>
-          </>
-        )}
+          {/* Preview Panel */}
+          {isPreviewPanelMounted && (
+            <View
+              pointerEvents={showPreviewPanel ? 'auto' : 'none'}
+              style={[
+                StyleSheet.absoluteFillObject,
+                styles.previewPanelLayer,
+                !showPreviewPanel && styles.hiddenPreviewPanel,
+              ]}
+            >
+              <PreviewPanel
+                onClose={() => {
+                  tracciaPannelloChiuso('preview');
+                  setShowPreviewPanel(false);
+                  if (activePanel === 'preview') setActivePanel(null);
+                }}
+                previewUrl={(currentWorkstation?.id ? projectPreviewUrls[currentWorkstation.id] : null) || (previewServerUrl && currentWorkstation?.id && previewServerUrl.includes(`/preview/${currentWorkstation.id}`) ? previewServerUrl : '') || config.apiUrl || ""}
+                projectName="Project Preview"
+                isVisible={showPreviewPanel}
+              />
+            </View>
+          )}
 
-        {activePanel === 'multitasking' && (
-          <MultitaskingPanel onClose={() => togglePanel(null)}>
-            {(tab, isCardMode, cardDimensions, animatedStyle) => children && children(tab, isCardMode, cardDimensions, animatedStyle)}
-          </MultitaskingPanel>
-        )}
-
-        {/* Preview Panel - keep mounted, render as top workspace layer */}
-        {isPreviewPanelMounted && (
-          <View
-            pointerEvents={showPreviewPanel ? 'auto' : 'none'}
-            style={[
-              StyleSheet.absoluteFillObject,
-              styles.previewPanelLayer,
-              !showPreviewPanel && styles.hiddenPreviewPanel,
-            ]}
-          >
-            <PreviewPanel
-              onClose={() => {
-                tracciaPannelloChiuso('preview');
-                setShowPreviewPanel(false);
-                if (activePanel === 'preview') setActivePanel(null);
-              }}
-              previewUrl={(currentWorkstation?.id ? projectPreviewUrls[currentWorkstation.id] : null) || (previewServerUrl && currentWorkstation?.id && previewServerUrl.includes(`/preview/${currentWorkstation.id}`) ? previewServerUrl : '') || config.apiUrl || ""}
-              projectName="Project Preview"
-              isVisible={showPreviewPanel}
-            />
-          </View>
-        )}
+          {/* Tap overlay to close drawer — with blur */}
+          {renderedPanel === 'chat' && (
+            <TouchableWithoutFeedback onPress={() => setActivePanel(null)}>
+              <BlurView intensity={15} tint="dark" style={StyleSheet.absoluteFillObject} />
+            </TouchableWithoutFeedback>
+          )}
+        </Animated.View>
       </View>
-
-      {/* Git Sheet - overlays everything */}
-      <GitSheet
-        visible={isGitSheetVisible}
-        onClose={() => { tracciaPannelloChiuso('git'); setIsGitSheetVisible(false); }}
-      />
-
-      {/* Integrations FAB - draggable floating buttons */}
-      <IntegrationsFAB
-        visible={isIntegrationsFABVisible}
-        onSupabasePress={handleSupabasePress}
-        onFigmaPress={handleFigmaPress}
-        onClose={() => setIsIntegrationsFABVisible(false)}
-      />
     </SidebarProvider>
   );
 };
@@ -679,6 +764,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
     borderRadius: 1,
   },
+  drawerPanel: {
+    ...StyleSheet.absoluteFillObject,
+  },
   panelBackdrop: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 1155,
@@ -694,5 +782,98 @@ const styles = StyleSheet.create({
   previewPanelLayer: {
     zIndex: 1150,
     elevation: 1150,
+  },
+  minimalHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 88,
+    paddingTop: 48,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 1200,
+    backgroundColor: 'transparent',
+  },
+  morphButtonWrapper: {
+    position: 'absolute',
+    top: 48,
+    right: 12,
+    zIndex: 1300,
+    alignItems: 'flex-end',
+  },
+  urlBarGlass: {
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  urlBarInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 40,
+    paddingHorizontal: 12,
+    gap: 6,
+  },
+  urlBarText: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.6)',
+    flex: 1,
+  },
+  headerButtonGlass: {
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  morphButton: {
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dotsContainer: {
+    height: 18,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  menuBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1199,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  menuContent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingVertical: 12,
+    justifyContent: 'center',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+  },
+  menuItemText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '400',
+  },
+  menuDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginHorizontal: 18,
   },
 });

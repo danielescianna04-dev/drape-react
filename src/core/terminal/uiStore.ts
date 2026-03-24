@@ -39,6 +39,21 @@ export interface UIState {
   isToolsExpanded: boolean;
   isSidebarOpen: boolean;
 
+  // Preview toolbar state (shared with header)
+  previewCurrentUrl: string;
+  previewViewportMode: 'mobile' | 'desktop';
+  previewHandlers: {
+    refresh: (() => void) | null;
+    publish: (() => void) | null;
+    setViewportMode: ((mode: 'mobile' | 'desktop') => void) | null;
+    setUrl: ((url: string) => void) | null;
+  };
+  previewPublishInfo: { slug: string; url: string } | null;
+  setPreviewCurrentUrl: (url: string) => void;
+  setPreviewViewportMode: (mode: 'mobile' | 'desktop') => void;
+  setPreviewHandlers: (handlers: Partial<UIState['previewHandlers']>) => void;
+  setPreviewPublishInfo: (info: { slug: string; url: string } | null) => void;
+
   // Pending message to send to main chat (e.g. from preview error)
   pendingChatMessage: string | null;
   // Auto-retry preview after AI fix
@@ -106,6 +121,16 @@ export const useUIStore = create<UIState>((set) => ({
     previewStartupStates: {},
     isToolsExpanded: false,
     isSidebarOpen: false,
+
+    // Preview toolbar shared state
+    previewCurrentUrl: '',
+    previewViewportMode: 'mobile' as const,
+    previewHandlers: { refresh: null, publish: null, setViewportMode: null, setUrl: null },
+    previewPublishInfo: null,
+    setPreviewCurrentUrl: (url: string) => set({ previewCurrentUrl: url }),
+    setPreviewViewportMode: (mode: 'mobile' | 'desktop') => set({ previewViewportMode: mode }),
+    setPreviewHandlers: (handlers) => set((state) => ({ previewHandlers: { ...state.previewHandlers, ...handlers } })),
+    setPreviewPublishInfo: (info) => set({ previewPublishInfo: info }),
 
     // Pending chat message
     pendingChatMessage: null,
