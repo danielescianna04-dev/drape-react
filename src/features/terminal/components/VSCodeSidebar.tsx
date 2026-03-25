@@ -62,7 +62,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const previewHandlers = useUIStore((state) => state.previewHandlers);
   const previewPublishInfo = useUIStore((state) => state.previewPublishInfo);
 
-  // MENU_HEIGHT computed after activeTab is declared (see below)
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  const isPreviewActive = activeTab?.type === 'preview' || activeTab?.type === 'browser';
+  const isPreviewShowing = isPreviewActive;
+  const MENU_HEIGHT = isPreviewShowing ? 230 : 52;
 
   const openMenu = useCallback(() => {
     setShowHeaderMenu(true);
@@ -111,11 +114,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const sidebarTranslateX = useSharedValue(0);
   const skipZoomAnimation = useSharedValue(false);
   const pillTranslateY = useSharedValue(SCREEN_HEIGHT / 2 - 40); // Initial center position
-  const activeTab = tabs.find(t => t.id === activeTabId);
-  const isPreviewActive = activeTab?.type === 'preview' || activeTab?.type === 'browser';
-  const isPreviewShowing = isPreviewActive;
-  const MENU_HEIGHT = isPreviewShowing ? 260 : 105;
-
   // Auto-open preview when requested (e.g. after AI fix) — opens as a tab
   React.useEffect(() => {
     if (openPreviewRequested) {
@@ -290,9 +288,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const mainContentBorderStyle = useAnimatedStyle(() => {
     const p = drawerProgress.value;
     return {
-      borderRadius: interpolate(p, [0, 1], [0, 50]),
+      borderRadius: interpolate(p, [0, 1], [0, 40]),
       borderWidth: p > 0.01 ? 1 : 0,
-      borderColor: 'rgba(255,255,255,0.15)',
+      borderColor: 'rgba(255,255,255,0.25)',
+      overflow: 'hidden' as const,
     };
   });
 
@@ -551,7 +550,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   ), [children]);
 
   const memoizedChatPanel = React.useMemo(() => (
-    <ChatPanel onClose={handleClosePanel} onHidePreview={() => setShowPreviewPanel(false)} />
+    <ChatPanel onClose={handleClosePanel} onHidePreview={() => setShowPreviewPanel(false)} onExit={() => { removeAllGlassEffects(); onExit?.(); }} />
   ), [handleClosePanel]);
 
   return (
@@ -571,9 +570,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
         {/* Main content — translateX only on outer, border on decoration layer */}
         <Animated.View style={[StyleSheet.absoluteFillObject, mainContentTranslateStyle]}>
-        {/* Border decoration layer — doesn't affect content compositing */}
-        <Animated.View style={[StyleSheet.absoluteFillObject, mainContentBorderStyle]} pointerEvents="none" />
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: AppColors.dark.backgroundAlt, overflow: 'hidden' }]}>
+        <Animated.View style={[StyleSheet.absoluteFillObject, mainContentBorderStyle, { backgroundColor: AppColors.dark.backgroundAlt }]}>
           {/* Header */}
           <View style={styles.minimalHeader}>
             <TouchableOpacity activeOpacity={0.7} onPress={() => togglePanel('chat')}>
@@ -676,18 +673,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                         </TouchableOpacity>
                       </>
                     )}
-                    <View style={styles.menuDivider} />
-                    <TouchableOpacity
-                      style={styles.menuItem}
-                      activeOpacity={0.6}
-                      onPress={() => {
-                        closeMenu();
-                        setTimeout(() => { removeAllGlassEffects(); onExit?.(); }, 280);
-                      }}
-                    >
-                      <Ionicons name="log-out-outline" size={20} color="#fff" />
-                      <Text style={styles.menuItemText}>Esci</Text>
-                    </TouchableOpacity>
                   </Animated.View>
                 </Animated.View>
               </GlassCard>
@@ -708,7 +693,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
               <View style={StyleSheet.absoluteFillObject} />
             </TouchableWithoutFeedback>
           </Animated.View>
-        </View>
+        </Animated.View>
         </Animated.View>
       </View>
     </SidebarProvider>
@@ -813,7 +798,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 88,
-    paddingTop: 48,
+    paddingTop: 62,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -823,7 +808,7 @@ const styles = StyleSheet.create({
   },
   morphButtonWrapper: {
     position: 'absolute',
-    top: 48,
+    top: 62,
     right: 12,
     zIndex: 1300,
     alignItems: 'flex-end',
@@ -862,7 +847,7 @@ const styles = StyleSheet.create({
   },
   dotsContainer: {
     flexDirection: 'row',
-    width: 18,
+    width: 20,
     justifyContent: 'space-between',
     alignItems: 'center',
   },
@@ -881,14 +866,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingVertical: 12,
+    paddingVertical: 6,
     justifyContent: 'center',
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 14,
+    paddingVertical: 10,
     paddingHorizontal: 18,
   },
   menuItemText: {

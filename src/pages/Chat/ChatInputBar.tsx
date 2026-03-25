@@ -150,27 +150,8 @@ export const ChatInputBar = React.memo(({
 
         {/* ── Top Controls ── */}
         <View style={styles.topControls}>
-          {/* Mode toggle */}
-          <View style={styles.modeToggleWrap}>
-            <View style={styles.modeToggle}>
-              <TouchableOpacity
-                onPress={() => onToggleMode('fast')}
-                style={[styles.modeBtn, agentMode === 'fast' && styles.modeBtnActive]}
-              >
-                <Animated.View style={agentMode === 'fast' ? aiModeAnimatedStyle : undefined}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: agentMode === 'fast' ? '#fff' : 'rgba(255,255,255,0.3)' }}>AI</Text>
-                </Animated.View>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => onToggleMode('terminal')}
-                style={[styles.modeBtn, agentMode === 'terminal' && styles.modeBtnActive]}
-              >
-                <Animated.View style={agentMode === 'terminal' ? aiModeAnimatedStyle : undefined}>
-                  <Ionicons name="terminal-outline" size={14} color={agentMode === 'terminal' ? '#fff' : 'rgba(255,255,255,0.3)'} />
-                </Animated.View>
-              </TouchableOpacity>
-            </View>
-          </View>
+          {/* Spacer — mode toggle removed, all input goes through AI */}
+          <View />
 
           {/* Right controls */}
           <View style={styles.rightControls}>

@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeIn, FadeOut, Layout } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, Layout, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
 import { useChatStore } from '../../../core/terminal/chatStore';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
@@ -28,9 +28,10 @@ const NAV_SECTIONS = [
 interface Props {
   onClose: () => void;
   onHidePreview?: () => void;
+  onExit?: () => void;
 }
 
-export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
+export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
   const { t } = useTranslation(['terminal', 'common']);
   const [searchQuery, setSearchQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -97,8 +98,29 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   }, [filteredChats, chatFolders, t]);
 
   // ── Navigation section toggle ────────────────────────────────────
+  // Shared values for chevron rotation per section
+  const chevronRotations: Record<string, Animated.SharedValue<number>> = {};
+  const useChevronRotation = (id: string, isExpanded: boolean) => {
+    const rotation = useSharedValue(isExpanded ? 1 : 0);
+    chevronRotations[id] = rotation;
+    return useAnimatedStyle(() => ({
+      transform: [{ rotate: `${rotation.value * 90}deg` }],
+    }));
+  };
+  const chatChevron = useChevronRotation('chat', !!expandedNav.chat);
+  const filesChevron = useChevronRotation('files', !!expandedNav.files);
+  const previewChevron = useChevronRotation('preview', !!expandedNav.preview);
+  const gitChevron = useChevronRotation('git', !!expandedNav.git);
+  const chevronStyles: Record<string, any> = { chat: chatChevron, files: filesChevron, preview: previewChevron, git: gitChevron };
+
   const toggleNav = useCallback((id: string) => {
-    setExpandedNav(prev => ({ ...prev, [id]: !prev[id] }));
+    setExpandedNav(prev => {
+      const next = !prev[id];
+      if (chevronRotations[id]) {
+        chevronRotations[id].value = withTiming(next ? 1 : 0, { duration: 250 });
+      }
+      return { ...prev, [id]: next };
+    });
   }, []);
 
   const toggleSubSection = (key: string) => {
@@ -385,6 +407,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   ) => {
     const isExpanded = expandedNav[id];
     return (
+      <Animated.View layout={Layout.duration(250)}>
       <TouchableOpacity
         style={styles.navSectionHeader}
         onPress={() => toggleNav(id)}
@@ -398,12 +421,15 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
           </View>
         )}
         <View style={{ flex: 1 }} />
-        <Ionicons
-          name={isExpanded ? 'chevron-down' : 'chevron-forward'}
-          size={14}
-          color="rgba(255,255,255,0.25)"
-        />
+        <Animated.View style={chevronStyles[id]}>
+          <Ionicons
+            name="chevron-forward"
+            size={14}
+            color="rgba(255,255,255,0.25)"
+          />
+        </Animated.View>
       </TouchableOpacity>
+      </Animated.View>
     );
   };
 
@@ -508,6 +534,9 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
       <LinearGradient colors={['#111114', '#151519', '#1C1828', '#131316']} locations={[0, 0.3, 0.7, 1]} style={styles.container}>
         <View style={styles.containerInner}>
 
+          {/* Drape title */}
+          <Text style={styles.drawerTitle}>Drape</Text>
+
           {/* ═══ Scrollable sections ═══ */}
           <ScrollView
             style={styles.content}
@@ -519,7 +548,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
             {/* ── Chat Section ── */}
             {renderNavSectionHeader('chat', 'chatbubbles-outline', 'Chat', filteredChats.length)}
             {expandedNav.chat && (
-              <Animated.View entering={FadeIn.duration(200)} style={styles.navSectionContent}>
+              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
 
                 {/* Search + New Chat row */}
                 <View style={styles.searchRow}>
@@ -599,23 +628,23 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
               </Animated.View>
             )}
 
-            <View style={styles.navDivider} />
+            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
 
             {/* ── File del progetto Section ── */}
             {renderNavSectionHeader('files', 'folder-outline', 'File del progetto')}
             {expandedNav.files && (
-              <Animated.View entering={FadeIn.duration(200)} style={styles.navSectionContent}>
+              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
                 {renderActionItem('document-text-outline', 'Apri file browser', handleOpenFiles)}
                 {renderActionItem('server-outline', 'Variabili ambiente', handleOpenEnvVars)}
               </Animated.View>
             )}
 
-            <View style={styles.navDivider} />
+            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
 
             {/* ── Preview Section ── */}
             {renderNavSectionHeader('preview', 'eye-outline', 'Preview')}
             {expandedNav.preview && (
-              <Animated.View entering={FadeIn.duration(200)} style={styles.navSectionContent}>
+              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
                 {renderActionItem(
                   hasPreview ? 'open-outline' : 'play-circle-outline',
                   hasPreview ? 'Apri preview' : 'Avvia preview',
@@ -631,12 +660,12 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
               </Animated.View>
             )}
 
-            <View style={styles.navDivider} />
+            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
 
             {/* ── Git Section ── */}
             {renderNavSectionHeader('git', 'git-branch-outline', 'Git')}
             {expandedNav.git && (
-              <Animated.View entering={FadeIn.duration(200)} style={styles.navSectionContent}>
+              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
                 {renderActionItem('git-branch-outline', 'Pannello Git', handleOpenGit)}
               </Animated.View>
             )}
@@ -644,9 +673,9 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
           </ScrollView>
 
           {/* Bottom close button */}
-          <TouchableOpacity style={styles.bottomClose} onPress={handleClose} activeOpacity={0.7}>
-            <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.5)" />
-            <Text style={styles.bottomCloseText}>{t('terminal:chat.close')}</Text>
+          <TouchableOpacity style={styles.bottomClose} onPress={() => onExit?.()} activeOpacity={0.7}>
+            <Ionicons name="log-out-outline" size={16} color="rgba(255,255,255,0.5)" />
+            <Text style={styles.bottomCloseText}>Esci</Text>
           </TouchableOpacity>
         </View>
       </LinearGradient>
@@ -736,8 +765,17 @@ const styles = StyleSheet.create({
   },
   containerInner: {
     flex: 1,
-    paddingTop: 54,
+    paddingTop: 58,
     maxWidth: 300,
+  },
+  drawerTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    paddingTop: 4,
   },
   searchRow: {
     flexDirection: 'row',
