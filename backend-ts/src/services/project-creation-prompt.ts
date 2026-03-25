@@ -402,30 +402,17 @@ Use REAL Unsplash photo URLs. Here are working photo IDs by category:
 
 Format: https://images.unsplash.com/{photo-id}?w=800&h=600&fit=crop
 
-=== ICONS — USE react-icons (INSTALLED) ===
-The project has react-icons installed. Use it freely for ALL icons. It has 40,000+ icons from multiple icon sets.
+=== ICONS — USE ONLY THESE SAFE ICON NAMES ===
+The project has react-icons installed. ONLY use icons from this EXACT whitelist — any wrong name causes a white page crash.
 
-PREFERRED icon sets and import patterns:
-- Heroicons v2 (modern, clean): import { HiOutlineMagnifyingGlass, HiOutlineHeart, HiOutlineStar, HiBars3, HiXMark, HiOutlineShoppingBag, HiOutlineUser } from 'react-icons/hi2'
-  IMPORTANT: In hi2, menu icon is HiBars3 (NOT HiOutlineMenu), close is HiXMark (NOT HiOutlineX), search is HiOutlineMagnifyingGlass (NOT HiOutlineSearch)
-- Feather Icons (minimal): import { FiSearch, FiHeart, FiSettings } from 'react-icons/fi'
-- Phosphor Icons (rich): import { PiDumbbell, PiShoppingCart, PiCookingPot } from 'react-icons/pi'
-- Bootstrap Icons: import { BsCart3, BsHeart, BsFilter } from 'react-icons/bs'
-- Material Design: import { MdDashboard, MdFitnessCenter, MdRestaurant } from 'react-icons/md'
-- Lucide (clean outline): import { LuSearch, LuHeart, LuSettings } from 'react-icons/lu'
-- Font Awesome: import { FaDumbbell, FaShoppingBag, FaUtensils } from 'react-icons/fa6'
-- Tabler Icons: import { TbSearch, TbHeart, TbSettings } from 'react-icons/tb'
-- Remix Icons: import { RiDashboardLine, RiShoppingCartLine } from 'react-icons/ri'
+SAFE icon set — Feather Icons (from 'react-icons/fi'):
+FiHome, FiSearch, FiHeart, FiSettings, FiUser, FiMenu, FiX, FiPlus, FiMinus, FiCheck, FiChevronDown, FiChevronUp, FiChevronLeft, FiChevronRight, FiArrowLeft, FiArrowRight, FiArrowUp, FiArrowDown, FiEdit, FiTrash2, FiStar, FiShoppingCart, FiShoppingBag, FiFilter, FiCalendar, FiClock, FiMapPin, FiMail, FiPhone, FiGlobe, FiCamera, FiImage, FiVideo, FiMusic, FiPlay, FiPause, FiVolume2, FiDownload, FiUpload, FiShare2, FiCopy, FiSave, FiPrinter, FiRefreshCw, FiExternalLink, FiLink, FiBookmark, FiTag, FiFolder, FiFile, FiFileText, FiMessageCircle, FiMessageSquare, FiSend, FiBell, FiAlertCircle, FiAlertTriangle, FiInfo, FiHelpCircle, FiEye, FiEyeOff, FiLock, FiUnlock, FiKey, FiLogIn, FiLogOut, FiUserPlus, FiUsers, FiAward, FiTrendingUp, FiTrendingDown, FiBarChart2, FiPieChart, FiActivity, FiZap, FiSun, FiMoon, FiCloud, FiDroplet, FiWind, FiThermometer, FiCoffee, FiGift, FiPercent, FiDollarSign, FiCreditCard, FiTarget, FiCompass, FiFlag, FiLayers, FiGrid, FiList, FiMaximize2, FiMinimize2, FiMoreHorizontal, FiMoreVertical, FiSliders, FiToggleLeft, FiToggleRight, FiWifi, FiSmartphone, FiMonitor, FiCode, FiTerminal, FiDatabase, FiServer, FiPackage, FiGithub, FiTwitter, FiInstagram, FiFacebook, FiLinkedin, FiYoutube
+
+SAFE icon set — Heroicons v2 (from 'react-icons/hi2'):
+HiBars3, HiXMark, HiOutlineMagnifyingGlass, HiOutlineHeart, HiOutlineStar, HiOutlineShoppingBag, HiOutlineUser, HiOutlineBell, HiOutlineCog6Tooth, HiOutlineHome, HiOutlineCalendar, HiOutlineChartBar, HiOutlineArrowRight, HiOutlineArrowLeft, HiOutlineCheck, HiOutlinePlus, HiOutlineTrash, HiOutlinePencil, HiOutlineEye, HiOutlineMapPin, HiOutlineClock, HiOutlinePhone, HiOutlineEnvelope
 
 Usage: <FiSearch className="w-5 h-5" /> or <FiSearch size={20} />
-
-Use icons EXTENSIVELY — in navbars, buttons, cards, stats, lists, badges, tabs, footers, everything.
-Choose the icon set that best matches the app's visual style:
-- Fitness → Phosphor (PiDumbbell, PiBarbell, PiHeartbeat) or Material (MdFitnessCenter)
-- E-commerce → Heroicons (HiOutlineShoppingBag) or Bootstrap (BsCart3, BsBag)
-- Food → Material (MdRestaurant, MdLocalPizza) or Font Awesome (FaUtensils, FaPizzaSlice)
-- Dashboard → Lucide (LuBarChart, LuTrendingUp) or Remix (RiDashboardLine)
-- Social → Feather (FiHeart, FiMessageCircle, FiShare2)
+DO NOT invent icon names. DO NOT use any icon name not listed above. A wrong import = white page crash.
 
 For Vue projects: use @iconify/vue instead (import { Icon } from '@iconify/vue', <Icon icon="mdi:home" />)
 For Svelte projects: use @iconify/svelte instead

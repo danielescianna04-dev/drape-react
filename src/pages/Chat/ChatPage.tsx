@@ -24,6 +24,7 @@ import { TerminalItem as TerminalItemComponent } from '../../features/terminal/c
 import { Sidebar } from '../../features/terminal/components/Sidebar';
 import { VSCodeSidebar } from '../../features/terminal/components/VSCodeSidebar';
 import { SafeText } from '../../shared/components/SafeText';
+import { ChatInputBar, AI_MODELS } from './ChatInputBar';
 import { ThinkingIndicator } from '../../shared/components/atoms/ThinkingIndicator';
 // import { PreviewEye } from './components/PreviewEye';
 import { githubService } from '../../core/github/githubService';
@@ -89,15 +90,6 @@ const parseUndoData = (result: string): { cleanResult: string; undoData: any | n
   }
   return { cleanResult: result, undoData: null };
 };
-
-// Available AI models with custom icon components
-const AI_MODELS = [
-  { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, hasThinking: true, isPremium: true },
-  { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
-  { id: 'gpt-5-4', name: 'GPT 5.4', IconComponent: OpenAIIcon, hasThinking: false, isPremium: true },
-  { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'low', 'high'], isPremium: true },
-  { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'minimal', 'low', 'medium', 'high'] },
-];
 
 interface ChatPageProps {
   tab?: Tab;
@@ -244,7 +236,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const [glassApplied, setGlassApplied] = useState(false);
 
   const applyInputGlass = useCallback(async (prevId?: string | null) => {
-    if (Platform.OS !== 'ios' || !isActiveTab || isSidebarOpen) return;
+    if (Platform.OS !== 'ios' || !isActiveTab) return;
     const ok = await applyGlassEffect(inputBarGlassId, 28);
     if (ok) {
       setGlassApplied(true);
@@ -1011,9 +1003,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     );
   }, [currentWorkstation?.id, currentTab?.id, hasChatStarted, inputMountDelay]);
 
+  // Glass effect lifecycle — isSidebarOpen excluded: drawer just slides content, glass persists
   useEffect(() => {
     if (Platform.OS !== 'ios' || !isActiveTab) return;
-    if (isSidebarOpen || chatWelcomeVisible) {
+    if (chatWelcomeVisible) {
       if (removeTimerRef.current) {
         clearTimeout(removeTimerRef.current);
         removeTimerRef.current = null;
@@ -1059,7 +1052,18 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         removeGlassEffect(idToRemove);
       }, 180);
     };
-  }, [activeTabId, inputBarGlassId, isActiveTab, applyInputGlass, isSidebarOpen, chatWelcomeVisible, hasChatStarted, inputGlassRevealDelay]);
+  }, [activeTabId, inputBarGlassId, isActiveTab, applyInputGlass, chatWelcomeVisible, hasChatStarted, inputGlassRevealDelay]);
+
+  // Cleanup glass immediately when tab becomes inactive or on unmount
+  useEffect(() => {
+    if (!isActiveTab && Platform.OS === 'ios') {
+      removeAllGlassEffects();
+      setGlassApplied(false);
+    }
+    return () => {
+      if (Platform.OS === 'ios') removeAllGlassEffects();
+    };
+  }, [isActiveTab]);
 
   // Set loading state for current tab
   const setLoading = (loading: boolean) => {
@@ -1633,15 +1637,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   const animatedContentStyle = useAnimatedStyle(() => {
     'worklet';
-    const paddingLeft = interpolate(
-      sidebarTranslateX.value,
-      [-50, 0],
-      [0, 44],
-      Extrapolate.CLAMP
-    );
-
     return {
-      paddingLeft,
+      paddingLeft: 0,
     };
   });
 
@@ -3414,359 +3411,56 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 </View>
               )}
 
-              <View
-                testID={inputBarGlassId}
-                nativeID={inputBarGlassId}
-                style={[
-                  styles.inputGradient,
-                  styles.inputGradientOverflow,
-                  selectedInputImages.length > 0 && styles.inputGradientWithImages
-                ]}
+              <ChatInputBar
+                input={input}
+                onChangeText={handleInputChange}
+                onSend={() => handleSend()}
+                onStop={handleStop}
+                agentMode={agentMode}
+                onToggleMode={handleToggleMode}
+                isStreaming={agentStreaming}
+                isLoading={isLoading}
+                hasImages={selectedInputImages.length > 0}
+                selectedModel={selectedModel}
+                currentModelName={currentModelName}
+                showModelSelector={showModelSelector}
+                onToggleModelSelector={toggleModelSelector}
+                onCloseDropdown={closeDropdown}
+                onSelectModel={(id) => { setSelectedModel(id); tracciaModelloSelezionato(id); }}
+                isPaidUser={isPaidUser}
+                onLockedModelPress={(model) => {
+                  Alert.alert(
+                    model.name,
+                    model.id.includes('opus')
+                      ? 'Il modello piu potente. Genera codice complesso, debug avanzato e architettura superiore. Disponibile con il piano Go.'
+                      : model.id.includes('gpt')
+                      ? 'GPT-5.3 di OpenAI. Eccelle in ragionamento e coding. Disponibile con il piano Go.'
+                      : 'Gemini Pro di Google. Ottime capacita di ragionamento e analisi. Disponibile con il piano Go.',
+                    [
+                      { text: 'Annulla', style: 'cancel' },
+                      { text: 'Vedi piani', onPress: () => { tracciaPaginaPianiVista('chat_model_locked'); navigateTo('plans'); } },
+                    ]
+                  );
+                }}
+                thinkingLevel={thinkingLevel}
+                onSetThinkingLevel={setThinkingLevel}
+                contextUsage={contextUsage}
+                showContextInfo={showContextInfo}
+                onToggleContextInfo={setShowContextInfo}
+                budgetInfo={budgetInfo}
+                onBudgetPress={() => { tracciaPaginaPianiVista('chat'); navigateTo('plans'); }}
+                onToolsPress={toggleToolsSheet}
+                inputBarGlassId={inputBarGlassId}
                 onLayout={(e) => {
                   widgetHeight.value = withTiming(e.nativeEvent.layout.height, { duration: 100 });
                   if (Platform.OS === 'ios' && isActiveTab && !isSidebarOpen && !glassApplied) {
                     const delay = hasChatStarted ? 0 : inputGlassRevealDelay;
-                    setTimeout(() => {
-                      applyInputGlass();
-                    }, delay);
+                    setTimeout(() => { applyInputGlass(); }, delay);
                   }
                 }}
-              >
-                {/* Background — always rendered; the native glass overlays on top with passthrough touches */}
-                <LinearGradient
-                  colors={[`${AppColors.dark.surface}F9`, `${AppColors.dark.surface}EB`]}
-                  style={StyleSheet.absoluteFill}
-                />
-
-                {/* Top Controls */}
-                <View style={styles.topControls}>
-                  <View style={styles.modeToggleContainer}>
-                    <View style={styles.modeToggle}>
-                      <TouchableOpacity
-                        onPress={() => handleToggleMode('fast')}
-                        style={[
-                          styles.modeButton,
-                          agentMode === 'fast' && styles.modeButtonActive,
-                        ]}
-                      >
-                        <Animated.View style={agentMode === 'fast' ? aiModeAnimatedStyle : undefined}>
-                          <Text style={{ fontSize: 12, fontWeight: '700', color: agentMode === 'fast' ? '#FFFFFF' : 'rgba(255,255,255,0.3)' }}>AI</Text>
-                        </Animated.View>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => handleToggleMode('terminal')}
-                        style={[
-                          styles.modeButton,
-                          agentMode === 'terminal' && styles.modeButtonActive,
-                        ]}
-                      >
-                        <Animated.View style={agentMode === 'terminal' ? aiModeAnimatedStyle : undefined}>
-                          <Ionicons
-                            name="terminal-outline"
-                            size={14}
-                            color={agentMode === 'terminal' ? '#FFFFFF' : 'rgba(255,255,255,0.3)'}
-                          />
-                        </Animated.View>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    {/* Budget indicator for free users */}
-                    {!isPaidUser && budgetInfo && (
-                      <TouchableOpacity
-                        onPress={() => { tracciaPaginaPianiVista('chat'); navigateTo('plans'); }}
-                        activeOpacity={0.7}
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          backgroundColor: 'rgba(255,255,255,0.06)',
-                          paddingHorizontal: 6,
-                          paddingVertical: 6,
-                          borderRadius: 12,
-                          gap: 0,
-                        }}
-                      >
-                        <View style={{
-                          width: 40,
-                          height: 4,
-                          borderRadius: 2,
-                          backgroundColor: 'rgba(255,255,255,0.08)',
-                          overflow: 'hidden',
-                        }}>
-                          <View style={{
-                            width: `${Math.min(budgetInfo.percent, 100)}%` as any,
-                            height: '100%',
-                            borderRadius: 2,
-                            backgroundColor: budgetInfo.percent >= 85 ? '#FF6B6B' : budgetInfo.percent >= 60 ? '#FFB86C' : '#10B981',
-                          }} />
-                        </View>
-                      </TouchableOpacity>
-                    )}
-                    {/* Context window usage indicator */}
-                    {contextUsage > 0 && (() => {
-                      const size = 18;
-                      const strokeWidth = 2;
-                      const radius = (size - strokeWidth) / 2;
-                      const circumference = 2 * Math.PI * radius;
-                      const strokeDashoffset = circumference * (1 - contextUsage / 100);
-                      const color = contextUsage >= 90 ? '#FF6B6B' : contextUsage >= 60 ? '#FFB86C' : 'rgba(255,255,255,0.25)';
-                      return (
-                        <TouchableOpacity
-                          onPress={() => setShowContextInfo(true)}
-                          activeOpacity={0.7}
-                          style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}
-                        >
-                          <Svg width={size} height={size} style={{ transform: [{ rotate: '-90deg' }] }}>
-                            <Circle
-                              cx={size / 2} cy={size / 2} r={radius}
-                              stroke="rgba(255,255,255,0.08)"
-                              strokeWidth={strokeWidth}
-                              fill="none"
-                            />
-                            <Circle
-                              cx={size / 2} cy={size / 2} r={radius}
-                              stroke={color}
-                              strokeWidth={strokeWidth}
-                              fill="none"
-                              strokeDasharray={`${circumference}`}
-                              strokeDashoffset={strokeDashoffset}
-                              strokeLinecap="round"
-                            />
-                          </Svg>
-                        </TouchableOpacity>
-                      );
-                    })()}
-                    <TouchableOpacity
-                      style={styles.modelSelector}
-                      onPress={toggleModelSelector}
-                    >
-                      <SafeText style={styles.modelText}>{currentModelName}</SafeText>
-                      <Ionicons
-                        name={showModelSelector ? "chevron-up" : "chevron-down"}
-                        size={12}
-                        color="rgba(255,255,255,0.4)"
-                      />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                {/* Tasks in input bar — disabled */}
-
-                {/* Main Input Row */}
-                <View collapsable={false} style={styles.mainInputRow}>
-                  <TouchableOpacity
-                    style={styles.toolsButton}
-                    onPress={toggleToolsSheet}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="add" size={24} color="rgba(255,255,255,0.4)" />
-                  </TouchableOpacity>
-
-                  <TextInput
-                    style={[styles.input, { textTransform: 'none' }]}
-                    value={input}
-                    onChangeText={handleInputChange}
-                    placeholder={
-                      agentMode === 'terminal'
-                        ? '$ comando...'
-                        : t('placeholderFast')
-                    }
-                    placeholderTextColor={AppColors.dark.bodyText}
-                    multiline
-                    maxLength={1000}
-                    onSubmitEditing={handleSend}
-                    keyboardAppearance="dark"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    spellCheck={false}
-                    autoComplete="off"
-                    textContentType="none"
-                    keyboardType="default"
-                  />
-
-                  <TouchableOpacity
-                    onPress={agentStreaming || isLoading ? handleStop : () => handleSend()}
-                    disabled={!agentStreaming && !isLoading && !input.trim() && selectedInputImages.length === 0}
-                    style={[
-                      styles.sendButton,
-                      agentStreaming || isLoading
-                        ? { backgroundColor: 'rgba(255,80,80,0.15)' }
-                        : (input.trim() || selectedInputImages.length > 0)
-                          ? { backgroundColor: AppColors.primary }
-                          : { backgroundColor: 'transparent', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-                    ]}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name={agentStreaming || isLoading ? "stop" : "arrow-up"}
-                      size={16}
-                      color={agentStreaming || isLoading ? "#FF5050" : (input.trim() || selectedInputImages.length > 0) ? '#FFFFFF' : 'rgba(255,255,255,0.3)'}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-
-              {/* Model Dropdown - positioned outside LinearGradient */}
-              {showModelSelector && (
-                <>
-                  <Pressable
-                    style={styles.dropdownOverlay}
-                    onPress={closeDropdown}
-                  />
-                  <Animated.View testID="modelDropdownGlass" style={[styles.modelDropdown, dropdownAnimatedStyle]}>
-                    {AI_MODELS.map((model) => {
-                      const IconComponent = model.IconComponent;
-                      const isSelected = selectedModel === model.id;
-                      const hasThinkingOptions = model.thinkingLevels && model.thinkingLevels.length > 0;
-                      const isLocked = model.isPremium && !isPaidUser;
-
-                      return (
-                        <TouchableOpacity
-                          key={model.id}
-                          style={[
-                            styles.modelDropdownItem,
-                            isSelected && styles.modelDropdownItemActive,
-                            isLocked && { opacity: 0.45 },
-                          ]}
-                          onPress={() => {
-                            if (isLocked) {
-                              Alert.alert(
-                                model.name,
-                                model.id.includes('opus')
-                                  ? 'Il modello piu potente. Genera codice complesso, debug avanzato e architettura superiore. Disponibile con il piano Go.'
-                                  : model.id.includes('gpt')
-                                  ? 'GPT-5.3 di OpenAI. Eccelle in ragionamento e coding. Disponibile con il piano Go.'
-                                  : 'Gemini Pro di Google. Ottime capacita di ragionamento e analisi. Disponibile con il piano Go.',
-                                [
-                                  { text: 'Annulla', style: 'cancel' },
-                                  { text: 'Vedi piani', onPress: () => { tracciaPaginaPianiVista('chat_model_locked'); navigateTo('plans'); } },
-                                ]
-                              );
-                              return;
-                            }
-                            setSelectedModel(model.id);
-                            tracciaModelloSelezionato(model.id);
-                            if (hasThinkingOptions) {
-                              const defaultLevel = model.id.includes('flash') ? 'medium' : 'low';
-                              setThinkingLevel(defaultLevel);
-                            }
-                          }}
-                        >
-                          <IconComponent size={16} />
-                          <SafeText style={[
-                            styles.modelDropdownText,
-                            isSelected && styles.modelDropdownTextActive
-                          ]}>
-                            {model.name}
-                          </SafeText>
-                          {isLocked ? (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              <View style={{ backgroundColor: AppColors.primary, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
-                                <SafeText style={{ fontSize: 9, fontWeight: '900', color: '#fff' }}>GO</SafeText>
-                              </View>
-                              <Ionicons name="lock-closed" size={13} color="rgba(255,255,255,0.35)" />
-                            </View>
-                          ) : isSelected ? (
-                            <Ionicons name="checkmark-circle" size={16} color={AppColors.primary} />
-                          ) : null}
-                        </TouchableOpacity>
-                      );
-                    })}
-
-                    {/* Thinking Level Options - always show all 4 levels to prevent modal resize */}
-                    {(() => {
-                      const currentModel = AI_MODELS.find(m => m.id === selectedModel);
-                      const modelLevels = currentModel?.thinkingLevels || [];
-                      // Always show all 4 levels for consistent sizing
-                      const allLevels = ['minimal', 'low', 'medium', 'high'];
-
-                      return (
-                        <View style={styles.thinkingLevelContainer}>
-                          <SafeText style={styles.thinkingLevelLabel}>{t('terminal:preview.thinkingLevel')}</SafeText>
-                          <View style={styles.thinkingLevelOptions}>
-                            {allLevels.map((level: string) => {
-                              const isAvailable = modelLevels.includes(level);
-                              const isSelected = isAvailable && thinkingLevel === level;
-
-                              return (
-                                <TouchableOpacity
-                                  key={level}
-                                  style={[
-                                    styles.thinkingLevelChip,
-                                    isSelected && styles.thinkingLevelChipActive,
-                                    !isAvailable && { opacity: 0.25 }
-                                  ]}
-                                  onPress={() => {
-                                    if (isAvailable) {
-                                      setThinkingLevel(level);
-                                    }
-                                  }}
-                                  disabled={!isAvailable}
-                                >
-                                  <SafeText style={[
-                                    styles.thinkingLevelChipText,
-                                    isSelected && styles.thinkingLevelChipTextActive
-                                  ]}>
-                                    {thinkingLevelLabels[level] || level}
-                                  </SafeText>
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </View>
-                        </View>
-                      );
-                    })()}
-                  </Animated.View>
-                </>
-              )}
-
-              {/* Context usage info tooltip */}
-              {showContextInfo && (() => {
-                const contextWindows: Record<string, number> = {
-                  'claude-4-6-opus': 200000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
-                  'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3.1-pro': 1000000,
-                  'gpt-5-4': 128000, 'llama-3.3-70b': 128000,
-                };
-                const windowK = Math.round((contextWindows[selectedModel] || 200000) / 1000);
-                const compactionAt = 90;
-                const remaining = Math.max(0, compactionAt - contextUsage);
-                return (
-                  <>
-                    <Pressable
-                      style={{ position: 'absolute', top: -500, left: -500, right: -500, bottom: -500 }}
-                      onPress={() => setShowContextInfo(false)}
-                    />
-                    <View style={{
-                      position: 'absolute', bottom: '100%', right: 0, marginBottom: 8,
-                      backgroundColor: 'rgba(30,30,35,0.95)', borderRadius: 12,
-                      paddingHorizontal: 14, paddingVertical: 10, width: 220,
-                      borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-                    }}>
-                      <SafeText style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '600', marginBottom: 6 }}>
-                        {t('context.title', { percent: contextUsage })}
-                      </SafeText>
-                      <SafeText style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, lineHeight: 16 }}>
-                        {contextUsage < compactionAt
-                          ? t('context.beforeCompaction', { threshold: compactionAt, remaining })
-                          : t('context.compactionActive')}
-                      </SafeText>
-                      <View style={{
-                        marginTop: 8, height: 3, borderRadius: 1.5,
-                        backgroundColor: 'rgba(255,255,255,0.06)', overflow: 'hidden',
-                      }}>
-                        <View style={{
-                          width: `${contextUsage}%`, height: '100%', borderRadius: 1.5,
-                          backgroundColor: contextUsage >= 90 ? '#FF6B6B' : contextUsage >= 60 ? '#FFB86C' : 'rgba(255,255,255,0.25)',
-                        }} />
-                      </View>
-                      <SafeText style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, marginTop: 4 }}>
-                        {t('context.window', { size: windowK })}
-                      </SafeText>
-                    </View>
-                  </>
-                );
-              })()}
+                aiModeAnimatedStyle={aiModeAnimatedStyle}
+                dropdownAnimatedStyle={dropdownAnimatedStyle}
+              />
             </Animated.View>
             </DelayedMount>
           </>

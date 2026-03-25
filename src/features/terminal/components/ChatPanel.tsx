@@ -1,18 +1,29 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput, Alert, Modal, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Dimensions, Keyboard, InteractionManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeIn, FadeOut, Layout } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
 import { useChatStore } from '../../../core/terminal/chatStore';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
+import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { ChatSession } from '../../../shared/types';
 import { FolderPickerModal } from './FolderPickerModal';
-import { tracciaNuovaChat, tracciaChatSelezionata, tracciaChatEliminata, tracciaChatRinominata, tracciaChatFissata, tracciaChatSpostataCartella } from '../../../core/services/analyticsService';
+import { tracciaNuovaChat, tracciaChatSelezionata, tracciaChatEliminata, tracciaChatRinominata, tracciaChatFissata, tracciaChatSpostataCartella, tracciaPannelloAperto } from '../../../core/services/analyticsService';
+
+// ── Navigation section definitions ────────────────────────────────────
+const NAV_SECTIONS = [
+  { id: 'chat', icon: 'chatbubbles-outline' as const, label: 'Chat' },
+  { id: 'files', icon: 'folder-outline' as const, label: 'File del progetto' },
+  { id: 'preview', icon: 'eye-outline' as const, label: 'Preview' },
+  { id: 'terminal', icon: 'terminal-outline' as const, label: 'Terminale' },
+  { id: 'git', icon: 'git-branch-outline' as const, label: 'Git' },
+] as const;
 
 interface Props {
   onClose: () => void;
@@ -28,6 +39,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState('');
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [expandedNav, setExpandedNav] = useState<Record<string, boolean>>({ chat: true });
   const [folderPickerChat, setFolderPickerChat] = useState<ChatSession | null>(null);
   const {
     chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat,
@@ -37,10 +49,13 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   const { addTab, tabs, removeTab, updateTab, setActiveTab } = useTabStore();
   const { user } = useAuthStore();
 
-  // Load chats and folders from AsyncStorage on mount
+  // Load chats and folders from AsyncStorage — deferred to avoid blocking animations
   useEffect(() => {
-    loadChats();
-    loadFolders();
+    const task = InteractionManager.runAfterInteractions(() => {
+      loadChats();
+      loadFolders();
+    });
+    return () => task.cancel();
   }, []);
 
   // Filter chats by current workspace and search query
@@ -57,17 +72,15 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
     });
   }, [chatHistory, searchQuery, currentWorkstation]);
 
-  // Build sections: Pinned → Folders → Recent (uncategorized)
-  const sections = useMemo(() => {
+  // Build chat sub-sections: Pinned -> Folders -> Recent
+  const chatSubSections = useMemo(() => {
     const result: { key: string; title: string; icon?: string; folderId?: string; data: ChatSession[] }[] = [];
 
-    // 1. Pinned
     const pinned = filteredChats.filter((c) => c.pinned);
     if (pinned.length > 0) {
       result.push({ key: 'pinned', title: t('chat.pinned'), icon: 'pin', data: pinned });
     }
 
-    // 2. Custom folders
     for (const folder of chatFolders) {
       const folderChats = filteredChats.filter((c) => c.folderId === folder.id && !c.pinned);
       if (folderChats.length > 0) {
@@ -75,7 +88,6 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
       }
     }
 
-    // 3. Recent / Uncategorized
     const uncategorized = filteredChats.filter((c) => !c.pinned && !c.folderId);
     if (uncategorized.length > 0) {
       result.push({ key: 'recent', title: t('chat.recent'), data: uncategorized });
@@ -84,10 +96,16 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
     return result;
   }, [filteredChats, chatFolders, t]);
 
-  const toggleSection = (key: string) => {
+  // ── Navigation section toggle ────────────────────────────────────
+  const toggleNav = useCallback((id: string) => {
+    setExpandedNav(prev => ({ ...prev, [id]: !prev[id] }));
+  }, []);
+
+  const toggleSubSection = (key: string) => {
     setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  // ── Chat handlers ────────────────────────────────────────────────
   const handleSelectChat = (chat: ChatSession) => {
     tracciaChatSelezionata(chat.title || 'Untitled');
     setCurrentChat(chat);
@@ -142,16 +160,12 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
         const screen = Dimensions.get('window');
         const menuWidth = 170;
         const estimatedMenuHeight = 190;
-        // Panel right edge: left(44) + min(55% of screen, 220)
         const panelWidth = Math.min(screen.width * 0.55, 220);
         const panelRight = 44 + panelWidth;
-        // Place menu just to the right of the panel
         let menuX = panelRight + 4;
-        // If it overflows right, clamp to screen edge
         if (menuX + menuWidth > screen.width - 8) {
           menuX = screen.width - menuWidth - 8;
         }
-        // Vertical: align with button, shift up if overflows bottom
         const menuY = y;
         const adjustedY = (menuY + estimatedMenuHeight > screen.height - 40)
           ? screen.height - 40 - estimatedMenuHeight
@@ -251,8 +265,163 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
     onClose();
   };
 
+  // ── Navigation action handlers ────────────────────────────────────
+  const handleOpenFiles = useCallback(() => {
+    Keyboard.dismiss();
+    tracciaPannelloAperto('files');
+    const filesTab = tabs.find(t => t.id === 'files');
+    if (filesTab) {
+      setActiveTab('files');
+    } else {
+      addTab({
+        id: 'files',
+        type: 'files' as any,
+        title: 'File',
+        data: {},
+      });
+    }
+    handleClose();
+  }, [tabs, setActiveTab, addTab]);
+
+  const handleOpenPreview = useCallback(() => {
+    Keyboard.dismiss();
+    tracciaPannelloAperto('preview');
+    useUIStore.getState().setOpenPreviewRequested(true);
+    handleClose();
+  }, []);
+
+  const handleOpenTerminal = useCallback(() => {
+    Keyboard.dismiss();
+    tracciaPannelloAperto('pty');
+    const ptyTab = tabs.find(t => t.id === 'interactive-terminal');
+    if (ptyTab) {
+      setActiveTab('interactive-terminal');
+    } else {
+      addTab({
+        id: 'interactive-terminal',
+        type: 'pty' as any,
+        title: 'Terminal',
+        data: {},
+      });
+    }
+    handleClose();
+  }, [tabs, setActiveTab, addTab]);
+
+  const handleOpenShell = useCallback(() => {
+    Keyboard.dismiss();
+    tracciaPannelloAperto('terminal');
+    const shellTab = tabs.find(t => t.id === 'shell');
+    if (shellTab) {
+      setActiveTab('shell');
+    } else {
+      addTab({
+        id: 'shell',
+        type: 'shell' as any,
+        title: 'Logs',
+        data: {},
+      });
+    }
+    handleClose();
+  }, [tabs, setActiveTab, addTab]);
+
+  const handleOpenEnvVars = useCallback(() => {
+    Keyboard.dismiss();
+    tracciaPannelloAperto('envVars');
+    const envTab = tabs.find(t => t.id === 'env-vars');
+    if (envTab) {
+      setActiveTab('env-vars');
+    } else {
+      addTab({
+        id: 'env-vars',
+        type: 'envVars',
+        title: 'Environment Variables',
+        data: {},
+      });
+    }
+    handleClose();
+  }, [tabs, setActiveTab, addTab]);
+
+  const handleOpenGit = useCallback(() => {
+    Keyboard.dismiss();
+    tracciaPannelloAperto('git');
+    const gitTab = tabs.find(t => t.id === 'git');
+    if (gitTab) {
+      setActiveTab('git');
+    } else {
+      addTab({
+        id: 'git',
+        type: 'git' as any,
+        title: 'Git',
+        data: {},
+      });
+    }
+    handleClose();
+  }, [tabs, setActiveTab, addTab]);
+
+  const handleOpenDatabase = useCallback(() => {
+    Keyboard.dismiss();
+    tracciaPannelloAperto('database');
+    const dbTab = tabs.find(t => t.id === 'database');
+    if (dbTab) {
+      setActiveTab('database');
+    } else {
+      addTab({
+        id: 'database',
+        type: 'database' as any,
+        title: 'Database',
+        data: {},
+      });
+    }
+    handleClose();
+  }, [tabs, setActiveTab, addTab]);
+
+  // ── Render helpers ────────────────────────────────────────────────
+
+  const renderNavSectionHeader = (
+    id: string,
+    icon: keyof typeof Ionicons.glyphMap,
+    label: string,
+    count?: number,
+  ) => {
+    const isExpanded = expandedNav[id];
+    return (
+      <TouchableOpacity
+        style={styles.navSectionHeader}
+        onPress={() => toggleNav(id)}
+        activeOpacity={0.7}
+      >
+        <Ionicons name={icon} size={18} color="rgba(255,255,255,0.6)" />
+        <Text style={styles.navSectionLabel}>{label}</Text>
+        {count !== undefined && count > 0 && (
+          <View style={styles.navBadge}>
+            <Text style={styles.navBadgeText}>{count}</Text>
+          </View>
+        )}
+        <View style={{ flex: 1 }} />
+        <Ionicons
+          name={isExpanded ? 'chevron-down' : 'chevron-forward'}
+          size={14}
+          color="rgba(255,255,255,0.25)"
+        />
+      </TouchableOpacity>
+    );
+  };
+
+  const renderActionItem = (
+    icon: keyof typeof Ionicons.glyphMap,
+    label: string,
+    onPress: () => void,
+    color?: string,
+  ) => (
+    <TouchableOpacity style={styles.actionItem} onPress={onPress} activeOpacity={0.7}>
+      <Ionicons name={icon} size={16} color={color || 'rgba(255,255,255,0.45)'} />
+      <Text style={[styles.actionItemText, color ? { color } : undefined]}>{label}</Text>
+      <Ionicons name="chevron-forward" size={12} color="rgba(255,255,255,0.15)" />
+    </TouchableOpacity>
+  );
+
   const renderChatItem = (chat: ChatSession) => (
-    <View style={styles.chatItemWrapper}>
+    <View key={chat.id} style={styles.chatItemWrapper}>
       {renamingChatId === chat.id ? (
         isLiquidGlassSupported ? (
           <LiquidGlassView
@@ -311,7 +480,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
             <Ionicons name="pin" size={12} color={AppColors.primary} style={{ marginRight: -4 }} />
           )}
           <Ionicons name={chat.id.startsWith('preview-') ? 'eye-outline' : 'chatbubble-outline'} size={16} color="rgba(255,255,255,0.5)" />
-          <Text style={styles.chatTitle} numberOfLines={1}>{chat.title.replace(/^👁\s?/, '')}</Text>
+          <Text style={styles.chatTitle} numberOfLines={1}>{chat.title.replace(/^..?\s?/, '')}</Text>
           <View
             ref={(ref) => { menuButtonRefs.current[chat.id] = ref; }}
             collapsable={false}
@@ -329,115 +498,150 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
     </View>
   );
 
+  // Preview status
+  const previewServerUrl = useUIStore((s) => s.previewServerUrl);
+  const projectPreviewUrls = useUIStore((s) => s.projectPreviewUrls);
+  const hasPreview = !!(previewServerUrl || (currentWorkstation?.id && projectPreviewUrls[currentWorkstation.id]));
+
   return (
     <>
       <LinearGradient colors={['#111114', '#151519', '#1C1828', '#131316']} locations={[0, 0.3, 0.7, 1]} style={styles.container}>
         <View style={styles.containerInner}>
 
-          {/* New Chat Button */}
-          <TouchableOpacity style={styles.newChatButton} onPress={handleNewChat} activeOpacity={0.7}>
-            {isLiquidGlassSupported && (
-              <LiquidGlassView
-                style={[StyleSheet.absoluteFill, { borderRadius: 24, overflow: 'hidden' }]}
-                interactive={true}
-                effect="clear"
-                colorScheme="dark"
-              />
-            )}
-            <View style={styles.newChatButtonInner}>
-              <Ionicons name="add" size={18} color="rgba(255,255,255,0.9)" />
-              <Text style={styles.newChatText}>{t('terminal:chat.newChat')}</Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* Search */}
-          <View style={{ marginHorizontal: 12, marginBottom: 12 }}>
-            {isLiquidGlassSupported ? (
-              <LiquidGlassView
-                style={[
-                  styles.searchContainer,
-                  { marginHorizontal: 0, marginBottom: 0, backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 8 },
-                ]}
-                interactive={true}
-                effect="clear"
-                colorScheme="dark"
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="search" size={15} color="rgba(255,255,255,0.4)" />
-                  <TextInput
-                    style={styles.searchInput}
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    placeholder={t('terminal:chat.searchChats')}
-                    placeholderTextColor="rgba(255,255,255,0.4)"
-                  />
-                </View>
-              </LiquidGlassView>
-            ) : (
-              <View style={styles.searchContainer}>
-                <Ionicons name="search" size={15} color="rgba(255,255,255,0.4)" />
-                <TextInput
-                  style={styles.searchInput}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  placeholder={t('terminal:chat.searchChats')}
-                  placeholderTextColor="rgba(255,255,255,0.4)"
-                />
-              </View>
-            )}
-          </View>
-
-          {/* Chat List — SectionList */}
-          <SectionList
-            sections={sections.map((s) => ({
-              ...s,
-              data: collapsedSections[s.key] ? [] : s.data,
-            }))}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => renderChatItem(item)}
-            renderSectionHeader={({ section }) => (
-              <TouchableOpacity
-                style={styles.sectionHeader}
-                onPress={() => toggleSection(section.key)}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={collapsedSections[section.key] ? 'chevron-forward' : 'chevron-down'}
-                  size={12}
-                  color="rgba(255,255,255,0.35)"
-                />
-                {section.icon && (
-                  <Ionicons name={section.icon as any} size={12} color="rgba(255,255,255,0.4)" />
-                )}
-                <Text style={styles.sectionTitle}>{section.title}</Text>
-                <Text style={styles.sectionCount}>{
-                  // Show count from the original (non-collapsed) sections
-                  sections.find((s) => s.key === section.key)?.data.length || 0
-                }</Text>
-                {section.folderId && (
-                  <TouchableOpacity
-                    onPress={() => handleDeleteFolder(section.folderId!)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    style={{ marginLeft: 'auto' }}
-                  >
-                    <Ionicons name="close-circle-outline" size={14} color="rgba(255,255,255,0.25)" />
-                  </TouchableOpacity>
-                )}
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              <View style={styles.emptyState}>
-                <Ionicons name="chatbubbles-outline" size={32} color="rgba(255,255,255,0.2)" />
-                <Text style={styles.emptyText}>
-                  {searchQuery ? t('terminal:chat.noResults') : t('terminal:chat.noChats')}
-                </Text>
-              </View>
-            }
+          {/* ═══ Scrollable sections ═══ */}
+          <ScrollView
             style={styles.content}
             contentContainerStyle={styles.contentContainer}
             showsVerticalScrollIndicator={false}
-            stickySectionHeadersEnabled={false}
-          />
+            keyboardShouldPersistTaps="handled"
+          >
+
+            {/* ── Chat Section ── */}
+            {renderNavSectionHeader('chat', 'chatbubbles-outline', 'Chat', filteredChats.length)}
+            {expandedNav.chat && (
+              <Animated.View entering={FadeIn.duration(200)} style={styles.navSectionContent}>
+
+                {/* Search + New Chat row */}
+                <View style={styles.searchRow}>
+                  <View style={styles.searchFlex}>
+                    <View style={styles.searchContainer}>
+                      {isLiquidGlassSupported && (
+                        <LiquidGlassView
+                          style={[StyleSheet.absoluteFill, { borderRadius: 24, overflow: 'hidden' }]}
+                          interactive={true}
+                          effect="clear"
+                          colorScheme="dark"
+                        />
+                      )}
+                      <Ionicons name="search" size={15} color="rgba(255,255,255,0.4)" />
+                      <TextInput
+                        style={styles.searchInput}
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                        placeholder={t('terminal:chat.searchChats')}
+                        placeholderTextColor="rgba(255,255,255,0.4)"
+                      />
+                    </View>
+                  </View>
+                  <TouchableOpacity onPress={handleNewChat} activeOpacity={0.7} style={styles.newChatBtn}>
+                    {isLiquidGlassSupported && (
+                      <LiquidGlassView
+                        style={[StyleSheet.absoluteFill, { borderRadius: 20, overflow: 'hidden' }]}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
+                      />
+                    )}
+                    <Ionicons name="add" size={20} color="rgba(255,255,255,0.85)" />
+                  </TouchableOpacity>
+                </View>
+                {chatSubSections.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="chatbubbles-outline" size={28} color="rgba(255,255,255,0.15)" />
+                    <Text style={styles.emptyText}>
+                      {searchQuery ? t('terminal:chat.noResults') : t('terminal:chat.noChats')}
+                    </Text>
+                  </View>
+                ) : (
+                  chatSubSections.map((section) => (
+                    <View key={section.key}>
+                      {/* Sub-section header (Pinned, Folders, Recent) */}
+                      <TouchableOpacity
+                        style={styles.subSectionHeader}
+                        onPress={() => toggleSubSection(section.key)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name={collapsedSections[section.key] ? 'chevron-forward' : 'chevron-down'}
+                          size={11}
+                          color="rgba(255,255,255,0.3)"
+                        />
+                        {section.icon && (
+                          <Ionicons name={section.icon as any} size={11} color="rgba(255,255,255,0.35)" />
+                        )}
+                        <Text style={styles.subSectionTitle}>{section.title}</Text>
+                        <Text style={styles.subSectionCount}>{section.data.length}</Text>
+                        {section.folderId && (
+                          <TouchableOpacity
+                            onPress={() => handleDeleteFolder(section.folderId!)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={{ marginLeft: 'auto' }}
+                          >
+                            <Ionicons name="close-circle-outline" size={13} color="rgba(255,255,255,0.2)" />
+                          </TouchableOpacity>
+                        )}
+                      </TouchableOpacity>
+                      {/* Chat items */}
+                      {!collapsedSections[section.key] && section.data.map((chat) => renderChatItem(chat))}
+                    </View>
+                  ))
+                )}
+              </Animated.View>
+            )}
+
+            <View style={styles.navDivider} />
+
+            {/* ── File del progetto Section ── */}
+            {renderNavSectionHeader('files', 'folder-outline', 'File del progetto')}
+            {expandedNav.files && (
+              <Animated.View entering={FadeIn.duration(200)} style={styles.navSectionContent}>
+                {renderActionItem('document-text-outline', 'Apri file browser', handleOpenFiles)}
+                {renderActionItem('server-outline', 'Variabili ambiente', handleOpenEnvVars)}
+              </Animated.View>
+            )}
+
+            <View style={styles.navDivider} />
+
+            {/* ── Preview Section ── */}
+            {renderNavSectionHeader('preview', 'eye-outline', 'Preview')}
+            {expandedNav.preview && (
+              <Animated.View entering={FadeIn.duration(200)} style={styles.navSectionContent}>
+                {renderActionItem(
+                  hasPreview ? 'open-outline' : 'play-circle-outline',
+                  hasPreview ? 'Apri preview' : 'Avvia preview',
+                  handleOpenPreview,
+                  hasPreview ? '#00D084' : undefined,
+                )}
+                {hasPreview && (
+                  <View style={styles.statusRow}>
+                    <View style={[styles.statusDot, { backgroundColor: '#00D084' }]} />
+                    <Text style={styles.statusText}>Server attivo</Text>
+                  </View>
+                )}
+              </Animated.View>
+            )}
+
+            <View style={styles.navDivider} />
+
+            {/* ── Git Section ── */}
+            {renderNavSectionHeader('git', 'git-branch-outline', 'Git')}
+            {expandedNav.git && (
+              <Animated.View entering={FadeIn.duration(200)} style={styles.navSectionContent}>
+                {renderActionItem('git-branch-outline', 'Pannello Git', handleOpenGit)}
+              </Animated.View>
+            )}
+
+          </ScrollView>
 
           {/* Bottom close button */}
           <TouchableOpacity style={styles.bottomClose} onPress={handleClose} activeOpacity={0.7}>
@@ -533,34 +737,31 @@ const styles = StyleSheet.create({
   containerInner: {
     flex: 1,
     paddingTop: 54,
+    maxWidth: 300,
   },
-  newChatButton: {
-    marginHorizontal: 12,
-    marginRight: 140,
-    marginBottom: 8,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  newChatButtonInner: {
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    gap: 10,
-    backgroundColor: 'rgba(255,255,255,0.02)',
+    marginHorizontal: 4,
+    marginBottom: 8,
+    gap: 8,
   },
-  newChatText: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.9)',
-    fontWeight: '500',
+  searchFlex: {
+    flex: 1,
+  },
+  newChatBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 12,
-    marginRight: 140,
-    marginBottom: 12,
     paddingHorizontal: 10,
     paddingVertical: 8,
     backgroundColor: 'rgba(255,255,255,0.05)',
@@ -577,37 +778,116 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    paddingHorizontal: 8,
+    paddingLeft: 4,
+    paddingRight: 16,
     paddingBottom: 20,
+  },
+
+  // ── Navigation section styles ──
+  navSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  navSectionLabel: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.8)',
+  },
+  navBadge: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  navBadgeText: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    fontWeight: '600',
+  },
+  navSectionContent: {
+    marginLeft: 8,
+    marginRight: 8,
+    marginBottom: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  navDivider: {
+    height: 0,
+    marginVertical: 1,
+  },
+
+  // ── Action item styles ──
+  actionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    gap: 10,
+  },
+  actionItemText: {
+    flex: 1,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.6)',
+  },
+
+  // ── Status indicator ──
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
+  },
+
+  // ── Chat sub-section styles ──
+  subSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    gap: 5,
+  },
+  subSectionTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.35)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  subSectionCount: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.2)',
+    fontWeight: '500',
   },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 60,
-    gap: 12,
+    paddingVertical: 32,
+    gap: 10,
   },
   emptyText: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.4)',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 6,
-  },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.4)',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  sectionCount: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.25)',
-    fontWeight: '500',
+    color: 'rgba(255,255,255,0.35)',
   },
   chatItemWrapper: {
     position: 'relative',
@@ -629,6 +909,8 @@ const styles = StyleSheet.create({
     padding: 4,
     opacity: 0.6,
   },
+
+  // ── Modal / Dropdown ──
   modalOverlay: {
     flex: 1,
     backgroundColor: 'transparent',
@@ -666,6 +948,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255,255,255,0.85)',
   },
+
+  // ── Rename ──
   renameContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -685,6 +969,8 @@ const styles = StyleSheet.create({
   renameAction: {
     padding: 4,
   },
+
+  // ── Bottom ──
   bottomClose: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -697,45 +983,5 @@ const styles = StyleSheet.create({
   bottomCloseText: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.5)',
-  },
-  upgradeBtnContainer: {
-    marginHorizontal: 12,
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  upgradeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  upgradeLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  flashIconBg: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(155, 138, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(155, 138, 255, 0.2)',
-  },
-  upgradeTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  upgradeSubtitle: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.4)',
-    marginTop: 1,
   },
 });

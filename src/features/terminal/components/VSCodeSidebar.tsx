@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { GlassCard } from '../../../features/settings/components/GlassCard';
 import { AppColors } from '../../../shared/theme/colors';
+import { removeAllGlassEffects } from '../../../shared/components/NativeGlassView';
 import { Sidebar } from './Sidebar';
 import { MultitaskingPanel } from './MultitaskingPanel';
 import { VerticalCardSwitcher } from './VerticalCardSwitcher';
@@ -60,10 +61,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const previewViewportMode = useUIStore((state) => state.previewViewportMode);
   const previewHandlers = useUIStore((state) => state.previewHandlers);
   const previewPublishInfo = useUIStore((state) => state.previewPublishInfo);
-  const isPreviewShowing = showPreviewPanel || isPreviewPanelMounted || activeTab?.type === 'preview' || activeTab?.type === 'browser';
 
-  // Menu height depends on whether preview is active
-  const MENU_HEIGHT = isPreviewShowing ? 260 : 140;
+  // MENU_HEIGHT computed after activeTab is declared (see below)
 
   const openMenu = useCallback(() => {
     setShowHeaderMenu(true);
@@ -112,26 +111,33 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const sidebarTranslateX = useSharedValue(0);
   const skipZoomAnimation = useSharedValue(false);
   const pillTranslateY = useSharedValue(SCREEN_HEIGHT / 2 - 40); // Initial center position
-  const prevShowPreviewPanel = React.useRef(showPreviewPanel);
   const activeTab = tabs.find(t => t.id === activeTabId);
-  const isPreviewActive = showPreviewPanel || activeTab?.type === 'preview' || activeTab?.type === 'browser';
+  const isPreviewActive = activeTab?.type === 'preview' || activeTab?.type === 'browser';
+  const isPreviewShowing = isPreviewActive;
+  const MENU_HEIGHT = isPreviewShowing ? 260 : 105;
 
-  // Auto-open preview when requested (e.g. after AI fix)
+  // Auto-open preview when requested (e.g. after AI fix) — opens as a tab
   React.useEffect(() => {
     if (openPreviewRequested) {
       useUIStore.getState().setOpenPreviewRequested(false);
-      setShowPreviewPanel(true);
-      setIsPreviewPanelMounted(true);
+      openPreviewTab();
       setActivePanel(null);
     }
   }, [openPreviewRequested]);
 
-  // Keep PreviewPanel mounted after first open, so switching chat <-> preview is instant.
-  useEffect(() => {
-    if (showPreviewPanel) {
-      setIsPreviewPanelMounted(true);
+  const openPreviewTab = useCallback(() => {
+    const existing = tabs.find(t => t.id === 'preview');
+    if (existing) {
+      setActiveTab('preview');
+    } else {
+      addTab({
+        id: 'preview',
+        type: 'preview',
+        title: 'Preview',
+        data: {},
+      });
     }
-  }, [showPreviewPanel]);
+  }, [tabs, setActiveTab, addTab]);
 
   // ============ HEARTBEAT: Keep container alive while user is in project ============
   useEffect(() => {
@@ -238,50 +244,83 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     }
   }, [activePanel]);
 
-  const mainContentDrawerStyle = useAnimatedStyle(() => {
+  // Hamburger → X animation
+  const hamburgerTopStyle = useAnimatedStyle(() => {
     const p = drawerProgress.value;
     return {
+      width: 18,
+      height: 2,
+      borderRadius: 1,
+      backgroundColor: '#fff',
       transform: [
-        { translateX: interpolate(p, [0, 1], [0, DRAWER_WIDTH]) },
+        { translateY: interpolate(p, [0, 1], [0, 6]) },
+        { rotate: `${interpolate(p, [0, 1], [0, 45])}deg` },
       ],
-      borderRadius: interpolate(p, [0, 1], [0, 50]),
-      borderWidth: interpolate(p, [0, 1], [0, 1]),
-      borderColor: 'rgba(255,255,255,0.15)',
-      overflow: 'hidden' as const,
+    };
+  });
+  const hamburgerMidStyle = useAnimatedStyle(() => ({
+    width: 14,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: '#fff',
+    opacity: interpolate(drawerProgress.value, [0, 0.3], [1, 0]),
+  }));
+  const hamburgerBotStyle = useAnimatedStyle(() => {
+    const p = drawerProgress.value;
+    return {
+      width: 18,
+      height: 2,
+      borderRadius: 1,
+      backgroundColor: '#fff',
+      transform: [
+        { translateY: interpolate(p, [0, 1], [0, -6]) },
+        { rotate: `${interpolate(p, [0, 1], [0, -45])}deg` },
+      ],
     };
   });
 
+  // Only translateX on the outer wrapper — keeps content layer stable for LiquidGlass
+  const mainContentTranslateStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: interpolate(drawerProgress.value, [0, 1], [0, DRAWER_WIDTH]) },
+    ],
+  }));
+
+  // Border decoration on a separate overlay so content never re-composites
+  const mainContentBorderStyle = useAnimatedStyle(() => {
+    const p = drawerProgress.value;
+    return {
+      borderRadius: interpolate(p, [0, 1], [0, 50]),
+      borderWidth: p > 0.01 ? 1 : 0,
+      borderColor: 'rgba(255,255,255,0.15)',
+    };
+  });
+
+  const drawerOverlayStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(drawerProgress.value, [0, 1], [0, 1]),
+  }));
+
   useEffect(() => {
     const isOverlayOpen = Boolean(renderedPanel)
-      || showPreviewPanel
       || isVerticalPanelMounted
       || activePanel === 'multitasking'
       || activePanel === 'vertical'
       || isGitSheetVisible;
     setIsSidebarOpen(isOverlayOpen);
-  }, [renderedPanel, showPreviewPanel, isVerticalPanelMounted, activePanel, isGitSheetVisible, setIsSidebarOpen]);
+  }, [renderedPanel, isVerticalPanelMounted, activePanel, isGitSheetVisible, setIsSidebarOpen]);
 
   // Auto-close sidebar when opening a preview (either as tab or panel)
-  // Only trigger when showPreviewPanel JUST became true (not when closing other panels)
+  // Auto-hide sidebar when preview tab becomes active
   useEffect(() => {
-    const isPreviewTabActive = activeTab?.type === 'preview' || activeTab?.type === 'browser';
-
-    // Check if showPreviewPanel just became true (rising edge)
-    const previewJustOpened = showPreviewPanel && !prevShowPreviewPanel.current;
-    prevShowPreviewPanel.current = showPreviewPanel;
-
-    // Only auto-hide if preview JUST opened OR preview tab became active
-    if ((previewJustOpened || isPreviewTabActive) && !isSidebarHidden) {
-      // Ensure the reopen pill is always visible while preview is active.
+    if (isPreviewActive && !isSidebarHidden) {
       setForceHideToggle(false);
-      // Delay animation until after interactions (preview mounting) complete
       const task = InteractionManager.runAfterInteractions(() => {
         sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
         setIsSidebarHidden(true);
       });
       return () => task.cancel();
     }
-  }, [activeTabId, showPreviewPanel]);
+  }, [isPreviewActive]);
 
   // Safety: if preview is active, never keep the sidebar reopen toggle force-hidden.
   useEffect(() => {
@@ -303,12 +342,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const togglePanel = useCallback((panel: PanelType) => {
     Keyboard.dismiss();
     if (panel === 'preview') {
-      setShowPreviewPanel(prev => {
-        if (prev) tracciaPannelloChiuso('preview');
-        else tracciaPannelloAperto('preview');
-        return !prev;
-      });
+      tracciaPannelloAperto('preview');
+      openPreviewTab();
       setActivePanel(null);
+      return;
     } else {
       setActivePanel(prev => {
         if (prev === panel) { if (panel) tracciaPannelloChiuso(panel); return null; }
@@ -506,6 +543,17 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     transform: [{ translateX: sidebarTranslateX.value }],
   }));
 
+  // Memoize heavy content so drawer state changes don't re-render it
+  const memoizedContent = React.useMemo(() => (
+    <Animated.View style={{ flex: 1 }} entering={FadeInDown.delay(300).duration(800)}>
+      <ContentRenderer children={children} animatedStyle={{}} swipeEnabled={false} />
+    </Animated.View>
+  ), [children]);
+
+  const memoizedChatPanel = React.useMemo(() => (
+    <ChatPanel onClose={handleClosePanel} onHidePreview={() => setShowPreviewPanel(false)} />
+  ), [handleClosePanel]);
+
   return (
     <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden, hideSidebar, showSidebar, forceHideToggle, setForceHideToggle }}>
       {/* ─── DRAPEMOB: Sidebar, TabBar, Panels — COMMENTED OUT ─── */}
@@ -516,24 +564,25 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       {/* Old VerticalCardSwitcher, MultitaskingPanel */}
 
       <View style={{ flex: 1, backgroundColor: '#000' }}>
-        {/* Chat drawer — behind main content */}
-        {renderedPanel === 'chat' && (
-          <View style={styles.drawerPanel}>
-            <ChatPanel onClose={handleClosePanel} onHidePreview={() => setShowPreviewPanel(false)} />
-          </View>
-        )}
+        {/* Chat drawer — always mounted behind main content */}
+        <View style={styles.drawerPanel} pointerEvents={activePanel === 'chat' ? 'auto' : 'none'}>
+          {memoizedChatPanel}
+        </View>
 
-        {/* Main content — absoluteFill, slides right when drawer opens */}
-        <Animated.View style={[StyleSheet.absoluteFillObject, mainContentDrawerStyle, { backgroundColor: AppColors.dark.backgroundAlt }]}>
+        {/* Main content — translateX only on outer, border on decoration layer */}
+        <Animated.View style={[StyleSheet.absoluteFillObject, mainContentTranslateStyle]}>
+        {/* Border decoration layer — doesn't affect content compositing */}
+        <Animated.View style={[StyleSheet.absoluteFillObject, mainContentBorderStyle]} pointerEvents="none" />
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: AppColors.dark.backgroundAlt, overflow: 'hidden' }]}>
           {/* Header */}
           <View style={styles.minimalHeader}>
             <TouchableOpacity activeOpacity={0.7} onPress={() => togglePanel('chat')}>
               <GlassCard style={styles.headerButtonGlass}>
                 <View style={styles.headerButton}>
                   <View style={{ width: 18, height: 14, justifyContent: 'space-between' }}>
-                    <View style={{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }} />
-                    <View style={{ width: 14, height: 2, borderRadius: 1, backgroundColor: '#fff' }} />
-                    <View style={{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }} />
+                    <Animated.View style={hamburgerTopStyle} />
+                    <Animated.View style={hamburgerMidStyle} />
+                    <Animated.View style={hamburgerBotStyle} />
                   </View>
                 </View>
               </GlassCard>
@@ -569,17 +618,11 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                       activeOpacity={0.6}
                       onPress={() => {
                         closeMenu();
-                        setTimeout(() => {
-                          setShowPreviewPanel(!showPreviewPanel);
-                          if (!showPreviewPanel) setActivePanel('preview');
-                          else setActivePanel(null);
-                        }, 280);
+                        setTimeout(() => openPreviewTab(), 280);
                       }}
                     >
-                      <Ionicons name={showPreviewPanel ? 'eye-off-outline' : 'eye-outline'} size={20} color="#fff" />
-                      <Text style={styles.menuItemText}>
-                        {showPreviewPanel ? 'Nascondi preview' : 'Mostra preview'}
-                      </Text>
+                      <Ionicons name="eye-outline" size={20} color="#fff" />
+                      <Text style={styles.menuItemText}>Mostra preview</Text>
                     </TouchableOpacity>
                     {/* Preview actions — only when preview is showing */}
                     {isPreviewShowing && (
@@ -639,7 +682,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                       activeOpacity={0.6}
                       onPress={() => {
                         closeMenu();
-                        setTimeout(() => onExit?.(), 280);
+                        setTimeout(() => { removeAllGlassEffects(); onExit?.(); }, 280);
                       }}
                     >
                       <Ionicons name="log-out-outline" size={20} color="#fff" />
@@ -651,40 +694,21 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
             </TouchableOpacity>
           </View>
 
-          {/* Content */}
-          <Animated.View style={{ flex: 1 }} entering={FadeInDown.delay(300).duration(800)}>
-            <ContentRenderer children={children} animatedStyle={{}} swipeEnabled={false} />
-          </Animated.View>
+          {/* Content — memoized to avoid re-render when drawer state changes */}
+          {memoizedContent}
 
-          {/* Preview Panel */}
-          {isPreviewPanelMounted && (
-            <View
-              pointerEvents={showPreviewPanel ? 'auto' : 'none'}
-              style={[
-                StyleSheet.absoluteFillObject,
-                styles.previewPanelLayer,
-                !showPreviewPanel && styles.hiddenPreviewPanel,
-              ]}
-            >
-              <PreviewPanel
-                onClose={() => {
-                  tracciaPannelloChiuso('preview');
-                  setShowPreviewPanel(false);
-                  if (activePanel === 'preview') setActivePanel(null);
-                }}
-                previewUrl={(currentWorkstation?.id ? projectPreviewUrls[currentWorkstation.id] : null) || (previewServerUrl && currentWorkstation?.id && previewServerUrl.includes(`/preview/${currentWorkstation.id}`) ? previewServerUrl : '') || config.apiUrl || ""}
-                projectName="Project Preview"
-                isVisible={showPreviewPanel}
-              />
-            </View>
-          )}
+          {/* Preview is now rendered as a tab via ContentRenderer */}
 
-          {/* Tap overlay to close drawer — with blur */}
-          {renderedPanel === 'chat' && (
+          {/* Tap overlay to close drawer */}
+          <Animated.View
+            style={[StyleSheet.absoluteFillObject, drawerOverlayStyle, { backgroundColor: 'rgba(0,0,0,0.4)' }]}
+            pointerEvents={activePanel === 'chat' ? 'auto' : 'none'}
+          >
             <TouchableWithoutFeedback onPress={() => setActivePanel(null)}>
-              <BlurView intensity={15} tint="dark" style={StyleSheet.absoluteFillObject} />
+              <View style={StyleSheet.absoluteFillObject} />
             </TouchableWithoutFeedback>
-          )}
+          </Animated.View>
+        </View>
         </Animated.View>
       </View>
     </SidebarProvider>
@@ -837,7 +861,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dotsContainer: {
-    height: 18,
+    flexDirection: 'row',
+    width: 18,
     justifyContent: 'space-between',
     alignItems: 'center',
   },

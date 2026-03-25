@@ -37,6 +37,7 @@ import { AuthScreen } from './src/features/auth/AuthScreen';
 import ChatPage from './src/pages/Chat/ChatPage';
 import { VSCodeSidebar } from './src/features/terminal/components/VSCodeSidebar';
 import { FileViewer } from './src/features/terminal/components/FileViewer';
+import { PreviewPanel } from './src/features/terminal/components/PreviewPanel';
 import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
 import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
 import { config } from './src/config/config';
@@ -48,6 +49,7 @@ import { useFileSync } from './src/hooks/business/useFileSync';
 import { useNavigationStore } from './src/core/navigation/navigationStore';
 import { tracciaSchermata, tracciaEntrataNelProgetto, tracciaErrore } from './src/core/services/analyticsService';
 import { useUIStore } from './src/core/terminal/uiStore';
+import { useWorkstationStore } from './src/core/terminal/workstationStore';
 import { getAuthToken } from './src/core/api/getAuthToken';
 import * as Notifications from 'expo-notifications';
 import { useOTAUpdates } from './src/hooks/app/useOTAUpdates';
@@ -89,6 +91,32 @@ const parseGitUrl = (url: string): ParsedGitUrl => {
   }
 
   return { provider, owner, repo, fullName: `${owner}/${repo}` };
+};
+
+// Preview as a tab — reactive wrapper with hooks
+const PreviewTabWrapper = () => {
+  const ws = useWorkstationStore((s) => s.currentWorkstation);
+  const previewServerUrl = useUIStore((s) => s.previewServerUrl);
+  const projectPreviewUrls = useUIStore((s) => s.projectPreviewUrls);
+  const pUrl = (ws?.id ? projectPreviewUrls[ws.id] : null)
+    || (previewServerUrl && ws?.id && previewServerUrl.includes(`/preview/${ws.id}`) ? previewServerUrl : '')
+    || config.apiUrl || '';
+
+  const handleClose = React.useCallback(() => {
+    const { removeTab, setActiveTab, tabs } = useTabStore.getState();
+    removeTab('preview');
+    const chatTab = tabs.find((t: any) => t.type === 'chat');
+    if (chatTab) setActiveTab(chatTab.id);
+  }, []);
+
+  return (
+    <PreviewPanel
+      onClose={handleClose}
+      previewUrl={pUrl}
+      projectName="Project Preview"
+      isVisible={true}
+    />
+  );
 };
 
 // Check repo accessibility for any provider
@@ -1735,6 +1763,10 @@ export default function App() {
                             refreshKey={tab.data?.refreshKey}
                           />
                         );
+                      }
+
+                      if (tab.type === 'preview') {
+                        return <PreviewTabWrapper />;
                       }
 
                       // Default to ChatPage for all other types
