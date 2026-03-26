@@ -391,6 +391,22 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     }
   }, [tabs, setActiveTab, addTab]);
 
+  const handleBuildReportClick = useCallback(() => {
+    Keyboard.dismiss();
+    setShowPreviewPanel(false);
+    const reportTab = tabs.find(t => t.id === 'build-report');
+    if (reportTab) {
+      setActiveTab('build-report');
+    } else {
+      addTab({
+        id: 'build-report',
+        type: 'buildReport' as any,
+        title: 'Build Report',
+        data: {},
+      });
+    }
+  }, [tabs, setActiveTab, addTab]);
+
   const handleTerminalClick = useCallback(() => {
     Keyboard.dismiss();
     tracciaPannelloAperto('pty');
@@ -669,6 +685,18 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                         </TouchableOpacity>
                       </>
                     )}
+                    <View style={styles.menuDivider} />
+                    <TouchableOpacity
+                      style={styles.menuItem}
+                      activeOpacity={0.6}
+                      onPress={() => {
+                        closeMenu();
+                        setTimeout(() => handleBuildReportClick(), 280);
+                      }}
+                    >
+                      <Ionicons name="time-outline" size={20} color="#8B5CF6" />
+                      <Text style={styles.menuItemText}>Project History</Text>
+                    </TouchableOpacity>
                   </Animated.View>
                 </Animated.View>
               </GlassCard>

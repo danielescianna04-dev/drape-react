@@ -444,17 +444,27 @@ flyRouter.get('/project/:id/env', asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  const result = await fileService.readFile(projectId, '.env');
-  if (!result.success) return res.json({ success: true, variables: [] });
+  // Read both .env and .env.local (Neon/Supabase credentials are written to .env.local)
+  const envResult = await fileService.readFile(projectId, '.env');
+  const envLocalResult = await fileService.readFile(projectId, '.env.local');
 
-  const variables = (result.data?.content || '').split('\n')
-    .filter(line => line.includes('=') && !line.startsWith('#'))
-    .map(line => {
-      const [key, ...rest] = line.split('=');
-      return { key: key.trim(), value: rest.join('=').trim(), isSecret: false };
-    });
+  const parseEnvContent = (content: string) =>
+    content.split('\n')
+      .filter(line => line.includes('=') && !line.startsWith('#'))
+      .map(line => {
+        const [key, ...rest] = line.split('=');
+        return { key: key.trim(), value: rest.join('=').trim(), isSecret: false };
+      });
 
-  res.json({ success: true, variables });
+  const envVars = envResult.success ? parseEnvContent(envResult.data?.content || '') : [];
+  const envLocalVars = envLocalResult.success ? parseEnvContent(envLocalResult.data?.content || '') : [];
+
+  // Merge: .env.local overrides .env (same as Next.js behavior)
+  const merged = new Map<string, { key: string; value: string; isSecret: boolean }>();
+  for (const v of envVars) merged.set(v.key, v);
+  for (const v of envLocalVars) merged.set(v.key, v);
+
+  res.json({ success: true, variables: [...merged.values()] });
 }));
 
 // POST /fly/project/:id/env
@@ -473,7 +483,9 @@ flyRouter.post('/project/:id/env', asyncHandler(async (req, res) => {
   if (!Array.isArray(variables)) throw new ValidationError('variables array required');
 
   const content = variables.map((v: any) => `${v.key}=${v.value}`).join('\n') + '\n';
+  // Write to both .env and .env.local so Next.js and other frameworks pick them up
   await fileService.writeFile(projectId, '.env', content);
+  await fileService.writeFile(projectId, '.env.local', content);
   res.json({ success: true, message: 'Environment variables saved' });
 }));
 

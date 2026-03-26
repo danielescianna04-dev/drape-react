@@ -90,10 +90,15 @@ export const config = {
   appleIapKeyPath: optional('APPLE_IAP_KEY_PATH', './apple-iap-key.p8'),
   appleIapEnvironment: optional('APPLE_IAP_ENVIRONMENT', 'sandbox'),
 
-  // Supabase Management API (auto-creates projects for Cloud Mode)
+  // Supabase Management API (legacy — being replaced by Neon)
   supabaseAccessToken: optional('SUPABASE_ACCESS_TOKEN', ''),
   supabaseOrgId: optional('SUPABASE_ORG_ID', ''),
   supabaseRegion: optional('SUPABASE_REGION', 'eu-central-1'),
+
+  // Neon Postgres (primary cloud database — scale-to-zero, cheap)
+  neonApiKey: optional('NEON_API_KEY', ''),
+  neonOrgId: optional('NEON_ORG_ID', ''),
+  neonRegion: optional('NEON_REGION', 'aws-eu-central-1'),
 } as const;
 
 export type Config = typeof config;

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
 import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter, decrementCreationCounter } from '../middleware/auth';
@@ -15,6 +16,8 @@ import { log } from '../utils/logger';
 import { auditService } from '../services/audit.service';
 import { getProjectCreationSystemPrompt, getProjectCreationUserPrompt, getExcludedFiles } from '../services/project-creation-prompt';
 import { supabaseManagementService, SupabaseCredentials } from '../services/supabase-management.service';
+import { neonManagementService, NeonCredentials } from '../services/neon-management.service';
+import { BuildReportTracker } from '../services/build-report.service';
 
 async function applyBoilerplateTemplate(projectId: string, technology: string, cloudMode: boolean = false): Promise<boolean> {
   // Templates are in the backend root directory (synced via deploy), NOT inside Docker containers
@@ -67,6 +70,25 @@ const deletionTasks = new Map<string, Promise<void>>();
 
 async function performProjectDeletion(projectId: string, userId: string): Promise<void> {
   const startedAt = Date.now();
+
+  // Clean up cloud database (Neon or Supabase) if exists
+  try {
+    const db = firebaseService.getFirestore();
+    if (db) {
+      const projectDoc = await db.collection('user_projects').doc(projectId).get();
+      const data = projectDoc.data();
+
+      if (data?.cloudDb?.provider === 'neon' && data.cloudDb.projectId) {
+        log.info(`[Delete] Deleting Neon database ${data.cloudDb.projectId} for project ${projectId}`);
+        await neonManagementService.deleteProject(data.cloudDb.projectId);
+      } else if (data?.supabase?.projectRef) {
+        log.info(`[Delete] Deleting Supabase project ${data.supabase.projectRef} for project ${projectId}`);
+        await supabaseManagementService.deleteProject(data.supabase.projectRef);
+      }
+    }
+  } catch (err: any) {
+    log.warn(`[Delete] Cloud DB cleanup failed for ${projectId}: ${err.message}`);
+  }
 
   const [releaseState, fileState] = await Promise.allSettled([
     workspaceService.release(projectId, userId),
@@ -592,6 +614,29 @@ workstationRouter.get('/:projectId/files', asyncHandler(async (req, res) => {
 
   const result = await fileService.listAllFiles(projectId);
   res.json({ success: true, files: result.data || [] });
+}));
+
+// GET /workstation/:projectId/build-report — get the build report for a project
+workstationRouter.get('/:projectId/build-report', asyncHandler(async (req, res) => {
+  const { projectId } = req.params;
+  const uid = req.userId || 'anonymous';
+
+  const isOwner = await verifyProjectOwnership(uid, projectId);
+  if (!isOwner) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  const result = await fileService.readFile(projectId, '.drape/build-report.json');
+  if (!result.success || !result.data) {
+    return res.json({ success: true, report: null });
+  }
+
+  try {
+    const report = JSON.parse(result.data.content);
+    res.json({ success: true, report });
+  } catch {
+    res.json({ success: true, report: null });
+  }
 }));
 
 // POST /workstation/read-file
@@ -1131,22 +1176,79 @@ async function generateProject(
     task.step = step;
   };
 
+  // Initialize build report tracker
+  const report = new BuildReportTracker(projectId, projectName, technology, cloudMode);
+
   update(2, 'Initializing project...', 'Setup');
+  const templateActionId = report.startAction('setup', 'Applying template', `Technology: ${technology}, Cloud: ${cloudMode}`);
   const templateApplied = await applyBoilerplateTemplate(projectId, technology, cloudMode);
+  report.completeAction(templateActionId, { technology, cloudMode, templateApplied });
+
   update(5, 'Template ready', 'Setup');
   const isCloudMode = cloudMode || (description ? /cloud\s*mode/i.test(description) : false);
   update(8, 'Preparing AI model...', 'Setup');
 
-  // Create Supabase project if Cloud Mode and Supabase is configured
+  // Create cloud database if Cloud Mode is enabled
+  // Priority: Neon (fast, cheap) → Supabase (legacy) → SQLite (fallback)
   let supabaseCredentials: SupabaseCredentials | null = null;
-  if (isCloudMode && supabaseManagementService.isConfigured) {
+  let neonCredentials: NeonCredentials | null = null;
+
+  if (isCloudMode && neonManagementService.isConfigured) {
+    const dbActionId = report.startAction('database', 'Creating Neon PostgreSQL database', `Region: eu-central-1`);
+    try {
+      update(10, 'Creating database...', 'Cloud Setup');
+      neonCredentials = await neonManagementService.createProject(projectName, userId, (pct, msg) => {
+        update(pct, msg, 'Cloud Setup');
+      });
+      report.completeAction(dbActionId, { host: neonCredentials.host, database: neonCredentials.database, projectId: neonCredentials.projectId });
+
+      // Write .env file with Neon credentials + auth secret
+      const envActionId = report.startAction('database', 'Writing environment variables', '8 variables: DATABASE_URL, AUTH_SECRET, etc.');
+      const authSecret = crypto.randomBytes(32).toString('hex');
+      const envContent = [
+        `DATABASE_URL=${neonCredentials.connectionUri}`,
+        `DATABASE_URL_POOLED=${neonCredentials.connectionUriPooled}`,
+        `PGHOST=${neonCredentials.host}`,
+        `PGDATABASE=${neonCredentials.database}`,
+        `PGUSER=${neonCredentials.role}`,
+        `PGPASSWORD=${neonCredentials.password}`,
+        `BETTER_AUTH_SECRET=${authSecret}`,
+        `NEXT_PUBLIC_APP_URL=http://localhost:3000`,
+      ].join('\n');
+      await fileService.writeFile(projectId, '.env.local', envContent);
+      report.completeAction(envActionId);
+
+      // Run auth schema to create user/session/account tables
+      const authSchemaActionId = report.startAction('database', 'Creating auth tables', 'Tables: user, session, account, verification');
+      try {
+        const authSchemaPath = path.resolve(__dirname, '../../templates/nextjs-cloud/db/auth-schema.sql');
+        const authSchemaSql = fs.readFileSync(authSchemaPath, 'utf-8');
+        await neonManagementService.runSQL(neonCredentials.projectId, authSchemaSql, neonCredentials.endpointId);
+        report.completeAction(authSchemaActionId, { tables: ['user', 'session', 'account', 'verification'] });
+        report.updateSummary({ tablesCreated: ['user', 'session', 'account', 'verification'] });
+        log.info(`[CreateProject] Auth tables created in Neon`);
+      } catch (err: any) {
+        report.failAction(authSchemaActionId, err.message);
+        log.warn(`[CreateProject] Auth schema failed (will retry after generation): ${err.message}`);
+      }
+
+      update(40, 'Database ready!', 'AI Generating');
+      log.info(`[CreateProject] Neon database created: ${neonCredentials.host}`);
+    } catch (err: any) {
+      report.failAction(dbActionId, err.message);
+      log.warn(`[CreateProject] Neon creation failed, trying Supabase fallback: ${err.message}`);
+      neonCredentials = null;
+    }
+  }
+
+  // Fallback to Supabase if Neon is not configured or failed
+  if (isCloudMode && !neonCredentials && supabaseManagementService.isConfigured) {
     try {
       update(10, 'Creating Supabase database...', 'Cloud Setup');
       supabaseCredentials = await supabaseManagementService.createProject(projectName, userId, (pct, msg) => {
         update(pct, msg, 'Cloud Setup');
       });
 
-      // Write .env file with Supabase credentials
       const envContent = [
         `NEXT_PUBLIC_SUPABASE_URL=${supabaseCredentials.url}`,
         `NEXT_PUBLIC_SUPABASE_ANON_KEY=${supabaseCredentials.anonKey}`,
@@ -1159,7 +1261,6 @@ async function generateProject(
       log.info(`[CreateProject] Supabase project created: ${supabaseCredentials.url}`);
     } catch (err: any) {
       log.warn(`[CreateProject] Supabase creation failed, falling back to SQLite: ${err.message}`);
-      // Don't fail the whole creation — fall back to SQLite template
     }
   }
 
@@ -1209,7 +1310,8 @@ async function generateProject(
     ? `\n- Do NOT include these files (they are auto-generated): ${excluded.join(', ')}`
     : '';
 
-  if (isCloudMode) log.info(`[Workstation] Cloud Mode detected for "${projectName}" — will enforce ${supabaseCredentials ? 'Supabase' : 'SQLite'} database generation`);
+  const cloudDbType = neonCredentials ? 'Neon PostgreSQL' : supabaseCredentials ? 'Supabase' : 'SQLite';
+  if (isCloudMode) log.info(`[Workstation] Cloud Mode detected for "${projectName}" — will enforce ${cloudDbType} database generation`);
   const cloudDbRequirements = isCloudMode ? `
 
 CLOUD MODE — DATABASE REQUIRED:
@@ -1305,6 +1407,12 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
     'index.html', 'src/app/app.component.ts',
     'manage.py', 'artisan', 'public/index.php', 'bootstrap/app.php',
     'server/db.js', 'database.py', 'src/lib/server/db.ts',
+    // Auth template files — NEVER overwrite
+    'lib/db.ts', 'lib/auth.ts', 'lib/auth-client.ts',
+    'app/api/auth/[...all]/route.ts',
+    'app/(auth)/login/page.tsx', 'app/(auth)/register/page.tsx', 'app/(auth)/layout.tsx',
+    'app/components/auth-provider.tsx', 'app/components/user-menu.tsx',
+    'middleware.ts', 'db/auth-schema.sql',
   ]);
 
   const streamWrittenFiles: string[] = [];
@@ -1314,9 +1422,9 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
   // Keep two flash attempts before escalating to pro.
   const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3-flash'];
   // Use the dedicated project creation prompt (knows about templates)
-  const systemPrompt = getProjectCreationSystemPrompt(technology, isCloudMode, supabaseCredentials);
+  const systemPrompt = getProjectCreationSystemPrompt(technology, isCloudMode, supabaseCredentials, neonCredentials);
   const userPrompt = templateApplied
-    ? getProjectCreationUserPrompt(technology, projectName, description, isCloudMode, supabaseCredentials)
+    ? getProjectCreationUserPrompt(technology, projectName, description, isCloudMode, supabaseCredentials, neonCredentials)
     : prompt; // Fallback to old prompt if no template was applied
   const chatMessages = [{ role: 'user' as const, content: userPrompt }];
   const chatOptions = { temperature: 0.4, maxTokens: isCloudMode ? 80000 : 40000 };
@@ -1375,9 +1483,9 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
         // - Uses 1 - e^(-t/τ) so it NEVER stops, just slows down naturally
         // - Chunk arrivals give a small forward boost
         // - Single ticker avoids competing progress emitters
-        const AI_START = supabaseCredentials ? 40 : 17;
+        const AI_START = (neonCredentials || supabaseCredentials) ? 40 : 17;
         const AI_CEILING = 80; // reserve 80-100 for review, build check, install
-        const TAU = supabaseCredentials ? 50 : 35;
+        const TAU = (neonCredentials || supabaseCredentials) ? 50 : 35;
 
         generationTicker = setInterval(() => {
           const elapsed = (Date.now() - streamStart) / 1000;
@@ -1572,22 +1680,62 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
 
     log.info(`[CreateProject] Total files: ${writtenFiles.length} (${streamWrittenFiles.length} streamed + ${remainingFiles.length} post-stream)`);
 
-    // Run Supabase migrations if available
-    if (supabaseCredentials) {
-      const schemaFile = parsed.files.find(f => f.path === 'supabase/schema.sql');
-      if (schemaFile) {
+    // Run database migrations if cloud credentials available
+    let schemaFile = parsed.files.find(f =>
+      f.path === 'supabase/schema.sql' || f.path === 'db/schema.sql' || f.path === 'schema.sql'
+    );
+
+    // Fallback: read schema.sql from disk if not found in parsed files (may have been streamed separately)
+    if (!schemaFile) {
+      for (const schemaPath of ['db/schema.sql', 'supabase/schema.sql', 'schema.sql']) {
         try {
-          log.info(`[CreateProject] Running Supabase schema migration...`);
-          await supabaseManagementService.runSQL(supabaseCredentials.projectRef, schemaFile.content);
-          log.info(`[CreateProject] Supabase schema applied successfully`);
-        } catch (err: any) {
-          log.warn(`[CreateProject] Supabase migration failed: ${err.message}`);
-        }
+          const diskResult = await fileService.readFile(projectId, schemaPath);
+          if (diskResult.success && diskResult.data?.content) {
+            schemaFile = { path: schemaPath, content: diskResult.data.content };
+            log.info(`[CreateProject] Found schema file on disk: ${schemaPath}`);
+            break;
+          }
+        } catch {}
       }
     }
 
-    // Save Supabase credentials to Firestore for the app's SupabasePanel
-    if (supabaseCredentials) {
+    if (neonCredentials && schemaFile) {
+      try {
+        log.info(`[CreateProject] Running Neon schema migration (${schemaFile.path})...`);
+        await neonManagementService.runSQL(neonCredentials.projectId, schemaFile.content, neonCredentials.endpointId);
+        log.info(`[CreateProject] Neon schema applied successfully`);
+      } catch (err: any) {
+        log.warn(`[CreateProject] Neon migration failed: ${err.message}`);
+      }
+    } else if (supabaseCredentials && schemaFile) {
+      try {
+        log.info(`[CreateProject] Running Supabase schema migration...`);
+        await supabaseManagementService.runSQL(supabaseCredentials.projectRef, schemaFile.content);
+        log.info(`[CreateProject] Supabase schema applied successfully`);
+      } catch (err: any) {
+        log.warn(`[CreateProject] Supabase migration failed: ${err.message}`);
+      }
+    }
+
+    // Save cloud database credentials to Firestore
+    if (neonCredentials) {
+      try {
+        const db = firebaseService.getFirestore();
+        if (db) {
+          await db.collection('user_projects').doc(projectId).set({
+            userId,
+            cloudDb: {
+              provider: 'neon',
+              projectId: neonCredentials.projectId,
+              host: neonCredentials.host,
+              database: neonCredentials.database,
+            }
+          }, { merge: true });
+        }
+      } catch (err: any) {
+        log.warn(`[CreateProject] Failed to save Neon credentials: ${err.message}`);
+      }
+    } else if (supabaseCredentials) {
       try {
         const db = firebaseService.getFirestore();
         if (db) {
@@ -1607,6 +1755,32 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
 
     update(90, 'Starting workspace...', 'Building');
 
+    // Collect env var names from .env.local
+    let envVarNames: string[] = [];
+    try {
+      const envResult = await fileService.readFile(projectId, '.env.local');
+      if (envResult.success && envResult.data) {
+        envVarNames = envResult.data.content.split('\n')
+          .filter(l => l.includes('=') && !l.startsWith('#'))
+          .map(l => l.split('=')[0].trim())
+          .filter(Boolean);
+      }
+    } catch {}
+
+    // Collect app table names from schema migration
+    const appTables = schemaFile
+      ? (schemaFile.content.match(/CREATE TABLE[^(]*?(\w+)\s*\(/gi) || [])
+          .map(m => m.replace(/CREATE TABLE\s+(IF NOT EXISTS\s+)?/i, '').replace(/\s*\(.*/, '').trim())
+      : [];
+
+    const allTables = [...(report.getReport().summary.tablesCreated || []), ...appTables];
+
+    report.updateSummary({
+      filesGenerated: writtenFiles.length,
+      generatedFiles: writtenFiles,
+      envVars: envVarNames,
+      tablesCreated: [...new Set(allTables)],
+    });
     log.info(`[CreateProject] Generated ${writtenFiles.length} files for ${projectName}`);
 
     // Pre-warm: create container + install deps + start dev server
@@ -1726,6 +1900,7 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
     }
 
     // Complete
+    report.complete();
     update(100, 'Project Created Successfully!', 'Complete');
     task.status = 'completed';
     task.result = {

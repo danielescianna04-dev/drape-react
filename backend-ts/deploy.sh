@@ -21,10 +21,11 @@ rsync -avz --delete \
   --exclude node_modules \
   --exclude src \
   --exclude .git \
-  --exclude '*.ts' \
   --exclude .env \
   --exclude local-data \
   --exclude service-account-key.json \
+  --include 'templates/***' \
+  --exclude '*.ts' \
   ./ -e "ssh ${SSH_OPTS}" "${REMOTE}:${REMOTE_DIR}/"
 
 echo "📥 Installing production deps on server..."

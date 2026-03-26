@@ -738,8 +738,15 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         let dataBuffer = '';
         let readyReceived = false;
         let errorReceived = false;
+        const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB safety limit
 
         const processResponse = () => {
+          // Safety: abort if response grows too large to prevent String length crash
+          if (xhr.responseText && xhr.responseText.length > MAX_RESPONSE_SIZE) {
+            console.warn('[Preview:SSE] Response too large, truncating');
+            lastIndex = xhr.responseText.length;
+            return;
+          }
           const newData = xhr.responseText.substring(lastIndex);
           if (!newData) return;
           lastIndex = xhr.responseText.length;
@@ -1411,7 +1418,17 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         xhr.setRequestHeader('Authorization', `Bearer ${logsAuthToken}`);
       }
 
+      const LOG_MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB safety limit
+
       xhr.onprogress = () => {
+        // Safety: skip processing if response is too large to prevent String length crash
+        if (xhr.responseText && xhr.responseText.length > LOG_MAX_RESPONSE_SIZE) {
+          if (lastIndex < xhr.responseText.length) {
+            console.warn('[Preview:Logs] Response too large, skipping to end');
+            lastIndex = xhr.responseText.length;
+          }
+          return;
+        }
         const newData = xhr.responseText.substring(lastIndex);
         if (!newData) return;
         lastIndex = xhr.responseText.length;

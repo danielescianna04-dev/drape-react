@@ -6,6 +6,7 @@
  */
 
 import { SupabaseCredentials } from './supabase-management.service';
+import { NeonCredentials } from './neon-management.service';
 
 const TECH_DESCRIPTIONS: Record<string, string> = {
   react: 'React 19 with Vite, TypeScript, and Tailwind CSS v4',
@@ -286,7 +287,7 @@ JAVASCRIPT CONSOLE INSTRUCTIONS:
 };
 
 /** Build the system prompt for project creation AI */
-export function getProjectCreationSystemPrompt(technology: string, cloudMode: boolean, supabase?: SupabaseCredentials | null): string {
+export function getProjectCreationSystemPrompt(technology: string, cloudMode: boolean, supabase?: SupabaseCredentials | null, neon?: NeonCredentials | null): string {
   const base = `You are a world-class UI/UX developer, designer, and creative director. You create BREATHTAKING, FULLY FUNCTIONAL applications that rival the best products on the market (Airbnb, Stripe, Linear, Notion, Nike). Every app you build makes users say "WOW, this is incredible" the moment they see it.
 
 A boilerplate template with Tailwind CSS v4 is already set up in the project. Your job is to BUILD A COMPLETE, PRODUCTION-READY APP tailored to the user's idea.
@@ -434,7 +435,106 @@ DO NOT be lazy. DO NOT use "Lorem ipsum" or "Coming soon". Every page must be CO
     ? `\n\nFILES ALREADY IN THE TEMPLATE (do NOT regenerate unless you need to modify them):\n${templateFiles.map(f => `- ${f}`).join('\n')}`
     : '';
 
-  const cloudNote = cloudMode && supabase
+  const cloudNote = cloudMode && neon
+    ? `\n\nCLOUD MODE WITH NEON POSTGRESQL — PRODUCTION-READY:
+A PostgreSQL database and authentication system are already set up and connected.
+- Database host: ${neon.host}
+- .env.local already contains DATABASE_URL, BETTER_AUTH_SECRET, etc.
+- Auth tables (user, session, account, verification) already created in the database.
+
+=== FILES THAT ALREADY EXIST — DO NOT GENERATE THESE ===
+- lib/db.ts (Neon + Drizzle client — ALREADY EXISTS)
+- lib/auth.ts (Better Auth server config — ALREADY EXISTS)
+- lib/auth-client.ts (Better Auth client SDK — ALREADY EXISTS)
+- app/api/auth/[...all]/route.ts (Auth API route — ALREADY EXISTS)
+- app/(auth)/login/page.tsx (Login page — ALREADY EXISTS)
+- app/(auth)/register/page.tsx (Register page — ALREADY EXISTS)
+- app/(auth)/layout.tsx (Auth layout — ALREADY EXISTS)
+- app/components/auth-provider.tsx (AuthProvider — ALREADY EXISTS)
+- app/components/user-menu.tsx (UserMenu — ALREADY EXISTS)
+- middleware.ts (Route protection — ALREADY EXISTS)
+- db/auth-schema.sql (Auth tables — ALREADY EXISTS)
+If you include ANY of these files, they will overwrite the working auth system and BREAK the app.
+
+=== AUTH INTEGRATION — USE THESE IN YOUR CODE ===
+- In your app layout (app/layout.tsx), wrap children with: import { AuthProvider } from '@/components/auth-provider' then <AuthProvider>{children}</AuthProvider>
+- In your Navbar component, add: import { UserMenu } from '@/components/user-menu' then <UserMenu />
+- To get current user in any client component: import { useAuth } from '@/components/auth-provider' then const { user, isAuthenticated } = useAuth()
+- To get session in Server Components: import { auth } from '@/lib/auth'; import { headers } from 'next/headers'; const session = await auth.api.getSession({ headers: await headers() });
+- For user-specific data, add user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE to your tables
+- Filter queries by user_id to show only the current user's data
+
+=== DATABASE SCHEMA — MANDATORY CONSTRAINTS ===
+Create db/schema.sql with your app-specific tables. Every table MUST follow these rules:
+- Every column is NOT NULL unless NULL has explicit business meaning
+- Every REFERENCES (foreign key) includes ON DELETE CASCADE or ON DELETE SET NULL
+- Every foreign key column has a CREATE INDEX
+- Use TIMESTAMPTZ (not TIMESTAMP) for all date/time columns
+- Every table has: created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+- Use TEXT for strings, NUMERIC(10,2) for money (not FLOAT)
+- Add CHECK constraints: CHECK (price >= 0), CHECK (status IN ('active','completed','cancelled'))
+- Tables with user data MUST have: user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE
+- Include INSERT statements with 10+ realistic seed records per table
+- Include CREATE INDEX for all foreign keys and commonly filtered columns
+
+Example:
+\`\`\`sql
+CREATE TABLE products (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  description TEXT,
+  price NUMERIC(10,2) NOT NULL CHECK (price >= 0),
+  category TEXT NOT NULL,
+  image_url TEXT,
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_products_user_id ON products(user_id);
+CREATE INDEX idx_products_category ON products(category);
+\`\`\`
+
+=== DRIZZLE ORM USAGE ===
+- Import db: import { db } from '@/lib/db';
+- Import operators: import { eq, desc, like, and, or } from 'drizzle-orm';
+- Select: const items = await db.select().from(products);
+- Insert: await db.insert(products).values({ name: '...', price: 29.99 });
+- Update: await db.update(products).set({ name: '...' }).where(eq(products.id, id));
+- Delete: await db.delete(products).where(eq(products.id, id));
+
+=== CRITICAL: PAGE ARCHITECTURE ===
+ALL pages MUST be client components with 'use client' directive.
+DO NOT use server components (async function Page()) for pages — they break auth session in preview mode.
+Use this pattern for EVERY page:
+
+\`\`\`tsx
+'use client';
+import { useAuth } from '@/app/components/auth-provider';
+import { useEffect, useState } from 'react';
+
+export default function DashboardPage() {
+  const { user, isLoading, isAuthenticated } = useAuth();
+  const [data, setData] = useState([]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    fetch('/api/tasks').then(r => r.json()).then(setData);
+  }, [isAuthenticated]);
+
+  if (isLoading) return <div>Loading...</div>;
+  if (!isAuthenticated) return null; // middleware handles redirect
+
+  return <div>...</div>;
+}
+\`\`\`
+
+For database queries: create API routes in app/api/ that query the DB and return JSON.
+The pages fetch from these API routes client-side.
+DO NOT use server components, getServerSideProps, or server actions for data fetching in pages.
+EVERY page file MUST start with 'use client'.
+
+DO NOT use better-sqlite3, Supabase, or any local database. ALL data goes through Neon PostgreSQL via Drizzle.`
+    : cloudMode && supabase
     ? `\n\nCLOUD MODE WITH SUPABASE:
 A Supabase project has been automatically created and connected:
 - URL: ${supabase.url}
@@ -501,6 +601,7 @@ export function getProjectCreationUserPrompt(
   description: string,
   cloudMode: boolean,
   supabase?: SupabaseCredentials | null,
+  neon?: NeonCredentials | null,
 ): string {
   const techDesc = TECH_DESCRIPTIONS[technology] || TECH_DESCRIPTIONS['nextjs'];
 
@@ -523,7 +624,27 @@ export function getProjectCreationUserPrompt(
 10. TypeScript types for all data models
 11. This should look like a REAL product built by a professional team, not a template demo`;
 
-  if (cloudMode && supabase) {
+  if (cloudMode && neon) {
+    prompt += `\n\nCLOUD MODE WITH NEON POSTGRESQL + AUTH (${neon.host}):
+- Auth (login, register, middleware) ALREADY EXISTS in the template — DO NOT regenerate auth files
+- lib/db.ts, lib/auth.ts, lib/auth-client.ts ALREADY EXIST — DO NOT regenerate
+- Wrap your app layout with AuthProvider, add UserMenu to your Navbar
+- Create ONLY db/schema.sql with app-specific tables (NOT auth tables — they already exist)
+- Every table with user data MUST have: user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE
+- Every column NOT NULL unless NULL has business meaning
+- Every FK has ON DELETE CASCADE + CREATE INDEX
+- Use TIMESTAMPTZ, TEXT, NUMERIC(10,2) for money, CHECK constraints
+- Include INSERT seed data (10+ records per table)
+- Use Drizzle ORM: import { db } from '@/lib/db' for ALL data operations
+- Create API routes (app/api/xxx/route.ts) for ALL database queries
+- Pages fetch data client-side from API routes using fetch() + useState + useEffect
+- ALL pages MUST be 'use client' components — NO server components for pages
+- Use useAuth() hook to get current user: import { useAuth } from '@/app/components/auth-provider'
+- Connect ALL pages to real database data via API routes — zero hardcoded data
+- DO NOT use better-sqlite3, Supabase, or any local database
+- DO NOT use server components (async function) for pages — breaks auth in preview
+- DO NOT generate: lib/db.ts, lib/auth.ts, middleware.ts, login/register pages, package.json`;
+  } else if (cloudMode && supabase) {
     prompt += `\n\nCLOUD MODE WITH SUPABASE — Use the Supabase database (${supabase.url}):
 - Create a supabase/schema.sql file with CREATE TABLE statements for ALL domain-specific models
 - Include INSERT statements for realistic seed data (10+ records per table)

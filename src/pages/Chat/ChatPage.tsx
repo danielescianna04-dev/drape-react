@@ -47,6 +47,7 @@ import { EnvVarsView } from '../../features/terminal/components/views/EnvVarsVie
 import { TasksView } from '../../features/terminal/components/views/TasksView';
 import { ShellView } from '../../features/terminal/components/views/ShellView';
 import { DatabaseView } from '../../features/terminal/components/views/DatabaseView';
+import { BuildReportView } from '../../features/terminal/components/views/BuildReportView';
 import { InteractiveTerminalView } from '../../features/terminal/components/views/InteractiveTerminalView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
@@ -3065,6 +3066,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           <TasksView tab={currentTab} />
         ) : currentTab?.type === 'pty' ? (
           <InteractiveTerminalView tab={currentTab} />
+        ) : currentTab?.type === 'buildReport' ? (
+          <BuildReportView tab={currentTab} />
         ) : currentTab?.type === 'database' ? (
           <DatabaseView tab={currentTab} />
         ) : currentTab?.type === 'integration' ? (

@@ -23,6 +23,7 @@ const NAV_SECTIONS = [
   { id: 'preview', icon: 'eye-outline' as const, label: 'Preview' },
   { id: 'terminal', icon: 'terminal-outline' as const, label: 'Terminale' },
   { id: 'git', icon: 'git-branch-outline' as const, label: 'Git' },
+  { id: 'buildReport', icon: 'time-outline' as const, label: 'Project History' },
 ] as const;
 
 interface Props {
@@ -667,6 +668,22 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
             {expandedNav.git && (
               <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
                 {renderActionItem('git-branch-outline', 'Pannello Git', handleOpenGit)}
+              </Animated.View>
+            )}
+
+            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
+
+            {/* ── Build Report Section ── */}
+            {renderNavSectionHeader('buildReport', 'construct-outline', 'Build Report')}
+            {expandedNav.buildReport && (
+              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
+                {renderActionItem('time-outline', 'Project History', () => {
+                  const { tabs, setActiveTab, addTab } = useTabStore.getState();
+                  const existing = tabs.find(t => t.id === 'build-report');
+                  if (existing) { setActiveTab('build-report'); }
+                  else { addTab({ id: 'build-report', type: 'buildReport' as any, title: 'Build Report', data: {} }); }
+                  onClose();
+                })}
               </Animated.View>
             )}
 
