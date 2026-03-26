@@ -861,11 +861,8 @@ const styles = StyleSheet.create({
   },
   morphButtonWrapper: {
     position: 'absolute',
-    top: 0,
+    top: 64,
     right: 12,
-    height: 100,
-    paddingTop: 64,
-    justifyContent: 'center',
     zIndex: 1300,
     alignItems: 'flex-end',
   },
