@@ -66,7 +66,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const activeTab = tabs.find(t => t.id === activeTabId);
   const isPreviewActive = activeTab?.type === 'preview' || activeTab?.type === 'browser';
   const isPreviewShowing = isPreviewActive;
-  const MENU_HEIGHT = isPreviewShowing ? 230 : 140;
+  const MENU_HEIGHT = isPreviewShowing ? 210 : 110;
 
   const openMenu = useCallback(() => {
     setShowHeaderMenu(true);
