@@ -35,6 +35,8 @@ import { PreviewEnvVarsForm } from './PreviewEnvVarsForm';
 import { usePreviewPublish } from '../hooks/usePreviewPublish';
 import { usePreviewChat } from '../hooks/usePreviewChat';
 import { usePreviewStartup } from '../hooks/usePreviewStartup';
+import { usePreviewAutoFix } from '../../../hooks/preview/usePreviewAutoFix';
+import { captureRef } from 'react-native-view-shot';
 
 const USE_HOLY_GRAIL = true;
 
@@ -205,6 +207,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const terminalScrollRef = useRef<ScrollView>(null);
   const logsXhrRef = useRef<XMLHttpRequest | null>(null);
   const webViewRef = useRef<WebView>(null);
+  const webViewContainerRef = useRef<View>(null);
+  const jsErrorsRef = useRef<string[]>([]);
+  const autoFix = usePreviewAutoFix(currentWorkstation?.id);
   const checkInterval = useRef<NodeJS.Timeout | null>(null);
   const prevWorkstationId = useRef<string | null>(null);
   const logsSinceCursorRef = useRef<number>(0);
@@ -1388,6 +1393,62 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     return () => { isMounted = false; };
   }, [serverStatus, webViewReady, isLoading]);
 
+  // ── Auto-Fix Preflight: check preview after WebView loads ──
+  // When webViewReady becomes true, wait a moment for JS errors to accumulate,
+  // then capture screenshot + errors and run the preflight check.
+  const preflightDoneRef = useRef(false);
+  useEffect(() => {
+    if (!webViewReady || preflightDoneRef.current || autoFix.state === 'verified') return;
+    if (autoFix.state === 'fixing') return; // Don't re-trigger while fixing
+
+    const timer = setTimeout(async () => {
+      let screenshotBase64: string | null = null;
+      try {
+        if (webViewContainerRef.current) {
+          screenshotBase64 = await captureRef(webViewContainerRef.current, {
+            format: 'png',
+            quality: 0.5,
+            result: 'base64',
+          });
+        }
+      } catch (e) {
+        console.warn('[AutoFix] Screenshot capture failed:', e);
+      }
+
+      const errors = [...jsErrorsRef.current];
+      // PAGE_INFO rootChildren comes from the WebView's onMessage —
+      // if webViewReady is true, rootChildren > 0. But check jsErrors.
+      const rootChildren = webViewReady ? 1 : 0;
+
+      if (errors.length === 0 && rootChildren > 0) {
+        // Looks good — mark as verified
+        autoFix.reportCheckResult({ rootChildren, jsErrors: errors, screenshotBase64: null });
+        preflightDoneRef.current = true;
+      } else {
+        // Has errors — trigger fix
+        autoFix.reportCheckResult({ rootChildren, jsErrors: errors, screenshotBase64 });
+      }
+    }, 2500); // Wait 2.5s for JS errors to accumulate after load
+
+    return () => clearTimeout(timer);
+  }, [webViewReady, autoFix.state]);
+
+  // When auto-fix transitions to 'rechecking', reload the WebView
+  useEffect(() => {
+    if (autoFix.state === 'rechecking') {
+      jsErrorsRef.current = []; // Clear errors for fresh check
+      setWebViewReady(false);
+      webViewRef.current?.reload();
+    }
+  }, [autoFix.state]);
+
+  // Reset preflight when project changes
+  useEffect(() => {
+    preflightDoneRef.current = false;
+    autoFix.reset();
+    jsErrorsRef.current = [];
+  }, [currentWorkstation?.id]);
+
   // Auto-recovery: request machineId if missing
   useEffect(() => {
     let isMounted = true;
@@ -1816,7 +1877,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
               </Animated.View>
             )}
 
-            <View style={styles.webViewContainer}>
+            <View ref={webViewContainerRef} style={styles.webViewContainer}>
               {/* Reload banner — shown when file changes detected */}
               {showReloadBanner && serverStatus === 'running' && (
                 <TouchableOpacity
@@ -1872,7 +1933,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   previewError={startup.previewError}
                   previewLogs={startup.previewLogs}
                   terminalOutput={terminalOutput}
-                  displayedMessage={startup.displayedMessage}
+                  displayedMessage={autoFix.isFixing ? autoFix.statusMessage : startup.displayedMessage}
                   startingMessage={startup.startingMessage}
                   smoothProgress={startup.smoothProgress}
                   elapsedSeconds={startup.elapsedSeconds}
@@ -1892,7 +1953,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   previewAccessToken={previewAccessToken}
                   flyMachineIdRef={flyMachineIdRef}
                   hasWebUI={hasWebUI}
-                  webViewReady={webViewReady}
+                  webViewReady={webViewReady && (autoFix.state === 'verified' || autoFix.state === 'idle' || preflightDoneRef.current)}
                   serverStatus={serverStatus}
                   isLoading={isLoading}
                   terminalOutput={terminalOutput}
@@ -1900,7 +1961,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   maskOpacityAnim={startup.maskOpacityAnim}
                   previewError={startup.previewError}
                   previewLogs={startup.previewLogs}
-                  displayedMessage={startup.displayedMessage}
+                  displayedMessage={autoFix.isFixing ? autoFix.statusMessage : startup.displayedMessage}
                   startingMessage={startup.startingMessage}
                   smoothProgress={startup.smoothProgress}
                   elapsedSeconds={startup.elapsedSeconds}
@@ -1919,6 +1980,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   onRetryPreview={handleRetryPreview}
                   onSendErrorReport={sendErrorToChat}
                   onEnvError={redirectToEnvVarsWithError}
+                  onJsError={(msg: string) => { if (!preflightDoneRef.current) jsErrorsRef.current.push(msg); }}
                   topInset={insets.top}
                   viewportMode={viewportMode}
                   projectId={projectId || ''}

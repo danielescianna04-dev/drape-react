@@ -53,6 +53,7 @@ export interface PreviewWebViewProps {
   onRetryPreview: () => void;
   onSendErrorReport: () => void;
   onEnvError?: (message: string) => void;
+  onJsError?: (message: string) => void;
   topInset: number;
   viewportMode: ViewportMode;
 
@@ -100,6 +101,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
   onRetryPreview,
   onSendErrorReport,
   onEnvError,
+  onJsError,
   topInset,
   viewportMode,
   projectId,
@@ -755,6 +757,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                     // Filter out CSS injection noise (Bootstrap Reboot, etc.)
                     if (jsMsg.startsWith(':host') || jsMsg.includes('Bootstrap') || jsMsg.includes('reboot') || jsMsg.includes('box-sizing')) return;
                     console.warn('[Preview] JS/runtime error in WebView:', jsMsg);
+                    onJsError?.(jsMsg);
                     if (onEnvError && isEnvRelatedMessage(jsMsg)) {
                       onEnvError(jsMsg);
                       return;
