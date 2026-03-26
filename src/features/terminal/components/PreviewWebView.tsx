@@ -752,6 +752,8 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                   }
                   if (data.type === 'JS_ERROR' || data.type === 'RUNTIME_ENV_ERROR') {
                     const jsMsg = data.message || '';
+                    // Filter out CSS injection noise (Bootstrap Reboot, etc.)
+                    if (jsMsg.startsWith(':host') || jsMsg.includes('Bootstrap') || jsMsg.includes('reboot') || jsMsg.includes('box-sizing')) return;
                     console.warn('[Preview] JS/runtime error in WebView:', jsMsg);
                     if (onEnvError && isEnvRelatedMessage(jsMsg)) {
                       onEnvError(jsMsg);

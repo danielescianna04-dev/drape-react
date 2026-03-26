@@ -367,18 +367,8 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
   const handleOpenGit = useCallback(() => {
     Keyboard.dismiss();
     tracciaPannelloAperto('git');
-    const gitTab = tabs.find(t => t.id === 'git');
-    if (gitTab) {
-      setActiveTab('git');
-    } else {
-      addTab({
-        id: 'git',
-        type: 'git' as any,
-        title: 'Git',
-        data: {},
-      });
-    }
     handleClose();
+    useUIStore.setState({ openGitSheetTab: null, openGitSheetRequested: true });
   }, [tabs, setActiveTab, addTab]);
 
   const handleOpenDatabase = useCallback(() => {

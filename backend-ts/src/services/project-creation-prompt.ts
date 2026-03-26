@@ -293,10 +293,14 @@ export function getProjectCreationSystemPrompt(technology: string, cloudMode: bo
 A boilerplate template with Tailwind CSS v4 is already set up in the project. Your job is to BUILD A COMPLETE, PRODUCTION-READY APP tailored to the user's idea.
 
 === FILES YOU MUST NEVER GENERATE (they already exist and work) ===
-- package.json, tsconfig.json, any config file (vite.config, next.config, postcss.config, etc.)
+- tsconfig.json, any config file (vite.config, next.config, postcss.config, etc.)
 - CSS files (globals.css, index.css, style.css, app.css, tailwind.css, main.css)
 - index.html, entry files (main.tsx, main.ts, entry-server.tsx, entry-client.tsx)
 If you include ANY of these config/CSS files, the app will BREAK.
+
+=== DEPENDENCIES — YOU CAN ADD NEW ONES ===
+The template has pre-installed dependencies. If you need a library that is NOT already in package.json, you MUST generate a MODIFIED package.json that ADDS the new dependency to the existing "dependencies" object. KEEP all existing deps, just add yours. After generation the system will auto-install.
+PREFER using libraries already installed (react-icons, react-hot-toast, better-auth, drizzle-orm, @neondatabase/serverless) before adding new ones. If you DO add a dependency, use a real, popular npm package name — do NOT invent package names.
 
 === LAYOUT FILES — YOU CAN MODIFY BUT MUST KEEP CSS IMPORT ===
 If you need to wrap the app with a Context Provider (e.g., AppProvider), you MUST generate a layout.tsx/App.tsx that:
@@ -532,6 +536,14 @@ For database queries: create API routes in app/api/ that query the DB and return
 The pages fetch from these API routes client-side.
 DO NOT use server components, getServerSideProps, or server actions for data fetching in pages.
 EVERY page file MUST start with 'use client'.
+
+=== HYDRATION SAFETY (CRITICAL) ===
+Client-side exceptions during hydration are the #1 cause of white pages. Follow these rules:
+- NEVER access window, document, localStorage, or navigator at module level or during render. ALWAYS wrap in useEffect or check typeof window !== 'undefined'.
+- NEVER render different content on server vs client. If content depends on browser state (screen size, localStorage, auth), show a loading placeholder first, then update in useEffect.
+- NEVER use Date.now(), Math.random(), or any non-deterministic value during render — use useState + useEffect.
+- ALL components that use browser APIs MUST have 'use client' directive.
+- If a component might fail, wrap it in a React Error Boundary to prevent full-page crashes.
 
 DO NOT use better-sqlite3, Supabase, or any local database. ALL data goes through Neon PostgreSQL via Drizzle.`
     : cloudMode && supabase

@@ -58,6 +58,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   // Preview state from store
   const previewCurrentUrl = useUIStore((state) => state.previewCurrentUrl);
+  const lastNonRootPathRef = React.useRef('/');
   const previewViewportMode = useUIStore((state) => state.previewViewportMode);
   const previewHandlers = useUIStore((state) => state.previewHandlers);
   const previewPublishInfo = useUIStore((state) => state.previewPublishInfo);
@@ -621,8 +622,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                       try {
                         const url = new URL(previewCurrentUrl);
                         const match = url.pathname.match(/^\/preview\/[^/]+(\/.*)?$/);
-                        return match?.[1] || '/';
-                      } catch { return '/'; }
+                        const path = match?.[1] || '/';
+                        if (path !== '/') lastNonRootPathRef.current = path;
+                        return path !== '/' ? path : lastNonRootPathRef.current;
+                      } catch { return lastNonRootPathRef.current; }
                     })()}
                   </Text>
                 </View>

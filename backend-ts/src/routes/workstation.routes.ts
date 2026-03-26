@@ -1519,7 +1519,24 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
 
           for (const file of found) {
             if (streamWrittenFiles.includes(file.path)) continue;
-            // Skip protected template files
+            // Merge package.json deps instead of skipping
+            if (templateApplied && file.path === 'package.json') {
+              try {
+                const existingResult = await fileService.readFile(projectId, 'package.json');
+                const existing = JSON.parse(existingResult.success ? (existingResult as any).data.content : '{}');
+                const aiGenerated = JSON.parse(file.content);
+                if (aiGenerated.dependencies) {
+                  existing.dependencies = { ...existing.dependencies, ...aiGenerated.dependencies };
+                }
+                if (aiGenerated.devDependencies) {
+                  existing.devDependencies = { ...existing.devDependencies, ...aiGenerated.devDependencies };
+                }
+                await fileService.writeFile(projectId, 'package.json', JSON.stringify(existing, null, 2));
+                streamWrittenFiles.push(file.path);
+              } catch (e) { /* merge failed, keep existing */ }
+              continue;
+            }
+            // Skip other protected template files
             if (templateApplied && protectedFilesSet.has(file.path)) continue;
             // Quick inline fix: blocked icon libs
             let content = file.content;
@@ -1645,6 +1662,19 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
         // Cloud mode database files — protect base setup
         'server/db.js', 'database.py', 'src/lib/server/db.ts',
       ]);
+      // Merge AI-generated package.json deps into existing before filtering
+      const pkgFile = parsed.files.find(f => f.path === 'package.json');
+      if (pkgFile) {
+        try {
+          const existingResult = await fileService.readFile(projectId, 'package.json');
+                const existing = JSON.parse(existingResult.success ? (existingResult as any).data.content : '{}');
+          const aiGenerated = JSON.parse(pkgFile.content);
+          if (aiGenerated.dependencies) existing.dependencies = { ...existing.dependencies, ...aiGenerated.dependencies };
+          if (aiGenerated.devDependencies) existing.devDependencies = { ...existing.devDependencies, ...aiGenerated.devDependencies };
+          await fileService.writeFile(projectId, 'package.json', JSON.stringify(existing, null, 2));
+          streamWrittenFiles.push('package.json');
+        } catch (e) { /* merge failed, keep existing */ }
+      }
       const before = parsed.files.length;
       parsed.files = parsed.files.filter(f => !protectedFiles.has(f.path));
       const dropped = before - parsed.files.length;
