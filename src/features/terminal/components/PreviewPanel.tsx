@@ -404,8 +404,20 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
     // Console projects have no web server — skip health check entirely
     if (!hasWebUIRef.current) return;
-    const urlToCheck = urlOverride || currentPreviewUrl;
-    if (!urlToCheck) return;
+    const rawUrl = urlOverride || currentPreviewUrl;
+    if (!rawUrl) return;
+    // Always health-check the project root, not sub-routes like /login or /register.
+    // The proxy may return "Endpoint not found" for sub-paths via direct fetch,
+    // even though the WebView serves them correctly via client-side routing.
+    let urlToCheck = rawUrl;
+    try {
+      const parsed = new URL(rawUrl);
+      const previewMatch = parsed.pathname.match(/^(\/preview\/[^/]+\/)/);
+      if (previewMatch) {
+        parsed.pathname = previewMatch[1];
+        urlToCheck = parsed.toString();
+      }
+    } catch { /* keep rawUrl */ }
     const maxRetries = 300;
     console.log(`[Preview:CHECK] checkServerStatus #${retryCount}`, { url: urlToCheck, serverStatus: serverStatusRef.current });
 
@@ -473,6 +485,18 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
               setSessionExpiredMessage(t('terminal:preview.sessionExpired'));
               if (currentWorkstation?.id) clearProjectPreviewSession(currentWorkstation.id);
             }
+            // Transient proxy errors — retry instead of showing fatal error
+            const isTransientProxy =
+              proxyError.includes('Endpoint not found') ||
+              proxyError.includes('ECONNREFUSED') ||
+              proxyError.includes('Too many requests') ||
+              proxyError.includes('429');
+            if (isTransientProxy) {
+              console.warn('[Preview:CHECK] Transient proxy error, retrying:', proxyError);
+              scheduleRetry(2000);
+              return;
+            }
+
             startup.setStartingMessage(t('terminal:preview.startingDevServer'));
             if (serverStatusRef.current === 'running') {
               startup.setPreviewError({ message: proxyError, timestamp: new Date() });
@@ -1070,6 +1094,15 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const handleRetryPreview = () => {
     startup.setPreviewError(null);
     startup.setReportSent(false);
+
+    // If server was already running, just reload the WebView instead of full restart
+    if (serverStatusRef.current === 'running' || currentPreviewUrl) {
+      setServerStatus('running');
+      startup.setIsStarting(false);
+      webViewRef.current?.reload();
+      return;
+    }
+
     setTerminalOutput([]);
     logsSinceCursorRef.current = 0;
     errorDetectedRef.current = false;
@@ -1212,8 +1245,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       publish: () => publishRef.current(),
       setViewportMode: (mode: 'mobile' | 'desktop') => { setViewportMode(mode); },
       setUrl: (url: string) => setCurrentPreviewUrlRef.current(url),
+      goBack: () => webViewRef.current?.goBack(),
+      goForward: () => webViewRef.current?.goForward(),
     });
-    return () => setPreviewHandlers({ refresh: null, publish: null, setViewportMode: null, setUrl: null });
+    return () => setPreviewHandlers({ refresh: null, publish: null, setViewportMode: null, setUrl: null, goBack: null, goForward: null });
   }, []);
 
   const handleBannerReload = () => {
@@ -1772,6 +1807,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     topInset={insets.top}
                     viewportMode={viewportMode}
                     onViewportChange={(mode) => { tracciaCambioViewport(mode); setViewportMode(mode); }}
+                    canGoBack={canGoBack}
+                    canGoForward={canGoForward}
+                    onGoBack={() => webViewRef.current?.goBack()}
+                    onGoForward={() => webViewRef.current?.goForward()}
                   />
                 )}
               </Animated.View>

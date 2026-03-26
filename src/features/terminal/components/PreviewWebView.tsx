@@ -632,6 +632,15 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                 if (!webViewReady || !navState.loading) {
                   setIsLoading(navState.loading);
                 }
+                // Sync URL for back/forward navigation (which bypasses onShouldStartLoadWithRequest)
+                if (navState.url && !navState.loading) {
+                  try {
+                    const navUrl = new URL(navState.url);
+                    if (navUrl.hostname === 'drape.info' && navUrl.pathname.startsWith('/preview/')) {
+                      setCurrentPreviewUrl(navState.url);
+                    }
+                  } catch { /* ignore */ }
+                }
               }}
               onShouldStartLoadWithRequest={(request) => {
                 const url = request.url;
@@ -691,14 +700,24 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                       rawMsg.includes('No active session') ||
                       rawMsg.includes('ECONNREFUSED') ||
                       rawMsg.includes('Too many requests') ||
+                      rawMsg.includes('Endpoint not found') ||
                       rawMsg.includes('429');
-                    if (isTransient && proxyRetryCountRef.current < MAX_PROXY_RETRIES) {
-                      proxyRetryCountRef.current++;
-                      console.warn(`[Preview] Transient proxy error (retry ${proxyRetryCountRef.current}/${MAX_PROXY_RETRIES}):`, rawMsg);
-                      setTimeout(() => {
-                        webViewRef.current?.reload();
-                      }, 2000);
-                      return;
+                    if (isTransient) {
+                      if (proxyRetryCountRef.current < MAX_PROXY_RETRIES) {
+                        proxyRetryCountRef.current++;
+                        console.warn(`[Preview] Transient proxy error (retry ${proxyRetryCountRef.current}/${MAX_PROXY_RETRIES}):`, rawMsg);
+                        setTimeout(() => {
+                          webViewRef.current?.reload();
+                        }, 2000);
+                        return;
+                      }
+                      // Even after max retries, don't show error for "Endpoint not found" — just keep retrying silently
+                      if (rawMsg.includes('Endpoint not found')) {
+                        console.warn('[Preview] Endpoint not found — resetting retry counter, will keep trying');
+                        proxyRetryCountRef.current = 0;
+                        setTimeout(() => { webViewRef.current?.reload(); }, 3000);
+                        return;
+                      }
                     }
                     // Exhausted retries or non-transient error — check for env error first
                     console.error('WebView detected proxy error:', rawMsg);

@@ -47,6 +47,8 @@ export interface UIState {
     publish: (() => void) | null;
     setViewportMode: ((mode: 'mobile' | 'desktop') => void) | null;
     setUrl: ((url: string) => void) | null;
+    goBack: (() => void) | null;
+    goForward: (() => void) | null;
   };
   previewPublishInfo: { slug: string; url: string } | null;
   setPreviewCurrentUrl: (url: string) => void;
@@ -130,7 +132,7 @@ export const useUIStore = create<UIState>((set) => ({
     // Preview toolbar shared state
     previewCurrentUrl: '',
     previewViewportMode: 'mobile' as const,
-    previewHandlers: { refresh: null, publish: null, setViewportMode: null, setUrl: null },
+    previewHandlers: { refresh: null, publish: null, setViewportMode: null, setUrl: null, goBack: null, goForward: null },
     previewPublishInfo: null,
     setPreviewCurrentUrl: (url: string) => set({ previewCurrentUrl: url }),
     setPreviewViewportMode: (mode: 'mobile' | 'desktop') => set({ previewViewportMode: mode }),

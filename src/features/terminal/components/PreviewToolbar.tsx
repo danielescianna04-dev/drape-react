@@ -15,6 +15,10 @@ export interface PreviewToolbarProps {
   topInset: number;
   viewportMode: ViewportMode;
   onViewportChange: (mode: ViewportMode) => void;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
 }
 
 export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
@@ -27,11 +31,19 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
   topInset,
   viewportMode,
   onViewportChange,
+  canGoBack = false,
+  canGoForward = false,
+  onGoBack,
+  onGoForward,
 }) => {
   const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [editPath, setEditPath] = useState('/');
   const inputRef = useRef<TextInput>(null);
+
+  // Track last meaningful (non-root) path so framework hydration
+  // navigations to "/" don't reset the toolbar display.
+  const lastNonRootPath = useRef('/');
 
   // Split URL into non-editable base and editable path suffix
   const { basePath, pathSuffix } = (() => {
@@ -47,8 +59,14 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
     }
   })();
 
+  // Remember non-root paths; display them even when URL briefly resets to "/"
+  if (pathSuffix !== '/') {
+    lastNonRootPath.current = pathSuffix;
+  }
+  const displayPath = pathSuffix !== '/' ? pathSuffix : lastNonRootPath.current;
+
   const handlePathPress = () => {
-    setEditPath(pathSuffix);
+    setEditPath(displayPath);
     setIsEditing(true);
   };
 
@@ -80,18 +98,31 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
   return (
     <View style={[styles.header, { paddingTop: topInset + 4 }]}>
       <View style={styles.headerRow}>
-        {/* Close */}
+        {/* Back */}
         <TouchableOpacity
-          onPress={onClose}
-          style={styles.closeButton}
+          onPress={onGoBack}
+          disabled={!canGoBack}
+          style={styles.navButton}
           activeOpacity={0.7}
-          accessibilityLabel={t('terminal:toolbar.closePreview')}
+          accessibilityLabel="Go back"
           accessibilityRole="button"
         >
-          <Ionicons name="close" size={18} color="rgba(255, 255, 255, 0.7)" />
+          <Ionicons name="chevron-back" size={18} color={canGoBack ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.2)'} />
         </TouchableOpacity>
 
-        {/* URL Bar - centered, only path suffix is editable */}
+        {/* Forward */}
+        <TouchableOpacity
+          onPress={onGoForward}
+          disabled={!canGoForward}
+          style={styles.navButton}
+          activeOpacity={0.7}
+          accessibilityLabel="Go forward"
+          accessibilityRole="button"
+        >
+          <Ionicons name="chevron-forward" size={18} color={canGoForward ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.2)'} />
+        </TouchableOpacity>
+
+        {/* URL Bar */}
         <View style={[styles.urlBar, isEditing && styles.urlBarEditing]}>
           <View style={[styles.statusIndicator, { backgroundColor: '#00D084' }]} />
           {isEditing ? (
@@ -114,46 +145,20 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
             />
           ) : (
             <TouchableOpacity onPress={handlePathPress} activeOpacity={0.7} style={styles.urlPathTappable}>
-              <Text style={styles.urlPathText} numberOfLines={1}>{pathSuffix}</Text>
+              <Text style={styles.urlPathText} numberOfLines={1}>{displayPath}</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Refresh */}
+        {/* Three dots menu */}
         <TouchableOpacity
           onPress={onRefresh}
-          style={styles.refreshButton}
+          style={styles.iconButton}
           activeOpacity={0.7}
-          accessibilityLabel={t('terminal:toolbar.reloadPreview')}
+          accessibilityLabel="Menu"
           accessibilityRole="button"
         >
-          <Ionicons name="refresh" size={16} color="rgba(255, 255, 255, 0.7)" />
-        </TouchableOpacity>
-
-        {/* Viewport toggle — icon shows CURRENT mode */}
-        <TouchableOpacity
-          onPress={() => onViewportChange(viewportMode === 'mobile' ? 'desktop' : 'mobile')}
-          style={[styles.viewportButton, viewportMode === 'desktop' && styles.viewportButtonActive]}
-          activeOpacity={0.7}
-          accessibilityLabel={viewportMode === 'mobile' ? t('terminal:toolbar.viewDesktop') : t('terminal:toolbar.viewMobile')}
-          accessibilityRole="button"
-        >
-          <Ionicons
-            name={viewportMode === 'desktop' ? 'desktop-outline' : 'phone-portrait-outline'}
-            size={15}
-            color={viewportMode === 'desktop' ? '#fff' : 'rgba(255, 255, 255, 0.7)'}
-          />
-        </TouchableOpacity>
-
-        {/* Publish / Update */}
-        <TouchableOpacity
-          onPress={onPublish}
-          style={[styles.publishButton, existingPublish && styles.publishButtonUpdate]}
-          activeOpacity={0.7}
-          accessibilityLabel={existingPublish ? t('terminal:toolbar.updatePublishedSite') : t('terminal:toolbar.publishSite')}
-          accessibilityRole="button"
-        >
-          <Ionicons name={existingPublish ? "cloud-done-outline" : "cloud-upload-outline"} size={15} color="#fff" />
+          <Ionicons name="ellipsis-horizontal" size={18} color="rgba(255, 255, 255, 0.7)" />
         </TouchableOpacity>
       </View>
     </View>
@@ -163,14 +168,21 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
 const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 10,
-    paddingBottom: 8,
+    paddingBottom: 6,
+    backgroundColor: '#0d1117',
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  closeButton: {
+  navButton: {
+    width: 24,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconButton: {
     width: 28,
     height: 28,
     borderRadius: 14,
@@ -178,23 +190,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  refreshButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  viewportButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  viewportButtonActive: {
+  iconButtonActive: {
     backgroundColor: 'rgba(99, 102, 241, 0.6)',
   },
   publishButton: {
@@ -227,11 +223,6 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     marginRight: 8,
-  },
-  urlBaseText: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.3)',
-    flexShrink: 1,
   },
   urlPathTappable: {
     flex: 1,

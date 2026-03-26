@@ -597,13 +597,37 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
               </GlassCard>
             </TouchableOpacity>
 
-            {/* URL bar — only when preview is visible */}
-            {isPreviewShowing && <GlassCard style={{ borderRadius: 20, overflow: 'hidden', flex: 1, marginLeft: 8 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', height: 40, paddingHorizontal: 14, gap: 6 }}>
-                <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: previewCurrentUrl ? '#00D084' : '#666' }} />
-                <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }} numberOfLines={1}>/</Text>
-              </View>
-            </GlassCard>}
+            {/* Navigation + URL bar — only when preview is visible */}
+            {isPreviewShowing && <>
+              <TouchableOpacity
+                onPress={() => previewHandlers.goBack?.()}
+                activeOpacity={0.7}
+                style={{ width: 28, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: 4 }}
+              >
+                <Ionicons name="chevron-back" size={18} color="rgba(255, 255, 255, 0.5)" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => previewHandlers.goForward?.()}
+                activeOpacity={0.7}
+                style={{ width: 28, height: 40, alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Ionicons name="chevron-forward" size={18} color="rgba(255, 255, 255, 0.5)" />
+              </TouchableOpacity>
+              <GlassCard style={{ borderRadius: 20, overflow: 'hidden', flex: 1, marginLeft: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', height: 40, paddingHorizontal: 14, gap: 6 }}>
+                  <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: previewCurrentUrl ? '#00D084' : '#666' }} />
+                  <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }} numberOfLines={1}>
+                    {(() => {
+                      try {
+                        const url = new URL(previewCurrentUrl);
+                        const match = url.pathname.match(/^\/preview\/[^/]+(\/.*)?$/);
+                        return match?.[1] || '/';
+                      } catch { return '/'; }
+                    })()}
+                  </Text>
+                </View>
+              </GlassCard>
+            </>}
           </View>
 
           {/* 3-dot morph button */}
