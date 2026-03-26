@@ -59,6 +59,9 @@ export interface UIState {
   // Auto-retry preview after AI fix
   autoRetryPreview: boolean;
   openPreviewRequested: boolean;
+  openGitSheetRequested: boolean;
+  openGitSheetTab: 'commits' | 'branches' | 'changes' | null;
+  openEnvVarsRequested: boolean;
   skipNextPreflight: boolean;
 
   // Autocomplete
@@ -96,6 +99,8 @@ export interface UIState {
   setPendingChatMessage: (message: string | null) => void;
   setAutoRetryPreview: (value: boolean) => void;
   setOpenPreviewRequested: (value: boolean) => void;
+  setOpenGitSheetRequested: (value: boolean) => void;
+  setOpenEnvVarsRequested: (value: boolean) => void;
   setSkipNextPreflight: (value: boolean) => void;
 }
 
@@ -136,6 +141,9 @@ export const useUIStore = create<UIState>((set) => ({
     pendingChatMessage: null,
     autoRetryPreview: false,
     openPreviewRequested: false,
+    openGitSheetRequested: false,
+    openGitSheetTab: null,
+    openEnvVarsRequested: false,
     skipNextPreflight: false,
 
     // Initial state - Autocomplete
@@ -256,5 +264,7 @@ export const useUIStore = create<UIState>((set) => ({
     setPendingChatMessage: (message) => set({ pendingChatMessage: message }),
     setAutoRetryPreview: (value) => set({ autoRetryPreview: value }),
     setOpenPreviewRequested: (value) => set({ openPreviewRequested: value }),
+    setOpenGitSheetRequested: (value) => set({ openGitSheetRequested: value }),
+    setOpenEnvVarsRequested: (value) => set({ openEnvVarsRequested: value }),
     setSkipNextPreflight: (value) => set({ skipNextPreflight: value }),
 }));

@@ -3460,6 +3460,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 }}
                 aiModeAnimatedStyle={aiModeAnimatedStyle}
                 dropdownAnimatedStyle={dropdownAnimatedStyle}
+                onOpenGit={() => { useUIStore.setState({ openGitSheetTab: null, openGitSheetRequested: true }); }}
+                onOpenBranch={() => { useUIStore.setState({ openGitSheetTab: 'branches', openGitSheetRequested: true }); }}
+                onOpenEnvVars={() => useUIStore.getState().setOpenEnvVarsRequested(true)}
+                repoName={(() => {
+                  const url = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
+                  if (!url) return undefined;
+                  const match = url.match(/\/([^/]+?)(?:\.git)?$/);
+                  return match?.[1];
+                })()}
+                branchName={currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl ? 'main' : undefined}
+                hasEnvVars={false}
               />
             </Animated.View>
             </DelayedMount>

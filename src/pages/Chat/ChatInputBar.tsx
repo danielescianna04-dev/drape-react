@@ -89,6 +89,14 @@ export interface ChatInputBarProps {
   // Animations
   aiModeAnimatedStyle?: any;
   dropdownAnimatedStyle?: any;
+
+  // Project context bar
+  repoName?: string;
+  branchName?: string;
+  hasEnvVars?: boolean;
+  onOpenGit?: () => void;
+  onOpenBranch?: () => void;
+  onOpenEnvVars?: () => void;
 }
 
 export const ChatInputBar = React.memo(({
@@ -121,6 +129,12 @@ export const ChatInputBar = React.memo(({
   onLayout,
   aiModeAnimatedStyle,
   dropdownAnimatedStyle,
+  repoName,
+  branchName,
+  hasEnvVars,
+  onOpenGit,
+  onOpenBranch,
+  onOpenEnvVars,
 }: ChatInputBarProps) => {
   const { t } = useTranslation(['chat', 'terminal']);
 
@@ -236,6 +250,26 @@ export const ChatInputBar = React.memo(({
             />
           </TouchableOpacity>
         </View>
+
+        {/* ── Project Context Bar — inside input bar ── */}
+        {repoName && (
+          <View style={styles.contextBar2}>
+            <TouchableOpacity style={styles.contextChip} activeOpacity={0.6} onPress={onOpenGit}>
+              <Ionicons name="logo-github" size={14} color="rgba(255,255,255,0.5)" />
+              <Text style={styles.contextChipText} numberOfLines={1}>{repoName}</Text>
+            </TouchableOpacity>
+            {branchName && (
+              <TouchableOpacity style={styles.contextChip} activeOpacity={0.6} onPress={onOpenBranch}>
+                <Ionicons name="git-branch-outline" size={14} color="rgba(255,255,255,0.5)" />
+                <Text style={styles.contextChipText} numberOfLines={1}>{branchName}</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={[styles.contextChip, { borderRightWidth: 0 }]} activeOpacity={0.6} onPress={onOpenEnvVars}>
+              <Ionicons name="document-text-outline" size={14} color={hasEnvVars ? '#10B981' : 'rgba(255,255,255,0.3)'} />
+              <Text style={[styles.contextChipText, !hasEnvVars && { color: 'rgba(255,255,255,0.3)' }]}>.env</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       {/* ── Model Dropdown ── */}
@@ -445,6 +479,31 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 10,
     paddingVertical: 6,
+  },
+
+  // Project context bar (inside input bar)
+  contextBar2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: 6,
+  },
+  contextChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderRightColor: 'rgba(255,255,255,0.08)',
+  },
+  contextChipText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.55)',
+    fontWeight: '500',
   },
   toolsBtn: {
     width: 40,

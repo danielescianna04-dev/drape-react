@@ -687,67 +687,7 @@ const MacDock: React.FC<{ t: ReturnType<typeof useTranslation>['t'] }> = ({ t })
     { id: 'ai', icon: 'sparkles', label: t('terminal:preview.aiAssistant'), color1: '#A855F7', color2: '#7C3AED' },
   ];
 
-  return (
-    <>
-      {/* Fake app overlay */}
-      {openApp && (
-        <TouchableOpacity
-          style={styles.fakeAppOverlay}
-          activeOpacity={1}
-          onPress={() => setOpenApp(null)}
-        >
-          <Reanimated.View entering={FadeIn.duration(200)} style={styles.fakeAppWindow}>
-            <View style={styles.fakeAppTitleBar}>
-              <TouchableOpacity onPress={() => setOpenApp(null)}>
-                <View style={[styles.devWindowDot, { backgroundColor: '#FF5F57' }]} />
-              </TouchableOpacity>
-              <Text style={styles.fakeAppTitle}>
-                {dockApps.find(a => a.id === openApp)?.label}
-              </Text>
-              <View style={{ width: 12 }} />
-            </View>
-            <View style={styles.fakeAppContent}>
-              <Ionicons
-                name={(dockApps.find(a => a.id === openApp)?.icon || 'apps') as any}
-                size={40}
-                color="rgba(255,255,255,0.15)"
-              />
-              <Text style={styles.fakeAppText}>
-                {openApp === 'safari' ? t('terminal:preview.dock.navigationUnavailable') :
-                 openApp === 'terminal' ? '$ _' :
-                 openApp === 'security' ? t('terminal:preview.dock.noThreats') :
-                 t('terminal:preview.aiAssistantReady')}
-              </Text>
-            </View>
-          </Reanimated.View>
-        </TouchableOpacity>
-      )}
-
-      <View style={styles.macDock}>
-        <View style={styles.macDockBar}>
-          {dockApps.map((app) => (
-            <TouchableOpacity
-              key={app.id}
-              activeOpacity={0.7}
-              onPress={() => setOpenApp(app.id)}
-            >
-              <View style={styles.macDockIconWrap}>
-                <View style={[styles.macDockIcon, app.active && styles.macDockIconActive]}>
-                  <LinearGradient
-                    colors={[app.color1, app.color2]}
-                    style={styles.macDockIconGradient}
-                  >
-                    <Ionicons name={app.icon as any} size={22} color="#fff" />
-                  </LinearGradient>
-                </View>
-                {(app.active || openApp === app.id) && <View style={styles.macDockDot} />}
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-    </>
-  );
+  return null;
 };
 
 const styles = StyleSheet.create({

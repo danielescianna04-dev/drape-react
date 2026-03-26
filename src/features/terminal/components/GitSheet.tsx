@@ -29,6 +29,7 @@ const MODAL_HEIGHT = SCREEN_HEIGHT * 0.65;
 interface Props {
   visible: boolean;
   onClose: () => void;
+  initialTab?: 'commits' | 'branches' | 'changes';
 }
 
 interface GitCommit {
@@ -63,9 +64,14 @@ interface GitStatus {
   deleted: string[];
 }
 
-export const GitSheet = ({ visible, onClose }: Props) => {
+export const GitSheet = ({ visible, onClose, initialTab }: Props) => {
   const { t } = useTranslation(['terminal', 'common']);
-  const [activeSection, setActiveSection] = useState<'commits' | 'branches' | 'changes'>('commits');
+  const [activeSection, setActiveSection] = useState<'commits' | 'branches' | 'changes'>(initialTab || 'commits');
+
+  // Sync initialTab when it changes while opening
+  useEffect(() => {
+    if (visible && initialTab) setActiveSection(initialTab);
+  }, [visible, initialTab]);
   const [gitAccounts, setGitAccounts] = useState<GitAccount[]>([]);
   const [linkedAccount, setLinkedAccount] = useState<GitAccount | null>(null);
   const [showAccountPicker, setShowAccountPicker] = useState(false);
@@ -1517,7 +1523,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+      <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <SheetContainer>
@@ -3076,7 +3082,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,

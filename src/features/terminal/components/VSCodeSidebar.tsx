@@ -103,6 +103,9 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const projectPreviewUrls = useUIStore((state) => state.projectPreviewUrls);
   const setIsSidebarOpen = useUIStore((state) => state.setIsSidebarOpen);
   const openPreviewRequested = useUIStore((state) => state.openPreviewRequested);
+  const openGitSheetRequested = useUIStore((state) => state.openGitSheetRequested);
+  const openGitSheetTab = useUIStore((state) => state.openGitSheetTab);
+  const openEnvVarsRequested = useUIStore((state) => state.openEnvVarsRequested);
   const flyMachineId = useUIStore((state) => state.flyMachineId);
   const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
 
@@ -122,6 +125,22 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       setActivePanel(null);
     }
   }, [openPreviewRequested]);
+
+  React.useEffect(() => {
+    if (openGitSheetRequested) {
+      useUIStore.setState({ openGitSheetRequested: false });
+      setIsGitSheetVisible(true);
+    }
+  }, [openGitSheetRequested]);
+
+  React.useEffect(() => {
+    if (openEnvVarsRequested) {
+      useUIStore.getState().setOpenEnvVarsRequested(false);
+      const existing = tabs.find(t => t.id === 'env-vars');
+      if (existing) setActiveTab('env-vars');
+      else addTab({ id: 'env-vars', type: 'envVars' as any, title: 'Environment Variables', data: {} });
+    }
+  }, [openEnvVarsRequested]);
 
   const openPreviewTab = useCallback(() => {
     const existing = tabs.find(t => t.id === 'preview');
@@ -230,74 +249,49 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     };
   });
 
-  // Drawer-style: main content slides right, scales down, gets rounded corners
+  // ═══ DRAWER ANIMATION — optimized for 0-frame-delay, GPU-only compositing ═══
   const DRAWER_WIDTH = 300;
   const drawerProgress = useSharedValue(0); // 0 = closed, 1 = open
+  const SPRING_CONFIG = { damping: 20, stiffness: 300, mass: 0.6, restDisplacementThreshold: 0.01 };
 
+  // Drive animation from UI thread immediately — no JS→render→useEffect delay
   useEffect(() => {
-    if (activePanel === 'chat') {
-      drawerProgress.value = withTiming(1, { duration: 300, easing: Easing.out(Easing.cubic) });
-    } else {
-      drawerProgress.value = withTiming(0, { duration: 280, easing: Easing.in(Easing.cubic) });
-    }
+    drawerProgress.value = withSpring(activePanel === 'chat' ? 1 : 0, SPRING_CONFIG);
   }, [activePanel]);
 
-  // Hamburger → X animation
+  // Hamburger → X: static dimensions, only animate transform/opacity (GPU-only)
   const hamburgerTopStyle = useAnimatedStyle(() => {
+    'worklet';
     const p = drawerProgress.value;
-    return {
-      width: 18,
-      height: 2,
-      borderRadius: 1,
-      backgroundColor: '#fff',
-      transform: [
-        { translateY: interpolate(p, [0, 1], [0, 6]) },
-        { rotate: `${interpolate(p, [0, 1], [0, 45])}deg` },
-      ],
-    };
+    return { transform: [{ translateY: p * 6 }, { rotate: `${p * 45}deg` }] } as any;
   });
-  const hamburgerMidStyle = useAnimatedStyle(() => ({
-    width: 14,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: '#fff',
-    opacity: interpolate(drawerProgress.value, [0, 0.3], [1, 0]),
-  }));
+  const hamburgerMidStyle = useAnimatedStyle(() => {
+    'worklet';
+    return { opacity: Math.max(0, 1 - drawerProgress.value * 3.33) };
+  });
   const hamburgerBotStyle = useAnimatedStyle(() => {
+    'worklet';
     const p = drawerProgress.value;
-    return {
-      width: 18,
-      height: 2,
-      borderRadius: 1,
-      backgroundColor: '#fff',
-      transform: [
-        { translateY: interpolate(p, [0, 1], [0, -6]) },
-        { rotate: `${interpolate(p, [0, 1], [0, -45])}deg` },
-      ],
-    };
+    return { transform: [{ translateY: p * -6 }, { rotate: `${p * -45}deg` }] } as any;
   });
 
-  // Only translateX on the outer wrapper — keeps content layer stable for LiquidGlass
-  const mainContentTranslateStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: interpolate(drawerProgress.value, [0, 1], [0, DRAWER_WIDTH]) },
-    ],
-  }));
-
-  // Border decoration on a separate overlay so content never re-composites
-  const mainContentBorderStyle = useAnimatedStyle(() => {
-    const p = drawerProgress.value;
-    return {
-      borderRadius: interpolate(p, [0, 1], [0, 40]),
-      borderWidth: p > 0.01 ? 1 : 0,
-      borderColor: 'rgba(255,255,255,0.25)',
-      overflow: 'hidden' as const,
-    };
+  // Outer wrapper: ONLY translateX (pure GPU compositing, zero layout)
+  const mainContentSlide = useAnimatedStyle(() => {
+    'worklet';
+    return { transform: [{ translateX: drawerProgress.value * DRAWER_WIDTH }] };
   });
 
-  const drawerOverlayStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(drawerProgress.value, [0, 1], [0, 1]),
-  }));
+  // Border decoration: opacity-only animation on a separate layer (GPU-only, no clip recalc)
+  const borderDecorationStyle = useAnimatedStyle(() => {
+    'worklet';
+    return { opacity: drawerProgress.value };
+  });
+
+  // Overlay dim: opacity-only (GPU-only)
+  const drawerOverlayOpacity = useAnimatedStyle(() => {
+    'worklet';
+    return { opacity: drawerProgress.value };
+  });
 
   useEffect(() => {
     const isOverlayOpen = Boolean(renderedPanel)
@@ -568,18 +562,20 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           {memoizedChatPanel}
         </View>
 
-        {/* Main content — translateX only on outer, border on decoration layer */}
-        <Animated.View style={[StyleSheet.absoluteFillObject, mainContentTranslateStyle]}>
-        <Animated.View style={[StyleSheet.absoluteFillObject, mainContentBorderStyle, { backgroundColor: AppColors.dark.backgroundAlt }]}>
+        {/* Main content — outer: GPU translateX only; inner: fixed borderRadius clip */}
+        <Animated.View style={[StyleSheet.absoluteFillObject, mainContentSlide]}>
+        {/* Border decoration — OUTSIDE overflow:hidden so border is visible */}
+        <Animated.View style={[StyleSheet.absoluteFillObject, borderDecorationStyle, { borderRadius: 40, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' }]} pointerEvents="none" />
+        <View style={[StyleSheet.absoluteFillObject, { borderRadius: 40, overflow: 'hidden', backgroundColor: AppColors.dark.backgroundAlt }]}>
           {/* Header */}
           <View style={styles.minimalHeader}>
             <TouchableOpacity activeOpacity={0.7} onPress={() => togglePanel('chat')}>
               <GlassCard style={styles.headerButtonGlass}>
                 <View style={styles.headerButton}>
                   <View style={{ width: 18, height: 14, justifyContent: 'space-between' }}>
-                    <Animated.View style={hamburgerTopStyle} />
-                    <Animated.View style={hamburgerMidStyle} />
-                    <Animated.View style={hamburgerBotStyle} />
+                    <Animated.View style={[{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerTopStyle]} />
+                    <Animated.View style={[{ width: 14, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerMidStyle]} />
+                    <Animated.View style={[{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerBotStyle]} />
                   </View>
                 </View>
               </GlassCard>
@@ -686,16 +682,18 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
           {/* Tap overlay to close drawer */}
           <Animated.View
-            style={[StyleSheet.absoluteFillObject, drawerOverlayStyle, { backgroundColor: 'rgba(0,0,0,0.4)' }]}
+            style={[StyleSheet.absoluteFillObject, drawerOverlayOpacity, { backgroundColor: 'rgba(0,0,0,0.4)' }]}
             pointerEvents={activePanel === 'chat' ? 'auto' : 'none'}
           >
             <TouchableWithoutFeedback onPress={() => setActivePanel(null)}>
               <View style={StyleSheet.absoluteFillObject} />
             </TouchableWithoutFeedback>
           </Animated.View>
-        </Animated.View>
+        </View>
         </Animated.View>
       </View>
+
+      <GitSheet visible={isGitSheetVisible} onClose={() => { setIsGitSheetVisible(false); useUIStore.setState({ openGitSheetTab: null }); }} initialTab={openGitSheetTab || undefined} />
     </SidebarProvider>
   );
 };
@@ -797,8 +795,8 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 88,
-    paddingTop: 62,
+    height: 100,
+    paddingTop: 64,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -808,8 +806,11 @@ const styles = StyleSheet.create({
   },
   morphButtonWrapper: {
     position: 'absolute',
-    top: 62,
+    top: 0,
     right: 12,
+    height: 100,
+    paddingTop: 64,
+    justifyContent: 'center',
     zIndex: 1300,
     alignItems: 'flex-end',
   },
