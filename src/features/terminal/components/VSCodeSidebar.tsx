@@ -66,7 +66,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const activeTab = tabs.find(t => t.id === activeTabId);
   const isPreviewActive = activeTab?.type === 'preview' || activeTab?.type === 'browser';
   const isPreviewShowing = isPreviewActive;
-  const MENU_HEIGHT = isPreviewShowing ? 230 : 120;
+  const MENU_HEIGHT = isPreviewShowing ? 230 : 140;
 
   const openMenu = useCallback(() => {
     setShowHeaderMenu(true);
@@ -641,7 +641,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           )}
           <View style={styles.morphButtonWrapper} pointerEvents="box-none">
             <TouchableOpacity activeOpacity={1} onPress={showHeaderMenu ? closeMenu : openMenu}>
-              <GlassCard style={{ borderRadius: 20, overflow: 'hidden' }}>
+              <GlassCard style={{ borderRadius: 16, overflow: 'visible' }}>
                 <Animated.View style={[styles.morphButton, morphStyle]}>
                   <Animated.View style={[styles.dotsContainer, dotsOpacity]}>
                     <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#fff' }} />
