@@ -1393,41 +1393,35 @@ CRITICAL RULES to avoid build errors:
 Return ONLY the JSON, no markdown fences, no explanation.`;
 
   // Protected files set — used during streaming to skip template files
+  // Only protect files that MUST NOT change — config and auth plumbing
   const protectedFilesSet = new Set([
-    'package.json', 'tsconfig.json', 'vite.config.ts', 'vite.config.js',
+    'package.json', // handled by merge logic above
+    'tsconfig.json', 'vite.config.ts', 'vite.config.js',
     'next.config.ts', 'next.config.js', 'postcss.config.mjs', 'postcss.config.js',
     'nuxt.config.ts', 'svelte.config.js', 'angular.json', 'tsconfig.app.json',
     'astro.config.mjs', 'app.config.ts', 'composer.json',
     'app.json', 'pubspec.yaml', 'analysis_options.yaml',
-    'app/globals.css', 'src/index.css', 'src/style.css', 'src/app.css',
-    'src/app.html', 'assets/css/main.css', 'src/styles.css', 'style.css',
-    'app/tailwind.css', 'src/styles/global.css',
-    'src/main.tsx', 'src/main.ts', 'src/App.vue', 'app.vue',
-    'src/app.tsx', 'src/entry-server.tsx', 'src/entry-client.tsx',
-    'index.html', 'src/app/app.component.ts',
+    'index.html', // Vite entry point
     'manage.py', 'artisan', 'public/index.php', 'bootstrap/app.php',
-    'server/db.js', 'database.py', 'src/lib/server/db.ts',
-    // Auth template files — NEVER overwrite
+    // Cloud auth plumbing — NEVER overwrite
     'lib/db.ts', 'lib/auth.ts', 'lib/auth-client.ts',
     'app/api/auth/[...all]/route.ts',
-    'app/(auth)/login/page.tsx', 'app/(auth)/register/page.tsx', 'app/(auth)/layout.tsx',
-    'app/components/auth-provider.tsx', 'app/components/user-menu.tsx',
+    'app/components/auth-provider.tsx',
     'middleware.ts', 'db/auth-schema.sql',
   ]);
 
   const streamWrittenFiles: string[] = [];
   update(17, 'Starting AI generation...', 'AI Generating');
 
-  // Fast-first fallback chain on Gemini as requested.
-  // Keep two flash attempts before escalating to pro.
-  const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3-flash'];
+  // Pro for initial generation (high quality), Flash for fallback/fix
+  const models = ['gemini-3.1-pro', 'gemini-3-flash', 'gemini-3-flash'];
   // Use the dedicated project creation prompt (knows about templates)
   const systemPrompt = getProjectCreationSystemPrompt(technology, isCloudMode, supabaseCredentials, neonCredentials);
   const userPrompt = templateApplied
     ? getProjectCreationUserPrompt(technology, projectName, description, isCloudMode, supabaseCredentials, neonCredentials)
     : prompt; // Fallback to old prompt if no template was applied
   const chatMessages = [{ role: 'user' as const, content: userPrompt }];
-  const chatOptions = { temperature: 0.4, maxTokens: isCloudMode ? 80000 : 40000 };
+  const chatOptions = { temperature: 0.3, maxTokens: isCloudMode ? 100000 : 60000 };
 
   try {
     let fullText = '';
@@ -1641,25 +1635,20 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
 
     // If template was applied, protect critical template files from being overwritten
     if (templateApplied) {
+      // Minimal protection — only config and cloud auth plumbing
       const protectedFiles = new Set([
-        // Config files — never overwrite
-        'package.json', 'tsconfig.json', 'vite.config.ts', 'vite.config.js',
+        'package.json', // handled by merge logic
+        'tsconfig.json', 'vite.config.ts', 'vite.config.js',
         'next.config.ts', 'next.config.js', 'postcss.config.mjs', 'postcss.config.js',
         'nuxt.config.ts', 'svelte.config.js', 'angular.json', 'tsconfig.app.json',
         'astro.config.mjs', 'app.config.ts', 'composer.json',
         'app.json', 'pubspec.yaml', 'analysis_options.yaml',
-        // CSS/design system files — never overwrite (contain Tailwind setup)
-        'app/globals.css', 'src/index.css', 'src/style.css', 'src/app.css',
-        'src/app.html', 'assets/css/main.css', 'src/styles.css', 'style.css',
-        'app/tailwind.css', 'src/styles/global.css',
-        'static/css/custom.css', 'public/css/custom.css',
-        // Layout files — never overwrite (import CSS, set up app shell)
-        'app/layout.tsx', 'src/main.tsx', 'src/main.ts', 'src/App.vue', 'app.vue',
-        'app/root.tsx', 'src/app.tsx', 'src/entry-server.tsx', 'src/entry-client.tsx',
-        'index.html', 'src/app/app.component.ts',
-        // Entry points
+        'index.html',
         'manage.py', 'artisan', 'public/index.php', 'bootstrap/app.php',
-        // Cloud mode database files — protect base setup
+        // Cloud auth plumbing
+        'lib/db.ts', 'lib/auth.ts', 'lib/auth-client.ts',
+        'app/api/auth/[...all]/route.ts', 'app/components/auth-provider.tsx',
+        'middleware.ts', 'db/auth-schema.sql',
         'server/db.js', 'database.py', 'src/lib/server/db.ts',
       ]);
       // Merge AI-generated package.json deps into existing before filtering
@@ -1821,22 +1810,28 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       log.warn(`[CreateProject] Warm failed: ${warmErr.message}`);
     }
 
-    // === BUILD CHECK + AUTO-FIX LOOP (max 3 attempts) ===
-    const MAX_FIX_ATTEMPTS = 3;
+    // === BUILD CHECK + AUTO-FIX LOOP (max 5 attempts) ===
+    const MAX_FIX_ATTEMPTS = 5;
     for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS; attempt++) {
       try {
         // Wait for dev server to compile
-        await new Promise(r => setTimeout(r, attempt === 0 ? 3000 : 2000));
-        const checkPct = 93 + attempt * 2;
+        await new Promise(r => setTimeout(r, attempt === 0 ? 4000 : 3000));
+        const checkPct = 90 + attempt;
         update(checkPct, attempt > 0 ? `Fixing errors (attempt ${attempt + 1})...` : 'Checking build...', 'Build Check');
 
         // Read dev server logs for errors
         const logsResult = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -80');
         const serverLog = logsResult.stdout || '';
 
-        // Also try to curl the dev server to trigger compilation
-        const curlResult = await workspaceService.exec(projectId, userId, 'curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null || echo 000');
-        const httpCode = curlResult.stdout?.trim() || '000';
+        // Curl the dev server to trigger compilation AND capture the body for blank page detection
+        const curlResult = await workspaceService.exec(projectId, userId, 'curl -s -w "\\n%{http_code}" http://localhost:3000 2>/dev/null || echo "\\n000"');
+        const curlLines = (curlResult.stdout || '').split('\n');
+        const httpCode = curlLines[curlLines.length - 1]?.trim() || '000';
+        const htmlBody = curlLines.slice(0, -1).join('\n');
+
+        // Check for blank/error page in HTML body
+        const isBlankPage = htmlBody.length < 200 || (!htmlBody.includes('<div') && !htmlBody.includes('<main') && !htmlBody.includes('<section'));
+        const hasClientError = htmlBody.includes('Application error') || htmlBody.includes('Internal Server Error') || htmlBody.includes('Module not found');
 
         // Re-read logs after curl (compilation may have happened)
         const logsResult2 = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -80');
@@ -1862,10 +1857,14 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
           }
         }
 
-        if (buildErrors.length === 0 && httpCode !== '000' && httpCode !== '500') {
-          log.info(`[BuildCheck] Build OK (HTTP ${httpCode}) on attempt ${attempt + 1}`);
+        if (buildErrors.length === 0 && httpCode !== '000' && httpCode !== '500' && !isBlankPage && !hasClientError) {
+          log.info(`[BuildCheck] Build OK (HTTP ${httpCode}, page has content) on attempt ${attempt + 1}`);
           break; // Build is clean!
         }
+
+        // Add blank page / client error to build errors for AI context
+        if (isBlankPage && buildErrors.length === 0) buildErrors.push('Page is blank — HTML body has no content divs. Check that components render properly and use "use client" where needed.');
+        if (hasClientError && buildErrors.length === 0) buildErrors.push('Page shows "Application error: a client-side exception has occurred". Check hydration, window access, and component imports.');
 
         if (buildErrors.length === 0 && attempt > 0) {
           log.info(`[BuildCheck] No more errors detected on attempt ${attempt + 1}`);

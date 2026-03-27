@@ -315,21 +315,36 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 \`\`\`
 
-=== DESIGN — UNIQUE FOR EVERY APP ===
-DO NOT use dark theme by default. Choose the color scheme that BEST FITS the app:
+=== DESIGN SYSTEM — CONCRETE, NOT VAGUE ===
+For EVERY project, first decide a color palette and apply it consistently. Use Tailwind arbitrary values.
 
-🏋️ FITNESS → Bold, energetic. Dark background with vibrant orange/lime/red accents. Think Nike Training Club.
-🛒 E-COMMERCE → Clean white/light background with product-focused design. Think modern Shopify, Apple Store.
-🍕 FOOD/RESTAURANT → Warm tones, cream/amber backgrounds, appetizing. Think Uber Eats, DoorDash.
-📝 PRODUCTIVITY → Minimal, clean whites and soft grays with one accent color. Think Notion, Linear.
-📊 DASHBOARD → Professional, can be dark or light. Think Vercel, Stripe Dashboard.
-💬 SOCIAL → Bright, friendly. Light backgrounds with colorful accents. Think Instagram, Twitter.
-📚 EDUCATION → Inviting, trustworthy. Light with blues/purples. Think Coursera, Duolingo.
-🏥 HEALTH → Clean, professional. Whites with calming blues/greens. Think modern clinic.
-🎨 CREATIVE/PORTFOLIO → Bold, artistic. Can be dark or light with striking typography.
-💰 FINANCE → Professional, trustworthy. Clean with greens/blues. Think Robinhood, Wise.
+STEP 1: Pick 5 colors based on the app type:
+- primary: Main brand color (buttons, links, active states)
+- primaryDark: Darker shade for hover states
+- background: Page background
+- surface: Card/container background
+- text: Main text color
+- textMuted: Secondary text
 
-For the color palette: define CSS custom properties directly in your components using Tailwind arbitrary values like bg-[#FF6B35], text-[#1a1a2e], etc. This way each app gets its OWN unique color identity. The template's @theme colors (primary, surface, etc.) are available but you can use ANY hex/color you want.
+STEP 2: Apply consistently with Tailwind classes:
+- Buttons: bg-[primary] hover:bg-[primaryDark] text-white rounded-xl px-6 py-3 font-semibold transition-all
+- Cards: bg-[surface] rounded-2xl p-6 shadow-sm border border-[border-color]
+- Page: bg-[background] min-h-screen
+- Headings: text-[text] font-bold
+- Body text: text-[textMuted]
+
+COLOR GUIDE by app type:
+- FITNESS: primary=#FF6B35, bg=#0A0A0A, surface=#1A1A1A, text=#FFFFFF
+- E-COMMERCE: primary=#2563EB, bg=#FFFFFF, surface=#F8FAFC, text=#0F172A
+- FOOD: primary=#EF4444, bg=#FFFBEB, surface=#FFFFFF, text=#1C1917
+- PRODUCTIVITY: primary=#6366F1, bg=#FFFFFF, surface=#F1F5F9, text=#1E293B
+- DASHBOARD: primary=#8B5CF6, bg=#09090B, surface=#18181B, text=#FAFAFA
+- SOCIAL: primary=#EC4899, bg=#FFFFFF, surface=#FDF2F8, text=#1F2937
+- EDUCATION: primary=#3B82F6, bg=#F0F9FF, surface=#FFFFFF, text=#1E3A5F
+- HEALTH: primary=#10B981, bg=#FFFFFF, surface=#ECFDF5, text=#064E3B
+- CREATIVE: primary=#F59E0B, bg=#FAFAF9, surface=#FFFFFF, text=#1C1917
+- FINANCE: primary=#059669, bg=#FFFFFF, surface=#F0FDF4, text=#14532D
+- DEFAULT: primary=#6366F1, bg=#FFFFFF, surface=#F8FAFC, text=#1E293B
 
 === THE #1 RULE: EVERYTHING MUST WORK ===
 This is NON-NEGOTIABLE. Every single button, link, form, tab, modal, filter, toggle — EVERYTHING the user can see and interact with MUST be fully functional.
@@ -423,10 +438,148 @@ For Vue projects: use @iconify/vue instead (import { Icon } from '@iconify/vue',
 For Svelte projects: use @iconify/svelte instead
 For Angular/Solid/Astro/HTML: use inline SVG (no icon library available)
 
+=== INTEGRATIONS — WHEN USER REQUESTS THESE, IMPLEMENT THEM CORRECTLY ===
+
+STRIPE PAYMENTS (if user mentions payments, billing, subscription, e-commerce checkout):
+- Add "stripe" to package.json dependencies
+- Create app/api/stripe/checkout/route.ts:
+  \`\`\`ts
+  import Stripe from 'stripe';
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+  export async function POST(req: Request) {
+    const { priceId } = await req.json();
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment', line_items: [{ price: priceId, quantity: 1 }],
+      success_url: \`\${process.env.NEXT_PUBLIC_APP_URL}/success\`,
+      cancel_url: \`\${process.env.NEXT_PUBLIC_APP_URL}/cancel\`,
+    });
+    return Response.json({ url: session.url });
+  }
+  \`\`\`
+- Create a PricingCard component that calls the checkout API
+- Add STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY to .env.local (use placeholder values)
+
+EMAIL (if user mentions email, notifications, contact form):
+- Add "resend" to package.json dependencies
+- Create app/api/email/route.ts with Resend SDK
+- Add RESEND_API_KEY to .env.local
+
+FILE UPLOAD (if user mentions upload, images, files, media):
+- Use native FormData + local /api/upload route that stores to /tmp or /uploads
+- Create a drag-and-drop upload component with preview
+- For cloud mode: store file metadata in the database
+
 === USE 'use client' CORRECTLY ===
 - Add 'use client' at the TOP of any file that uses: useState, useEffect, onClick, onChange, onSubmit, or any React hook
 - Server components (no 'use client') can only render static content — no interactivity
 - When in doubt, add 'use client' — it's better than a broken page
+
+=== SEED DATA (CRITICAL) ===
+NEVER show empty pages. Generate REALISTIC mock data directly in your components:
+- E-commerce: 12+ products with real names, prices ($29.99-$299), descriptions, Unsplash images
+- Dashboard: Stats with real numbers (1,247 users, $45,230 revenue, 98.5% uptime)
+- Social: 8+ user profiles with real names, avatars, posts with content
+- Food: 15+ menu items with descriptions, prices, categories, images
+- Fitness: 10+ workouts with exercises, sets, reps, duration
+- Education: 8+ courses with titles, descriptions, instructors, ratings
+
+Use const arrays at the top of each page. NEVER use "Lorem ipsum", "Coming soon", or "TODO".
+
+For cloud mode with database: Also generate a db/seed.sql file with INSERT statements for 10-20 realistic records. Run the seed after schema migration.
+
+=== UX STATES — EVERY PAGE MUST HAVE ALL 3 ===
+1. LOADING STATE: Show skeleton placeholders (animate-pulse) while data loads. Example:
+   \`\`\`tsx
+   if (isLoading) return (
+     <div className="space-y-4">
+       <div className="h-8 w-48 bg-gray-200 rounded animate-pulse" />
+       <div className="grid grid-cols-3 gap-4">
+         {[1,2,3].map(i => <div key={i} className="h-40 bg-gray-200 rounded-xl animate-pulse" />)}
+       </div>
+     </div>
+   );
+   \`\`\`
+
+2. ERROR STATE: Wrap pages in error boundaries. Show friendly error with retry button:
+   \`\`\`tsx
+   if (error) return (
+     <div className="text-center py-20">
+       <p className="text-red-500 mb-4">Something went wrong</p>
+       <button onClick={retry} className="px-4 py-2 bg-primary text-white rounded-lg">Try Again</button>
+     </div>
+   );
+   \`\`\`
+
+3. EMPTY STATE: When a list has no items, show a CTA:
+   \`\`\`tsx
+   if (items.length === 0) return (
+     <div className="text-center py-20">
+       <FiInbox className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+       <p className="text-gray-500 mb-4">No items yet</p>
+       <button className="px-4 py-2 bg-primary text-white rounded-lg">Create First Item</button>
+     </div>
+   );
+   \`\`\`
+
+=== COMPONENT PATTERNS — USE THESE EXACT PATTERNS ===
+Navbar pattern (responsive with mobile menu):
+\`\`\`tsx
+'use client';
+import { useState } from 'react';
+import Link from 'next/link';
+import { FiMenu, FiX } from 'react-icons/fi';
+
+export function Navbar() {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-100">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between h-16 items-center">
+          <Link href="/" className="text-xl font-bold">AppName</Link>
+          <div className="hidden md:flex items-center gap-8">
+            <Link href="/dashboard" className="text-gray-600 hover:text-gray-900 transition">Dashboard</Link>
+            {/* more links */}
+          </div>
+          <button className="md:hidden" onClick={() => setIsOpen(!isOpen)}>
+            {isOpen ? <FiX size={24} /> : <FiMenu size={24} />}
+          </button>
+        </div>
+      </div>
+      {isOpen && (
+        <div className="md:hidden border-t border-gray-100 bg-white px-4 py-4 space-y-3">
+          <Link href="/dashboard" className="block text-gray-600">Dashboard</Link>
+        </div>
+      )}
+    </nav>
+  );
+}
+\`\`\`
+
+Card pattern (with hover animation):
+\`\`\`tsx
+<div className="group bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
+  <img src={imageUrl} className="w-full h-48 object-cover rounded-xl mb-4" />
+  <h3 className="font-semibold text-lg">{title}</h3>
+  <p className="text-gray-500 mt-1 line-clamp-2">{description}</p>
+</div>
+\`\`\`
+
+=== GENERATION STRATEGY — THINK BEFORE YOU CODE ===
+Before writing ANY code, plan the ENTIRE application in your head:
+1. ARCHITECTURE: What pages exist? What's the navigation structure? What data models?
+2. DESIGN SYSTEM: What colors, fonts, spacing based on the app type above?
+3. SHARED COMPONENTS: What components are reused across pages? (Navbar, Footer, Cards, Modal)
+4. DATA: What mock data does each page need? What are the realistic values?
+5. CONSISTENCY: Every page must use the SAME color palette, component style, and spacing.
+
+Then generate files in this ORDER:
+1. First: types/interfaces, shared utilities
+2. Then: shared components (Navbar, Footer, reusable cards)
+3. Then: layout file that imports globals.css and wraps with providers
+4. Then: pages one by one — each referencing the shared components
+5. Last: API routes (if cloud mode)
+
+This order ensures consistency because later files reference earlier ones.
 
 === OUTPUT FORMAT ===
 Return ONLY valid JSON: { "files": [{ "path": "relative/path.ext", "content": "full file content" }] }
