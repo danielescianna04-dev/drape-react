@@ -1666,9 +1666,20 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     }
   }, [terminalOutput, serverStatus, startup.previewError]);
 
-  // Reset error detection on retry
+  // Auto-fix: when a fatal preview error occurs, automatically send to AI for fix
+  const autoFixTriggeredRef = useRef(false);
   useEffect(() => {
+    if (startup.previewError && !autoFixTriggeredRef.current) {
+      autoFixTriggeredRef.current = true;
+      // Wait a moment to collect all error info, then auto-fix
+      const timer = setTimeout(() => {
+        log.info('[PreviewAutoFix] Fatal error detected, auto-sending to AI for fix');
+        sendErrorToChat();
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
     if (!startup.previewError) {
+      autoFixTriggeredRef.current = false;
       errorDetectedRef.current = false;
     }
   }, [startup.previewError]);

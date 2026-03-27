@@ -1953,6 +1953,33 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
         const httpCode = curlLines[curlLines.length - 1]?.trim() || '000';
         const htmlBody = curlLines.slice(0, -1).join('\n');
 
+        // If server isn't running at all, try to restart it
+        if (httpCode === '000' && attempt < MAX_FIX_ATTEMPTS - 1) {
+          log.warn(`[BuildCheck] Server not responding (HTTP 000) on attempt ${attempt + 1}, restarting...`);
+          update(checkPct, 'Server not responding, restarting...', 'Restarting');
+          try {
+            // Check if it's a dep install issue by reading server.log
+            const crashLog = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -20');
+            const crashText = crashLog.stdout || '';
+            if (crashText.includes('Cannot find module') || crashText.includes('MODULE_NOT_FOUND')) {
+              // Missing module — try reinstalling deps
+              await workspaceService.exec(projectId, userId, 'cd /home/coder/project && bun install --no-save 2>/dev/null || npm install --legacy-peer-deps 2>/dev/null');
+            }
+            // Restart dev server
+            await workspaceService.exec(projectId, userId, 'pkill -f "next dev\\|vite\\|nuxt\\|svelte-kit\\|remix\\|astro\\|ng serve" 2>/dev/null; sleep 1');
+            const session = await workspaceService.getSession(projectId);
+            if (session) {
+              const devServerService = (await import('../services/dev-server.service')).devServerService;
+              const projectDetector = (await import('../services/project-detector.service')).projectDetectorService;
+              const info = await projectDetector.detect(projectId);
+              await devServerService.start(session, info);
+            }
+          } catch (restartErr: any) {
+            log.warn(`[BuildCheck] Restart failed: ${restartErr.message}`);
+          }
+          continue;
+        }
+
         // Check for blank/error page in HTML body
         const isBlankPage = htmlBody.length < 200 || (!htmlBody.includes('<div') && !htmlBody.includes('<main') && !htmlBody.includes('<section'));
         const hasClientError = htmlBody.includes('Application error') || htmlBody.includes('Internal Server Error') || htmlBody.includes('Module not found');
