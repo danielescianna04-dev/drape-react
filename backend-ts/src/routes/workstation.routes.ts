@@ -600,6 +600,8 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
             const raw = match[1];
             if (builtins.has(raw)) continue;
             if ([...virtualModules].some((v) => raw.startsWith(v))) continue;
+            // Skip path aliases: @/ @app/ @lib/ @components/ @utils/ @styles/ etc.
+            if (raw.startsWith('@/') || raw.startsWith('@app/') || raw.startsWith('@lib/') || raw.startsWith('@components/') || raw.startsWith('@utils/') || raw.startsWith('@styles/')) continue;
             const pkgName = raw.startsWith('@')
               ? raw.split('/').slice(0, 2).join('/')
               : raw.split('/')[0];
@@ -1885,11 +1887,51 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
     log.info(`[CreateProject] Generated ${writtenFiles.length} files for ${projectName}`);
 
     // Pre-warm: create container + install deps + start dev server
+    // If npm install fails (bad deps in package.json), fix and retry
     update(91, 'Installing dependencies...', 'Building');
-    try {
-      await workspaceService.warmProject(projectId, userId);
-    } catch (warmErr: any) {
-      log.warn(`[CreateProject] Warm failed: ${warmErr.message}`);
+    for (let warmAttempt = 0; warmAttempt < 3; warmAttempt++) {
+      try {
+        await workspaceService.warmProject(projectId, userId);
+        break; // Success
+      } catch (warmErr: any) {
+        const errMsg = warmErr.message || '';
+        log.warn(`[CreateProject] Warm attempt ${warmAttempt + 1} failed: ${errMsg}`);
+
+        // Check if it's a dependency resolution error
+        if (errMsg.includes('failed to resolve') || errMsg.includes('404') || errMsg.includes('ERESOLVE')) {
+          update(91, `Fixing dependencies (attempt ${warmAttempt + 1})...`, 'Fixing');
+          try {
+            // Read current package.json and remove bad deps
+            const pkgResult = await fileService.readFile(projectId, 'package.json');
+            if (pkgResult.success && pkgResult.data?.content) {
+              const pkg = JSON.parse(pkgResult.data.content);
+              let fixed = false;
+              for (const depType of ['dependencies', 'devDependencies']) {
+                if (pkg[depType]) {
+                  for (const [name] of Object.entries(pkg[depType])) {
+                    // Remove path aliases and other non-npm deps
+                    if (name.startsWith('@/') || name === '@/app' || name === '@/lib' ||
+                        name.startsWith('@app') || name.startsWith('@lib') ||
+                        name.startsWith('@components') || name.startsWith('@utils')) {
+                      delete pkg[depType][name];
+                      fixed = true;
+                      log.info(`[CreateProject] Removed bad dep: ${name}`);
+                    }
+                  }
+                }
+              }
+              if (fixed) {
+                await fileService.writeFile(projectId, 'package.json', JSON.stringify(pkg, null, 2));
+              }
+            }
+          } catch (fixErr: any) {
+            log.warn(`[CreateProject] Dep fix failed: ${fixErr.message}`);
+          }
+          continue; // Retry warmProject
+        }
+        // Non-dep error, don't retry
+        break;
+      }
     }
 
     // === BUILD CHECK + AUTO-FIX LOOP (max 5 attempts) ===
