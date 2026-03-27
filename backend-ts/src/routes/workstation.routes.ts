@@ -37,9 +37,32 @@ async function applyBoilerplateTemplate(projectId: string, technology: string, c
     // Copy base template files to project directory
     execSync(`cp -a ${templateDir}/. ${projectDir}/`, { timeout: 10000 });
 
-    // If cloud mode enabled, overlay cloud files on top
+    // If cloud mode enabled, overlay cloud files on top (merge package.json instead of overwrite)
     if (cloudMode && fs.existsSync(cloudDir)) {
+      // Save base package.json before overlay
+      const basePkgPath = path.join(projectDir, 'package.json');
+      let basePkg: any = null;
+      try { basePkg = JSON.parse(fs.readFileSync(basePkgPath, 'utf-8')); } catch {}
+
       execSync(`cp -a ${cloudDir}/. ${projectDir}/`, { timeout: 10000 });
+
+      // Merge cloud package.json deps INTO base (base has all config deps, cloud adds DB/auth)
+      if (basePkg) {
+        try {
+          const cloudPkgPath = path.join(projectDir, 'package.json');
+          const cloudPkg = JSON.parse(fs.readFileSync(cloudPkgPath, 'utf-8'));
+          const merged = {
+            ...basePkg,
+            dependencies: { ...basePkg.dependencies, ...cloudPkg.dependencies },
+            devDependencies: { ...basePkg.devDependencies, ...cloudPkg.devDependencies },
+            scripts: { ...basePkg.scripts, ...cloudPkg.scripts },
+          };
+          fs.writeFileSync(cloudPkgPath, JSON.stringify(merged, null, 2));
+          log.info(`[Template] Merged package.json: base (${Object.keys(basePkg.dependencies || {}).length} deps) + cloud (${Object.keys(cloudPkg.dependencies || {}).length} deps)`);
+        } catch (e: any) {
+          log.warn(`[Template] package.json merge failed: ${e.message}`);
+        }
+      }
       log.info(`[Template] Applied cloud overlay for ${technology} to ${projectId}`);
     }
 
