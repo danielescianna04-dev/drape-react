@@ -117,9 +117,15 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
         const match = url.pathname.match(/^(\/preview\/[^/]+\/)/);
         if (match) url.pathname = match[1];
 
+        const headers: Record<string, string> = { 'X-Drape-Check': 'true' };
+        const token = useUIStore.getState().previewAccessToken;
+        const machineId = useUIStore.getState().flyMachineId;
+        if (token) headers['X-Drape-Preview-Token'] = token;
+        if (machineId) headers['Fly-Force-Instance-Id'] = machineId;
+
         const resp = await fetch(url.toString(), {
           method: 'GET',
-          headers: { 'X-Drape-Check': 'true' },
+          headers,
           signal: AbortSignal.timeout(8000),
         });
 
@@ -132,9 +138,9 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
             setTimeout(check, 3000);
           }
         }
-      } catch {
+      } catch (err: any) {
         if (!cancelled) {
-          console.log('[PreviewV2] Health check failed — retrying');
+          console.log('[PreviewV2] Health check failed:', err?.message, 'URL:', currentPreviewUrl);
           setTimeout(check, 3000);
         }
       }
