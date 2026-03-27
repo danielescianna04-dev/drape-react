@@ -37,8 +37,33 @@ import { usePreviewChat } from '../hooks/usePreviewChat';
 import { usePreviewStartup } from '../hooks/usePreviewStartup';
 import { usePreviewAutoFix } from '../../../hooks/preview/usePreviewAutoFix';
 import { captureRef } from 'react-native-view-shot';
+import { previewStyles as styles } from './PreviewPanel.styles';
 
 const USE_HOLY_GRAIL = true;
+
+/**
+ * PreviewPanel — Main preview component (~2000 lines)
+ *
+ * SECTIONS INDEX:
+ * - [LINE ~55]   Component setup + store connections
+ * - [LINE ~101]  Core server state
+ * - [LINE ~134]  Preview URL construction
+ * - [LINE ~283]  Custom hooks (startup, publish, chat, autofix)
+ * - [LINE ~300]  Server lifecycle helpers
+ * - [LINE ~410]  checkServerStatus (health check polling)
+ * - [LINE ~634]  handleStartServer (SSE stream + server boot)
+ * - [LINE ~1092] Action handlers (retry, stop, close, refresh, env vars)
+ * - [LINE ~1295] Effects (file watcher, health interval, autofix, preflight)
+ * - [LINE ~1870] Render
+ *
+ * EXTRACTED FILES:
+ * - PreviewPanel.styles.ts — StyleSheet
+ * - usePreviewFileWatcher.ts — Hot reload banner logic
+ * - usePreviewStartup.ts — Startup state/animations
+ * - usePreviewPublish.ts — Publish flow
+ * - usePreviewChat.ts — AI chat integration
+ * - usePreviewAutoFix.ts — Auto-fix engine
+ */
 
 interface Props {
   onClose: () => void;
@@ -2106,48 +2131,3 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   );
 });
 
-const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'transparent',
-    zIndex: 999,
-  },
-  container: {
-    position: 'absolute',
-    right: 0, top: 0, bottom: 0,
-    zIndex: 1000,
-    overflow: 'hidden',
-  },
-  webViewContainer: {
-    flex: 1,
-    position: 'relative',
-    backgroundColor: '#0a0a0a',
-    paddingTop: 88,
-  },
-  reloadBanner: {
-    position: 'absolute',
-    top: 8,
-    left: 16,
-    right: 16,
-    zIndex: 100,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(99, 102, 241, 0.95)',
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  reloadBannerText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-});
