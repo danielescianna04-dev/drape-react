@@ -1682,7 +1682,6 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       autoFixTriggeredRef.current = true;
       const timer = setTimeout(() => {
         console.log('[PreviewAutoFix] Fatal error detected, fixing in-place');
-        // Collect error lines from terminal output
         const errorLines = terminalOutput
           .filter(l => {
             const lower = l.toLowerCase();
@@ -1692,13 +1691,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         const errors = errorLines.length > 0
           ? errorLines
           : [startup.previewError?.message || 'Preview failed to start'];
-        // Fix in-place via autoFix hook (stays in preview, shows loading)
         autoFix.reportCheckResult({
           rootChildren: 0,
           jsErrors: errors,
           screenshotBase64: null,
         });
-      }, 1500);
+      }, 500);
       return () => clearTimeout(timer);
     }
     if (!startup.previewError) {
@@ -1940,7 +1938,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   onStartServer={handleStartServer}
                   t={t}
                 />
-              ) : serverStatus === 'stopped' && startup.previewError && !autoFix.isFixing ? (
+              ) : serverStatus === 'stopped' && startup.previewError && !autoFix.isFixing && !autoFixTriggeredRef.current ? (
                 <PreviewErrorScreen
                   previewError={startup.previewError}
                   terminalOutput={terminalOutput}
@@ -1950,7 +1948,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   topInset={insets.top}
                   t={t}
                 />
-              ) : serverStatus === 'stopped' && startup.previewError && autoFix.isFixing ? (
+              ) : serverStatus === 'stopped' && startup.previewError && (autoFix.isFixing || autoFixTriggeredRef.current) ? (
                 <PreviewLoadingScreen
                   previewError={null}
                   previewLogs={startup.previewLogs}
