@@ -94,196 +94,285 @@ const TEMPLATE_FILES: Record<string, string[]> = {
 /** Stack-specific coding instructions for the AI */
 const STACK_INSTRUCTIONS: Record<string, string> = {
   react: `
-REACT TEMPLATE INSTRUCTIONS:
-- The project already has: Vite + React 19 + Tailwind v4 + react-router-dom v7
-- Navbar, Footer, FeatureCard components already exist — REUSE them, don't recreate
-- The design system uses Tailwind v4 with @theme inline (oklch colors): primary, primary-light, surface, surface-light, border, text-primary, text-secondary
-- CSS utility classes available: .gradient-text, .glass, .glow, .gradient-bg
-- Add new pages in src/pages/ and register routes in src/App.tsx
-- Create new components in src/components/
-- Keep the dark theme — background is #0a0a0f
-- For forms: use controlled components with useState
-- For data fetching: use useEffect + fetch
-- Every page MUST have: loading state (spinner), error state (message), empty state`,
+REACT (VITE) INSTRUCTIONS:
+- Stack: Vite + React 19 + Tailwind v4 + react-router-dom v7 + react-icons
+- Layout: App.tsx already wraps routes with Navbar + Footer. DO NOT re-add them.
+- Pages: Add in src/pages/ and register in App.tsx routes
+- Components: Add in src/components/
+- State: Use useState for local, useContext + createContext for shared state across pages
+- Data fetching pattern:
+  const [data, setData] = useState([]); const [loading, setLoading] = useState(true);
+  useEffect(() => { fetch('/api/items').then(r=>r.json()).then(setData).finally(()=>setLoading(false)); }, []);
+- Forms: Controlled components with useState, onSubmit with e.preventDefault()
+- Routing: <Link to="/path">, useNavigate() for programmatic, useParams() for dynamic routes
+- Images: <img> tag directly, NOT from any image component
+- Design tokens: @theme oklch colors — primary, surface, border, text-primary, text-secondary
+- CSS utilities: .gradient-text, .glass, .glow, .gradient-bg`,
 
   nextjs: `
-NEXT.JS TEMPLATE INSTRUCTIONS:
-- The project already has: Next.js 15 App Router + React 19 + Tailwind v4
-- Navbar (client component), Footer, FeatureCard already exist in app/components/
-- For imports use EITHER: @/components/X (maps to app/components/X) OR relative ./components/X from app/ files
-- Add new pages as app/{route}/page.tsx
-- Add new components in app/components/ directory
-- Use Server Components by default, add 'use client' only when needed (interactivity, hooks)
-- The design system uses oklch colors via @theme inline: primary, surface, border, text-primary, text-secondary
-- CSS utility classes available: gradient-text, glass, glow, gradient-bg
-- For data fetching in server components: use async/await directly
-- For mutations: use Server Actions or API routes in app/api/
-- Every page MUST have proper metadata export
-- IMPORTANT: For images, use <img> tag NOT <Image> from next/image — the Image component requires domain configuration and breaks with external URLs
-- Unsplash images: use <img src="https://images.unsplash.com/..." className="..." alt="..." /> directly`,
+NEXT.JS (APP ROUTER) INSTRUCTIONS:
+- Stack: Next.js 15 App Router + React 19 + Tailwind v4 + react-icons
+- Layout: app/layout.tsx already imports CSS, Navbar, Footer. DO NOT re-add them.
+- Pages: app/{route}/page.tsx — each page is a SERVER component by default
+- 'use client': Add ONLY to files using useState, useEffect, onClick, or any hook
+- Components: app/components/ — import with @/ alias or relative path
+- Data fetching (server): async function + fetch directly in component
+- Data fetching (client): 'use client' + useState + useEffect + fetch
+- API routes: app/api/{name}/route.ts with GET/POST/PUT/DELETE exports
+- Metadata: export const metadata = { title: '...', description: '...' } per page
+- Images: ALWAYS use <img> tag, NEVER <Image> from next/image (breaks with external URLs)
+- Dynamic routes: app/[id]/page.tsx with params prop
+- Design tokens: @theme oklch colors — primary, surface, border, text-primary, text-secondary`,
 
   vue: `
-VUE TEMPLATE INSTRUCTIONS:
-- The project already has: Vue 3.5 + Vite + Tailwind v4 + Vue Router
-- NavBar, FooterSection, FeatureCard already exist in src/components/
-- Use Composition API with <script setup lang="ts"> ALWAYS
-- Add new views in src/views/ and routes in src/router/index.ts
-- Use ref(), computed(), onMounted() from vue
-- The design system uses oklch Tailwind theme
-- For HTTP requests: use fetch (no axios needed)
-- For state: use ref/reactive for local, provide/inject for shared`,
+VUE 3 (COMPOSITION API) INSTRUCTIONS:
+- Stack: Vue 3.5 + Vite + Tailwind v4 + Vue Router + @iconify/vue
+- Layout: App.vue already wraps RouterView with Navbar + Footer. DO NOT re-add them.
+- Pages: Add in src/views/ and register in src/router/index.ts
+- Components: Add in src/components/
+- ALWAYS use <script setup lang="ts"> — never Options API
+- State pattern:
+  const items = ref<Item[]>([]); const loading = ref(true);
+  onMounted(async () => { items.value = await fetch('/api').then(r=>r.json()); loading.value = false; });
+- Computed: const filtered = computed(() => items.value.filter(i => i.active));
+- Watch: watch(searchQuery, (val) => { /* react */ });
+- Shared state: Use provide/inject or create a composable (src/composables/useStore.ts)
+- Router: <RouterLink to="/path">, useRouter().push('/path'), useRoute().params
+- Icons: import { Icon } from '@iconify/vue'; <Icon icon="mdi:home" />
+- v-model for two-way binding, @click for events`,
 
   nuxt: `
-NUXT TEMPLATE INSTRUCTIONS:
-- The project already has: Nuxt 3.16 + Tailwind v4
-- Components in components/ are auto-imported (NavBar, FooterSection, FeatureCard)
-- NO explicit imports needed for ref, computed, onMounted, useFetch, useHead
-- Add pages in pages/ directory (auto-routed)
-- Use useFetch() or $fetch() for data fetching
-- Use useHead() for page metadata
-- Server routes go in server/api/`,
+NUXT 3 INSTRUCTIONS:
+- Stack: Nuxt 3.16 + Tailwind v4 + auto-imports
+- Layout: layouts/default.vue already has NavBar + FooterSection. DO NOT re-add them.
+- Pages: pages/*.vue — auto-routed, no router config needed
+- Components: components/*.vue — auto-imported, no import statements needed
+- NO imports needed for: ref, computed, onMounted, useFetch, useHead, definePageMeta, navigateTo
+- Data fetching: const { data, pending, error } = useFetch('/api/items')
+- Server API: server/api/*.ts — auto-routed, return data directly
+  export default defineEventHandler(async (event) => { return { items: [...] } })
+- SEO: useHead({ title: 'Page' }) and definePageMeta({ layout: 'default' })
+- State: useState('key', () => initialValue) for shared SSR-safe state
+- Middleware: defineNuxtRouteMiddleware((to, from) => { if (!auth) return navigateTo('/login') })`,
 
   svelte: `
-SVELTE TEMPLATE INSTRUCTIONS:
-- The project already has: SvelteKit + Svelte 5 + Tailwind v4
-- Use Svelte 5 runes: $state, $derived, $effect, $props
-- Components in src/lib/components/ (Navbar, Footer, FeatureCard)
-- Pages go in src/routes/{path}/+page.svelte
-- Server load functions: +page.server.ts
-- API endpoints: +server.ts
-- Use {#each}, {#if}, {@render children()} syntax`,
+SVELTEKIT + SVELTE 5 INSTRUCTIONS:
+- Stack: SvelteKit + Svelte 5 (runes) + Tailwind v4 + @iconify/svelte
+- Layout: src/routes/+layout.svelte already has Navbar + Footer. DO NOT re-add them.
+- Pages: src/routes/{path}/+page.svelte
+- State: let count = $state(0); let doubled = $derived(count * 2);
+- Effects: $effect(() => { console.log(count); });
+- Props: let { title, items } = $props();
+- Server data: +page.server.ts with load() function
+  export async function load({ fetch }) { const items = await fetch('/api').then(r=>r.json()); return { items }; }
+- Page receives data: let { data } = $props(); // data.items
+- API: src/routes/api/{name}/+server.ts with GET, POST, etc.
+  export async function GET() { return json({ items: [...] }); }
+- Forms: use:enhance on forms, form actions for mutations
+- Loops: {#each items as item}<div>{item.name}</div>{/each}
+- Conditionals: {#if loading}<Spinner />{:else}<Content />{/if}`,
 
   angular: `
-ANGULAR TEMPLATE INSTRUCTIONS:
-- The project already has: Angular 19 + Tailwind v4 + standalone components
-- Navbar, Footer, FeatureCard already exist in src/app/components/
-- Create ALL components as standalone (standalone: true, no NgModules)
-- Use signals: signal(), computed(), input.required<T>()
-- Use new control flow: @for, @if, @switch (not *ngFor, *ngIf)
-- Add routes in src/app/app.routes.ts with lazy loading
-- Use HttpClient for API calls (inject in constructor or via inject())
-- Use inline templates for small components, separate .html for large ones`,
+ANGULAR 19 INSTRUCTIONS:
+- Stack: Angular 19 + Tailwind v4 + standalone components + signals
+- Layout: app.component.ts already has Navbar + Footer with RouterOutlet. DO NOT re-add them.
+- Components: ALL standalone — standalone: true, imports: [CommonModule, RouterModule]
+- Create with: ng generate component pages/dashboard --standalone
+- Signals pattern:
+  items = signal<Item[]>([]); loading = signal(true);
+  constructor(private http: HttpClient) { this.loadItems(); }
+  loadItems() { this.http.get<Item[]>('/api/items').subscribe(data => { this.items.set(data); this.loading.set(false); }); }
+- Computed: filteredItems = computed(() => this.items().filter(i => i.active));
+- Control flow: @if (loading()) { <spinner /> } @else { @for (item of items(); track item.id) { <card /> } }
+- Routing: app.routes.ts with lazy loading
+  { path: 'dashboard', loadComponent: () => import('./pages/dashboard/dashboard.component').then(m => m.DashboardComponent) }
+- Forms: Use ReactiveFormsModule with FormGroup/FormControl
+- Services: @Injectable({ providedIn: 'root' }) for shared state`,
 
   astro: `
-ASTRO TEMPLATE INSTRUCTIONS:
-- The project already has: Astro 5 + Tailwind v4
-- Layout in src/layouts/Layout.astro — use it for all pages
-- Pages go in src/pages/ (auto-routed)
-- Components in src/components/ (Navbar, Footer, FeatureCard)
-- Use .astro files for static content, add React/Vue/Svelte for interactive islands
-- Frontmatter goes between --- fences
-- Use class:list directive for conditional classes`,
+ASTRO 5 INSTRUCTIONS:
+- Stack: Astro 5 + Tailwind v4 + optional React islands
+- Layout: src/layouts/Layout.astro already has Navbar + Footer. DO NOT re-add them.
+- Pages: src/pages/*.astro — frontmatter between --- fences, HTML below
+- Static by default: Astro pages render at build time, zero JS shipped
+- Interactive islands: Add client:load to React/Svelte components for interactivity
+  <ReactCounter client:load />
+- Components: src/components/*.astro for static, *.tsx for interactive
+- Props: const { title, items } = Astro.props;
+- Loops: {items.map(item => <Card {...item} />)}
+- API routes: src/pages/api/*.ts (export async function GET() { return new Response(...) })
+- Content: Use Astro.glob() or content collections for static data
+- class:list for conditional classes: class:list={['card', { active: isActive }]}`,
 
   remix: `
-REMIX TEMPLATE INSTRUCTIONS:
-- The project already has: Remix v2 + React + Vite + Tailwind v4
-- root.tsx already configured with Links, Meta, Outlet, Scripts
-- Navbar, Footer, FeatureCard in app/components/
-- Pages go in app/routes/ (file-based routing: _index.tsx, about.tsx, dashboard.tsx)
-- Use loader() for data fetching (server-side), action() for mutations
-- Use useLoaderData(), useActionData(), useFetcher()
-- Export meta and links functions per route`,
+REMIX V2 INSTRUCTIONS:
+- Stack: Remix v2 + React + Vite + Tailwind v4 + react-icons
+- Layout: root.tsx already has Navbar + Footer with Outlet. DO NOT re-add them.
+- Pages: app/routes/*.tsx — _index.tsx (home), about.tsx, dashboard.tsx
+- Data loading (SERVER): export async function loader({ request }) { return json({ items }); }
+- Use data: const { items } = useLoaderData<typeof loader>();
+- Mutations: export async function action({ request }) { const form = await request.formData(); ... return json({ ok: true }); }
+- Forms: <Form method="post"><input name="title" /><button type="submit">Save</button></Form>
+- Navigation: <Link to="/path">, useNavigate() for programmatic
+- Dynamic routes: app/routes/item.$id.tsx — const { id } = useParams();
+- Optimistic UI: useFetcher() for non-blocking form submissions
+- Error handling: export function ErrorBoundary() { return <div>Error</div>; }
+- Meta: export const meta = () => [{ title: 'Page' }];`,
 
   solid: `
 SOLID.JS TEMPLATE INSTRUCTIONS:
-- The project already has: SolidStart + Solid.js + Tailwind v4
-- Components in src/components/ (Navbar, Footer, FeatureCard)
-- Pages go in src/routes/ (file-based routing)
-- Use createSignal, createResource, createEffect
-- Use <For each={}>, <Show when={}>, <Switch>/<Match>
-- Props accessed as props.xxx (not destructured)`,
+- Stack: SolidStart + Solid.js + Tailwind v4
+- Pages: src/routes/ (file-based routing)
+- State: const [count, setCount] = createSignal(0);
+- Resources: const [data] = createResource(fetchItems);
+- Effects: createEffect(() => console.log(count()));
+- Loops: <For each={items()}>{item => <div>{item.name}</div>}</For>
+- Conditionals: <Show when={!loading()} fallback={<Spinner />}><Content /></Show>`,
 
   html: `
-HTML/CSS/JS TEMPLATE INSTRUCTIONS:
-- NO framework, NO build tools — pure vanilla
-- style.css has the full design system with CSS custom properties
-- script.js has IntersectionObserver, mobile menu, scroll animations
-- Add new pages as separate .html files
-- Use CSS custom properties (--color-primary, etc.) for theming
-- Use CSS Grid and Flexbox for layouts
-- Use fetch() for API calls
-- Use DOM manipulation for interactivity`,
+HTML/CSS/JS (VANILLA) INSTRUCTIONS:
+- NO framework, NO build tools — pure vanilla HTML + CSS + JS
+- style.css: full design system with CSS custom properties (--color-primary, --color-surface, etc.)
+- script.js: IntersectionObserver animations, mobile menu toggle, scroll effects
+- Each page is a separate .html file (index.html, about.html, dashboard.html, etc.)
+- ALL pages share the same Navbar and Footer HTML (copy the same nav/footer structure)
+- Use CSS Grid + Flexbox for layouts, CSS transitions for animations
+- Use fetch() for API calls, DOM manipulation for dynamic content
+- Use data attributes (data-*) for storing state on elements
+- Use event delegation for lists: container.addEventListener('click', e => { if (e.target.matches('.item')) ... })
+- Use template literals for rendering HTML: element.innerHTML = items.map(i => \`<div>\${i.name}</div>\`).join('')`,
 
   flask: `
-FLASK TEMPLATE INSTRUCTIONS:
-- app.py is the main Flask app — add routes there
-- Templates extend templates/base.html which has nav + footer + Tailwind CDN
-- New templates go in templates/ using Jinja2 syntax
-- Static files in static/css/ and static/js/
-- The server runs on port 3000
-- Use @app.route decorator for new routes
-- For JSON APIs: return jsonify({...})`,
+FLASK INSTRUCTIONS:
+- Stack: Flask 3 + Jinja2 + Tailwind CDN + Gunicorn
+- Main file: app.py — ALL routes here
+- Templates: templates/*.html extending templates/base.html (has nav + footer + Tailwind CDN)
+- Static: static/css/custom.css, static/js/main.js
+- Route pattern:
+  @app.route('/dashboard')
+  def dashboard(): items = Item.query.all(); return render_template('dashboard.html', items=items)
+- API pattern:
+  @app.route('/api/items', methods=['GET'])
+  def get_items(): return jsonify([i.to_dict() for i in Item.query.all()])
+- Models: Use dataclasses or SQLAlchemy if cloud mode
+- Flash messages: flash('Success!', 'success') + {% with messages = get_flashed_messages() %} in template
+- Jinja2: {% for item in items %}, {% if condition %}, {{ variable }}, {{ variable|default('N/A') }}
+- Forms: <form method="POST" action="/create"> with request.form['field'] in handler
+- Server runs on port 3000`,
 
   django: `
-DJANGO TEMPLATE INSTRUCTIONS:
-- Project structure: project/ (settings) + app/ (views, models, urls)
-- Templates extend templates/base.html (has Tailwind CDN)
-- Add views in app/views.py, URLs in app/urls.py
-- Models in app/models.py — run python manage.py migrate after adding
-- Use Django template syntax: {% %}, {{ }}
-- For JSON APIs: use JsonResponse`,
+DJANGO 5 INSTRUCTIONS:
+- Stack: Django 5 + Jinja-style templates + Tailwind CDN
+- Structure: project/ (settings, urls) + app/ (views, models, urls, admin)
+- Templates: templates/*.html extending templates/base.html (has nav + footer + Tailwind CDN)
+- Views pattern (function-based):
+  def dashboard(request): items = Item.objects.all(); return render(request, 'dashboard.html', {'items': items})
+- Views pattern (class-based):
+  class ItemListView(ListView): model = Item; template_name = 'items.html'; context_object_name = 'items'
+- Models:
+  class Item(models.Model): name = models.CharField(max_length=200); created_at = models.DateTimeField(auto_now_add=True)
+  class Meta: ordering = ['-created_at']
+- URLs: path('dashboard/', views.dashboard, name='dashboard')
+- Admin: admin.site.register(Item) for automatic admin panel
+- Forms: Use Django forms or ModelForm for validation
+- Template syntax: {% for item in items %}, {% if %}, {{ item.name }}, {% url 'dashboard' %}
+- Static: {% load static %}, {% static 'css/custom.css' %}
+- CSRF: {% csrf_token %} in ALL forms`,
 
   fastapi: `
-FASTAPI TEMPLATE INSTRUCTIONS:
-- main.py is the FastAPI app
-- Templates in templates/ using Jinja2
-- Static files in static/
-- Runs with uvicorn on port 3000
-- Use @app.get, @app.post decorators
-- Use Pydantic models for request/response validation
-- Async handlers: async def route_handler()
-- Auto-generates /docs (Swagger) and /redoc`,
+FASTAPI INSTRUCTIONS:
+- Stack: FastAPI + Jinja2 + Tailwind CDN + Uvicorn
+- Main file: main.py — routes, models, app setup
+- Templates: templates/*.html extending templates/base.html (has nav + footer + Tailwind CDN)
+- Static: StaticFiles mount, static/css/, static/js/
+- Page route:
+  @app.get('/dashboard', response_class=HTMLResponse)
+  async def dashboard(request: Request): items = db.get_items(); return templates.TemplateResponse('dashboard.html', {'request': request, 'items': items})
+- API routes:
+  @app.get('/api/items') async def get_items(): return items
+  @app.post('/api/items') async def create_item(item: ItemCreate): ...
+- Pydantic models: class ItemCreate(BaseModel): name: str; price: float = Field(gt=0)
+- Path params: @app.get('/api/items/{item_id}') async def get_item(item_id: int): ...
+- Query params: @app.get('/api/search') async def search(q: str = '', limit: int = 10): ...
+- Error handling: raise HTTPException(status_code=404, detail='Not found')
+- Auto docs: /docs (Swagger), /redoc
+- Server runs on port 3000`,
 
   laravel: `
-LARAVEL TEMPLATE INSTRUCTIONS:
-- Routes in routes/web.php
-- Controllers in app/Http/Controllers/
-- Views in resources/views/ using Blade: @extends, @section, @yield, {{ }}
-- Layout is resources/views/layouts/app.blade.php (has Tailwind CDN)
-- Models in app/Models/ — use Eloquent
-- Do NOT use Vite — use inline styles/scripts in Blade`,
+LARAVEL INSTRUCTIONS:
+- Stack: Laravel + Blade + Tailwind CDN + Eloquent ORM
+- Routes: routes/web.php (pages), routes/api.php (JSON API)
+- Controllers: app/Http/Controllers/ — use resource controllers for CRUD
+  Route::resource('items', ItemController::class);
+- Views: resources/views/*.blade.php extending layouts/app.blade.php (has nav + footer + Tailwind CDN)
+- Models + Eloquent:
+  class Item extends Model { protected $fillable = ['name', 'price', 'description']; }
+  Item::all(), Item::find($id), Item::create([...]), $item->update([...]), $item->delete()
+- Blade: @extends('layouts.app'), @section('content'), @yield('content')
+  @foreach($items as $item), @if($condition), {{ $item->name }}, {{ $item->price }}
+- Forms: @csrf in all forms, $request->validate(['name' => 'required|max:255'])
+- Flash: return redirect()->back()->with('success', 'Created!')
+  @if(session('success')) <div class="alert">{{ session('success') }}</div> @endif
+- Migrations: Schema::create('items', fn (Blueprint $t) => $t->id(); $t->string('name'); $t->timestamps());
+- Do NOT use Vite or npm — CSS via CDN, JS inline in Blade`,
 
   expo: `
-REACT NATIVE (EXPO) TEMPLATE INSTRUCTIONS:
-- Uses Expo Router for navigation (file-based in app/ directory)
-- Tab layout already configured in app/(tabs)/
-- Colors defined in constants/Colors.ts — USE these, don't hardcode
-- Use StyleSheet.create for all styles
-- Use @expo/vector-icons for icons (Ionicons, MaterialIcons)
-- Use SafeAreaView for proper spacing
-- Use expo-linear-gradient for gradients
-- Every screen needs a ScrollView or FlatList for long content
-- Test on iPhone SE (smallest screen) — ensure nothing overflows`,
+REACT NATIVE (EXPO) INSTRUCTIONS:
+- Stack: Expo SDK + Expo Router + TypeScript
+- Navigation: File-based routing in app/ directory
+- Tab layout: app/(tabs)/ with _layout.tsx
+- Colors: constants/Colors.ts — import and USE these everywhere, don't hardcode
+- Styles: StyleSheet.create({}) — NEVER inline styles as objects
+- Pattern:
+  const [items, setItems] = useState<Item[]>([]); const [loading, setLoading] = useState(true);
+  useEffect(() => { fetchItems().then(setItems).finally(() => setLoading(false)); }, []);
+- Icons: import { Ionicons } from '@expo/vector-icons'; <Ionicons name="home" size={24} />
+- Layout: Always use SafeAreaView as root, ScrollView/FlatList for content
+- Lists: Use FlatList for long lists (NOT ScrollView + map)
+  <FlatList data={items} renderItem={({item}) => <ItemCard item={item} />} keyExtractor={i => i.id} />
+- Navigation: import { router } from 'expo-router'; router.push('/details/123');
+- Haptics: import * as Haptics from 'expo-haptics'; Haptics.impactAsync()
+- Keep components small — extract into separate files in components/`,
 
   flutter: `
-FLUTTER TEMPLATE INSTRUCTIONS:
-- Theme defined in lib/theme/app_theme.dart — USE AppColors and AppTheme
-- Reusable widgets in lib/widgets/ (FeatureCard, GradientHeader)
-- Screens go in lib/screens/
-- Use Material 3 widgets (useMaterial3: true in theme)
-- Use google_fonts for typography
-- Use Navigator or GoRouter for navigation
-- Use StatefulWidget for interactive screens
-- Keep widget tree shallow — extract sub-widgets`,
+FLUTTER INSTRUCTIONS:
+- Stack: Flutter + Material 3 + google_fonts
+- Theme: lib/theme/app_theme.dart defines AppColors and AppTheme — USE these
+- Screens: lib/screens/*.dart
+- Widgets: lib/widgets/*.dart — reusable, composable
+- State management: StatefulWidget + setState for simple, Provider/Riverpod for complex
+- Pattern:
+  class DashboardScreen extends StatefulWidget { ... }
+  class _DashboardScreenState extends State<DashboardScreen> {
+    List<Item> items = []; bool loading = true;
+    @override void initState() { super.initState(); loadItems(); }
+    Future<void> loadItems() async { /* fetch */ setState(() { items = result; loading = false; }); }
+  }
+- Navigation: Navigator.push(context, MaterialPageRoute(builder: (_) => DetailScreen(item: item)))
+- Lists: ListView.builder(itemCount: items.length, itemBuilder: (ctx, i) => ItemCard(item: items[i]))
+- Layout: Scaffold + AppBar + body, Column/Row for layout, Expanded/Flexible for flex
+- Responsive: MediaQuery.of(context).size.width for breakpoints
+- Animations: AnimatedContainer, Hero, AnimationController for custom`,
 
   'python-console': `
 PYTHON CONSOLE INSTRUCTIONS:
 - Uses rich library for beautiful terminal output
 - main.py is the entry point, logic in src/app.py
 - Use rich.console, rich.table, rich.panel, rich.progress for UI
-- Make it interactive with input() prompts
-- Include proper error handling`,
+- Make it interactive with input() prompts and Prompt.ask()
+- Include proper error handling with try/except`,
 
   'javascript-console': `
 JAVASCRIPT CONSOLE INSTRUCTIONS:
 - Uses chalk for colored output, ES modules ("type": "module")
 - index.js is the entry point, logic in src/app.js
 - Use chalk for colors, readline for interactive input
+- Use inquirer for interactive menus and prompts
 - Make it interactive and interesting`,
 
-  'c-lang': `C INSTRUCTIONS: Use Makefile, ANSI colors, main.c + src/ structure.`,
-  cpp: `C++ INSTRUCTIONS: Use C++17, Makefile or CMake, OOP structure.`,
-  java: `JAVA INSTRUCTIONS: Main.java entry point, src/ for classes, use Scanner for input.`,
+  'c-lang': `C INSTRUCTIONS: Use Makefile, ANSI colors for terminal UI, main.c + src/ structure. Include proper memory management.`,
+  cpp: `C++ INSTRUCTIONS: Use C++17, Makefile or CMake, OOP with classes. Use smart pointers, RAII patterns.`,
+  java: `JAVA INSTRUCTIONS: Main.java entry point, src/ for classes, use Scanner for input. Use OOP patterns, ArrayList/HashMap for data.`,
 };
 
 /** Build the system prompt for project creation AI */
