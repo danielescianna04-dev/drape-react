@@ -31,7 +31,7 @@ import { PreviewWebView } from '../PreviewWebView';
 import { PreviewAIChat } from '../PreviewAIChat';
 import { PreviewPublishSheet } from '../PreviewPublishSheet';
 import { PreviewStartScreen, PreviewLoadingScreen } from '../PreviewServerStatus';
-import { AskUserQuestionModal } from '../AskUserQuestionModal';
+import { AskUserQuestionModal } from '../../../../shared/components/modals/AskUserQuestionModal';
 import { PreviewStartView, PreviewLoadingView } from './PreviewStates';
 
 // ── Types ────────────────────────────────────────────────────

@@ -1965,15 +1965,10 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
               // Missing module — try reinstalling deps
               await workspaceService.exec(projectId, userId, 'cd /home/coder/project && bun install --no-save 2>/dev/null || npm install --legacy-peer-deps 2>/dev/null');
             }
-            // Restart dev server
-            await workspaceService.exec(projectId, userId, 'pkill -f "next dev\\|vite\\|nuxt\\|svelte-kit\\|remix\\|astro\\|ng serve" 2>/dev/null; sleep 1');
-            const session = await workspaceService.getSession(projectId);
-            if (session) {
-              const devServerService = (await import('../services/dev-server.service')).devServerService;
-              const projectDetector = (await import('../services/project-detector.service')).projectDetectorService;
-              const info = await projectDetector.detect(projectId);
-              await devServerService.start(session, info);
-            }
+            // Restart dev server by killing and re-running
+            await workspaceService.exec(projectId, userId, 'pkill -f "next dev\\|vite\\|nuxt\\|svelte-kit\\|remix\\|astro\\|ng serve" 2>/dev/null; sleep 2');
+            // Re-warm will recreate the dev server
+            try { await workspaceService.warmProject(projectId, userId); } catch {}
           } catch (restartErr: any) {
             log.warn(`[BuildCheck] Restart failed: ${restartErr.message}`);
           }
@@ -1995,16 +1990,6 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
             if (screenshotBase64 && screenshotBase64.length < 7000) {
               isVisuallyBlank = true;
               log.info(`[BuildCheck] Screenshot too small (${screenshotBase64.length} chars) — likely blank page`);
-            }
-            // Also check stderr for JS errors from the page
-            const ssErr = await workspaceService.exec(projectId, userId, 'cat /tmp/ss-err.txt 2>/dev/null');
-            if (ssErr.stdout?.includes('"errors"')) {
-              try {
-                const pageErrors = JSON.parse(ssErr.stdout).errors || [];
-                for (const e of pageErrors.slice(0, 3)) {
-                  if (!buildErrors.some(be => be.includes(e.substring(0, 30)))) buildErrors.push(e);
-                }
-              } catch {}
             }
           } catch { /* Puppeteer not available — continue without */ }
         }
@@ -2031,6 +2016,19 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
               buildErrors.push(err);
             }
           }
+        }
+
+        // Collect Puppeteer JS errors (captured during screenshot)
+        if (screenshotBase64) {
+          try {
+            const ssErr = await workspaceService.exec(projectId, userId, 'cat /tmp/ss-err.txt 2>/dev/null');
+            if (ssErr.stdout?.includes('"errors"')) {
+              const pageErrors = JSON.parse(ssErr.stdout).errors || [];
+              for (const e of pageErrors.slice(0, 3)) {
+                if (!buildErrors.some(be => be.includes(e.substring(0, 30)))) buildErrors.push(e);
+              }
+            }
+          } catch {}
         }
 
         if (buildErrors.length === 0 && httpCode !== '000' && httpCode !== '500' && !isBlankPage && !hasClientError && !isVisuallyBlank) {
