@@ -302,18 +302,18 @@ If you include ANY of these config/CSS files, the app will BREAK.
 The template has pre-installed dependencies. If you need a library that is NOT already in package.json, you MUST generate a MODIFIED package.json that ADDS the new dependency to the existing "dependencies" object. KEEP all existing deps, just add yours. After generation the system will auto-install.
 PREFER using libraries already installed (react-icons, react-hot-toast, better-auth, drizzle-orm, @neondatabase/serverless) before adding new ones. If you DO add a dependency, use a real, popular npm package name — do NOT invent package names.
 
-=== LAYOUT FILES — YOU CAN MODIFY BUT MUST KEEP CSS IMPORT ===
-If you need to wrap the app with a Context Provider (e.g., AppProvider), you MUST generate a layout.tsx/App.tsx that:
-1. KEEPS the CSS import: import './globals.css' (Next.js) or import './index.css' (React)
-2. WRAPS children with your Provider
-Example for Next.js:
-\`\`\`tsx
-import './globals.css'
-import { AppProvider } from './context/AppContext'
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en"><body><AppProvider>{children}</AppProvider></body></html>
-}
-\`\`\`
+=== LAYOUT, NAVBAR, FOOTER — ALREADY IN TEMPLATE ===
+The template already includes:
+- A root layout file that imports CSS AND wraps content with Navbar + Footer
+- A Navbar component with responsive mobile menu, logo, navigation links
+- A Footer component with links and branding
+
+DO NOT generate layout.tsx/App.tsx, Navbar, or Footer from scratch. Instead:
+- MODIFY the existing Navbar (app/components/Navbar.tsx) to customize: logo text, navigation links, CTA buttons for YOUR app
+- MODIFY the existing Footer (app/components/Footer.tsx) to customize: links, social icons, branding for YOUR app
+- If you need a Context Provider, modify the layout to wrap children with it BUT keep the existing Navbar/Footer imports
+
+This ensures EVERY page automatically has consistent navigation without you adding it per-page.
 
 === DESIGN SYSTEM — CONCRETE, NOT VAGUE ===
 For EVERY project, first decide a color palette and apply it consistently. Use Tailwind arbitrary values.

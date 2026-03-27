@@ -1436,14 +1436,51 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
   const streamWrittenFiles: string[] = [];
   update(17, 'Starting AI generation...', 'AI Generating');
 
+  // ═══ STEP 1: Architecture Planning (fast, small output) ═══
+  update(15, 'Planning app architecture...', 'Planning');
+  let architecturePlan = '';
+  try {
+    const archPrompt = `You are planning a ${technology} web application called "${projectName}".
+User request: ${description}
+${isCloudMode ? 'Cloud mode is enabled with PostgreSQL database and authentication.' : ''}
+
+Return a JSON object with this EXACT structure:
+{
+  "pages": ["page1.tsx", "page2.tsx", ...],
+  "components": ["Component1.tsx", "Component2.tsx", ...],
+  "apiRoutes": ["api/route1/route.ts", ...],
+  "dataModels": ["User", "Product", ...],
+  "colorPalette": { "primary": "#hex", "background": "#hex", "surface": "#hex", "text": "#hex" },
+  "appDescription": "One sentence describing the app's purpose and style"
+}
+
+Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 components, relevant API routes.`;
+
+    const archStream = aiProviderService.chatStream('gemini-3-flash',
+      [{ role: 'user', content: archPrompt }],
+      undefined, 'Return only valid JSON.', { temperature: 0.2, maxTokens: 4000 }
+    );
+    for await (const chunk of archStream) {
+      if (chunk.type === 'text') architecturePlan += chunk.text;
+    }
+    log.info(`[CreateProject] Architecture plan generated (${architecturePlan.length} chars)`);
+  } catch (archErr: any) {
+    log.warn(`[CreateProject] Architecture planning failed (non-fatal): ${archErr.message}`);
+  }
+
+  // ═══ STEP 2: Full Code Generation with architecture context ═══
+  update(17, 'Generating code...', 'AI Generating');
   // Pro for initial generation (high quality), Flash for fallback/fix
   const models = ['gemini-3.1-pro', 'gemini-3-flash', 'gemini-3-flash'];
-  // Use the dedicated project creation prompt (knows about templates)
   const systemPrompt = getProjectCreationSystemPrompt(technology, isCloudMode, supabaseCredentials, neonCredentials);
   const userPrompt = templateApplied
     ? getProjectCreationUserPrompt(technology, projectName, description, isCloudMode, supabaseCredentials, neonCredentials)
-    : prompt; // Fallback to old prompt if no template was applied
-  const chatMessages = [{ role: 'user' as const, content: userPrompt }];
+    : prompt;
+  // Inject architecture plan into the user prompt for consistency
+  const architectureContext = architecturePlan
+    ? `\n\nARCHITECTURE PLAN (follow this structure exactly):\n${architecturePlan}\n\nGenerate ALL the files listed in the plan above. Use the exact color palette specified.`
+    : '';
+  const chatMessages = [{ role: 'user' as const, content: userPrompt + architectureContext }];
   const chatOptions = { temperature: 0.3, maxTokens: isCloudMode ? 100000 : 60000 };
 
   try {
@@ -1856,6 +1893,15 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
         const isBlankPage = htmlBody.length < 200 || (!htmlBody.includes('<div') && !htmlBody.includes('<main') && !htmlBody.includes('<section'));
         const hasClientError = htmlBody.includes('Application error') || htmlBody.includes('Internal Server Error') || htmlBody.includes('Module not found');
 
+        // Take a screenshot with Puppeteer (if available) for visual verification
+        let screenshotBase64 = '';
+        if (httpCode === '200' && attempt > 0) {
+          try {
+            const ssResult = await workspaceService.exec(projectId, userId, 'node /usr/local/bin/screenshot.js 2>/dev/null');
+            screenshotBase64 = ssResult.stdout?.trim() || '';
+          } catch { /* screenshot not available — continue without */ }
+        }
+
         // Re-read logs after curl (compilation may have happened)
         const logsResult2 = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -80');
         const fullLog = (serverLog + '\n' + (logsResult2.stdout || '')).trim();
@@ -1881,8 +1927,21 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
         }
 
         if (buildErrors.length === 0 && httpCode !== '000' && httpCode !== '500' && !isBlankPage && !hasClientError) {
-          log.info(`[BuildCheck] Build OK (HTTP ${httpCode}, page has content) on attempt ${attempt + 1}`);
-          break; // Build is clean!
+          // Run E2E check on the last attempt to verify pages work
+          try {
+            const e2eResult = await workspaceService.exec(projectId, userId, 'timeout 30 node /usr/local/bin/e2e-check.js 2>/dev/null');
+            const e2e = JSON.parse(e2eResult.stdout || '{}');
+            if (e2e.passed === false && e2e.errors?.length > 0) {
+              log.info(`[BuildCheck] E2E found ${e2e.errors.length} issues — will fix`);
+              for (const err of e2e.errors.slice(0, 3)) buildErrors.push(err);
+            } else {
+              log.info(`[BuildCheck] Build + E2E OK on attempt ${attempt + 1}`);
+              break; // All clean!
+            }
+          } catch {
+            log.info(`[BuildCheck] Build OK (HTTP ${httpCode}, E2E skipped) on attempt ${attempt + 1}`);
+            break; // E2E not available, build is good enough
+          }
         }
 
         // Add blank page / client error to build errors for AI context
