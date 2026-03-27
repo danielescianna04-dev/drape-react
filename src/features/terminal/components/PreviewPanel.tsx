@@ -1673,7 +1673,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       autoFixTriggeredRef.current = true;
       // Wait a moment to collect all error info, then auto-fix
       const timer = setTimeout(() => {
-        log.info('[PreviewAutoFix] Fatal error detected, auto-sending to AI for fix');
+        console.log('[PreviewAutoFix] Fatal error detected, auto-sending to AI for fix');
         sendErrorToChat();
       }, 2000);
       return () => clearTimeout(timer);
