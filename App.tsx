@@ -37,7 +37,7 @@ import { AuthScreen } from './src/features/auth/AuthScreen';
 import ChatPage from './src/pages/Chat/ChatPage';
 import { VSCodeSidebar } from './src/features/terminal/components/VSCodeSidebar';
 import { FileViewer } from './src/features/terminal/components/FileViewer';
-import { PreviewPanelV2 as PreviewPanel } from './src/features/terminal/components/preview';
+import { PreviewPanel } from './src/features/terminal/components/PreviewPanel';
 import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
 import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
 import { config } from './src/config/config';

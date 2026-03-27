@@ -15,7 +15,7 @@ import { VerticalCardSwitcher } from './VerticalCardSwitcher';
 import { ContentRenderer } from './ContentRenderer';
 import { TabBar } from './TabBar';
 import { ChatPanel } from './ChatPanel';
-import { PreviewPanelV2 as PreviewPanel } from './preview';
+import { PreviewPanel } from './PreviewPanel';
 import { GitPanel } from './GitPanel';
 import { GitSheet } from './GitSheet';
 import { VerticalIconSwitcher } from './VerticalIconSwitcher';
