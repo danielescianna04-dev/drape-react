@@ -1796,6 +1796,28 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       }
     }
 
+    // Run seed.sql if AI generated one (populate DB with realistic data)
+    if (neonCredentials || supabaseCredentials) {
+      for (const seedPath of ['db/seed.sql', 'seed.sql', 'supabase/seed.sql']) {
+        try {
+          const seedResult = await fileService.readFile(projectId, seedPath);
+          if (seedResult.success && seedResult.data?.content) {
+            const seedContent = seedResult.data.content;
+            if (neonCredentials) {
+              await neonManagementService.runSQL(neonCredentials.projectId, seedContent, neonCredentials.endpointId);
+              log.info(`[CreateProject] Seed data applied from ${seedPath}`);
+            } else if (supabaseCredentials) {
+              await supabaseManagementService.runSQL(supabaseCredentials.projectRef, seedContent);
+              log.info(`[CreateProject] Seed data applied from ${seedPath}`);
+            }
+            break;
+          }
+        } catch (err: any) {
+          log.warn(`[CreateProject] Seed failed (${seedPath}): ${err.message}`);
+        }
+      }
+    }
+
     // Save cloud database credentials to Firestore
     if (neonCredentials) {
       try {

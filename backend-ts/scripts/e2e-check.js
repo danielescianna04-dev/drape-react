@@ -5,11 +5,55 @@
  * Outputs JSON: { "passed": true/false, "pages": [...], "errors": [...] }
  */
 const puppeteer = require('puppeteer-core');
+const fs = require('fs');
+const path = require('path');
 
-const PAGES_TO_CHECK = ['/', '/about', '/dashboard', '/login', '/register', '/settings', '/profile'];
+// Auto-detect pages from the project structure
+function detectPages() {
+  const projectDir = '/home/coder/project';
+  const pages = ['/'];
+
+  // Next.js: app/*/page.tsx
+  const appDir = path.join(projectDir, 'app');
+  if (fs.existsSync(appDir)) {
+    const scan = (dir, prefix) => {
+      try {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (entry.isDirectory() && !entry.name.startsWith('_') && !entry.name.startsWith('.') && entry.name !== 'api' && entry.name !== 'components') {
+            const route = entry.name.startsWith('(') ? prefix : `${prefix}/${entry.name}`;
+            const hasPage = fs.existsSync(path.join(dir, entry.name, 'page.tsx')) || fs.existsSync(path.join(dir, entry.name, 'page.jsx'));
+            if (hasPage && route !== '/') pages.push(route);
+            scan(path.join(dir, entry.name), route);
+          }
+        }
+      } catch {}
+    };
+    scan(appDir, '');
+  }
+
+  // React/Vue/Svelte: src/pages/*.tsx or pages/*.vue
+  for (const pagesDir of ['src/pages', 'pages', 'src/routes']) {
+    const fullDir = path.join(projectDir, pagesDir);
+    if (fs.existsSync(fullDir)) {
+      try {
+        for (const f of fs.readdirSync(fullDir)) {
+          if (f.match(/\.(tsx|jsx|vue|svelte|astro)$/) && !f.startsWith('_') && !f.startsWith('[') && !f.startsWith('+')) {
+            const name = f.replace(/\.(tsx|jsx|vue|svelte|astro)$/, '').replace(/index$/, '');
+            if (name && name !== 'page') pages.push(`/${name.toLowerCase()}`);
+          }
+        }
+      } catch {}
+    }
+  }
+
+  return [...new Set(pages)].slice(0, 10); // Max 10 pages
+}
+
 const TIMEOUT = 10000;
 
 (async () => {
+  const PAGES_TO_CHECK = detectPages();
+  console.error(`[E2E] Checking ${PAGES_TO_CHECK.length} pages: ${PAGES_TO_CHECK.join(', ')}`);
   let browser;
   const results = { passed: true, pages: [], errors: [] };
 
