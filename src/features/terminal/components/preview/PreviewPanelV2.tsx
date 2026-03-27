@@ -106,6 +106,44 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
   // ── Sync refs ──
   useEffect(() => { serverStatusRef.current = serverStatus; }, [serverStatus]);
 
+  // ── Health check on mount: if status is 'checking', verify server is alive ──
+  useEffect(() => {
+    if (serverStatus !== 'checking' || !currentPreviewUrl) return;
+    let cancelled = false;
+
+    const check = async () => {
+      try {
+        const url = new URL(currentPreviewUrl);
+        const match = url.pathname.match(/^(\/preview\/[^/]+\/)/);
+        if (match) url.pathname = match[1];
+
+        const resp = await fetch(url.toString(), {
+          method: 'GET',
+          headers: { 'X-Drape-Check': 'true' },
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (!cancelled) {
+          if (resp.ok) {
+            console.log('[PreviewV2] Server is alive, transitioning to running');
+            setServerStatus('running');
+          } else {
+            console.log('[PreviewV2] Server responded with', resp.status, '— retrying');
+            setTimeout(check, 3000);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          console.log('[PreviewV2] Health check failed — retrying');
+          setTimeout(check, 3000);
+        }
+      }
+    };
+
+    check();
+    return () => { cancelled = true; };
+  }, [serverStatus, currentPreviewUrl]);
+
   // ── Determine what to show ──
   // The user NEVER sees an error screen. Priority:
   // 1. Server stopped, no error → Start screen
