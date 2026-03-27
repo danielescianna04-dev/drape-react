@@ -110,8 +110,11 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
   useEffect(() => {
     if (serverStatus !== 'checking' || !currentPreviewUrl) return;
     let cancelled = false;
+    let attempts = 0;
+    const MAX_CHECK_ATTEMPTS = 5;
 
     const check = async () => {
+      attempts++;
       try {
         // Build health check URL — must include /preview/{projectId}/
         let checkUrl = currentPreviewUrl;
@@ -145,15 +148,23 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
           if (resp.ok) {
             console.log('[PreviewV2] Server is alive, transitioning to running');
             setServerStatus('running');
+          } else if (attempts < MAX_CHECK_ATTEMPTS) {
+            console.log('[PreviewV2] Server responded with', resp.status, `— retry ${attempts}/${MAX_CHECK_ATTEMPTS}`);
+            setTimeout(check, 2000);
           } else {
-            console.log('[PreviewV2] Server responded with', resp.status, '— retrying');
-            setTimeout(check, 3000);
+            console.log('[PreviewV2] Server not available after', MAX_CHECK_ATTEMPTS, 'attempts — showing start screen');
+            setServerStatus('stopped');
           }
         }
       } catch (err: any) {
         if (!cancelled) {
-          console.log('[PreviewV2] Health check failed:', err?.message, 'URL:', currentPreviewUrl);
-          setTimeout(check, 3000);
+          if (attempts < MAX_CHECK_ATTEMPTS) {
+            console.log('[PreviewV2] Health check failed:', err?.message, `— retry ${attempts}/${MAX_CHECK_ATTEMPTS}`);
+            setTimeout(check, 2000);
+          } else {
+            console.log('[PreviewV2] Health check failed after', MAX_CHECK_ATTEMPTS, 'attempts — showing start screen');
+            setServerStatus('stopped');
+          }
         }
       }
     };
