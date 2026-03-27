@@ -107,7 +107,10 @@ REACT (VITE) INSTRUCTIONS:
 - Routing: <Link to="/path">, useNavigate() for programmatic, useParams() for dynamic routes
 - Images: <img> tag directly, NOT from any image component
 - Design tokens: @theme oklch colors — primary, surface, border, text-primary, text-secondary
-- CSS utilities: .gradient-text, .glass, .glow, .gradient-bg`,
+- CSS utilities: .gradient-text, .glass, .glow, .gradient-bg
+- react-hot-toast is installed — use toast('message') for notifications
+- react-icons is installed — import from 'react-icons/fi'
+- Global state: create src/context/AppContext.tsx with createContext + useContext`,
 
   nextjs: `
 NEXT.JS (APP ROUTER) INSTRUCTIONS:
@@ -138,8 +141,11 @@ VUE 3 (COMPOSITION API) INSTRUCTIONS:
 - Watch: watch(searchQuery, (val) => { /* react */ });
 - Shared state: Use provide/inject or create a composable (src/composables/useStore.ts)
 - Router: <RouterLink to="/path">, useRouter().push('/path'), useRoute().params
+- Route definition: { path: '/about', component: () => import('../views/AboutView.vue') }
 - Icons: import { Icon } from '@iconify/vue'; <Icon icon="mdi:home" />
-- v-model for two-way binding, @click for events`,
+- v-model for two-way binding, @click for events
+- watch/watchEffect for reactive side effects
+- defineEmits/defineProps for component communication`,
 
   nuxt: `
 NUXT 3 INSTRUCTIONS:
@@ -153,7 +159,9 @@ NUXT 3 INSTRUCTIONS:
   export default defineEventHandler(async (event) => { return { items: [...] } })
 - SEO: useHead({ title: 'Page' }) and definePageMeta({ layout: 'default' })
 - State: useState('key', () => initialValue) for shared SSR-safe state
-- Middleware: defineNuxtRouteMiddleware((to, from) => { if (!auth) return navigateTo('/login') })`,
+- Middleware: defineNuxtRouteMiddleware((to, from) => { if (!auth) return navigateTo('/login') })
+- definePageMeta({ layout: 'default', middleware: ['auth'] }) for page config
+- Error handling: const { data, error, pending } = useFetch('/api/items'); if (error.value) show error`,
 
   svelte: `
 SVELTEKIT + SVELTE 5 INSTRUCTIONS:
@@ -170,7 +178,11 @@ SVELTEKIT + SVELTE 5 INSTRUCTIONS:
   export async function GET() { return json({ items: [...] }); }
 - Forms: use:enhance on forms, form actions for mutations
 - Loops: {#each items as item}<div>{item.name}</div>{/each}
-- Conditionals: {#if loading}<Spinner />{:else}<Content />{/if}`,
+- Conditionals: {#if loading}<Spinner />{:else}<Content />{/if}
+- Navigation: import { goto } from '$app/navigation'; goto('/path')
+- Route params: import { page } from '$app/stores'; $page.params.id
+- Form actions: export const actions = { default: async ({ request }) => { const data = await request.formData(); } }
+- Use <form method="POST" use:enhance> for progressive enhancement`,
 
   angular: `
 ANGULAR 19 INSTRUCTIONS:
@@ -187,7 +199,11 @@ ANGULAR 19 INSTRUCTIONS:
 - Routing: app.routes.ts with lazy loading
   { path: 'dashboard', loadComponent: () => import('./pages/dashboard/dashboard.component').then(m => m.DashboardComponent) }
 - Forms: Use ReactiveFormsModule with FormGroup/FormControl
-- Services: @Injectable({ providedIn: 'root' }) for shared state`,
+- Services: @Injectable({ providedIn: 'root' }) for shared state
+- effect() for reactive side effects (like useEffect)
+- toSignal() to convert Observable to signal: items = toSignal(this.http.get<Item[]>('/api'))
+- Router: inject(Router).navigate(['/path']), inject(ActivatedRoute).params
+- provideHttpClient() already in app.config.ts`,
 
   astro: `
 ASTRO 5 INSTRUCTIONS:
@@ -202,7 +218,11 @@ ASTRO 5 INSTRUCTIONS:
 - Loops: {items.map(item => <Card {...item} />)}
 - API routes: src/pages/api/*.ts (export async function GET() { return new Response(...) })
 - Content: Use Astro.glob() or content collections for static data
-- class:list for conditional classes: class:list={['card', { active: isActive }]}`,
+- class:list for conditional classes: class:list={['card', { active: isActive }]}
+- Island directives: client:load (immediate), client:idle (when idle), client:visible (when scrolled to)
+- Dynamic routes: src/pages/[slug].astro with Astro.params.slug
+- Content collections: src/content/ + getCollection('posts')
+- Astro ships ZERO JS by default — interactive components MUST have client: directive`,
 
   remix: `
 REMIX V2 INSTRUCTIONS:
@@ -256,6 +276,9 @@ FLASK INSTRUCTIONS:
   def get_items(): return jsonify([i.to_dict() for i in Item.query.all()])
 - Models: Use dataclasses or SQLAlchemy if cloud mode
 - Flash messages: flash('Success!', 'success') + {% with messages = get_flashed_messages() %} in template
+- Blueprints: for multi-section apps, use Blueprint('name', __name__) and app.register_blueprint()
+- SQLAlchemy: from flask_sqlalchemy import SQLAlchemy; db = SQLAlchemy(app); class Item(db.Model): ...
+- redirect + url_for: return redirect(url_for('dashboard')) — NEVER hardcode URLs
 - Jinja2: {% for item in items %}, {% if condition %}, {{ variable }}, {{ variable|default('N/A') }}
 - Forms: <form method="POST" action="/create"> with request.form['field'] in handler
 - Server runs on port 3000`,
@@ -277,7 +300,11 @@ DJANGO 5 INSTRUCTIONS:
 - Forms: Use Django forms or ModelForm for validation
 - Template syntax: {% for item in items %}, {% if %}, {{ item.name }}, {% url 'dashboard' %}
 - Static: {% load static %}, {% static 'css/custom.css' %}
-- CSRF: {% csrf_token %} in ALL forms`,
+- CSRF: {% csrf_token %} in ALL forms
+- Class-based views: ListView, DetailView, CreateView, UpdateView, DeleteView for CRUD
+- Admin: admin.site.register(Model) in app/admin.py — gives free admin panel
+- get_object_or_404: from django.shortcuts import get_object_or_404
+- Messages framework: from django.contrib import messages; messages.success(request, 'Done!')`,
 
   fastapi: `
 FASTAPI INSTRUCTIONS:
@@ -295,6 +322,9 @@ FASTAPI INSTRUCTIONS:
 - Path params: @app.get('/api/items/{item_id}') async def get_item(item_id: int): ...
 - Query params: @app.get('/api/search') async def search(q: str = '', limit: int = 10): ...
 - Error handling: raise HTTPException(status_code=404, detail='Not found')
+- Dependency injection: def get_db(): ... then Depends(get_db) in route params
+- APIRouter for organizing: router = APIRouter(prefix='/api/items', tags=['items'])
+- CORS: app.add_middleware(CORSMiddleware, allow_origins=["*"])
 - Auto docs: /docs (Swagger), /redoc
 - Server runs on port 3000`,
 
@@ -314,7 +344,12 @@ LARAVEL INSTRUCTIONS:
 - Flash: return redirect()->back()->with('success', 'Created!')
   @if(session('success')) <div class="alert">{{ session('success') }}</div> @endif
 - Migrations: Schema::create('items', fn (Blueprint $t) => $t->id(); $t->string('name'); $t->timestamps());
-- Do NOT use Vite or npm — CSS via CDN, JS inline in Blade`,
+- Do NOT use Vite or npm — CSS via CDN, JS inline in Blade
+- Resource controllers: Route::resource('items', ItemController::class) for full CRUD
+- Eloquent relations: hasMany, belongsTo, belongsToMany
+- Validation: $request->validate(['name' => 'required|max:255', 'price' => 'numeric|min:0'])
+- Named routes: Route::get('/items', [ItemController::class, 'index'])->name('items.index')
+- Redirect: return redirect()->route('items.index')->with('success', 'Created!')`,
 
   expo: `
 REACT NATIVE (EXPO) INSTRUCTIONS:
@@ -331,7 +366,14 @@ REACT NATIVE (EXPO) INSTRUCTIONS:
 - Lists: Use FlatList for long lists (NOT ScrollView + map)
   <FlatList data={items} renderItem={({item}) => <ItemCard item={item} />} keyExtractor={i => i.id} />
 - Navigation: import { router } from 'expo-router'; router.push('/details/123');
+- Links: import { Link } from 'expo-router'; <Link href="/details/123">
+- Route params: import { useLocalSearchParams } from 'expo-router'; const { id } = useLocalSearchParams();
+- Stack navigator: app/(stack)/_layout.tsx with Stack component
 - Haptics: import * as Haptics from 'expo-haptics'; Haptics.impactAsync()
+- Pressable preferred over TouchableOpacity for new code
+- KeyboardAvoidingView: ALWAYS wrap forms with it to prevent keyboard covering inputs
+- Platform: import { Platform } from 'react-native'; Platform.OS === 'ios'
+- Styles use UNITLESS numbers (not px, rem): { fontSize: 16, padding: 12 }
 - Keep components small — extract into separate files in components/`,
 
   flutter: `
@@ -352,7 +394,13 @@ FLUTTER INSTRUCTIONS:
 - Lists: ListView.builder(itemCount: items.length, itemBuilder: (ctx, i) => ItemCard(item: items[i]))
 - Layout: Scaffold + AppBar + body, Column/Row for layout, Expanded/Flexible for flex
 - Responsive: MediaQuery.of(context).size.width for breakpoints
-- Animations: AnimatedContainer, Hero, AnimationController for custom`,
+- Animations: AnimatedContainer, Hero, AnimationController for custom
+- State management: For shared state use Provider pattern or Riverpod
+- FutureBuilder: for async data loading with loading/error/data states
+- ListView.builder: for efficient long lists (NOT Column + map)
+- GoRouter: GoRouter(routes: [GoRoute(path: '/', builder: (ctx, state) => HomeScreen())])
+- const constructors for performance: const Text('hello'), const SizedBox(height: 8)
+- Image.network for URL images, CachedNetworkImage for cached`,
 
   'python-console': `
 PYTHON CONSOLE INSTRUCTIONS:
