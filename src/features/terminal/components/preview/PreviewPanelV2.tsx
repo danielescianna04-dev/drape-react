@@ -113,9 +113,17 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
 
     const check = async () => {
       try {
-        const url = new URL(currentPreviewUrl);
-        const match = url.pathname.match(/^(\/preview\/[^/]+\/)/);
-        if (match) url.pathname = match[1];
+        // Build health check URL — must include /preview/{projectId}/
+        let checkUrl = currentPreviewUrl;
+        if (projectId && !checkUrl.includes('/preview/')) {
+          checkUrl = `${config.apiUrl}/preview/${projectId}/`;
+        }
+        try {
+          const parsed = new URL(checkUrl);
+          const match = parsed.pathname.match(/^(\/preview\/[^/]+\/)/);
+          if (match) parsed.pathname = match[1];
+          checkUrl = parsed.toString();
+        } catch {}
 
         const headers: Record<string, string> = { 'X-Drape-Check': 'true' };
         const token = useUIStore.getState().previewAccessToken;
@@ -123,11 +131,15 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
         if (token) headers['X-Drape-Preview-Token'] = token;
         if (machineId) headers['Fly-Force-Instance-Id'] = machineId;
 
-        const resp = await fetch(url.toString(), {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+
+        const resp = await fetch(checkUrl, {
           method: 'GET',
           headers,
-          signal: AbortSignal.timeout(8000),
+          signal: controller.signal,
         });
+        clearTimeout(timeout);
 
         if (!cancelled) {
           if (resp.ok) {
