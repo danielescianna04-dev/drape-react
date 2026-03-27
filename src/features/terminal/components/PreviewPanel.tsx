@@ -1433,12 +1433,21 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     return () => clearTimeout(timer);
   }, [webViewReady, autoFix.state]);
 
-  // When auto-fix transitions to 'rechecking', reload the WebView
+  // When auto-fix transitions to 'rechecking', restart the server/reload the WebView
   useEffect(() => {
     if (autoFix.state === 'rechecking') {
-      jsErrorsRef.current = []; // Clear errors for fresh check
+      jsErrorsRef.current = [];
       setWebViewReady(false);
-      webViewRef.current?.reload();
+      if (serverStatus === 'stopped' || startup.previewError) {
+        // Server was stopped due to error — restart it
+        console.log('[PreviewAutoFix] Restarting server after fix...');
+        startup.setPreviewError(null);
+        errorDetectedRef.current = false;
+        handleRetryPreview();
+      } else {
+        // Server is running, just reload WebView
+        webViewRef.current?.reload();
+      }
     }
   }, [autoFix.state]);
 
@@ -1666,16 +1675,30 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     }
   }, [terminalOutput, serverStatus, startup.previewError]);
 
-  // Auto-fix: when a fatal preview error occurs, automatically send to AI for fix
+  // Auto-fix: when a fatal preview error occurs, fix IN-PLACE (don't go to chat)
   const autoFixTriggeredRef = useRef(false);
   useEffect(() => {
     if (startup.previewError && !autoFixTriggeredRef.current) {
       autoFixTriggeredRef.current = true;
-      // Wait a moment to collect all error info, then auto-fix
       const timer = setTimeout(() => {
-        console.log('[PreviewAutoFix] Fatal error detected, auto-sending to AI for fix');
-        sendErrorToChat();
-      }, 2000);
+        console.log('[PreviewAutoFix] Fatal error detected, fixing in-place');
+        // Collect error lines from terminal output
+        const errorLines = terminalOutput
+          .filter(l => {
+            const lower = l.toLowerCase();
+            return lower.includes('error') || lower.includes('failed') || lower.includes('cannot');
+          })
+          .slice(-10);
+        const errors = errorLines.length > 0
+          ? errorLines
+          : [startup.previewError?.message || 'Preview failed to start'];
+        // Fix in-place via autoFix hook (stays in preview, shows loading)
+        autoFix.reportCheckResult({
+          rootChildren: 0,
+          jsErrors: errors,
+          screenshotBase64: null,
+        });
+      }, 1500);
       return () => clearTimeout(timer);
     }
     if (!startup.previewError) {
@@ -1917,10 +1940,26 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   onStartServer={handleStartServer}
                   t={t}
                 />
-              ) : serverStatus === 'stopped' && startup.previewError ? (
+              ) : serverStatus === 'stopped' && startup.previewError && !autoFix.isFixing ? (
                 <PreviewErrorScreen
                   previewError={startup.previewError}
                   terminalOutput={terminalOutput}
+                  onClose={handleClose}
+                  onRetryPreview={handleRetryPreview}
+                  onSendErrorReport={sendErrorToChat}
+                  topInset={insets.top}
+                  t={t}
+                />
+              ) : serverStatus === 'stopped' && startup.previewError && autoFix.isFixing ? (
+                <PreviewLoadingScreen
+                  previewError={null}
+                  previewLogs={startup.previewLogs}
+                  terminalOutput={terminalOutput}
+                  displayedMessage={autoFix.statusMessage || 'Risolvo il problema...'}
+                  startingMessage={`Tentativo ${autoFix.fixAttempt}...`}
+                  smoothProgress={startup.smoothProgress}
+                  elapsedSeconds={startup.elapsedSeconds}
+                  pulseAnim={startup.pulseAnim}
                   onClose={handleClose}
                   onRetryPreview={handleRetryPreview}
                   onSendErrorReport={sendErrorToChat}
