@@ -1984,13 +1984,29 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
         const isBlankPage = htmlBody.length < 200 || (!htmlBody.includes('<div') && !htmlBody.includes('<main') && !htmlBody.includes('<section'));
         const hasClientError = htmlBody.includes('Application error') || htmlBody.includes('Internal Server Error') || htmlBody.includes('Module not found');
 
-        // Take a screenshot with Puppeteer (if available) for visual verification
+        // Take a screenshot with Puppeteer for VISUAL verification (every check, not just retries)
         let screenshotBase64 = '';
-        if (httpCode === '200' && attempt > 0) {
+        let isVisuallyBlank = false;
+        if (httpCode === '200') {
           try {
-            const ssResult = await workspaceService.exec(projectId, userId, 'node /usr/local/bin/screenshot.js 2>/dev/null');
-            screenshotBase64 = ssResult.stdout?.trim() || '';
-          } catch { /* screenshot not available — continue without */ }
+            const ssResult = await workspaceService.exec(projectId, userId, 'timeout 25 node /usr/local/bin/screenshot.js 2>/tmp/ss-err.txt');
+            screenshotBase64 = (ssResult.stdout || '').trim();
+            // If screenshot is very small (< 5KB base64 ≈ ~3KB image), page is likely blank/white
+            if (screenshotBase64 && screenshotBase64.length < 7000) {
+              isVisuallyBlank = true;
+              log.info(`[BuildCheck] Screenshot too small (${screenshotBase64.length} chars) — likely blank page`);
+            }
+            // Also check stderr for JS errors from the page
+            const ssErr = await workspaceService.exec(projectId, userId, 'cat /tmp/ss-err.txt 2>/dev/null');
+            if (ssErr.stdout?.includes('"errors"')) {
+              try {
+                const pageErrors = JSON.parse(ssErr.stdout).errors || [];
+                for (const e of pageErrors.slice(0, 3)) {
+                  if (!buildErrors.some(be => be.includes(e.substring(0, 30)))) buildErrors.push(e);
+                }
+              } catch {}
+            }
+          } catch { /* Puppeteer not available — continue without */ }
         }
 
         // Re-read logs after curl (compilation may have happened)
@@ -2017,7 +2033,7 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
           }
         }
 
-        if (buildErrors.length === 0 && httpCode !== '000' && httpCode !== '500' && !isBlankPage && !hasClientError) {
+        if (buildErrors.length === 0 && httpCode !== '000' && httpCode !== '500' && !isBlankPage && !hasClientError && !isVisuallyBlank) {
           // Run E2E check on the last attempt to verify pages work
           try {
             const e2eResult = await workspaceService.exec(projectId, userId, 'timeout 30 node /usr/local/bin/e2e-check.js 2>/dev/null');
@@ -2038,6 +2054,7 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
         // Add blank page / client error to build errors for AI context
         if (isBlankPage && buildErrors.length === 0) buildErrors.push('Page is blank — HTML body has no content divs. Check that components render properly and use "use client" where needed.');
         if (hasClientError && buildErrors.length === 0) buildErrors.push('Page shows "Application error: a client-side exception has occurred". Check hydration, window access, and component imports.');
+        if (isVisuallyBlank && buildErrors.length === 0) buildErrors.push('Page renders as a WHITE/BLANK screen (verified with Puppeteer screenshot). The HTML might have tags but nothing visible renders. Check: CSS imports in layout.tsx, globals.css exists, Tailwind is configured, components actually render content.');
 
         if (buildErrors.length === 0 && attempt > 0) {
           log.info(`[BuildCheck] No more errors detected on attempt ${attempt + 1}`);
@@ -2065,9 +2082,22 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
           }
         }
 
-        const fileContext = brokenFiles.map(f => `--- ${f.path} ---\n${f.content}`).join('\n\n');
+        // For visual blank pages, also read layout + css files for context
+        if (isVisuallyBlank || isBlankPage) {
+          for (const layoutPath of ['app/layout.tsx', 'app/globals.css', 'src/App.tsx', 'src/index.css', 'src/main.tsx']) {
+            try {
+              const lr = await workspaceService.exec(projectId, userId, `cat /home/coder/project/${layoutPath} 2>/dev/null`);
+              if (lr.stdout && !brokenFiles.some(f => f.path === layoutPath)) {
+                brokenFiles.push({ path: layoutPath, content: lr.stdout });
+              }
+            } catch {}
+          }
+        }
 
-        const fixPrompt = `Fix these ${technology} build errors:\n\n${buildErrors.join('\n')}\n\n${fileContext ? `Current file contents:\n${fileContext}\n\n` : ''}Return JSON array of fixed files: [{"path": "file/path", "content": "complete fixed content"}]\nRules:\n- Return the COMPLETE file content, not just the changed lines\n- For 'use client' errors: add 'use client' at the very top of the file\n- For missing import/module errors: add the correct import statement\n- For 'is not defined' errors: add the import for the missing symbol\n- For next/image Invalid src: replace <Image> with <img> and remove the next/image import\n- NEVER import from lucide-react, @heroicons, @fortawesome — use react-icons instead\n- Return valid JSON only`;
+        const fileContext = brokenFiles.map(f => `--- ${f.path} ---\n${f.content}`).join('\n\n');
+        const screenshotNote = screenshotBase64 ? '\n\nA Puppeteer screenshot was taken and the page appears BLANK/WHITE. The page must render visible content.' : '';
+
+        const fixPrompt = `Fix these ${technology} errors:\n\n${buildErrors.join('\n')}${screenshotNote}\n\n${fileContext ? `Current file contents:\n${fileContext}\n\n` : ''}Return JSON array of fixed files: [{"path": "file/path", "content": "complete fixed content"}]\nRules:\n- Return the COMPLETE file content, not just the changed lines\n- For blank/white page: check layout.tsx imports globals.css, check globals.css has @import "tailwindcss", check components actually return visible JSX\n- For 'use client' errors: add 'use client' at the very top of the file\n- For missing import/module errors: add the correct import statement\n- For 'is not defined' errors: add the import for the missing symbol\n- For next/image Invalid src: replace <Image> with <img> and remove the next/image import\n- NEVER import from lucide-react, @heroicons, @fortawesome — use react-icons instead\n- Return valid JSON only`;
 
         try {
           const fixStream = aiProviderService.chatStream('gemini-3-flash',
