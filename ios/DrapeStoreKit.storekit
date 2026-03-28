@@ -1,0 +1,116 @@
+{
+  "identifier" : "DrapeStoreKit",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_applicationInternalID" : "6758869312",
+    "_developerTeamID" : "DANIELE_SCIANNA",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "it",
+    "_storefront" : "ITA",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "drape_plans",
+      "localizations" : [
+        {
+          "description" : "Piani Drape",
+          "displayName" : "Drape Plans",
+          "locale" : "it"
+        }
+      ],
+      "name" : "Drape Plans",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "22.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "go_monthly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "10 progetti, budget AI potenziato, 5GB cloud",
+              "displayName" : "Go Mensile",
+              "locale" : "it"
+            }
+          ],
+          "productID" : "com.drape.app.go.monthly.v2",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Go Mensile",
+          "subscriptionGroupID" : "drape_plans",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "229.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "go_yearly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "10 progetti, budget AI potenziato, 5GB cloud",
+              "displayName" : "Go Annuo",
+              "locale" : "it"
+            }
+          ],
+          "productID" : "com.drape.app.go.yearly.v2",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Go Annuo",
+          "subscriptionGroupID" : "drape_plans",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "39.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "pro_monthly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "50 progetti, AI illimitato, 10GB cloud",
+              "displayName" : "Pro Mensile",
+              "locale" : "it"
+            }
+          ],
+          "productID" : "com.drape.app.pro.monthly.v2",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Pro Mensile",
+          "subscriptionGroupID" : "drape_plans",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "449.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "pro_yearly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "50 progetti, AI illimitato, 10GB cloud",
+              "displayName" : "Pro Annuo",
+              "locale" : "it"
+            }
+          ],
+          "productID" : "com.drape.app.pro.yearly.v2",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Pro Annuo",
+          "subscriptionGroupID" : "drape_plans",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
