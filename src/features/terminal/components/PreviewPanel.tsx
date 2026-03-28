@@ -181,8 +181,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
   // Check if technology is supported for preview
   const SUPPORTED_PREVIEW_TECHS = ['nextjs', 'react', 'vite', 'vue', 'html', 'static', 'astro', 'expo'];
-  const tech = (currentWorkstation?.technology || currentWorkstation?.language || '').toLowerCase();
-  const isPreviewSupported = !tech || SUPPORTED_PREVIEW_TECHS.some(s => tech.includes(s));
+  // Check from workstation metadata OR from projectInfo detected during startup
+  const detectedTech = (projectInfo?.type || currentWorkstation?.technology || currentWorkstation?.language || '').toLowerCase();
+  const isPreviewSupported = !detectedTech || detectedTech === 'unknown' || SUPPORTED_PREVIEW_TECHS.some(s => detectedTech.includes(s));
 
   // ---- Render ----
   if (!isPreviewSupported) {
@@ -196,7 +197,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
               Preview non supportata
             </Text>
             <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, marginTop: 8, textAlign: 'center' }}>
-              La preview non è ancora disponibile per i progetti {tech || 'di questo tipo'}.
+              La preview non è ancora disponibile per i progetti {detectedTech || 'di questo tipo'}.
             </Text>
             <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, marginTop: 16, textAlign: 'center' }}>
               Stack supportate: Next.js, React, Vue, HTML/CSS/JS, Astro
