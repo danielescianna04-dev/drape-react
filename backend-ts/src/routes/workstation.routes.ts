@@ -164,15 +164,6 @@ function sanitizePackageName(name: string): string {
     .slice(0, 80) || 'drape-app';
 }
 
-function sanitizePythonModuleName(name: string): string {
-  return (name || 'drape_project')
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^[^a-z_]+/, '')
-    .replace(/_+/g, '_')
-    .slice(0, 48) || 'drape_project';
-}
-
 function upsertFile(files: GeneratedFile[], path: string, content: string): void {
   const idx = files.findIndex((f) => f.path === path);
   if (idx >= 0) files[idx].content = content;
@@ -202,19 +193,14 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
     upsertFile(normalized, path, next);
   };
 
-  const nodeTech = new Set(['nextjs', 'react', 'vue', 'nuxt', 'svelte', 'angular', 'astro', 'remix', 'solid', 'expo']);
+  const nodeTech = new Set(['nextjs', 'react', 'vue', 'astro', 'expo']);
   if (nodeTech.has(technology)) {
     const packageFile = normalized.find((f) => f.path === 'package.json');
     const fallbackScripts: Record<string, string> = {
       nextjs: 'next dev -p 3000 -H 0.0.0.0',
       react: 'vite --host 0.0.0.0 --port 3000',
       vue: 'vite --host 0.0.0.0 --port 3000',
-      nuxt: 'nuxt dev --host 0.0.0.0 --port 3000',
-      svelte: 'vite --host 0.0.0.0 --port 3000',
-      angular: 'ng serve --host 0.0.0.0 --port 3000',
       astro: 'astro dev --host 0.0.0.0 --port 3000',
-      remix: 'remix vite:dev --host 0.0.0.0 --port 3000',
-      solid: 'vite --host 0.0.0.0 --port 3000',
       expo: 'expo start --web --port 3000 --non-interactive',
     };
 
@@ -291,60 +277,6 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
       ensureFile('src/App.vue', `<template>\n  <main style="padding: 24px; font-family: system-ui, sans-serif;">\n    <h1>Benvenuto su ${projectName}</h1>\n  </main>\n</template>\n`);
     }
 
-    if (technology === 'nuxt') {
-      ensureDep(pkg, 'dependencies', 'nuxt', '^3.12.0');
-      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
-      if (hasTailwindSignals) {
-        ensureDep(pkg, 'devDependencies', '@nuxtjs/tailwindcss', '^6.12.0');
-        upsertFile(normalized, 'nuxt.config.ts', `export default defineNuxtConfig({\n  devtools: { enabled: false },\n  modules: ['@nuxtjs/tailwindcss'],\n});\n`);
-      } else {
-        upsertFile(normalized, 'nuxt.config.ts', `export default defineNuxtConfig({\n  devtools: { enabled: false }\n});\n`);
-      }
-      upsertFile(normalized, 'tsconfig.json', `{\n  "extends": "./.nuxt/tsconfig.json",\n  "compilerOptions": {\n    "strict": false,\n    "skipLibCheck": true\n  }\n}\n`);
-      ensureFile('app.vue', `<template>\n  <main style="padding: 24px; font-family: system-ui, sans-serif;">\n    <h1>Benvenuto su ${projectName}</h1>\n  </main>\n</template>\n`);
-    }
-
-    if (technology === 'svelte') {
-      pkg.type = 'module'; // @sveltejs/vite-plugin-svelte v3+ is ESM-only
-      ensureDep(pkg, 'dependencies', 'svelte', '^4.2.0');
-      ensureDep(pkg, 'devDependencies', 'vite', '^5.0.0');
-      ensureDep(pkg, 'devDependencies', '@sveltejs/vite-plugin-svelte', '^3.0.0');
-      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
-      upsertFile(normalized, 'vite.config.ts', `import { defineConfig } from 'vite';\nimport { svelte } from '@sveltejs/vite-plugin-svelte';\n\nexport default defineConfig({\n  plugins: [svelte()],\n});\n`);
-      upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2020",\n    "useDefineForClassFields": true,\n    "module": "ESNext",\n    "skipLibCheck": true,\n    "moduleResolution": "bundler",\n    "allowImportingTsExtensions": true,\n    "isolatedModules": true,\n    "moduleDetection": "force",\n    "noEmit": true,\n    "strict": false,\n    "noUnusedLocals": false,\n    "noUnusedParameters": false\n  },\n  "include": ["src"]\n}\n`);
-      upsertFile(normalized, 'index.html', `<!doctype html>\n<html lang="it">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>${projectName}</title>\n  </head>\n  <body>\n    <div id="app"></div>\n    <script type="module" src="/src/main.ts"></script>\n  </body>\n</html>\n`);
-      ensureFile('src/main.ts', `import App from './App.svelte';\n\nconst app = new App({\n  target: document.getElementById('app')!,\n});\n\nexport default app;\n`);
-      // If AI generated SvelteKit routes instead of plain Svelte, rescue the content
-      const pageFile = normalized.find(f => f.path === 'src/routes/+page.svelte');
-      const appFile = normalized.find(f => f.path === 'src/App.svelte');
-      if (pageFile && !appFile) {
-        // Move +page.svelte content to App.svelte
-        upsertFile(normalized, 'src/App.svelte', pageFile.content);
-        // Remove SvelteKit route files
-        for (let i = normalized.length - 1; i >= 0; i--) {
-          if (normalized[i].path.startsWith('src/routes/')) normalized.splice(i, 1);
-        }
-      }
-      ensureFile('src/App.svelte', `<main style="padding: 24px; font-family: system-ui, sans-serif;">\n  <h1>Benvenuto su ${projectName}</h1>\n</main>\n`);
-    }
-
-    if (technology === 'angular') {
-      ensureDep(pkg, 'dependencies', '@angular/core', '^18.0.0');
-      ensureDep(pkg, 'dependencies', '@angular/common', '^18.0.0');
-      ensureDep(pkg, 'dependencies', '@angular/platform-browser', '^18.0.0');
-      ensureDep(pkg, 'dependencies', 'rxjs', '^7.8.0');
-      ensureDep(pkg, 'dependencies', 'zone.js', '^0.14.0');
-      ensureDep(pkg, 'devDependencies', '@angular/cli', '^18.0.0');
-      ensureDep(pkg, 'devDependencies', '@angular/compiler-cli', '^18.0.0');
-      ensureDep(pkg, 'devDependencies', '@angular-devkit/build-angular', '^18.0.0');
-      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
-      upsertFile(normalized, 'angular.json', `{\n  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",\n  "version": 1,\n  "projects": {\n    "app": {\n      "projectType": "application",\n      "root": "",\n      "sourceRoot": "src",\n      "architect": {\n        "build": {\n          "builder": "@angular-devkit/build-angular:application",\n          "options": {\n            "outputPath": "dist",\n            "browser": "src/main.ts",\n            "index": "src/index.html",\n            "polyfills": ["zone.js"],\n            "tsConfig": "tsconfig.app.json"\n          }\n        },\n        "serve": {\n          "builder": "@angular-devkit/build-angular:dev-server",\n          "options": { "buildTarget": "app:build" }\n        }\n      }\n    }\n  }\n}\n`);
-      upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2022",\n    "module": "ES2022",\n    "moduleResolution": "bundler",\n    "strict": false,\n    "skipLibCheck": true\n  }\n}\n`);
-      upsertFile(normalized, 'tsconfig.app.json', `{\n  "extends": "./tsconfig.json",\n  "compilerOptions": {\n    "types": []\n  },\n  "files": ["src/main.ts"]\n}\n`);
-      ensureFile('src/index.html', `<!doctype html>\n<html lang=\"it\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>${projectName}</title>\n  </head>\n  <body>\n    <app-root></app-root>\n  </body>\n</html>\n`);
-      ensureFile('src/main.ts', `import { bootstrapApplication } from '@angular/platform-browser';\nimport { Component } from '@angular/core';\n\n@Component({\n  selector: 'app-root',\n  standalone: true,\n  template: '<main style=\"padding:24px;font-family:system-ui,sans-serif\"><h1>Benvenuto su ${projectName}</h1></main>'\n})\nclass AppComponent {}\n\nbootstrapApplication(AppComponent).catch((err) => console.error(err));\n`);
-    }
-
     if (technology === 'astro') {
       ensureDep(pkg, 'dependencies', 'astro', '^4.10.0');
       ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
@@ -357,34 +289,6 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
       }
       upsertFile(normalized, 'tsconfig.json', `{\n  "extends": "astro/tsconfigs/base",\n  "compilerOptions": {\n    "strict": false,\n    "skipLibCheck": true\n  }\n}\n`);
       ensureFile('src/pages/index.astro', `---\n---\n<html lang=\"it\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>${projectName}</title>\n  </head>\n  <body style=\"font-family: system-ui, sans-serif; padding: 24px;\">\n    <h1>Benvenuto su ${projectName}</h1>\n  </body>\n</html>\n`);
-    }
-
-    if (technology === 'remix') {
-      ensureDep(pkg, 'dependencies', '@remix-run/react', '^2.0.0');
-      ensureDep(pkg, 'dependencies', '@remix-run/node', '^2.0.0');
-      ensureDep(pkg, 'dependencies', 'react', '^18.2.0');
-      ensureDep(pkg, 'dependencies', 'react-dom', '^18.2.0');
-      ensureDep(pkg, 'devDependencies', '@remix-run/dev', '^2.0.0');
-      ensureDep(pkg, 'devDependencies', 'vite', '^5.0.0');
-      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
-      ensureDep(pkg, 'devDependencies', '@types/react', '^18.2.0');
-      ensureDep(pkg, 'devDependencies', '@types/react-dom', '^18.2.0');
-      upsertFile(normalized, 'vite.config.ts', `import { vitePlugin as remix } from '@remix-run/dev';\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({\n  plugins: [remix()],\n});\n`);
-      upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2020",\n    "useDefineForClassFields": true,\n    "lib": ["ES2020", "DOM", "DOM.Iterable"],\n    "module": "ESNext",\n    "skipLibCheck": true,\n    "moduleResolution": "bundler",\n    "allowImportingTsExtensions": true,\n    "isolatedModules": true,\n    "moduleDetection": "force",\n    "noEmit": true,\n    "strict": false,\n    "noUnusedLocals": false,\n    "noUnusedParameters": false,\n    "jsx": "react-jsx"\n  },\n  "include": ["app"]\n}\n`);
-      ensureFile('app/root.tsx', `import { Links, Meta, Outlet, Scripts } from '@remix-run/react';\n\nexport default function App() {\n  return (\n    <html lang=\"it\">\n      <head>\n        <Meta />\n        <Links />\n      </head>\n      <body>\n        <Outlet />\n        <Scripts />\n      </body>\n    </html>\n  );\n}\n`);
-      ensureFile('app/routes/_index.tsx', `export default function IndexRoute() {\n  return (\n    <main style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>\n      <h1>Benvenuto su ${projectName}</h1>\n    </main>\n  );\n}\n`);
-    }
-
-    if (technology === 'solid') {
-      ensureDep(pkg, 'dependencies', 'solid-js', '^1.8.0');
-      ensureDep(pkg, 'devDependencies', 'vite', '^5.0.0');
-      ensureDep(pkg, 'devDependencies', 'vite-plugin-solid', '^2.9.0');
-      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
-      upsertFile(normalized, 'vite.config.ts', `import { defineConfig } from 'vite';\nimport solid from 'vite-plugin-solid';\n\nexport default defineConfig({\n  plugins: [solid({ hot: false })],\n});\n`);
-      upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2020",\n    "useDefineForClassFields": true,\n    "module": "ESNext",\n    "skipLibCheck": true,\n    "moduleResolution": "bundler",\n    "allowImportingTsExtensions": true,\n    "isolatedModules": true,\n    "moduleDetection": "force",\n    "noEmit": true,\n    "strict": false,\n    "noUnusedLocals": false,\n    "noUnusedParameters": false,\n    "jsx": "preserve",\n    "jsxImportSource": "solid-js"\n  },\n  "include": ["src"]\n}\n`);
-      upsertFile(normalized, 'index.html', `<!doctype html>\n<html lang=\"it\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>${projectName}</title>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script type=\"module\" src=\"/src/index.tsx\"></script>\n  </body>\n</html>\n`);
-      ensureFile('src/index.tsx', `import { render } from 'solid-js/web';\nimport App from './App';\n\nrender(() => <App />, document.getElementById('root')!);\n`);
-      ensureFile('src/App.tsx', `export default function App() {\n  return (\n    <main style={{ padding: '24px', 'font-family': 'system-ui, sans-serif' }}>\n      <h1>Benvenuto su ${projectName}</h1>\n    </main>\n  );\n}\n`);
     }
 
     if (technology === 'expo') {
@@ -405,8 +309,7 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
       ensureFile('App.tsx', `import { Text, View, StyleSheet } from 'react-native';\n\nexport default function App() {\n  return (\n    <View style={styles.container}>\n      <Text style={styles.title}>Benvenuto su ${projectName}</Text>\n      <Text style={styles.subtitle}>Modifica App.tsx per iniziare</Text>\n    </View>\n  );\n}\n\nconst styles = StyleSheet.create({\n  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#fff' },\n  title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },\n  subtitle: { fontSize: 16, color: '#666' },\n});\n`);
     }
 
-    if ((hasTailwindSignals || technology === 'nextjs') && technology !== 'nuxt') {
-      // Nuxt uses @nuxtjs/tailwindcss module instead (configured above)
+    if (hasTailwindSignals || technology === 'nextjs') {
       ensureDep(pkg, 'devDependencies', 'tailwindcss', '^3.4.0');
       ensureDep(pkg, 'devDependencies', 'postcss', '^8.4.0');
       ensureDep(pkg, 'devDependencies', 'autoprefixer', '^10.4.0');
@@ -429,117 +332,8 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
     ensureFile('script.js', `console.log('Project ${projectName} ready');\n`);
   }
 
-  if (technology === 'flask') {
-    ensureTextContains('requirements.txt', ['flask>=3.0.0']);
-    ensureFile('app.py', `from flask import Flask, render_template\n\napp = Flask(__name__)\n\n@app.get('/')\ndef home():\n    return render_template('index.html')\n\nif __name__ == '__main__':\n    app.run(host='0.0.0.0', port=3000, debug=True)\n`);
-    ensureFile('templates/index.html', `<!doctype html>\n<html lang=\"it\"><head><meta charset=\"utf-8\"><title>${projectName}</title></head>\n<body style=\"font-family: system-ui, sans-serif; padding: 24px;\"><h1>Benvenuto su ${projectName}</h1></body></html>\n`);
-  }
-
-  if (technology === 'fastapi') {
-    ensureTextContains('requirements.txt', ['fastapi>=0.111.0', 'uvicorn>=0.30.0']);
-    ensureFile('main.py', `from fastapi import FastAPI\nfrom fastapi.responses import HTMLResponse\n\napp = FastAPI()\n\n@app.get('/', response_class=HTMLResponse)\ndef home():\n    return \"\"\"<!doctype html><html lang='it'><body style='font-family:system-ui,sans-serif;padding:24px;'><h1>Benvenuto su ${projectName}</h1></body></html>\"\"\"\n`);
-  }
-
-  if (technology === 'django') {
-    const fallbackModule = sanitizePythonModuleName(projectName);
-
-    // Detect the AI's settings module: find directories containing settings.py
-    const shadowNames = new Set(['django', 'flask', 'fastapi', 'uvicorn', 'gunicorn', 'celery', 'redis']);
-    let aiModule: string | null = null;
-    for (const f of normalized) {
-      const match = f.path.match(/^([^/]+)\/settings\.py$/);
-      if (match) { aiModule = match[1]; break; }
-    }
-
-    // If AI used a shadow name (e.g. "django/settings.py"), rename to fallbackModule
-    let didRename = false;
-    if (aiModule && shadowNames.has(aiModule)) {
-      const oldPrefix = `${aiModule}/`;
-      const newPrefix = `${fallbackModule}/`;
-      for (const file of normalized) {
-        if (file.path.startsWith(oldPrefix)) {
-          file.path = newPrefix + file.path.slice(oldPrefix.length);
-        }
-        file.content = file.content.replace(
-          new RegExp(`(['"])${aiModule}\\.`, 'g'),
-          `$1${fallbackModule}.`
-        );
-      }
-      aiModule = fallbackModule;
-      didRename = true;
-    }
-
-    // Use whichever module the AI chose (or fallbackModule if none / renamed)
-    const moduleName = aiModule || fallbackModule;
-
-    ensureTextContains('requirements.txt', ['Django>=5.0,<6.0']);
-
-    // Only overwrite manage.py if a shadow rename happened or manage.py doesn't exist
-    if (didRename || !hasFile('manage.py')) {
-      upsertFile(normalized, 'manage.py', `#!/usr/bin/env python\nimport os\nimport sys\n\nif __name__ == '__main__':\n    os.environ.setdefault('DJANGO_SETTINGS_MODULE', '${moduleName}.settings')\n    from django.core.management import execute_from_command_line\n    execute_from_command_line(sys.argv)\n`);
-    }
-
-    // Ensure ALLOWED_HOSTS = ['*'] in AI-generated settings (otherwise Django rejects requests)
-    const settingsFile = normalized.find(f => f.path === `${moduleName}/settings.py`);
-    if (settingsFile && !settingsFile.content.includes("'*'") && !settingsFile.content.includes('"*"')) {
-      settingsFile.content = settingsFile.content.replace(
-        /ALLOWED_HOSTS\s*=\s*\[.*?\]/,
-        "ALLOWED_HOSTS = ['*']"
-      );
-    }
-
-    // Fallback files only if AI didn't generate them
-    ensureFile(`${moduleName}/__init__.py`, ``);
-    ensureFile(`${moduleName}/settings.py`, `from pathlib import Path\n\nBASE_DIR = Path(__file__).resolve().parent.parent\nSECRET_KEY = 'dev-secret-key'\nDEBUG = True\nALLOWED_HOSTS = ['*']\nROOT_URLCONF = '${moduleName}.urls'\nMIDDLEWARE = []\nINSTALLED_APPS = []\nTEMPLATES = [{\n  'BACKEND': 'django.template.backends.django.DjangoTemplates',\n  'DIRS': [BASE_DIR / 'templates'],\n  'APP_DIRS': True,\n  'OPTIONS': {},\n}]\nWSGI_APPLICATION = '${moduleName}.wsgi.application'\nDATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}}\nSTATIC_URL = '/static/'\n`);
-    ensureFile(`${moduleName}/urls.py`, `from django.urls import path\nfrom django.http import HttpResponse\n\ndef home(_request):\n    return HttpResponse('<!doctype html><html lang=\"it\"><body style=\"font-family:system-ui,sans-serif;padding:24px;\"><h1>Benvenuto su ${projectName}</h1></body></html>')\n\nurlpatterns = [path('', home)]\n`);
-    ensureFile(`${moduleName}/wsgi.py`, `import os\nfrom django.core.wsgi import get_wsgi_application\n\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', '${moduleName}.settings')\napplication = get_wsgi_application()\n`);
-  }
-
-  if (technology === 'flutter') {
-    ensureFile('pubspec.yaml', `name: ${sanitizePackageName(projectName).replace(/-/g, '_')}\ndescription: ${projectName}\npublish_to: 'none'\nversion: 1.0.0+1\nenvironment:\n  sdk: \">=3.3.0 <4.0.0\"\ndependencies:\n  flutter:\n    sdk: flutter\nflutter:\n  uses-material-design: true\n`);
-    ensureFile('lib/main.dart', `import 'package:flutter/material.dart';\n\nvoid main() {\n  runApp(const MyApp());\n}\n\nclass MyApp extends StatelessWidget {\n  const MyApp({super.key});\n\n  @override\n  Widget build(BuildContext context) {\n    return const MaterialApp(\n      home: Scaffold(\n        body: Center(\n          child: Text('Benvenuto su ${projectName}'),\n        ),\n      ),\n    );\n  }\n}\n`);
-    upsertFile(normalized, 'web/index.html', `<!DOCTYPE html>\n<html>\n<head>\n  <base href=\"$FLUTTER_BASE_HREF\">\n  <meta charset=\"UTF-8\">\n  <meta content=\"IE=Edge\" http-equiv=\"X-UA-Compatible\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>${projectName}</title>\n  <link rel=\"manifest\" href=\"manifest.json\">\n</head>\n<body>\n  <script src=\"flutter_bootstrap.js\" async></script>\n</body>\n</html>\n`);
-  }
-
-  if (technology === 'laravel') {
-    // Strip @vite directives from Blade templates — Vite doesn't work in our container
-    for (const file of normalized) {
-      if (file.path.endsWith('.blade.php')) {
-        file.content = file.content.replace(/@vite\s*\([^)]*\)/g, '');
-      }
-    }
-    // Remove Vite config files — no Node.js build step in container
-    const viteFiles = ['vite.config.js', 'vite.config.ts', 'package.json', 'package-lock.json', 'webpack.mix.js'];
-    for (const vf of viteFiles) {
-      const idx = normalized.findIndex(f => f.path === vf);
-      if (idx >= 0) normalized.splice(idx, 1);
-    }
-
-    ensureFile('composer.json', `{\n  \"name\": \"drape/${sanitizePackageName(projectName)}\",\n  \"type\": \"project\",\n  \"require\": {\n    \"php\": \">=8.1\"\n  }\n}\n`);
-    ensureFile('artisan', `<?php\n$argv = $_SERVER['argv'] ?? [];\n$cmd = $argv[1] ?? '';\nif ($cmd === 'serve') {\n  $host = '0.0.0.0';\n  $port = '3000';\n  for ($i = 2; $i < count($argv); $i++) {\n    if (str_starts_with($argv[$i], '--host=')) $host = substr($argv[$i], 7);\n    if (str_starts_with($argv[$i], '--port=')) $port = substr($argv[$i], 7);\n    if ($argv[$i] === '--host' && isset($argv[$i + 1])) $host = $argv[$i + 1];\n    if ($argv[$i] === '--port' && isset($argv[$i + 1])) $port = $argv[$i + 1];\n  }\n  passthru('php -S ' . $host . ':' . $port . ' -t public', $exitCode);\n  exit($exitCode);\n}\necho \"Laravel guardrail stub ready\\n\";\n`);
-    // Laravel requires .env with APP_KEY — without it, Finder.php fails with empty directory path
-    ensureFile('.env', `APP_NAME=${projectName}\nAPP_ENV=local\nAPP_KEY=base64:dGhpc2lzYWR1bW15a2V5Zm9yZGV2ZWxvcG1lbnQx\nAPP_DEBUG=true\nAPP_URL=http://localhost:3000\n\nLOG_CHANNEL=stack\nLOG_LEVEL=debug\n\nDB_CONNECTION=sqlite\n`);
-    ensureFile('bootstrap/cache/.gitkeep', ``);
-    // bootstrap/app.php creates the Laravel application instance — required by public/index.php
-    ensureFile('bootstrap/app.php', `<?php\n$app = new Illuminate\\Foundation\\Application(\n    $_ENV['APP_BASE_PATH'] ?? dirname(__DIR__)\n);\n$app->singleton(Illuminate\\Contracts\\Http\\Kernel::class, Illuminate\\Foundation\\Http\\Kernel::class);\n$app->singleton(Illuminate\\Contracts\\Console\\Kernel::class, Illuminate\\Foundation\\Console\\Kernel::class);\n$app->singleton(Illuminate\\Contracts\\Debug\\ExceptionHandler::class, Illuminate\\Foundation\\Exceptions\\Handler::class);\nreturn $app;\n`);
-    // RouteServiceProvider loads routes/web.php — referenced in config/app.php providers
-    ensureFile('app/Providers/RouteServiceProvider.php', `<?php\nnamespace App\\Providers;\n\nuse Illuminate\\Support\\Facades\\Route;\nuse Illuminate\\Foundation\\Support\\Providers\\RouteServiceProvider as ServiceProvider;\n\nclass RouteServiceProvider extends ServiceProvider\n{\n    public function boot(): void\n    {\n        $this->routes(function () {\n            Route::middleware('web')->group(base_path('routes/web.php'));\n        });\n    }\n}\n`);
-    // Essential Laravel config files — without these, artisan serve crashes with "The "" directory does not exist."
-    ensureFile('config/app.php', `<?php\nreturn [\n    'name' => env('APP_NAME', 'Laravel'),\n    'env' => env('APP_ENV', 'local'),\n    'debug' => (bool) env('APP_DEBUG', true),\n    'url' => env('APP_URL', 'http://localhost'),\n    'key' => env('APP_KEY'),\n    'cipher' => 'AES-256-CBC',\n    'maintenance' => ['driver' => 'file'],\n    'providers' => \\Illuminate\\Support\\ServiceProvider::defaultProviders()->merge([\n        App\\Providers\\RouteServiceProvider::class,\n    ])->toArray(),\n    'aliases' => \\Illuminate\\Support\\Facades\\Facade::defaultAliases()->toArray(),\n];\n`);
-    ensureFile('config/view.php', `<?php\nreturn [\n    'paths' => [resource_path('views')],\n    'compiled' => env('VIEW_COMPILED_PATH', realpath(storage_path('framework/views'))),\n];\n`);
-    ensureFile('config/session.php', `<?php\nreturn [\n    'driver' => env('SESSION_DRIVER', 'file'),\n    'lifetime' => 120,\n    'expire_on_close' => false,\n    'encrypt' => false,\n    'files' => storage_path('framework/sessions'),\n    'connection' => null,\n    'table' => 'sessions',\n    'store' => null,\n    'lottery' => [2, 100],\n    'cookie' => 'laravel_session',\n    'path' => '/',\n    'domain' => null,\n    'secure' => false,\n    'http_only' => true,\n    'same_site' => 'lax',\n    'partitioned' => false,\n];\n`);
-    ensureFile('config/database.php', `<?php\nreturn [\n    'default' => env('DB_CONNECTION', 'sqlite'),\n    'connections' => [\n        'sqlite' => ['driver' => 'sqlite', 'database' => env('DB_DATABASE', database_path('database.sqlite')), 'prefix' => ''],\n    ],\n    'migrations' => 'migrations',\n];\n`);
-    ensureFile('config/logging.php', `<?php\nreturn [\n    'default' => env('LOG_CHANNEL', 'stack'),\n    'channels' => [\n        'stack' => ['driver' => 'stack', 'channels' => ['single']],\n        'single' => ['driver' => 'single', 'path' => storage_path('logs/laravel.log'), 'level' => 'debug'],\n    ],\n];\n`);
-    ensureFile('config/filesystems.php', `<?php\nreturn [\n    'default' => 'local',\n    'disks' => ['local' => ['driver' => 'local', 'root' => storage_path('app')]],\n];\n`);
-    ensureFile('config/cache.php', `<?php\nreturn [\n    'default' => env('CACHE_DRIVER', 'file'),\n    'stores' => [\n        'file' => ['driver' => 'file', 'path' => storage_path('framework/cache/data')],\n    ],\n];\n`);
-    // public/index.php MUST be the Laravel bootstrap — NOT a static HTML page
-    ensureFile('public/index.php', `<?php\nuse Illuminate\\Contracts\\Http\\Kernel;\nuse Illuminate\\Http\\Request;\n\ndefine('LARAVEL_START', microtime(true));\nrequire __DIR__.'/../vendor/autoload.php';\n$app = require_once __DIR__.'/../bootstrap/app.php';\n$kernel = $app->make(Kernel::class);\n$response = $kernel->handle($request = Request::capture());\n$response->send();\n$kernel->terminate($request, $response);\n`);
-    ensureFile('routes/web.php', `<?php\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::get('/', function () {\n    return view('welcome');\n});\n`);
-    ensureFile('resources/views/welcome.blade.php', `<!doctype html><html lang=\"it\"><head><meta charset=\"utf-8\"><title>${projectName}</title></head><body style=\"font-family:system-ui,sans-serif;padding:24px;\"><h1>Benvenuto su ${projectName}</h1></body></html>\n`);
-  }
-
   // --- Post-normalization: remove duplicate config file variants ---
-  const viteTech = new Set(['react', 'vue', 'svelte', 'solid', 'remix']);
+  const viteTech = new Set(['react', 'vue']);
   if (viteTech.has(technology)) {
     const removeVariants = ['vite.config.js', 'vite.config.mjs', 'vite.config.cjs'];
     for (const variant of removeVariants) {
@@ -568,7 +362,7 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
   }
 
   // --- Auto-detect missing dependencies from imports ---
-  const nodeTechSet = new Set(['nextjs', 'react', 'vue', 'nuxt', 'svelte', 'angular', 'astro', 'remix', 'solid', 'expo']);
+  const nodeTechSet = new Set(['nextjs', 'react', 'vue', 'astro', 'expo']);
   if (nodeTechSet.has(technology)) {
     const pkgFile = normalized.find((f) => f.path === 'package.json');
     if (pkgFile) {
@@ -588,8 +382,7 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
         ]);
         // Virtual / framework-specific modules that don't need to be in package.json
         const virtualModules = new Set([
-          'virtual:remix/server-build', '~icons', 'virtual:', '$app', '$env',
-          '#app', '#imports', '#components', '#build',
+          '~icons', 'virtual:',
         ]);
         const importRegex = /(?:import|from)\s+['"]([^./~#][^'"]*)['"]/g;
         let changed = false;
@@ -1294,24 +1087,9 @@ async function generateProject(
     react: 'React with Vite, TypeScript, and Tailwind CSS',
     html: 'HTML5, CSS3, and vanilla JavaScript',
     vue: 'Vue 3 with Vite, TypeScript, and Tailwind CSS',
-    nuxt: 'Nuxt 3 with Vue 3, TypeScript, and Tailwind CSS',
-    svelte: 'SvelteKit with Vite, TypeScript, and Tailwind CSS',
-    angular: 'Angular 18 with TypeScript and Tailwind CSS',
     astro: 'Astro with TypeScript and Tailwind CSS',
-    remix: 'Remix with React, Vite, TypeScript, and Tailwind CSS',
-    solid: 'Solid.js with Vite, TypeScript, and Tailwind CSS',
-    flask: 'Python Flask with Jinja2 templates, HTML, CSS',
-    django: 'Python Django with templates, HTML, CSS, and Tailwind CSS',
-    fastapi: 'Python FastAPI with Jinja2 templates, HTML, CSS',
     expo: 'React Native with Expo, TypeScript, and React Navigation',
-    flutter: 'Flutter Web with Dart and Material Design',
-    laravel: 'Laravel with PHP, Blade templates, and Tailwind CSS',
     'HTML/CSS/JS': 'HTML5, CSS3, and vanilla JavaScript',
-    'python-console': 'Python 3 console application (no web server, no framework)',
-    'javascript-console': 'Node.js console application (no web server, no Express)',
-    'c-lang': 'C console application compiled with gcc',
-    'cpp': 'C++ console application compiled with g++',
-    'java': 'Java console application',
   };
   const techDesc = techMap[technology] || techMap['nextjs'];
 
@@ -1321,12 +1099,7 @@ async function generateProject(
   const excludedConfigFiles: Record<string, string[]> = {
     react: ['vite.config.ts', 'vite.config.js', 'tsconfig.json', 'postcss.config.js', 'postcss.config.mjs', 'tailwind.config.js', 'tailwind.config.ts', 'index.html'],
     vue: ['vite.config.ts', 'vite.config.js', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts', 'index.html'],
-    svelte: ['vite.config.ts', 'vite.config.js', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts', 'index.html'],
-    solid: ['vite.config.ts', 'vite.config.js', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts', 'index.html'],
-    remix: ['vite.config.ts', 'vite.config.js', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts'],
-    angular: ['angular.json', 'tsconfig.json', 'tsconfig.app.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts'],
     astro: ['astro.config.mjs', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts'],
-    nuxt: ['nuxt.config.ts', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts'],
     nextjs: ['tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts'],
     expo: ['tsconfig.json', 'app.json'],
   };
@@ -1368,29 +1141,14 @@ IMPORTANT: Return ONLY a valid JSON object with this exact structure:
 
 Requirements:
 - For HTML projects: do NOT include package.json, only include index.html, style.css, script.js
-- For framework projects (Next.js, React, Vue, Nuxt, Svelte, Angular, Astro, Remix, Solid.js): include package.json with project name "${projectName}" and all necessary dependencies
+- For framework projects (Next.js, React, Vue, Astro, Expo): include package.json with project name "${projectName}" and all necessary dependencies
 - Include a working main page with a professional, modern UI
 - CRITICAL: Design mobile-first. The preview runs on a phone screen (390px wide). All layouts MUST look perfect on mobile first. Use responsive utilities (Tailwind: default styles for mobile, sm:/md:/lg: for larger screens. CSS: use min-width media queries). Never use fixed widths larger than 100%. Ensure tap targets are at least 44px. No horizontal scrolling. Use flexbox/grid with wrap. For Tailwind projects, start with mobile styles and enhance with breakpoint prefixes.
 - Use Italian language for user-facing text where appropriate
 - For Next.js: use App Router (app/ directory), include layout.tsx and page.tsx
-- For Nuxt: use pages/ directory, include app.vue
-- For SvelteKit: use src/ directory, include App.svelte and main.ts
-- For Angular: use standalone components, src/ directory
 - For Astro: use src/pages/ directory, include index.astro
-- For Remix: use app/routes/ directory, include root.tsx and _index.tsx
-- For Solid.js: use src/ directory, include App.tsx and index.tsx
-- For Flask: include app.py (with app = Flask(__name__) and app.run(host='0.0.0.0', port=3000, debug=True) in __main__), requirements.txt, templates/ directory with base.html, static/ directory. The server MUST listen on port 3000.
-- For Django: include manage.py, requirements.txt, project settings directory, templates/ directory, a main app with views.py and urls.py
-- For FastAPI: include main.py, requirements.txt (with fastapi and uvicorn), templates/ directory with index.html, static/ directory
 - For React Native (Expo): include package.json with "main": "expo/AppEntry" and dependencies: expo, react, react-dom, react-native, react-native-web, @expo/metro-runtime. Include App.tsx with a main screen using StyleSheet, backgroundColor '#fff'. Must support web platform (expo start --web)
-- For Flutter: include pubspec.yaml (with flutter sdk), lib/main.dart with MaterialApp, web/index.html
-- For Laravel: include composer.json, artisan, routes/web.php, resources/views/ with Blade templates, app/ directory structure. Do NOT use Vite or Laravel Mix for asset bundling — use plain inline CSS and JS in Blade templates instead. The welcome.blade.php MUST contain the actual project content (not the default Laravel welcome page). Include a .env file with APP_KEY=base64:dGhpc2lzYWR1bW15a2V5Zm9yZGV2ZWxvcG1lbnQx and APP_DEBUG=true
 - For HTML: include index.html, style.css, script.js
-- For Python console: include main.py with a working example program that prints output to stdout. Include requirements.txt ONLY if external packages are needed. Do NOT include any web server, Flask, Django, or FastAPI. The program should demonstrate interesting logic (not just "Hello World").
-- For JavaScript console: include index.js with a working example program that uses console.log for output. Include package.json ONLY if external packages are needed. Do NOT include Express, http server, or any web framework.
-- For C: include main.c with a working example program and a Makefile with target "main". Use standard C (C11). Include interesting logic, not just printf("Hello").
-- For C++: include main.cpp with a working example program and a Makefile with target "main". Use standard C++ (C++17). Include interesting logic.
-- For Java: include Main.java with class Main and public static void main(String[] args). Do NOT use packages or subdirectories. Include interesting logic.
 - Make it immediately runnable with the dev server
 - Do NOT include node_modules, lock files, vendor/, or .dart_tool/
 - Keep it concise but functional${excludedNote}
@@ -1399,17 +1157,12 @@ CRITICAL RULES to avoid build errors:
 - Do NOT use require() — use ES module import/export syntax only
 - Do NOT import packages that are not in your package.json dependencies
 - Do NOT use complex TypeScript generics, "as" type casts, or advanced type annotations — keep types simple
-- Do NOT add "type": "module" to package.json (except for Svelte/SvelteKit which requires it)
+- Do NOT add "type": "module" to package.json
 - Every import must reference a file you generated or a package listed in dependencies
 - Do NOT generate empty files
 - Use "export default function" for components
-- For React/Next.js/Remix/Solid: always use JSX syntax in .tsx files
+- For React/Next.js: always use JSX syntax in .tsx files
 - For Vue: use <script setup lang="ts"> syntax
-- For Svelte: use <script lang="ts"> with standard Svelte 4 syntax. This is plain Svelte (NOT SvelteKit) — put ALL content in src/App.svelte. Do NOT use SvelteKit routing patterns (no +page.svelte, no +layout.svelte, no routes/ directory)
-- For Flask: the Flask app variable MUST be named "app" (e.g., app = Flask(__name__)). Include app.run(host='0.0.0.0', port=3000, debug=True) in if __name__ == '__main__' block. NEVER use port 5000. In Jinja2 templates, always use parentheses for method calls: dict.items() not dict.items, list.sort() not list.sort. Pass only simple data (lists, dicts, strings) to templates — never pass functions or methods.
-- For Django: NEVER name the project settings directory "django" — this shadows the Django package and causes ImportError. Use a descriptive name derived from the project (e.g., "myproject", "pizzeria", "config"). The DJANGO_SETTINGS_MODULE must match this directory name (e.g., "pizzeria.settings"). Also NEVER use "flask", "fastapi", or any Python package name as a directory name.
-- For Laravel: Do NOT use Vite, Laravel Mix, or any Node.js build tools. Use plain CSS and JS directly in Blade templates. Do NOT include vite.config.js, package.json, or webpack.mix.js. Use @vite directives is FORBIDDEN — use <style> and <script> tags directly.
-- For Angular: use standalone components with inline templates
 - Do NOT use icon libraries (lucide, heroicons, react-icons, @fortawesome, etc.) — use emoji or inline SVG for icons instead. Icon library imports break at runtime due to version mismatches.
 - NEVER put path aliases like "@/lib", "@/components", or "@/utils" as dependencies in package.json — path aliases are NOT npm packages. Only real npm package names go in dependencies.
 - Use relative imports (./Component) not alias imports (@/components/Component) unless Next.js
@@ -1423,11 +1176,9 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
     'package.json', // handled by merge logic above
     'tsconfig.json', 'vite.config.ts', 'vite.config.js',
     'next.config.ts', 'next.config.js', 'postcss.config.mjs', 'postcss.config.js',
-    'nuxt.config.ts', 'svelte.config.js', 'angular.json', 'tsconfig.app.json',
-    'astro.config.mjs', 'app.config.ts', 'composer.json',
-    'app.json', 'pubspec.yaml', 'analysis_options.yaml',
+    'astro.config.mjs',
+    'app.json',
     'index.html', // Vite entry point
-    'manage.py', 'artisan', 'public/index.php', 'bootstrap/app.php',
     // Cloud auth plumbing — NEVER overwrite
     'lib/db.ts', 'lib/auth.ts', 'lib/auth-client.ts',
     'app/api/auth/[...all]/route.ts',
@@ -1702,11 +1453,9 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
         'package.json', // handled by merge logic
         'tsconfig.json', 'vite.config.ts', 'vite.config.js',
         'next.config.ts', 'next.config.js', 'postcss.config.mjs', 'postcss.config.js',
-        'nuxt.config.ts', 'svelte.config.js', 'angular.json', 'tsconfig.app.json',
-        'astro.config.mjs', 'app.config.ts', 'composer.json',
-        'app.json', 'pubspec.yaml', 'analysis_options.yaml',
+        'astro.config.mjs',
+        'app.json',
         'index.html',
-        'manage.py', 'artisan', 'public/index.php', 'bootstrap/app.php',
         // Cloud auth plumbing
         'lib/db.ts', 'lib/auth.ts', 'lib/auth-client.ts',
         'app/api/auth/[...all]/route.ts', 'app/components/auth-provider.tsx',
@@ -1966,7 +1715,7 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
               await workspaceService.exec(projectId, userId, 'cd /home/coder/project && bun install --no-save 2>/dev/null || npm install --legacy-peer-deps 2>/dev/null');
             }
             // Restart dev server by killing and re-running
-            await workspaceService.exec(projectId, userId, 'pkill -f "next dev\\|vite\\|nuxt\\|svelte-kit\\|remix\\|astro\\|ng serve" 2>/dev/null; sleep 2');
+            await workspaceService.exec(projectId, userId, 'pkill -f "next dev\\|vite\\|astro\\|expo" 2>/dev/null; sleep 2');
             // Re-warm will recreate the dev server
             try { await workspaceService.warmProject(projectId, userId); } catch {}
           } catch (restartErr: any) {

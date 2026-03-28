@@ -56,32 +56,15 @@ const languages = [
   { id: 'react', name: 'React', icon: 'logo-react', color: '#61DAFB' },
   { id: 'nextjs', name: 'Next.js', icon: 'server-outline', color: '#FFFFFF' },
   { id: 'vue', name: 'Vue', icon: 'logo-vue', color: '#4FC08D' },
-  { id: 'nuxt', name: 'Nuxt.js', icon: 'layers-outline', color: '#00DC82' },
-  { id: 'svelte', name: 'Svelte', icon: 'flame-outline', color: '#FF3E00' },
-  { id: 'angular', name: 'Angular', icon: 'navigate-outline', color: '#DD0031' },
   { id: 'astro', name: 'Astro', icon: 'planet-outline', color: '#BC52EE' },
-  { id: 'remix', name: 'Remix', icon: 'repeat-outline', color: '#E8F2FF' },
-  { id: 'solid', name: 'Solid.js', icon: 'water-outline', color: '#2C4F7C' },
   { id: 'html', name: 'HTML/CSS/JS', icon: 'logo-html5', color: '#E34F26' },
-  { id: 'flask', name: 'Flask', icon: 'logo-python', color: '#3776AB' },
-  { id: 'django', name: 'Django', icon: 'shield-outline', color: '#092E20' },
-  { id: 'fastapi', name: 'FastAPI', icon: 'flash-outline', color: '#009688' },
   { id: 'expo', name: 'React Native', icon: 'phone-portrait-outline', color: '#61DAFB' },
-  { id: 'flutter', name: 'Flutter', icon: 'apps-outline', color: '#02569B' },
-  { id: 'laravel', name: 'Laravel', icon: 'diamond-outline', color: '#FF2D20' },
-  { id: 'python-console', name: 'Python', icon: 'logo-python', color: '#3776AB' },
-  { id: 'javascript-console', name: 'JavaScript', icon: 'logo-nodejs', color: '#F7DF1E' },
-  { id: 'c-lang', name: 'C', icon: 'code-slash-outline', color: '#A8B9CC' },
-  { id: 'cpp', name: 'C++', icon: 'code-working-outline', color: '#00599C' },
-  { id: 'java', name: 'Java', icon: 'cafe-outline', color: '#ED8B00' },
 ];
 
 const languageCategories = [
-  { id: 'popular', labelKey: 'create.popular', items: ['react', 'nextjs', 'html', 'flask'] },
-  { id: 'frontend', labelKey: 'create.frontend', items: ['vue', 'svelte', 'angular', 'astro', 'solid', 'remix'] },
-  { id: 'backend', labelKey: 'create.backend', items: ['django', 'fastapi', 'laravel', 'nuxt'] },
-  { id: 'mobile', labelKey: 'create.mobile', items: ['expo', 'flutter'] },
-  { id: 'console', labelKey: 'create.console', items: ['python-console', 'javascript-console', 'c-lang', 'cpp', 'java'] },
+  { id: 'popular', labelKey: 'create.popular', items: ['react', 'nextjs', 'html'] },
+  { id: 'frontend', labelKey: 'create.frontend', items: ['vue', 'astro'] },
+  { id: 'mobile', labelKey: 'create.mobile', items: ['expo'] },
 ];
 
 const ideaChips = [

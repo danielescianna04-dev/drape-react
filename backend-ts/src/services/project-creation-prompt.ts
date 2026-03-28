@@ -12,24 +12,9 @@ const TECH_DESCRIPTIONS: Record<string, string> = {
   react: 'React 19 with Vite, TypeScript, and Tailwind CSS v4',
   nextjs: 'Next.js 15 with App Router, React 19, TypeScript, and Tailwind CSS v4',
   vue: 'Vue 3.5 with Vite, TypeScript, Vue Router, and Tailwind CSS v4',
-  nuxt: 'Nuxt 3.16 with TypeScript and Tailwind CSS v4',
-  svelte: 'SvelteKit with Svelte 5, TypeScript, and Tailwind CSS v4',
-  angular: 'Angular 19 with TypeScript, standalone components, and Tailwind CSS v4',
   astro: 'Astro 5 with TypeScript and Tailwind CSS v4',
-  remix: 'Remix v2 with React, Vite, TypeScript, and Tailwind CSS v4',
-  solid: 'SolidStart with Solid.js, TypeScript, and Tailwind CSS v4',
   html: 'HTML5, CSS3, and vanilla JavaScript (no build tools)',
-  flask: 'Python Flask with Jinja2 templates and Tailwind CSS CDN',
-  django: 'Python Django 5 with templates and Tailwind CSS CDN',
-  fastapi: 'Python FastAPI with Jinja2 templates and Tailwind CSS CDN',
-  laravel: 'Laravel 11 with Blade templates and Tailwind CSS CDN',
   expo: 'React Native with Expo SDK 52, TypeScript, and Expo Router',
-  flutter: 'Flutter with Dart and Material 3',
-  'python-console': 'Python 3 console application with rich library',
-  'javascript-console': 'Node.js console application with chalk',
-  'c-lang': 'C console application compiled with gcc',
-  cpp: 'C++ console application compiled with g++ (C++17)',
-  java: 'Java console application (Java 17+)',
 };
 
 /** Files that already exist in the boilerplate template — AI should NOT regenerate these */
@@ -49,46 +34,13 @@ const TEMPLATE_FILES: Record<string, string[]> = {
     'src/main.ts', 'src/App.vue', 'src/style.css',
     'src/components/NavBar.vue', 'src/components/FooterSection.vue', 'src/components/FeatureCard.vue',
   ],
-  nuxt: [
-    'package.json', 'nuxt.config.ts', 'tsconfig.json',
-    'app.vue', 'assets/css/main.css',
-    'components/NavBar.vue', 'components/FooterSection.vue', 'components/FeatureCard.vue',
-  ],
-  svelte: [
-    'package.json', 'svelte.config.js', 'vite.config.ts', 'tsconfig.json',
-    'src/app.html', 'src/app.css',
-    'src/lib/components/Navbar.svelte', 'src/lib/components/Footer.svelte', 'src/lib/components/FeatureCard.svelte',
-  ],
-  angular: [
-    'package.json', 'angular.json', 'tsconfig.json', 'tsconfig.app.json', 'postcss.config.js',
-    'src/main.ts', 'src/index.html', 'src/styles.css',
-    'src/app/app.component.ts',
-    'src/app/components/navbar/navbar.component.ts',
-    'src/app/components/footer/footer.component.ts',
-    'src/app/components/feature-card/feature-card.component.ts',
-  ],
   astro: [
     'package.json', 'astro.config.mjs', 'tsconfig.json',
     'src/styles/global.css',
     'src/components/Navbar.astro', 'src/components/Footer.astro', 'src/components/FeatureCard.astro',
   ],
-  remix: [
-    'package.json', 'vite.config.ts', 'tsconfig.json',
-    'app/root.tsx', 'app/tailwind.css',
-    'app/components/Navbar.tsx', 'app/components/Footer.tsx', 'app/components/FeatureCard.tsx',
-  ],
-  solid: [
-    'package.json', 'app.config.ts', 'tsconfig.json',
-    'src/app.tsx', 'src/app.css', 'src/entry-server.tsx', 'src/entry-client.tsx',
-    'src/components/Navbar.tsx', 'src/components/Footer.tsx', 'src/components/FeatureCard.tsx',
-  ],
   html: ['style.css', 'script.js'],
-  flask: ['requirements.txt', 'templates/base.html', 'static/css/custom.css', 'static/js/main.js'],
-  django: ['manage.py', 'project/settings.py', 'project/wsgi.py', 'project/__init__.py', 'templates/base.html', 'static/css/custom.css', 'static/js/main.js'],
-  fastapi: ['requirements.txt', 'templates/base.html', 'static/css/custom.css', 'static/js/main.js'],
-  laravel: ['composer.json', 'artisan', 'bootstrap/app.php', 'config/app.php', 'public/index.php', 'resources/views/layouts/app.blade.php', 'public/css/custom.css', 'public/js/main.js'],
   expo: ['package.json', 'app.json', 'tsconfig.json', 'constants/Colors.ts', 'app/_layout.tsx', 'app/(tabs)/_layout.tsx'],
-  flutter: ['pubspec.yaml', 'analysis_options.yaml', 'lib/theme/app_theme.dart', 'lib/widgets/feature_card.dart', 'lib/widgets/gradient_header.dart'],
 };
 
 /** Stack-specific coding instructions for the AI */
@@ -147,64 +99,6 @@ VUE 3 (COMPOSITION API) INSTRUCTIONS:
 - watch/watchEffect for reactive side effects
 - defineEmits/defineProps for component communication`,
 
-  nuxt: `
-NUXT 3 INSTRUCTIONS:
-- Stack: Nuxt 3.16 + Tailwind v4 + auto-imports
-- Layout: layouts/default.vue already has NavBar + FooterSection. DO NOT re-add them.
-- Pages: pages/*.vue — auto-routed, no router config needed
-- Components: components/*.vue — auto-imported, no import statements needed
-- NO imports needed for: ref, computed, onMounted, useFetch, useHead, definePageMeta, navigateTo
-- Data fetching: const { data, pending, error } = useFetch('/api/items')
-- Server API: server/api/*.ts — auto-routed, return data directly
-  export default defineEventHandler(async (event) => { return { items: [...] } })
-- SEO: useHead({ title: 'Page' }) and definePageMeta({ layout: 'default' })
-- State: useState('key', () => initialValue) for shared SSR-safe state
-- Middleware: defineNuxtRouteMiddleware((to, from) => { if (!auth) return navigateTo('/login') })
-- definePageMeta({ layout: 'default', middleware: ['auth'] }) for page config
-- Error handling: const { data, error, pending } = useFetch('/api/items'); if (error.value) show error`,
-
-  svelte: `
-SVELTEKIT + SVELTE 5 INSTRUCTIONS:
-- Stack: SvelteKit + Svelte 5 (runes) + Tailwind v4 + @iconify/svelte
-- Layout: src/routes/+layout.svelte already has Navbar + Footer. DO NOT re-add them.
-- Pages: src/routes/{path}/+page.svelte
-- State: let count = $state(0); let doubled = $derived(count * 2);
-- Effects: $effect(() => { console.log(count); });
-- Props: let { title, items } = $props();
-- Server data: +page.server.ts with load() function
-  export async function load({ fetch }) { const items = await fetch('/api').then(r=>r.json()); return { items }; }
-- Page receives data: let { data } = $props(); // data.items
-- API: src/routes/api/{name}/+server.ts with GET, POST, etc.
-  export async function GET() { return json({ items: [...] }); }
-- Forms: use:enhance on forms, form actions for mutations
-- Loops: {#each items as item}<div>{item.name}</div>{/each}
-- Conditionals: {#if loading}<Spinner />{:else}<Content />{/if}
-- Navigation: import { goto } from '$app/navigation'; goto('/path')
-- Route params: import { page } from '$app/stores'; $page.params.id
-- Form actions: export const actions = { default: async ({ request }) => { const data = await request.formData(); } }
-- Use <form method="POST" use:enhance> for progressive enhancement`,
-
-  angular: `
-ANGULAR 19 INSTRUCTIONS:
-- Stack: Angular 19 + Tailwind v4 + standalone components + signals
-- Layout: app.component.ts already has Navbar + Footer with RouterOutlet. DO NOT re-add them.
-- Components: ALL standalone — standalone: true, imports: [CommonModule, RouterModule]
-- Create with: ng generate component pages/dashboard --standalone
-- Signals pattern:
-  items = signal<Item[]>([]); loading = signal(true);
-  constructor(private http: HttpClient) { this.loadItems(); }
-  loadItems() { this.http.get<Item[]>('/api/items').subscribe(data => { this.items.set(data); this.loading.set(false); }); }
-- Computed: filteredItems = computed(() => this.items().filter(i => i.active));
-- Control flow: @if (loading()) { <spinner /> } @else { @for (item of items(); track item.id) { <card /> } }
-- Routing: app.routes.ts with lazy loading
-  { path: 'dashboard', loadComponent: () => import('./pages/dashboard/dashboard.component').then(m => m.DashboardComponent) }
-- Forms: Use ReactiveFormsModule with FormGroup/FormControl
-- Services: @Injectable({ providedIn: 'root' }) for shared state
-- effect() for reactive side effects (like useEffect)
-- toSignal() to convert Observable to signal: items = toSignal(this.http.get<Item[]>('/api'))
-- Router: inject(Router).navigate(['/path']), inject(ActivatedRoute).params
-- provideHttpClient() already in app.config.ts`,
-
   astro: `
 ASTRO 5 INSTRUCTIONS:
 - Stack: Astro 5 + Tailwind v4 + optional React islands
@@ -224,31 +118,6 @@ ASTRO 5 INSTRUCTIONS:
 - Content collections: src/content/ + getCollection('posts')
 - Astro ships ZERO JS by default — interactive components MUST have client: directive`,
 
-  remix: `
-REMIX V2 INSTRUCTIONS:
-- Stack: Remix v2 + React + Vite + Tailwind v4 + react-icons
-- Layout: root.tsx already has Navbar + Footer with Outlet. DO NOT re-add them.
-- Pages: app/routes/*.tsx — _index.tsx (home), about.tsx, dashboard.tsx
-- Data loading (SERVER): export async function loader({ request }) { return json({ items }); }
-- Use data: const { items } = useLoaderData<typeof loader>();
-- Mutations: export async function action({ request }) { const form = await request.formData(); ... return json({ ok: true }); }
-- Forms: <Form method="post"><input name="title" /><button type="submit">Save</button></Form>
-- Navigation: <Link to="/path">, useNavigate() for programmatic
-- Dynamic routes: app/routes/item.$id.tsx — const { id } = useParams();
-- Optimistic UI: useFetcher() for non-blocking form submissions
-- Error handling: export function ErrorBoundary() { return <div>Error</div>; }
-- Meta: export const meta = () => [{ title: 'Page' }];`,
-
-  solid: `
-SOLID.JS TEMPLATE INSTRUCTIONS:
-- Stack: SolidStart + Solid.js + Tailwind v4
-- Pages: src/routes/ (file-based routing)
-- State: const [count, setCount] = createSignal(0);
-- Resources: const [data] = createResource(fetchItems);
-- Effects: createEffect(() => console.log(count()));
-- Loops: <For each={items()}>{item => <div>{item.name}</div>}</For>
-- Conditionals: <Show when={!loading()} fallback={<Spinner />}><Content /></Show>`,
-
   html: `
 HTML/CSS/JS (VANILLA) INSTRUCTIONS:
 - NO framework, NO build tools — pure vanilla HTML + CSS + JS
@@ -261,95 +130,6 @@ HTML/CSS/JS (VANILLA) INSTRUCTIONS:
 - Use data attributes (data-*) for storing state on elements
 - Use event delegation for lists: container.addEventListener('click', e => { if (e.target.matches('.item')) ... })
 - Use template literals for rendering HTML: element.innerHTML = items.map(i => \`<div>\${i.name}</div>\`).join('')`,
-
-  flask: `
-FLASK INSTRUCTIONS:
-- Stack: Flask 3 + Jinja2 + Tailwind CDN + Gunicorn
-- Main file: app.py — ALL routes here
-- Templates: templates/*.html extending templates/base.html (has nav + footer + Tailwind CDN)
-- Static: static/css/custom.css, static/js/main.js
-- Route pattern:
-  @app.route('/dashboard')
-  def dashboard(): items = Item.query.all(); return render_template('dashboard.html', items=items)
-- API pattern:
-  @app.route('/api/items', methods=['GET'])
-  def get_items(): return jsonify([i.to_dict() for i in Item.query.all()])
-- Models: Use dataclasses or SQLAlchemy if cloud mode
-- Flash messages: flash('Success!', 'success') + {% with messages = get_flashed_messages() %} in template
-- Blueprints: for multi-section apps, use Blueprint('name', __name__) and app.register_blueprint()
-- SQLAlchemy: from flask_sqlalchemy import SQLAlchemy; db = SQLAlchemy(app); class Item(db.Model): ...
-- redirect + url_for: return redirect(url_for('dashboard')) — NEVER hardcode URLs
-- Jinja2: {% for item in items %}, {% if condition %}, {{ variable }}, {{ variable|default('N/A') }}
-- Forms: <form method="POST" action="/create"> with request.form['field'] in handler
-- Server runs on port 3000`,
-
-  django: `
-DJANGO 5 INSTRUCTIONS:
-- Stack: Django 5 + Jinja-style templates + Tailwind CDN
-- Structure: project/ (settings, urls) + app/ (views, models, urls, admin)
-- Templates: templates/*.html extending templates/base.html (has nav + footer + Tailwind CDN)
-- Views pattern (function-based):
-  def dashboard(request): items = Item.objects.all(); return render(request, 'dashboard.html', {'items': items})
-- Views pattern (class-based):
-  class ItemListView(ListView): model = Item; template_name = 'items.html'; context_object_name = 'items'
-- Models:
-  class Item(models.Model): name = models.CharField(max_length=200); created_at = models.DateTimeField(auto_now_add=True)
-  class Meta: ordering = ['-created_at']
-- URLs: path('dashboard/', views.dashboard, name='dashboard')
-- Admin: admin.site.register(Item) for automatic admin panel
-- Forms: Use Django forms or ModelForm for validation
-- Template syntax: {% for item in items %}, {% if %}, {{ item.name }}, {% url 'dashboard' %}
-- Static: {% load static %}, {% static 'css/custom.css' %}
-- CSRF: {% csrf_token %} in ALL forms
-- Class-based views: ListView, DetailView, CreateView, UpdateView, DeleteView for CRUD
-- Admin: admin.site.register(Model) in app/admin.py — gives free admin panel
-- get_object_or_404: from django.shortcuts import get_object_or_404
-- Messages framework: from django.contrib import messages; messages.success(request, 'Done!')`,
-
-  fastapi: `
-FASTAPI INSTRUCTIONS:
-- Stack: FastAPI + Jinja2 + Tailwind CDN + Uvicorn
-- Main file: main.py — routes, models, app setup
-- Templates: templates/*.html extending templates/base.html (has nav + footer + Tailwind CDN)
-- Static: StaticFiles mount, static/css/, static/js/
-- Page route:
-  @app.get('/dashboard', response_class=HTMLResponse)
-  async def dashboard(request: Request): items = db.get_items(); return templates.TemplateResponse('dashboard.html', {'request': request, 'items': items})
-- API routes:
-  @app.get('/api/items') async def get_items(): return items
-  @app.post('/api/items') async def create_item(item: ItemCreate): ...
-- Pydantic models: class ItemCreate(BaseModel): name: str; price: float = Field(gt=0)
-- Path params: @app.get('/api/items/{item_id}') async def get_item(item_id: int): ...
-- Query params: @app.get('/api/search') async def search(q: str = '', limit: int = 10): ...
-- Error handling: raise HTTPException(status_code=404, detail='Not found')
-- Dependency injection: def get_db(): ... then Depends(get_db) in route params
-- APIRouter for organizing: router = APIRouter(prefix='/api/items', tags=['items'])
-- CORS: app.add_middleware(CORSMiddleware, allow_origins=["*"])
-- Auto docs: /docs (Swagger), /redoc
-- Server runs on port 3000`,
-
-  laravel: `
-LARAVEL INSTRUCTIONS:
-- Stack: Laravel + Blade + Tailwind CDN + Eloquent ORM
-- Routes: routes/web.php (pages), routes/api.php (JSON API)
-- Controllers: app/Http/Controllers/ — use resource controllers for CRUD
-  Route::resource('items', ItemController::class);
-- Views: resources/views/*.blade.php extending layouts/app.blade.php (has nav + footer + Tailwind CDN)
-- Models + Eloquent:
-  class Item extends Model { protected $fillable = ['name', 'price', 'description']; }
-  Item::all(), Item::find($id), Item::create([...]), $item->update([...]), $item->delete()
-- Blade: @extends('layouts.app'), @section('content'), @yield('content')
-  @foreach($items as $item), @if($condition), {{ $item->name }}, {{ $item->price }}
-- Forms: @csrf in all forms, $request->validate(['name' => 'required|max:255'])
-- Flash: return redirect()->back()->with('success', 'Created!')
-  @if(session('success')) <div class="alert">{{ session('success') }}</div> @endif
-- Migrations: Schema::create('items', fn (Blueprint $t) => $t->id(); $t->string('name'); $t->timestamps());
-- Do NOT use Vite or npm — CSS via CDN, JS inline in Blade
-- Resource controllers: Route::resource('items', ItemController::class) for full CRUD
-- Eloquent relations: hasMany, belongsTo, belongsToMany
-- Validation: $request->validate(['name' => 'required|max:255', 'price' => 'numeric|min:0'])
-- Named routes: Route::get('/items', [ItemController::class, 'index'])->name('items.index')
-- Redirect: return redirect()->route('items.index')->with('success', 'Created!')`,
 
   expo: `
 REACT NATIVE (EXPO) INSTRUCTIONS:
@@ -376,51 +156,6 @@ REACT NATIVE (EXPO) INSTRUCTIONS:
 - Styles use UNITLESS numbers (not px, rem): { fontSize: 16, padding: 12 }
 - Keep components small — extract into separate files in components/`,
 
-  flutter: `
-FLUTTER INSTRUCTIONS:
-- Stack: Flutter + Material 3 + google_fonts
-- Theme: lib/theme/app_theme.dart defines AppColors and AppTheme — USE these
-- Screens: lib/screens/*.dart
-- Widgets: lib/widgets/*.dart — reusable, composable
-- State management: StatefulWidget + setState for simple, Provider/Riverpod for complex
-- Pattern:
-  class DashboardScreen extends StatefulWidget { ... }
-  class _DashboardScreenState extends State<DashboardScreen> {
-    List<Item> items = []; bool loading = true;
-    @override void initState() { super.initState(); loadItems(); }
-    Future<void> loadItems() async { /* fetch */ setState(() { items = result; loading = false; }); }
-  }
-- Navigation: Navigator.push(context, MaterialPageRoute(builder: (_) => DetailScreen(item: item)))
-- Lists: ListView.builder(itemCount: items.length, itemBuilder: (ctx, i) => ItemCard(item: items[i]))
-- Layout: Scaffold + AppBar + body, Column/Row for layout, Expanded/Flexible for flex
-- Responsive: MediaQuery.of(context).size.width for breakpoints
-- Animations: AnimatedContainer, Hero, AnimationController for custom
-- State management: For shared state use Provider pattern or Riverpod
-- FutureBuilder: for async data loading with loading/error/data states
-- ListView.builder: for efficient long lists (NOT Column + map)
-- GoRouter: GoRouter(routes: [GoRoute(path: '/', builder: (ctx, state) => HomeScreen())])
-- const constructors for performance: const Text('hello'), const SizedBox(height: 8)
-- Image.network for URL images, CachedNetworkImage for cached`,
-
-  'python-console': `
-PYTHON CONSOLE INSTRUCTIONS:
-- Uses rich library for beautiful terminal output
-- main.py is the entry point, logic in src/app.py
-- Use rich.console, rich.table, rich.panel, rich.progress for UI
-- Make it interactive with input() prompts and Prompt.ask()
-- Include proper error handling with try/except`,
-
-  'javascript-console': `
-JAVASCRIPT CONSOLE INSTRUCTIONS:
-- Uses chalk for colored output, ES modules ("type": "module")
-- index.js is the entry point, logic in src/app.js
-- Use chalk for colors, readline for interactive input
-- Use inquirer for interactive menus and prompts
-- Make it interactive and interesting`,
-
-  'c-lang': `C INSTRUCTIONS: Use Makefile, ANSI colors for terminal UI, main.c + src/ structure. Include proper memory management.`,
-  cpp: `C++ INSTRUCTIONS: Use C++17, Makefile or CMake, OOP with classes. Use smart pointers, RAII patterns.`,
-  java: `JAVA INSTRUCTIONS: Main.java entry point, src/ for classes, use Scanner for input. Use OOP patterns, ArrayList/HashMap for data.`,
 };
 
 /** Build the system prompt for project creation AI */
@@ -572,8 +307,7 @@ Usage: <FiSearch className="w-5 h-5" /> or <FiSearch size={20} />
 DO NOT invent icon names. DO NOT use any icon name not listed above. A wrong import = white page crash.
 
 For Vue projects: use @iconify/vue instead (import { Icon } from '@iconify/vue', <Icon icon="mdi:home" />)
-For Svelte projects: use @iconify/svelte instead
-For Angular/Solid/Astro/HTML: use inline SVG (no icon library available)
+For Astro/HTML: use inline SVG (no icon library available)
 
 === INTEGRATIONS — WHEN USER REQUESTS THESE, IMPLEMENT THEM CORRECTLY ===
 
