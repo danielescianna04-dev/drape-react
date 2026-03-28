@@ -1,5 +1,3 @@
-import Navbar from './components/Navbar'
-import Footer from './components/Footer'
 import FeatureCard from './components/FeatureCard'
 
 const features = [
@@ -74,9 +72,7 @@ const testimonials = [
 
 export default function Home() {
   return (
-    <div className="min-h-screen">
-      <Navbar />
-
+    <>
       {/* Hero Section */}
       <section className="relative pt-32 pb-20 px-4 sm:px-6 lg:px-8 overflow-hidden">
         {/* Background Effects */}
@@ -391,7 +387,6 @@ export default function Home() {
         </div>
       </section>
 
-      <Footer />
-    </div>
+    </>
   )
 }

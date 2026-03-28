@@ -1,6 +1,3 @@
-import Navbar from '../components/Navbar'
-import Footer from '../components/Footer'
-
 const team = [
   { name: 'Alex Morgan', role: 'CEO & Co-founder', avatar: 'AM' },
   { name: 'Jordan Lee', role: 'CTO & Co-founder', avatar: 'JL' },
@@ -33,9 +30,7 @@ const values = [
 
 export default function About() {
   return (
-    <div className="min-h-screen">
-      <Navbar />
-
+    <>
       {/* Hero */}
       <section className="relative pt-32 pb-20 px-4 sm:px-6 lg:px-8">
         <div className="absolute inset-0 overflow-hidden">
@@ -189,7 +184,6 @@ export default function About() {
         </div>
       </section>
 
-      <Footer />
-    </div>
+    </>
   )
 }
