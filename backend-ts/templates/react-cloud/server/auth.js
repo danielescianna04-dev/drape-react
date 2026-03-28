@@ -17,5 +17,5 @@ export const auth = betterAuth({
     'http://localhost:3001',
     process.env.APP_URL || '',
   ].filter(Boolean),
-  baseURL: 'http://localhost:3001',
+  baseURL: process.env.AUTH_BASE_URL || 'http://localhost:3001',
 });
