@@ -13,4 +13,4 @@ EXPO_PUBLIC_FIREBASE_PROJECT_ID=drape-dev \
 EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=drape-dev.firebasestorage.app \
 EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=127888670449 \
 EXPO_PUBLIC_FIREBASE_APP_ID=1:127888670449:web:d7de3fe78034aaa74b3350 \
-eas update --channel development --message "$MESSAGE"
+eas update --channel preview --message "$MESSAGE"

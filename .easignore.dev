@@ -1,0 +1,29 @@
+# Large directories
+node_modules
+ios
+android
+backend
+backend-mock
+.drape
+
+# Build artifacts
+.git
+.expo
+
+# Development
+__tests__
+coverage
+
+# Docs
+docs
+*.md
+
+# IDE
+.idea
+.vscode
+
+# OS
+.DS_Store
+
+# Logs
+*.log
