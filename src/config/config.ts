@@ -15,8 +15,8 @@ const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || (typeof __D
 
 export const config = {
   // Backend URLs
-  apiUrl: isProduction ? PRODUCTION_URL : (process.env.EXPO_PUBLIC_API_URL || LOCAL_URL),
-  wsUrl: isProduction ? PRODUCTION_WS_URL : (process.env.EXPO_PUBLIC_WS_URL || LOCAL_WS_URL),
+  apiUrl: process.env.EXPO_PUBLIC_API_URL || (isProduction ? PRODUCTION_URL : LOCAL_URL),
+  wsUrl: process.env.EXPO_PUBLIC_WS_URL || (isProduction ? PRODUCTION_WS_URL : LOCAL_WS_URL),
 
   // Coder workspace URL (for Agent communication)
   coderUrl: CODER_URL,

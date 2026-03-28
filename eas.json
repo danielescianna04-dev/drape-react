@@ -7,12 +7,22 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "channel": "development"
+      "channel": "development",
+      "env": {
+        "EXPO_PUBLIC_ENV": "development",
+        "EXPO_PUBLIC_API_URL": "https://dev.drape.info",
+        "EXPO_PUBLIC_WS_URL": "wss://dev.drape.info"
+      }
     },
     "preview": {
       "distribution": "internal",
       "developmentClient": false,
       "channel": "preview",
+      "env": {
+        "EXPO_PUBLIC_ENV": "preview",
+        "EXPO_PUBLIC_API_URL": "https://dev.drape.info",
+        "EXPO_PUBLIC_WS_URL": "wss://dev.drape.info"
+      },
       "android": {
         "buildType": "apk"
       },
@@ -26,7 +36,9 @@
       "channel": "production",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_ENV": "production"
+        "EXPO_PUBLIC_ENV": "production",
+        "EXPO_PUBLIC_API_URL": "https://drape.info",
+        "EXPO_PUBLIC_WS_URL": "wss://drape.info"
       },
       "android": {
         "buildType": "apk",
