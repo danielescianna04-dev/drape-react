@@ -18,7 +18,6 @@
       "distribution": "store",
       "developmentClient": false,
       "channel": "preview",
-      "config": "app.config.ts",
       "env": {
         "EXPO_PUBLIC_ENV": "development",
         "EXPO_PUBLIC_API_URL": "https://dev.drape.info",

@@ -69,7 +69,7 @@ const config: ExpoConfig = {
   updates: {
     url: 'https://u.expo.dev/ec6c855f-5325-47b4-8d13-982ba9a83a1c',
     requestHeaders: {
-      'expo-channel-name': IS_DEV ? 'development' : 'production',
+      'expo-channel-name': IS_DEV ? 'preview' : 'production',
     },
   },
   owner: 'drape01',

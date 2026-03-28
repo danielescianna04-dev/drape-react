@@ -1,3 +1,7 @@
+# Native (managed workflow — EAS prebuild generates these)
+ios/
+android/
+
 # Expo
 .expo/
 dist/
