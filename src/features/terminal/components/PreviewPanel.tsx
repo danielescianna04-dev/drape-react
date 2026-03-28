@@ -179,7 +179,40 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   // Toolbar hidden — moved to VSCodeSidebar header
   const shouldRenderToolbar = false;
 
+  // Check if technology is supported for preview
+  const SUPPORTED_PREVIEW_TECHS = ['nextjs', 'react', 'vite', 'vue', 'html', 'static', 'astro', 'expo'];
+  const tech = (currentWorkstation?.technology || currentWorkstation?.language || '').toLowerCase();
+  const isPreviewSupported = !tech || SUPPORTED_PREVIEW_TECHS.some(s => tech.includes(s));
+
   // ---- Render ----
+  if (!isPreviewSupported) {
+    return (
+      <>
+        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
+        <Reanimated.View style={[styles.container, containerAnimatedStyle]}>
+          <View style={{ flex: 1, backgroundColor: '#0a0a0f', justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+            <Ionicons name="alert-circle-outline" size={48} color="rgba(255,255,255,0.3)" />
+            <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600', marginTop: 16, textAlign: 'center' }}>
+              Preview non supportata
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, marginTop: 8, textAlign: 'center' }}>
+              La preview non è ancora disponibile per i progetti {tech || 'di questo tipo'}.
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, marginTop: 16, textAlign: 'center' }}>
+              Stack supportate: Next.js, React, Vue, HTML/CSS/JS, Astro
+            </Text>
+            <TouchableOpacity
+              onPress={handleClose}
+              style={{ marginTop: 24, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12 }}
+            >
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500' }}>Chiudi</Text>
+            </TouchableOpacity>
+          </View>
+        </Reanimated.View>
+      </>
+    );
+  }
+
   return (
     <>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
