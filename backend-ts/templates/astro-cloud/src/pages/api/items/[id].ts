@@ -1,10 +1,9 @@
 import type { APIRoute } from 'astro';
-import db from '../../../lib/db';
-import type { Item } from '../../../lib/db';
+import { sql } from '../../../lib/db';
 
 export const GET: APIRoute = async ({ params }) => {
   try {
-    const item = db.prepare('SELECT * FROM items WHERE id = ?').get(params.id) as Item | undefined;
+    const [item] = await sql`SELECT * FROM items WHERE id = ${params.id}`;
 
     if (!item) {
       return new Response(JSON.stringify({ error: 'Item not found' }), {
@@ -31,7 +30,7 @@ export const PUT: APIRoute = async ({ params, request }) => {
     const body = await request.json();
     const { title, description, status } = body;
 
-    const existing = db.prepare('SELECT * FROM items WHERE id = ?').get(params.id) as Item | undefined;
+    const [existing] = await sql`SELECT * FROM items WHERE id = ${params.id}`;
     if (!existing) {
       return new Response(JSON.stringify({ error: 'Item not found' }), {
         status: 404,
@@ -46,21 +45,15 @@ export const PUT: APIRoute = async ({ params, request }) => {
       });
     }
 
-    db.prepare(`
-      UPDATE items
-      SET title = COALESCE(?, title),
-          description = COALESCE(?, description),
-          status = COALESCE(?, status),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(
-      title?.trim() ?? null,
-      description?.trim() ?? null,
-      status ?? null,
-      params.id
-    );
-
-    const item = db.prepare('SELECT * FROM items WHERE id = ?').get(params.id) as Item;
+    const [item] = await sql`
+      UPDATE items SET
+        title = ${title !== undefined ? title.trim() : existing.title},
+        description = ${description !== undefined ? description.trim() : existing.description},
+        status = ${status !== undefined ? status : existing.status},
+        updated_at = NOW()
+      WHERE id = ${params.id}
+      RETURNING *
+    `;
 
     return new Response(JSON.stringify(item), {
       status: 200,
@@ -77,7 +70,7 @@ export const PUT: APIRoute = async ({ params, request }) => {
 
 export const DELETE: APIRoute = async ({ params }) => {
   try {
-    const existing = db.prepare('SELECT * FROM items WHERE id = ?').get(params.id) as Item | undefined;
+    const [existing] = await sql`SELECT * FROM items WHERE id = ${params.id}`;
     if (!existing) {
       return new Response(JSON.stringify({ error: 'Item not found' }), {
         status: 404,
@@ -85,7 +78,7 @@ export const DELETE: APIRoute = async ({ params }) => {
       });
     }
 
-    db.prepare('DELETE FROM items WHERE id = ?').run(params.id);
+    await sql`DELETE FROM items WHERE id = ${params.id}`;
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,

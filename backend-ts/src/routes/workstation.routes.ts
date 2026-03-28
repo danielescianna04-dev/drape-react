@@ -1023,6 +1023,9 @@ async function generateProject(
       // Write .env file with Neon credentials + auth secret
       const envActionId = report.startAction('database', 'Writing environment variables', '8 variables: DATABASE_URL, AUTH_SECRET, etc.');
       const authSecret = crypto.randomBytes(32).toString('hex');
+      // App URL env var name depends on the framework
+      const appUrlKey = technology === 'nextjs' ? 'NEXT_PUBLIC_APP_URL'
+        : (technology === 'html' ? 'APP_URL' : 'VITE_APP_URL');
       const envContent = [
         `DATABASE_URL=${neonCredentials.connectionUri}`,
         `DATABASE_URL_POOLED=${neonCredentials.connectionUriPooled}`,
@@ -1031,15 +1034,20 @@ async function generateProject(
         `PGUSER=${neonCredentials.role}`,
         `PGPASSWORD=${neonCredentials.password}`,
         `BETTER_AUTH_SECRET=${authSecret}`,
-        `NEXT_PUBLIC_APP_URL=http://localhost:3000`,
+        `${appUrlKey}=http://localhost:3000`,
       ].join('\n');
+      // Also write .env for stacks that don't use .env.local (Express, Astro)
       await fileService.writeFile(projectId, '.env.local', envContent);
+      await fileService.writeFile(projectId, '.env', envContent);
       report.completeAction(envActionId);
 
       // Run auth schema to create user/session/account tables
       const authSchemaActionId = report.startAction('database', 'Creating auth tables', 'Tables: user, session, account, verification');
       try {
-        const authSchemaPath = path.resolve(__dirname, '../../templates/nextjs-cloud/db/auth-schema.sql');
+        // Auth schema is identical across all cloud templates — try the current stack first, fallback to nextjs
+        const techCloudDir = path.resolve(__dirname, `../../templates/${technology}-cloud/db/auth-schema.sql`);
+        const fallbackDir = path.resolve(__dirname, '../../templates/nextjs-cloud/db/auth-schema.sql');
+        const authSchemaPath = fs.existsSync(techCloudDir) ? techCloudDir : fallbackDir;
         const authSchemaSql = fs.readFileSync(authSchemaPath, 'utf-8');
         await neonManagementService.runSQL(neonCredentials.projectId, authSchemaSql, neonCredentials.endpointId);
         report.completeAction(authSchemaActionId, { tables: ['user', 'session', 'account', 'verification'] });
@@ -1179,11 +1187,20 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
     'astro.config.mjs',
     'app.json',
     'index.html', // Vite entry point
-    // Cloud auth plumbing — NEVER overwrite
+    // Cloud auth plumbing — NEVER overwrite (all stacks)
     'lib/db.ts', 'lib/auth.ts', 'lib/auth-client.ts',
     'app/api/auth/[...all]/route.ts',
     'app/components/auth-provider.tsx',
     'middleware.ts', 'db/auth-schema.sql',
+    // React/Vue cloud (Express backend)
+    'server/index.js', 'server/db.js', 'server/auth.js',
+    'src/lib/auth-client.ts', 'src/components/AuthProvider.tsx', 'src/components/UserMenu.tsx',
+    'src/components/AuthProvider.vue', 'src/components/UserMenu.vue',
+    // HTML cloud
+    'server.js', 'db.js', 'auth.js', 'js/auth.js',
+    // Astro cloud
+    'src/lib/db.ts', 'src/lib/auth.ts', 'src/lib/auth-client.ts',
+    'src/pages/api/auth/[...all].ts', 'src/middleware.ts',
   ]);
 
   const streamWrittenFiles: string[] = [];

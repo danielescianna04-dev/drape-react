@@ -1,57 +1,31 @@
 const express = require('express');
-const Database = require('better-sqlite3');
-const path = require('path');
+const { toNodeHandler } = require('better-auth/node');
+const { auth } = require('./auth.js');
+const sql = require('./db.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Database setup
-const dbPath = path.join(__dirname, 'data.db');
-const db = new Database(dbPath);
-db.pragma('journal_mode = WAL');
+// Better Auth handler — must come before express.json()
+app.all('/api/auth/*', toNodeHandler(auth));
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    description TEXT DEFAULT '',
-    status TEXT DEFAULT 'active',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-// Seed with sample data if empty
-const count = db.prepare('SELECT COUNT(*) as count FROM items').get();
-if (count.count === 0) {
-  const insert = db.prepare('INSERT INTO items (title, description, status) VALUES (?, ?, ?)');
-  const seedData = [
-    ['Build landing page', 'Design and implement the main landing page with hero section', 'active'],
-    ['Setup CI/CD pipeline', 'Configure GitHub Actions for automated testing and deployment', 'completed'],
-    ['Database schema design', 'Plan and implement the database models for the application', 'completed'],
-    ['API documentation', 'Write comprehensive API docs with examples', 'active'],
-    ['User authentication', 'Implement login, signup, and session management', 'active'],
-  ];
-  for (const [title, description, status] of seedData) {
-    insert.run(title, description, status);
-  }
-}
-
-// Middleware
+// Body parsing
 app.use(express.json());
+
+// Serve static files
 app.use(express.static(__dirname));
 
 // API Routes
 
 // GET all items
-app.get('/api/items', (req, res) => {
+app.get('/api/items', async (req, res) => {
   try {
     const { status } = req.query;
     let items;
     if (status) {
-      items = db.prepare('SELECT * FROM items WHERE status = ? ORDER BY created_at DESC').all(status);
+      items = await sql`SELECT * FROM items WHERE status = ${status} ORDER BY created_at DESC`;
     } else {
-      items = db.prepare('SELECT * FROM items ORDER BY created_at DESC').all();
+      items = await sql`SELECT * FROM items ORDER BY created_at DESC`;
     }
     res.json(items);
   } catch (error) {
@@ -61,9 +35,9 @@ app.get('/api/items', (req, res) => {
 });
 
 // GET single item
-app.get('/api/items/:id', (req, res) => {
+app.get('/api/items/:id', async (req, res) => {
   try {
-    const item = db.prepare('SELECT * FROM items WHERE id = ?').get(req.params.id);
+    const [item] = await sql`SELECT * FROM items WHERE id = ${req.params.id}`;
     if (!item) {
       return res.status(404).json({ error: 'Item not found' });
     }
@@ -75,16 +49,17 @@ app.get('/api/items/:id', (req, res) => {
 });
 
 // POST create item
-app.post('/api/items', (req, res) => {
+app.post('/api/items', async (req, res) => {
   try {
     const { title, description, status } = req.body;
     if (!title || typeof title !== 'string' || title.trim().length === 0) {
       return res.status(400).json({ error: 'Title is required' });
     }
-    const result = db
-      .prepare('INSERT INTO items (title, description, status) VALUES (?, ?, ?)')
-      .run(title.trim(), description?.trim() || '', status || 'active');
-    const item = db.prepare('SELECT * FROM items WHERE id = ?').get(result.lastInsertRowid);
+    const [item] = await sql`
+      INSERT INTO items (title, description, status)
+      VALUES (${title.trim()}, ${(description || '').trim()}, ${status || 'active'})
+      RETURNING *
+    `;
     res.status(201).json(item);
   } catch (error) {
     console.error('Failed to create item:', error);
@@ -93,30 +68,25 @@ app.post('/api/items', (req, res) => {
 });
 
 // PUT update item
-app.put('/api/items/:id', (req, res) => {
+app.put('/api/items/:id', async (req, res) => {
   try {
     const { title, description, status } = req.body;
-    const existing = db.prepare('SELECT * FROM items WHERE id = ?').get(req.params.id);
+    const [existing] = await sql`SELECT * FROM items WHERE id = ${req.params.id}`;
     if (!existing) {
       return res.status(404).json({ error: 'Item not found' });
     }
     if (title !== undefined && (typeof title !== 'string' || title.trim().length === 0)) {
       return res.status(400).json({ error: 'Title cannot be empty' });
     }
-    db.prepare(`
-      UPDATE items
-      SET title = COALESCE(?, title),
-          description = COALESCE(?, description),
-          status = COALESCE(?, status),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(
-      title?.trim() ?? null,
-      description?.trim() ?? null,
-      status ?? null,
-      req.params.id
-    );
-    const item = db.prepare('SELECT * FROM items WHERE id = ?').get(req.params.id);
+    const [item] = await sql`
+      UPDATE items SET
+        title = ${title !== undefined ? title.trim() : existing.title},
+        description = ${description !== undefined ? description.trim() : existing.description},
+        status = ${status !== undefined ? status : existing.status},
+        updated_at = NOW()
+      WHERE id = ${req.params.id}
+      RETURNING *
+    `;
     res.json(item);
   } catch (error) {
     console.error('Failed to update item:', error);
@@ -125,13 +95,13 @@ app.put('/api/items/:id', (req, res) => {
 });
 
 // DELETE item
-app.delete('/api/items/:id', (req, res) => {
+app.delete('/api/items/:id', async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM items WHERE id = ?').get(req.params.id);
+    const [existing] = await sql`SELECT * FROM items WHERE id = ${req.params.id}`;
     if (!existing) {
       return res.status(404).json({ error: 'Item not found' });
     }
-    db.prepare('DELETE FROM items WHERE id = ?').run(req.params.id);
+    await sql`DELETE FROM items WHERE id = ${req.params.id}`;
     res.json({ success: true });
   } catch (error) {
     console.error('Failed to delete item:', error);

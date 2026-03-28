@@ -1,16 +1,15 @@
 import type { APIRoute } from 'astro';
-import db from '../../../lib/db';
-import type { Item } from '../../../lib/db';
+import { sql } from '../../../lib/db';
 
 export const GET: APIRoute = async ({ url }) => {
   try {
     const status = url.searchParams.get('status');
-    let items: Item[];
+    let items;
 
     if (status) {
-      items = db.prepare('SELECT * FROM items WHERE status = ? ORDER BY created_at DESC').all(status) as Item[];
+      items = await sql`SELECT * FROM items WHERE status = ${status} ORDER BY created_at DESC`;
     } else {
-      items = db.prepare('SELECT * FROM items ORDER BY created_at DESC').all() as Item[];
+      items = await sql`SELECT * FROM items ORDER BY created_at DESC`;
     }
 
     return new Response(JSON.stringify(items), {
@@ -38,11 +37,11 @@ export const POST: APIRoute = async ({ request }) => {
       });
     }
 
-    const result = db
-      .prepare('INSERT INTO items (title, description, status) VALUES (?, ?, ?)')
-      .run(title.trim(), description?.trim() || '', status || 'active');
-
-    const item = db.prepare('SELECT * FROM items WHERE id = ?').get(result.lastInsertRowid) as Item;
+    const [item] = await sql`
+      INSERT INTO items (title, description, status)
+      VALUES (${title.trim()}, ${(description || '').trim()}, ${status || 'active'})
+      RETURNING *
+    `;
 
     return new Response(JSON.stringify(item), {
       status: 201,

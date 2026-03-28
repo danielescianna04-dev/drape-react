@@ -1,9 +1,22 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import db from '../lib/db';
-import type { Item } from '../lib/db';
+import { sql } from '../lib/db';
 
-const items = db.prepare('SELECT * FROM items ORDER BY created_at DESC').all() as Item[];
+interface Item {
+  id: number;
+  title: string;
+  description: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+let items: Item[] = [];
+try {
+  items = await sql`SELECT * FROM items ORDER BY created_at DESC` as Item[];
+} catch (e) {
+  console.error('Failed to load items:', e);
+}
 const activeCount = items.filter(i => i.status === 'active').length;
 const completedCount = items.filter(i => i.status === 'completed').length;
 ---
@@ -20,7 +33,7 @@ const completedCount = items.filter(i => i.status === 'completed').length;
               {items.length} items
             </span>
           </div>
-          <p class="text-slate-300">Manage your items with full CRUD operations powered by SQLite.</p>
+          <p class="text-slate-300">Manage your items with full CRUD operations powered by Neon PostgreSQL.</p>
         </div>
         <button id="btn-add" class="inline-flex items-center gap-2 px-8 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/25 hover:-translate-y-0.5 active:translate-y-0">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

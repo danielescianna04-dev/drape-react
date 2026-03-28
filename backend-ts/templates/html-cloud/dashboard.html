@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Dashboard - Manage your items with full CRUD operations powered by SQLite." />
+  <meta name="description" content="Dashboard - Manage your items with full CRUD operations powered by Neon PostgreSQL." />
   <meta name="theme-color" content="#030712" />
   <title>Dashboard - Cloud Mode</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -341,9 +341,9 @@
         <a href="about.html" class="nav-link">About</a>
         <a href="dashboard.html" class="nav-link active">Dashboard</a>
       </div>
-      <div class="nav-actions">
-        <a href="#" class="nav-sign-in">Sign in</a>
-        <a href="#" class="btn-primary">Get Started</a>
+      <div class="nav-actions" id="nav-actions">
+        <a href="login.html" class="nav-sign-in">Sign in</a>
+        <a href="register.html" class="btn-primary">Get Started</a>
       </div>
       <button class="mobile-toggle" aria-label="Toggle menu" aria-expanded="false">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -363,7 +363,7 @@
             <h1>Dashboard</h1>
             <span class="item-count-badge" id="item-count-badge">0 items</span>
           </div>
-          <p class="dashboard-subtitle">Manage your items with full CRUD operations powered by SQLite.</p>
+          <p class="dashboard-subtitle">Manage your items with full CRUD operations powered by Neon PostgreSQL.</p>
         </div>
         <button class="btn-primary btn-large" id="btn-add" onclick="openModal()">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:20px;height:20px">
@@ -450,7 +450,32 @@
     </div>
   </footer>
 
+  <script src="js/auth.js"></script>
   <script>
+    // Check auth and update nav
+    (async () => {
+      const session = await Auth.getSession();
+      if (!session || !session.user) {
+        window.location.href = '/login.html';
+        return;
+      }
+      // Replace sign-in/get-started with user menu
+      const navActions = document.getElementById('nav-actions');
+      if (navActions) {
+        const initials = (session.user.name || session.user.email || 'U')
+          .split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+        navActions.innerHTML = `
+          <span style="color:#94a3b8;font-size:0.875rem">${session.user.name || session.user.email}</span>
+          <button onclick="handleLogout()" class="nav-sign-in" style="color:#f87171">Sign out</button>
+        `;
+      }
+    })();
+
+    async function handleLogout() {
+      await Auth.signOut();
+      window.location.href = '/login.html';
+    }
+
     // State
     let items = [];
 

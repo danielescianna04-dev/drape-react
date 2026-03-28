@@ -463,32 +463,65 @@ DO NOT be lazy. DO NOT use "Lorem ipsum" or "Coming soon". Every page must be CO
     ? `\n\nFILES ALREADY IN THE TEMPLATE (do NOT regenerate unless you need to modify them):\n${templateFiles.map(f => `- ${f}`).join('\n')}`
     : '';
 
+  // Cloud mode auth file paths depend on the stack
+  const cloudAuthFiles: Record<string, string> = {
+    nextjs: `- lib/db.ts, lib/auth.ts, lib/auth-client.ts
+- app/api/auth/[...all]/route.ts, middleware.ts
+- app/(auth)/login/page.tsx, app/(auth)/register/page.tsx, app/(auth)/layout.tsx
+- app/components/auth-provider.tsx, app/components/user-menu.tsx`,
+    react: `- server/index.js, server/db.js, server/auth.js, server/routes/items.js
+- src/lib/auth-client.ts
+- src/pages/Login.tsx, src/pages/Register.tsx
+- src/components/AuthProvider.tsx, src/components/UserMenu.tsx`,
+    vue: `- server/index.js, server/db.js, server/auth.js, server/routes/items.js
+- src/lib/auth-client.ts
+- src/views/LoginView.vue, src/views/RegisterView.vue
+- src/components/AuthProvider.vue, src/components/UserMenu.vue`,
+    html: `- server.js, db.js, auth.js
+- js/auth.js
+- login.html, register.html`,
+    astro: `- src/lib/db.ts, src/lib/auth.ts, src/lib/auth-client.ts
+- src/pages/api/auth/[...all].ts, src/middleware.ts
+- src/pages/login.astro, src/pages/register.astro
+- src/components/UserMenu.tsx`,
+  };
+
+  const cloudAuthUsage: Record<string, string> = {
+    nextjs: `- In layout.tsx: wrap with <AuthProvider>{children}</AuthProvider>
+- In Navbar: add <UserMenu />
+- Client: import { useAuth } from '@/components/auth-provider'; const { user, isAuthenticated } = useAuth()
+- Server: import { auth } from '@/lib/auth'; const session = await auth.api.getSession({ headers: await headers() })`,
+    react: `- In App.tsx: wrap routes with <AuthProvider><Routes>...</Routes></AuthProvider>
+- In Navbar: add <UserMenu />
+- Any component: import { useAuth } from './components/AuthProvider'; const { user, isAuthenticated } = useAuth()
+- API calls go to http://localhost:3001/api/ (Express backend)`,
+    vue: `- In App.vue: wrap with <AuthProvider><RouterView /></AuthProvider>
+- In Navbar: add <UserMenu />
+- Any component: import { useAuth } from '@/components/AuthProvider.vue'; const { user, isAuthenticated } = useAuth()
+- API calls go to http://localhost:3001/api/ (Express backend)`,
+    html: `- In any page: <script src="/js/auth.js"></script>
+- Check auth: await requireAuth() (redirects to /login if not authenticated)
+- Get session: const session = await getSession()
+- API calls: fetch('/api/items') (same Express server)`,
+    astro: `- In Astro pages frontmatter: const session = await auth.api.getSession({ headers: Astro.request.headers })
+- Interactive components: use UserMenu with client:load directive
+- API routes: import { auth } from '@/lib/auth' for server-side auth`,
+  };
+
   const cloudNote = cloudMode && neon
     ? `\n\nCLOUD MODE WITH NEON POSTGRESQL — PRODUCTION-READY:
 A PostgreSQL database and authentication system are already set up and connected.
 - Database host: ${neon.host}
-- .env.local already contains DATABASE_URL, BETTER_AUTH_SECRET, etc.
+- .env / .env.local already contains DATABASE_URL, BETTER_AUTH_SECRET, etc.
 - Auth tables (user, session, account, verification) already created in the database.
 
 === FILES THAT ALREADY EXIST — DO NOT GENERATE THESE ===
-- lib/db.ts (Neon + Drizzle client — ALREADY EXISTS)
-- lib/auth.ts (Better Auth server config — ALREADY EXISTS)
-- lib/auth-client.ts (Better Auth client SDK — ALREADY EXISTS)
-- app/api/auth/[...all]/route.ts (Auth API route — ALREADY EXISTS)
-- app/(auth)/login/page.tsx (Login page — ALREADY EXISTS)
-- app/(auth)/register/page.tsx (Register page — ALREADY EXISTS)
-- app/(auth)/layout.tsx (Auth layout — ALREADY EXISTS)
-- app/components/auth-provider.tsx (AuthProvider — ALREADY EXISTS)
-- app/components/user-menu.tsx (UserMenu — ALREADY EXISTS)
-- middleware.ts (Route protection — ALREADY EXISTS)
+${cloudAuthFiles[technology] || cloudAuthFiles.nextjs}
 - db/auth-schema.sql (Auth tables — ALREADY EXISTS)
 If you include ANY of these files, they will overwrite the working auth system and BREAK the app.
 
 === AUTH INTEGRATION — USE THESE IN YOUR CODE ===
-- In your app layout (app/layout.tsx), wrap children with: import { AuthProvider } from '@/components/auth-provider' then <AuthProvider>{children}</AuthProvider>
-- In your Navbar component, add: import { UserMenu } from '@/components/user-menu' then <UserMenu />
-- To get current user in any client component: import { useAuth } from '@/components/auth-provider' then const { user, isAuthenticated } = useAuth()
-- To get session in Server Components: import { auth } from '@/lib/auth'; import { headers } from 'next/headers'; const session = await auth.api.getSession({ headers: await headers() });
+${cloudAuthUsage[technology] || cloudAuthUsage.nextjs}
 - For user-specific data, add user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE to your tables
 - Filter queries by user_id to show only the current user's data
 

@@ -24,6 +24,7 @@ const API_BASE = import.meta.env.DEV ? 'http://localhost:3001/api' : '/api';
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${url}`, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     ...options,
   });
 
