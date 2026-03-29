@@ -670,12 +670,16 @@ export const AuthScreen = () => {
         tracciaRegistrazione();
         // GDPR Point 7 + 20: tosAcceptedAt and ageConfirmedAt are saved
         // in authStore.signUp as part of the initial user document creation.
-        // Registration successful — switch to verify mode
-        setVerificationEmail(email.trim());
-        setVerificationPassword(password);
-        setMode('verify');
-        setResendSuccess(false);
-        return;
+        // Registration successful
+        const skipVerification = process.env.EXPO_PUBLIC_ENV === 'development' || process.env.EXPO_PUBLIC_ENV === 'preview';
+        if (!skipVerification) {
+          setVerificationEmail(email.trim());
+          setVerificationPassword(password);
+          setMode('verify');
+          setResendSuccess(false);
+          return;
+        }
+        // Dev: user is already signed in from signUp, no verify needed
       } else if (mode === 'forgot') {
         await resetPassword(email.trim());
         tracciaResetPassword();
