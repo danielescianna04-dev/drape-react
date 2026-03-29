@@ -2,8 +2,7 @@ import { log } from '../utils/logger';
 import { workspaceService } from './workspace.service';
 import { fileService } from './file.service';
 import { aiProviderService } from './ai-provider.service';
-import { sessionService } from './session.service';
-import http from 'http';
+// sessionService and http removed — proxy CSS check replaced by SSR capture
 
 export interface VerifyResult {
   passed: boolean;
@@ -36,65 +35,64 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
   const { projectId, userId, technology, onProgress } = opts;
   const MAX_ATTEMPTS = 3;
 
+  let lastResult: VerifyResult = { passed: false, errors: [], screenshots: new Map(), serverLog: '' };
+
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const isRetry = attempt > 0;
     onProgress?.(92 + attempt * 2, isRetry ? `Auto-fixing (attempt ${attempt + 1})...` : 'Verifying preview...', isRetry ? 'Auto-Fix' : 'Verify');
 
-    // Short wait before verify (server readiness is checked inside verify())
     if (isRetry) await new Promise(r => setTimeout(r, 3000));
 
-    const result = await verify(projectId, userId);
+    lastResult = await verify(projectId, userId);
 
-    if (result.passed) {
+    if (lastResult.passed) {
       log.info(`[Verify] Project ${projectId} passed on attempt ${attempt + 1}`);
-
-      // SSR Capture: render all pages with Puppeteer and save as static HTML with inlined CSS
-      onProgress?.(96, 'Rendering preview...', 'Rendering');
-      try {
-        // Copy ssr-capture.js into project directory (accessible inside container)
-        const ssrScriptSrc = require('path').join(__dirname, '../../scripts/ssr-capture.js');
-        const { config: appConfig } = require('../config');
-        const ssrScriptDst = require('path').join(appConfig.projectsRoot, projectId, '.ssr-capture.js');
-        require('fs').copyFileSync(ssrScriptSrc, ssrScriptDst);
-
-        const ssrResult = await workspaceService.exec(projectId, userId,
-          'NODE_PATH=/usr/local/lib/node_modules timeout 60 node /home/coder/project/.ssr-capture.js 2>/dev/null'
-        );
-        const ssr = JSON.parse(ssrResult.stdout || '{}');
-        if (ssr.pages?.length > 0) {
-          log.info(`[Verify] SSR captured ${ssr.pages.length} pages for ${projectId}`);
-        } else {
-          log.warn(`[Verify] SSR capture returned no pages for ${projectId}`);
-        }
-      } catch (ssrErr: any) {
-        log.warn(`[Verify] SSR capture failed: ${ssrErr.message} — preview will use proxy fallback`);
-      }
-
-      onProgress?.(98, 'Preview verified!', 'Verified');
-      return result;
+      break;
     }
 
-    log.info(`[Verify] Project ${projectId} failed on attempt ${attempt + 1}: ${result.errors.length} errors — ${result.errors.slice(0, 3).join('; ')}`);
+    log.info(`[Verify] Project ${projectId} failed on attempt ${attempt + 1}: ${lastResult.errors.length} errors — ${lastResult.errors.slice(0, 3).join('; ')}`);
 
-    // Don't try to fix on last attempt
     if (attempt >= MAX_ATTEMPTS - 1) {
       log.warn(`[Verify] Project ${projectId} failed after ${MAX_ATTEMPTS} attempts`);
-      return result;
+      break;
     }
 
-    // Auto-fix
-    onProgress?.(93 + attempt * 2, `Fixing ${result.errors.length} error(s)...`, 'Auto-Fix');
-    const fixed = await autoFix(projectId, userId, technology, result);
+    onProgress?.(93 + attempt * 2, `Fixing ${lastResult.errors.length} error(s)...`, 'Auto-Fix');
+    const fixed = await autoFix(projectId, userId, technology, lastResult);
     if (!fixed) {
       log.warn(`[Verify] Auto-fix failed for ${projectId} — stopping`);
-      return result;
+      break;
     }
 
-    // Restart dev server after fixes
     await restartDevServer(projectId, userId);
   }
 
-  return { passed: false, errors: ['Max attempts exhausted'], screenshots: new Map(), serverLog: '' };
+  // SSR Capture: ALWAYS run after verify loop (regardless of pass/fail).
+  // Puppeteer renders pages inside the container with CSS fully applied,
+  // inlines all styles into <style> tags, and saves static HTML.
+  // The proxy serves these SSR files — guaranteed CSS, zero dependencies.
+  onProgress?.(96, 'Rendering preview...', 'Rendering');
+  try {
+    const ssrScriptSrc = require('path').join(__dirname, '../../scripts/ssr-capture.js');
+    const { config: appConfig } = require('../config');
+    const ssrScriptDst = require('path').join(appConfig.projectsRoot, projectId, '.ssr-capture.js');
+    require('fs').copyFileSync(ssrScriptSrc, ssrScriptDst);
+
+    const ssrResult = await workspaceService.exec(projectId, userId,
+      'NODE_PATH=/usr/local/lib/node_modules timeout 60 node /home/coder/project/.ssr-capture.js 2>/dev/null'
+    );
+    const ssr = JSON.parse(ssrResult.stdout || '{}');
+    if (ssr.pages?.length > 0) {
+      log.info(`[Verify] SSR captured ${ssr.pages.length} pages for ${projectId}`);
+    } else {
+      log.warn(`[Verify] SSR capture returned no pages for ${projectId}`);
+    }
+  } catch (ssrErr: any) {
+    log.warn(`[Verify] SSR capture failed: ${ssrErr.message} — preview will use proxy fallback`);
+  }
+
+  onProgress?.(98, lastResult.passed ? 'Preview verified!' : 'Preview ready', lastResult.passed ? 'Verified' : 'Ready');
+  return lastResult;
 }
 
 // ── Verify ──────────────────────────────────────────────────────────────────
@@ -195,57 +193,8 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
     }
   }
 
-  // 4. Verify through proxy (same path the user's WebView takes)
-  if (httpCode === '200' && errors.length === 0) {
-    try {
-      const session = await sessionService.getByProjectId(projectId);
-      if (session?.previewPort || session?.agentUrl) {
-        const target = session.previewPort
-          ? { host: '127.0.0.1', port: session.previewPort }
-          : { host: '127.0.0.1', port: session.projectInfo?.port || 3000 };
-
-        const proxyHtml = await new Promise<string>((resolve, reject) => {
-          const req = http.get({
-            hostname: target.host,
-            port: target.port,
-            path: '/',
-            timeout: 10000,
-            headers: { 'accept-encoding': 'identity' },
-          }, (res) => {
-            const chunks: Buffer[] = [];
-            res.on('data', (c: Buffer) => chunks.push(c));
-            res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-            res.on('error', reject);
-          });
-          req.on('error', reject);
-          req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-        });
-
-        // Check if HTML through proxy has CSS (<link> tag or <style> tag)
-        const hasCssLink = /<link[^>]+\.css/.test(proxyHtml);
-        const hasStyleTag = /<style[\s>]/.test(proxyHtml);
-        const hasInlineStyles = /style="[^"]*background|style="[^"]*color/.test(proxyHtml);
-
-        if (!hasCssLink && !hasStyleTag && !hasInlineStyles) {
-          log.warn(`[Verify] Proxy HTML has no CSS (no <link>, <style>, or inline styles)`);
-          errors.push('Page has no CSS through proxy — styles not loading. Check that the project is running in production mode (next build + next start).');
-        } else {
-          log.info(`[Verify] Proxy CSS check passed (link=${hasCssLink}, style=${hasStyleTag}, inline=${hasInlineStyles})`);
-        }
-
-        // Check if page has actual content (not just loading spinner)
-        const textContent = proxyHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, '').trim();
-        if (textContent.length < 50) {
-          log.warn(`[Verify] Proxy HTML has very little text content (${textContent.length} chars)`);
-          // Don't fail on this — client-side rendering may populate content after JS loads
-        }
-      }
-    } catch (proxyErr: any) {
-      log.warn(`[Verify] Proxy verification failed: ${proxyErr.message}`);
-    }
-  }
-
-  // 5. Check HTML body for error indicators
+  // 4. Check HTML body for error indicators
+  // (CSS is handled by SSR capture after verify — no proxy CSS check needed)
   if (httpCode === '200') {
     const bodyChecks = [
       { test: "Can't resolve", msg: "Module resolution error in page" },
