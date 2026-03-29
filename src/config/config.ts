@@ -3,9 +3,9 @@
 const PRODUCTION_URL = 'https://drape.info';
 const PRODUCTION_WS_URL = 'wss://drape.info';
 
-// Dev: point to Hetzner (same as production)
-const LOCAL_URL = 'https://drape.info';
-const LOCAL_WS_URL = 'wss://drape.info';
+// Dev: point to Hetzner dev backend
+const LOCAL_URL = 'https://dev.drape.info';
+const LOCAL_WS_URL = 'wss://dev.drape.info';
 
 // Coder (workspace) URL
 const CODER_URL = process.env.EXPO_PUBLIC_CODER_URL || 'https://drape.info';
