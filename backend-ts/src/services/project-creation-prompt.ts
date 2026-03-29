@@ -68,6 +68,7 @@ REACT (VITE) INSTRUCTIONS:
 NEXT.JS (APP ROUTER) INSTRUCTIONS:
 - Stack: Next.js 15 App Router + React 19 + Tailwind v4 + react-icons
 - Layout: app/layout.tsx already imports CSS, Navbar, Footer. DO NOT re-add them.
+- ALWAYS add suppressHydrationWarning to <html> and <body> in layout.tsx to prevent hydration errors
 - Pages: app/{route}/page.tsx — each page is a SERVER component by default
 - 'use client': Add ONLY to files using useState, useEffect, onClick, or any hook
 - Components: app/components/ — import with @/ alias or relative path
