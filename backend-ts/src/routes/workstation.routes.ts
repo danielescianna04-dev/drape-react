@@ -1533,6 +1533,46 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
 
     log.info(`[CreateProject] Total files: ${writtenFiles.length} (${streamWrittenFiles.length} streamed + ${remainingFiles.length} post-stream)`);
 
+    // Post-processing: inject Tailwind CDN into layout for preview proxy compatibility
+    // Next.js dev mode serves CSS via webpack HMR which doesn't work through reverse proxy
+    if (technology === 'nextjs') {
+      try {
+        const layoutResult = await fileService.readFile(projectId, 'app/layout.tsx');
+        if (layoutResult.success && layoutResult.data?.content) {
+          let layout = layoutResult.data.content;
+          if (!layout.includes('cdn.tailwindcss.com')) {
+            // Add CDN script + suppressHydrationWarning
+            layout = layout.replace(/<html([^>]*)>/, (match: string, attrs: string) => {
+              const hasSuppress = attrs.includes('suppressHydrationWarning');
+              return `<html${attrs}${hasSuppress ? '' : ' suppressHydrationWarning'}>\n      <head>\n        <script src="https://cdn.tailwindcss.com" async></script>\n      </head>`;
+            });
+            // Also add suppressHydrationWarning to body if missing
+            if (!layout.includes('body') || !layout.match(/<body[^>]*suppressHydrationWarning/)) {
+              layout = layout.replace(/<body([^>]*)>/, '<body$1 suppressHydrationWarning>');
+            }
+            await fileService.writeFile(projectId, 'app/layout.tsx', layout);
+            log.info(`[CreateProject] Injected Tailwind CDN into layout.tsx`);
+          }
+        }
+      } catch (e: any) {
+        log.warn(`[CreateProject] Failed to inject Tailwind CDN: ${e.message}`);
+      }
+    } else if (['react', 'vue', 'vite'].includes(technology)) {
+      try {
+        const indexResult = await fileService.readFile(projectId, 'index.html');
+        if (indexResult.success && indexResult.data?.content) {
+          let html = indexResult.data.content;
+          if (!html.includes('cdn.tailwindcss.com')) {
+            html = html.replace('</head>', '    <script src="https://cdn.tailwindcss.com" async></script>\n  </head>');
+            await fileService.writeFile(projectId, 'index.html', html);
+            log.info(`[CreateProject] Injected Tailwind CDN into index.html`);
+          }
+        }
+      } catch (e: any) {
+        log.warn(`[CreateProject] Failed to inject Tailwind CDN into index.html: ${e.message}`);
+      }
+    }
+
     // Run database migrations if cloud credentials available
     let schemaFile = parsed.files.find(f =>
       f.path === 'supabase/schema.sql' || f.path === 'db/schema.sql' || f.path === 'schema.sql'
