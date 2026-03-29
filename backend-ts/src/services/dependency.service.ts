@@ -32,8 +32,15 @@ class DependencyService {
     if (existing) {
       log.info(`[Deps] Install already in progress for ${projectId} — waiting...`);
       onProgress?.('Install already in progress, waiting for completion...');
-      await existing;
-      return;
+      // Timeout after 60s to avoid deadlock from stale locks (e.g. container destroyed mid-install)
+      const timeout = new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Install lock timeout')), 60000));
+      try {
+        await Promise.race([existing, timeout]);
+        return;
+      } catch {
+        log.warn(`[Deps] Install lock timed out for ${projectId} — forcing new install`);
+        this.installLocks.delete(projectId);
+      }
     }
 
     const promise = this.doInstall(projectId, session, info, onProgress, onLog);
