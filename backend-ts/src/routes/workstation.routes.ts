@@ -1545,6 +1545,9 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
 
     log.info(`[CreateProject] Total files: ${writtenFiles.length} (${streamWrittenFiles.length} streamed + ${remainingFiles.length} post-stream)`);
 
+    // CSS is handled by SSR capture in verify-project.service.ts
+    // Puppeteer renders each page and inlines all CSS — no CDN needed
+
     // Run database migrations if cloud credentials available
     let schemaFile = parsed.files.find(f =>
       f.path === 'supabase/schema.sql' || f.path === 'db/schema.sql' || f.path === 'schema.sql'

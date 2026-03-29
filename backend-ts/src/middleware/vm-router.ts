@@ -170,6 +170,23 @@ export function createPreviewProxy() {
         proxyPath = parsedProxyPath.pathname + (parsedProxyPath.search || '');
       } catch { /* ignore */ }
 
+      // SSR mode: serve pre-rendered HTML if available (CSS fully inlined, no JS needed)
+      if (req.method === 'GET') {
+        const ssrPath = proxyPath.replace(/\?.*/, ''); // Strip query params
+        const ssrFile = ssrPath === '/' || ssrPath === '' ? 'index.html' : `${ssrPath.replace(/^\//, '').replace(/\//g, '_')}.html`;
+        const ssrDir = `/data/projects${process.env.NODE_ENV === 'development' ? '-dev' : ''}/${projectId}/.ssr`;
+        try {
+          const ssrContent = require('fs').readFileSync(`${ssrDir}/${ssrFile}`, 'utf-8');
+          log.info(`[Preview SSR] Serving ${ssrFile} for ${projectId} (${(ssrContent.length / 1024).toFixed(1)}KB)`);
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.end(ssrContent);
+          return;
+        } catch {
+          // No SSR file — fall through to proxy
+        }
+      }
+
       const target = resolvePreviewTarget(session);
       log.info(`[Preview Proxy] ${req.method} ${proxyPath} → ${target.host}:${target.port} (user: ${session.userId}, lastUsed: ${new Date(session.lastUsed).toISOString()})`);
 

@@ -63,6 +63,7 @@ ENV USE_BUILTIN_RIPGREP=0
 COPY workspace-agent.js /usr/local/bin/workspace-agent.js
 COPY scripts/screenshot.js /usr/local/bin/screenshot.js
 COPY scripts/e2e-check.js /usr/local/bin/e2e-check.js
+COPY scripts/ssr-capture.js /usr/local/bin/ssr-capture.js
 
 # Copy boilerplate templates
 COPY templates/ /usr/local/share/drape-templates/

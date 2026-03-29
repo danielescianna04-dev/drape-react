@@ -47,6 +47,29 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
 
     if (result.passed) {
       log.info(`[Verify] Project ${projectId} passed on attempt ${attempt + 1}`);
+
+      // SSR Capture: render all pages with Puppeteer and save as static HTML with inlined CSS
+      onProgress?.(96, 'Rendering preview...', 'Rendering');
+      try {
+        // Copy ssr-capture.js into project directory (accessible inside container)
+        const ssrScriptSrc = require('path').join(__dirname, '../../scripts/ssr-capture.js');
+        const { config: appConfig } = require('../config');
+        const ssrScriptDst = require('path').join(appConfig.projectsRoot, projectId, '.ssr-capture.js');
+        require('fs').copyFileSync(ssrScriptSrc, ssrScriptDst);
+
+        const ssrResult = await workspaceService.exec(projectId, userId,
+          'NODE_PATH=/usr/local/lib/node_modules timeout 60 node /home/coder/project/.ssr-capture.js 2>/dev/null'
+        );
+        const ssr = JSON.parse(ssrResult.stdout || '{}');
+        if (ssr.pages?.length > 0) {
+          log.info(`[Verify] SSR captured ${ssr.pages.length} pages for ${projectId}`);
+        } else {
+          log.warn(`[Verify] SSR capture returned no pages for ${projectId}`);
+        }
+      } catch (ssrErr: any) {
+        log.warn(`[Verify] SSR capture failed: ${ssrErr.message} — preview will use proxy fallback`);
+      }
+
       onProgress?.(98, 'Preview verified!', 'Verified');
       return result;
     }
