@@ -59,11 +59,13 @@ class DevServerService {
       // /setup might not return immediately — that's fine
     }
 
-    // Flutter: `flutter build web -O1` (~35s) + `npx serve` (1s) — needs generous timeout.
+    // Build-then-serve stacks (Flutter, Next.js production) need generous timeouts.
     // crashDelay must be longer than build time so a still-running build isn't mistaken for a crash.
     const isFlutter = info.type === 'flutter';
-    const readyTimeout = isFlutter ? 120000 : 60000;
-    const crashDelay = isFlutter ? 90000 : 8000;
+    const isNextjs = info.type === 'nextjs';
+    const needsBuild = isFlutter || isNextjs;
+    const readyTimeout = needsBuild ? 120000 : 60000;
+    const crashDelay = needsBuild ? 90000 : 8000;
 
     // Wait for dev server to respond
     let result = await this.waitForReady(agentUrl, readyTimeout, crashDelay);

@@ -184,17 +184,16 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
           req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
         });
 
-        // Check if HTML through proxy has CSS (either <link> tag or <style> tag or CDN script)
+        // Check if HTML through proxy has CSS (<link> tag or <style> tag)
         const hasCssLink = /<link[^>]+\.css/.test(proxyHtml);
         const hasStyleTag = /<style[\s>]/.test(proxyHtml);
-        const hasTailwindCdn = proxyHtml.includes('cdn.tailwindcss.com');
         const hasInlineStyles = /style="[^"]*background|style="[^"]*color/.test(proxyHtml);
 
-        if (!hasCssLink && !hasStyleTag && !hasTailwindCdn && !hasInlineStyles) {
-          log.warn(`[Verify] Proxy HTML has no CSS (no <link>, <style>, CDN, or inline styles)`);
-          errors.push('Page has no CSS — Tailwind/styles not loading through proxy. Ensure layout.tsx includes Tailwind CDN: <script src="https://cdn.tailwindcss.com"></script>');
+        if (!hasCssLink && !hasStyleTag && !hasInlineStyles) {
+          log.warn(`[Verify] Proxy HTML has no CSS (no <link>, <style>, or inline styles)`);
+          errors.push('Page has no CSS through proxy — styles not loading. Check that the project is running in production mode (next build + next start).');
         } else {
-          log.info(`[Verify] Proxy CSS check passed (link=${hasCssLink}, style=${hasStyleTag}, cdn=${hasTailwindCdn}, inline=${hasInlineStyles})`);
+          log.info(`[Verify] Proxy CSS check passed (link=${hasCssLink}, style=${hasStyleTag}, inline=${hasInlineStyles})`);
         }
 
         // Check if page has actual content (not just loading spinner)

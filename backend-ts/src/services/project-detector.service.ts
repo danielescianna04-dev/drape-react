@@ -367,11 +367,10 @@ class ProjectDetectorService {
     if (!hasPort) flags.push('--port 3000');
     if (!hasHost) flags.push('--hostname 0.0.0.0');
 
-    const baseCmd = `./node_modules/.bin/next dev ${flags.join(' ')}`;
-    // Do NOT use --turbopack: Turbopack injects CSS via WebSocket HMR which
-    // doesn't work through the preview reverse proxy. Without Turbopack,
-    // Next.js serves CSS as regular <link> tags that the proxy handles correctly.
-    const startCommand = baseCmd;
+    // Production mode: `next build` then `next start`.
+    // Dev mode injects CSS via JavaScript/HMR which fails through the reverse proxy.
+    // Production mode serves CSS as regular <link> tags — works everywhere.
+    const startCommand = `./node_modules/.bin/next build && ./node_modules/.bin/next start ${flags.join(' ')}`;
 
     return {
       type: 'nextjs',
