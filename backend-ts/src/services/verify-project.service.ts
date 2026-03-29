@@ -81,6 +81,7 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
   const screenshots = new Map<string, string>();
 
   // 1. Wait for server to be ready (warmProject runs in background via setImmediate)
+  //    Check server.log for build errors while waiting — don't waste 60s if build failed
   let httpCode = '000';
   let htmlBody = '';
   for (let wait = 0; wait < 12; wait++) {
@@ -91,6 +92,18 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
     httpCode = curlLines[curlLines.length - 1]?.trim() || '000';
     htmlBody = curlLines.slice(0, -1).join('\n');
     if (httpCode !== '000') break;
+
+    // Check if build already failed (don't wait 60s for nothing)
+    try {
+      const buildLog = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -30');
+      const buildText = buildLog.stdout || '';
+      if (buildText.includes('Failed to compile') || buildText.includes('Build error') ||
+          buildText.includes('Process exited with code: 1') || buildText.includes('exited with code 1')) {
+        log.info(`[Verify] Build failed early — skipping remaining wait`);
+        break;
+      }
+    } catch {}
+
     log.info(`[Verify] Waiting for server... (${wait + 1}/12)`);
     await new Promise(r => setTimeout(r, 5000));
   }
@@ -319,7 +332,9 @@ Rules:
       undefined, 'Fix build errors. Return only valid JSON.', { temperature: 0.1, maxTokens: 30000 }
     );
     let fixText = '';
-    for await (const chunk of fixStream) { fixText += chunk; }
+    for await (const chunk of fixStream) {
+      fixText += typeof chunk === 'string' ? chunk : JSON.stringify(chunk);
+    }
 
     const fixMatch = fixText.match(/\[[\s\S]*\]/);
     if (!fixMatch) {
@@ -352,11 +367,16 @@ Rules:
 
 async function restartDevServer(projectId: string, userId: string): Promise<void> {
   try {
+    // Kill existing server/build processes
     await workspaceService.exec(projectId, userId,
-      'pkill -f "next dev\\|vite\\|astro\\|expo" 2>/dev/null; sleep 2'
+      'pkill -f "next\\|vite\\|astro\\|expo" 2>/dev/null; sleep 2'
+    );
+    // Clear .next build cache so next build starts fresh with fixed files
+    await workspaceService.exec(projectId, userId,
+      'rm -rf /home/coder/project/.next 2>/dev/null'
     );
     const warmTimeout = new Promise<void>((_, reject) =>
-      setTimeout(() => reject(new Error('restart timeout')), 60000)
+      setTimeout(() => reject(new Error('restart timeout')), 120000)
     );
     await Promise.race([workspaceService.warmProject(projectId, userId), warmTimeout]);
   } catch (err: any) {
