@@ -368,15 +368,10 @@ class ProjectDetectorService {
     if (!hasHost) flags.push('--hostname 0.0.0.0');
 
     const baseCmd = `./node_modules/.bin/next dev ${flags.join(' ')}`;
-    // Check INSTALLED next version at runtime — package.json may declare ^15 but resolve to 14.
-    // --turbopack only exists in Next.js 15+.
-    let startCommand: string;
-    if (hasTurboOrWebpack) {
-      // User already specified turbo flag in scripts.dev — use as-is
-      startCommand = baseCmd;
-    } else {
-      startCommand = `${baseCmd} --turbopack 2>/dev/null || ${baseCmd} --turbo 2>/dev/null || ${baseCmd}`;
-    }
+    // Do NOT use --turbopack: Turbopack injects CSS via WebSocket HMR which
+    // doesn't work through the preview reverse proxy. Without Turbopack,
+    // Next.js serves CSS as regular <link> tags that the proxy handles correctly.
+    const startCommand = baseCmd;
 
     return {
       type: 'nextjs',
