@@ -1,3 +1,5 @@
+const SKIP_EMAIL_VERIFICATION = process.env.EXPO_PUBLIC_ENV === 'development' || process.env.EXPO_PUBLIC_ENV === 'preview';
+
 import { create } from 'zustand';
 import {
   signInWithEmailAndPassword,
@@ -432,7 +434,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (firebaseUser) {
         // Block unverified email/password users
         const isEmailProvider = firebaseUser.providerData.some(p => p.providerId === 'password');
-        if (isEmailProvider && !firebaseUser.emailVerified) {
+        if (!SKIP_EMAIL_VERIFICATION && isEmailProvider && !firebaseUser.emailVerified) {
           await signOut(auth);
           set({ user: null, isInitialized: true, isLoading: false });
           return;
@@ -546,7 +548,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
 
       // Block login if email not verified (email/password users only)
-      if (!userCredential.user.emailVerified) {
+      if (!SKIP_EMAIL_VERIFICATION && !userCredential.user.emailVerified) {
         isLoggingIn = false;
         await signOut(auth);
         set({ error: i18n.t('auth:emailVerification.notVerified'), isLoading: false });
@@ -655,16 +657,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         updatedAt: serverTimestamp(),
       });
 
-      try {
-        const provider = await sendVerificationEmailWithFallback(userCredential.user, email, displayName);
-        console.log(`[AuthStore] Verification email sent via ${provider}`);
-      } catch (verificationError: any) {
-        console.error('❌ [AuthStore] Verification email failed on both backend and Firebase:', verificationError?.message || verificationError);
-        throw { code: 'auth/verification-email-send-failed' };
-      }
+      if (SKIP_EMAIL_VERIFICATION) {
+        // Dev: skip email verification, user can use app immediately
+        console.log('[AuthStore] Dev mode — skipping email verification');
+      } else {
+        try {
+          const provider = await sendVerificationEmailWithFallback(userCredential.user, email, displayName);
+          console.log(`[AuthStore] Verification email sent via ${provider}`);
+        } catch (verificationError: any) {
+          console.error('❌ [AuthStore] Verification email failed on both backend and Firebase:', verificationError?.message || verificationError);
+          throw { code: 'auth/verification-email-send-failed' };
+        }
 
-      // Sign out — user must verify email before using the app
-      await signOut(auth);
+        // Sign out — user must verify email before using the app
+        await signOut(auth);
+      }
 
       isSigningUp = false;
       set({ isLoading: false });
