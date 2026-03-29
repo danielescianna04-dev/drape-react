@@ -1490,8 +1490,9 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
           const existingResult = await fileService.readFile(projectId, 'package.json');
                 const existing = JSON.parse(existingResult.success ? (existingResult as any).data.content : '{}');
           const aiGenerated = JSON.parse(pkgFile.content);
-          if (aiGenerated.dependencies) existing.dependencies = { ...existing.dependencies, ...aiGenerated.dependencies };
-          if (aiGenerated.devDependencies) existing.devDependencies = { ...existing.devDependencies, ...aiGenerated.devDependencies };
+          // Merge: AI deps go first, then template deps on top (template wins on conflicts)
+          if (aiGenerated.dependencies) existing.dependencies = { ...aiGenerated.dependencies, ...existing.dependencies };
+          if (aiGenerated.devDependencies) existing.devDependencies = { ...aiGenerated.devDependencies, ...existing.devDependencies };
           await fileService.writeFile(projectId, 'package.json', JSON.stringify(existing, null, 2));
           streamWrittenFiles.push('package.json');
         } catch (e) { /* merge failed, keep existing */ }
