@@ -38,8 +38,8 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
     const isRetry = attempt > 0;
     onProgress?.(92 + attempt * 2, isRetry ? `Auto-fixing (attempt ${attempt + 1})...` : 'Verifying preview...', isRetry ? 'Auto-Fix' : 'Verify');
 
-    // Wait for server to compile (longer on first attempt)
-    await new Promise(r => setTimeout(r, isRetry ? 3000 : 5000));
+    // Short wait before verify (server readiness is checked inside verify())
+    if (isRetry) await new Promise(r => setTimeout(r, 3000));
 
     const result = await verify(projectId, userId);
 
@@ -78,16 +78,30 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
   const errors: string[] = [];
   const screenshots = new Map<string, string>();
 
-  // 1. Server health check
-  const curlResult = await workspaceService.exec(projectId, userId,
-    'curl -s -w "\\n%{http_code}" http://localhost:3000 2>/dev/null || echo "\\n000"'
-  );
-  const curlLines = (curlResult.stdout || '').split('\n');
-  const httpCode = curlLines[curlLines.length - 1]?.trim() || '000';
-  const htmlBody = curlLines.slice(0, -1).join('\n');
+  // 1. Wait for server to be ready (warmProject runs in background via setImmediate)
+  let httpCode = '000';
+  let htmlBody = '';
+  for (let wait = 0; wait < 12; wait++) {
+    const curlResult = await workspaceService.exec(projectId, userId,
+      'curl -s -w "\\n%{http_code}" http://localhost:3000 2>/dev/null || echo "\\n000"'
+    );
+    const curlLines = (curlResult.stdout || '').split('\n');
+    httpCode = curlLines[curlLines.length - 1]?.trim() || '000';
+    htmlBody = curlLines.slice(0, -1).join('\n');
+    if (httpCode !== '000') break;
+    log.info(`[Verify] Waiting for server... (${wait + 1}/12)`);
+    await new Promise(r => setTimeout(r, 5000));
+  }
 
   if (httpCode === '000') {
-    errors.push('Server not running — HTTP 000');
+    errors.push('Server not running after 60s — check server.log for crash');
+    // Read server log for crash reason
+    try {
+      const crashLog = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -20');
+      const crashErrors = extractLogErrors(crashLog.stdout || '');
+      for (const e of crashErrors) errors.push(e);
+    } catch {}
+    return { passed: false, errors, screenshots, serverLog: '' };
   } else if (httpCode === '500') {
     const errMatch = htmlBody.match(/(?:Error|error)[:\s]([^\n<]{10,200})/);
     errors.push(errMatch ? errMatch[0] : 'Server returned HTTP 500');
