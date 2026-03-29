@@ -89,31 +89,35 @@ function detectPages() {
         // Wait for hydration + rendering
         await new Promise(r => setTimeout(r, 2000));
 
-        // Capture the fully rendered HTML with all styles inlined
-        const capturedHtml = await page.evaluate(() => {
-          // Collect all stylesheets (external + internal)
-          let allCSS = '';
+        // First: compile Tailwind CSS for this project (generates only used classes)
+        let tailwindCSS = '';
+        try {
+          const { execSync } = require('child_process');
+          // Tailwind v4: use @tailwindcss/cli or npx tailwindcss
+          tailwindCSS = execSync(
+            'cd /home/coder/project && npx @tailwindcss/cli -i app/globals.css --minify 2>/dev/null || npx tailwindcss -i app/globals.css --minify 2>/dev/null || echo ""',
+            { timeout: 30000, encoding: 'utf-8' }
+          ).trim();
+          if (tailwindCSS.length < 100) tailwindCSS = ''; // Failed
+        } catch {}
 
-          // Get all loaded stylesheets
-          for (const sheet of document.styleSheets) {
-            try {
-              for (const rule of sheet.cssRules) {
-                allCSS += rule.cssText + '\n';
-              }
-            } catch {
-              // Cross-origin stylesheet — skip (CORS)
+        // Fallback: collect CSS from document.styleSheets
+        const capturedHtml = await page.evaluate((compiledCSS) => {
+          let allCSS = compiledCSS || '';
+
+          // Also collect any stylesheets loaded by the page
+          if (!allCSS) {
+            for (const sheet of document.styleSheets) {
+              try {
+                for (const rule of sheet.cssRules) {
+                  allCSS += rule.cssText + '\n';
+                }
+              } catch {}
             }
           }
 
-          // Get computed styles for key elements and create a style tag
-          const html = document.documentElement.outerHTML;
+          const bodyHtml = document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi, '');
 
-          // Remove all <script> tags (not needed for static preview)
-          const cleaned = html
-            .replace(/<script[\s\S]*?<\/script>/gi, '')
-            .replace(/<link[^>]*rel="preload"[^>]*>/gi, '');
-
-          // Build final HTML with inlined CSS
           const finalHtml = `<!DOCTYPE html>
 <html${document.documentElement.getAttribute('lang') ? ` lang="${document.documentElement.getAttribute('lang')}"` : ''}>
 <head>
@@ -123,7 +127,7 @@ function detectPages() {
   <style>${allCSS}</style>
 </head>
 <body${document.body.className ? ` class="${document.body.className}"` : ''}${document.body.getAttribute('style') ? ` style="${document.body.getAttribute('style')}"` : ''}>
-  ${document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi, '')}
+  ${bodyHtml}
 </body>
 </html>`;
 
@@ -133,7 +137,7 @@ function detectPages() {
             bodyText: document.body.innerText?.substring(0, 200) || '',
             cssLength: allCSS.length,
           };
-        });
+        }, tailwindCSS);
 
         // Save HTML file
         const fileName = pagePath === '/' ? 'index.html' : `${pagePath.replace(/^\//, '').replace(/\//g, '_')}.html`;
