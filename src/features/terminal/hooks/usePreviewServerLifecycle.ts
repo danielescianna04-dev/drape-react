@@ -885,7 +885,7 @@ export function usePreviewServerLifecycle({
 
                     // Check if detected tech is supported for preview
                     const SUPPORTED_TECHS = ['nextjs', 'react', 'vite', 'vue', 'html', 'static', 'astro', 'expo', 'nodejs'];
-                    if (result.projectInfo?.type && !SUPPORTED_TECHS.some(s => result.projectInfo.type.includes(s)) && result.projectInfo.type !== 'unknown') {
+                    if (result.projectInfo?.type && !SUPPORTED_TECHS.some(s => result.projectInfo.type.includes(s)) && result.projectInfo.type !== 'unknown' && result.projectInfo.type !== 'detecting') {
                       console.log(`[Preview] Unsupported tech detected: ${result.projectInfo.type}`);
                       setServerStatus('stopped');
                       // projectInfo will be set below — PreviewPanel reads it for the "non supportata" screen

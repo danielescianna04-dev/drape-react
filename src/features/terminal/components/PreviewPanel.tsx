@@ -183,7 +183,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const SUPPORTED_PREVIEW_TECHS = ['nextjs', 'react', 'vite', 'vue', 'html', 'static', 'astro', 'expo'];
   // Check from workstation metadata OR from projectInfo detected during startup
   const detectedTech = (projectInfo?.type || currentWorkstation?.technology || currentWorkstation?.language || '').toLowerCase();
-  const isPreviewSupported = !detectedTech || detectedTech === 'unknown' || SUPPORTED_PREVIEW_TECHS.some(s => detectedTech.includes(s));
+  const isPreviewSupported = !detectedTech || detectedTech === 'unknown' || detectedTech === 'detecting' || SUPPORTED_PREVIEW_TECHS.some(s => detectedTech.includes(s));
 
   // ---- Render ----
   if (!isPreviewSupported) {
