@@ -1662,7 +1662,9 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
     update(91, 'Installing dependencies...', 'Building');
     for (let warmAttempt = 0; warmAttempt < 3; warmAttempt++) {
       try {
-        await workspaceService.warmProject(projectId, userId);
+        // Timeout warmProject at 90s to prevent blocking BuildCheck
+        const warmTimeout = new Promise<void>((_, reject) => setTimeout(() => reject(new Error('warmProject timeout (90s)')), 90000));
+        await Promise.race([workspaceService.warmProject(projectId, userId), warmTimeout]);
         break; // Success
       } catch (warmErr: any) {
         const errMsg = warmErr.message || '';
