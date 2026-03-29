@@ -375,7 +375,7 @@ class ProjectDetectorService {
       // User already specified turbo flag in scripts.dev — use as-is
       startCommand = baseCmd;
     } else {
-      startCommand = `NEXT_MAJOR=$(node -p "Number(require('next/package.json').version.split('.')[0])" 2>/dev/null || echo 0); if [ "$NEXT_MAJOR" -ge 15 ]; then ${baseCmd} --turbopack; else ${baseCmd}; fi`;
+      startCommand = `${baseCmd} --turbopack 2>/dev/null || ${baseCmd} --turbo 2>/dev/null || ${baseCmd}`;
     }
 
     return {
