@@ -367,10 +367,10 @@ class ProjectDetectorService {
     if (!hasPort) flags.push('--port 3000');
     if (!hasHost) flags.push('--hostname 0.0.0.0');
 
-    // Production mode: `next build` then `next start`.
-    // Dev mode injects CSS via JavaScript/HMR which fails through the reverse proxy.
-    // Production mode serves CSS as regular <link> tags — works everywhere.
-    const startCommand = `./node_modules/.bin/next build && ./node_modules/.bin/next start ${flags.join(' ')}`;
+    // Dev mode + Tailwind CDN (injected in layout post-generation).
+    // Production mode (next build) is too strict — fails on prerender errors,
+    // type errors, etc. that dev mode tolerates. AI-generated code needs dev mode.
+    const startCommand = `./node_modules/.bin/next dev ${flags.join(' ')}`;
 
     return {
       type: 'nextjs',

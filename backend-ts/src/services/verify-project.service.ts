@@ -84,7 +84,8 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
   //    Check server.log for build errors while waiting — don't waste 60s if build failed
   let httpCode = '000';
   let htmlBody = '';
-  for (let wait = 0; wait < 12; wait++) {
+  // 24 attempts × 5s = 120s max wait (next build can take 60-90s)
+  for (let wait = 0; wait < 24; wait++) {
     const curlResult = await workspaceService.exec(projectId, userId,
       'curl -s -w "\\n%{http_code}" http://localhost:3000 2>/dev/null || echo "\\n000"'
     );

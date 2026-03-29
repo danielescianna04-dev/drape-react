@@ -1375,6 +1375,12 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
                 !content.startsWith("'use client'") && !content.startsWith('"use client"')) {
               content = "'use client';\n\n" + content;
             }
+            // Next.js: add force-dynamic to page files to prevent prerender errors in production build
+            if (technology === 'nextjs' && file.path.match(/app\/.*\/page\.tsx$/) && !file.path.includes('layout')) {
+              if (!content.includes("dynamic") && !content.includes("'use client'") && !content.startsWith("'use client'")) {
+                content = `export const dynamic = 'force-dynamic';\n\n` + content;
+              }
+            }
             if (content.trim().length === 0) continue;
             await fileService.writeFile(projectId, file.path, content);
             streamWrittenFiles.push(file.path);
@@ -1526,6 +1532,12 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
           /\b(useState|useEffect|useCallback|useMemo|useRef|useReducer)\b/.test(content) &&
           !content.startsWith("'use client'") && !content.startsWith('"use client"')) {
         content = "'use client';\n\n" + content;
+      }
+      // Next.js: add force-dynamic to page files to prevent prerender errors in production build
+      if (technology === 'nextjs' && file.path.match(/app\/.*\/page\.tsx$/) && !file.path.includes('layout')) {
+        if (!content.includes("dynamic") && !content.includes("'use client'") && !content.startsWith("'use client'")) {
+          content = `export const dynamic = 'force-dynamic';\n\n` + content;
+        }
       }
       await fileService.writeFile(projectId, file.path, content);
       writtenFiles.push(file.path);
