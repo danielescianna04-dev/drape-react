@@ -1376,10 +1376,11 @@ export function usePreviewServerLifecycle({
     }).catch(() => {});
   }, [isVisible]);
 
-  // Set default project info
+  // Set default project info — use workstation technology if available
   useEffect(() => {
     if (!projectInfo) {
-      setProjectInfo({ type: 'detecting', defaultPort: 3000, startCommand: '', installCommand: '', description: 'Click Play to detect and start' });
+      const knownTech = currentWorkstation?.technology || currentWorkstation?.language || 'detecting';
+      setProjectInfo({ type: knownTech, defaultPort: 3000, startCommand: '', installCommand: '', description: 'Click Play to detect and start' });
     }
   }, [currentWorkstation]);
 
