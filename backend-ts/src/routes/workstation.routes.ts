@@ -1802,28 +1802,32 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
           } catch {}
         }
 
-        if (buildErrors.length === 0 && httpCode !== '000' && httpCode !== '500' && !isBlankPage && !hasClientError && !isVisuallyBlank) {
-          // Run E2E check on the last attempt to verify pages work
-          try {
-            const e2eResult = await workspaceService.exec(projectId, userId, 'timeout 30 node /usr/local/bin/e2e-check.js 2>/dev/null');
-            const e2e = JSON.parse(e2eResult.stdout || '{}');
-            if (e2e.passed === false && e2e.errors?.length > 0) {
-              log.info(`[BuildCheck] E2E found ${e2e.errors.length} issues — will fix`);
-              for (const err of e2e.errors.slice(0, 3)) buildErrors.push(err);
-            } else {
-              log.info(`[BuildCheck] Build + E2E OK on attempt ${attempt + 1}`);
-              break; // All clean!
-            }
-          } catch {
-            log.info(`[BuildCheck] Build OK (HTTP ${httpCode}, E2E skipped) on attempt ${attempt + 1}`);
-            break; // E2E not available, build is good enough
-          }
-        }
-
         // Add blank page / client error to build errors for AI context
         if (isBlankPage && buildErrors.length === 0) buildErrors.push('Page is blank — HTML body has no content divs. Check that components render properly and use "use client" where needed.');
         if (hasClientError && buildErrors.length === 0) buildErrors.push('Page shows "Application error: a client-side exception has occurred". Check hydration, window access, and component imports.');
         if (isVisuallyBlank && buildErrors.length === 0) buildErrors.push('Page renders as a WHITE/BLANK screen (verified with Puppeteer screenshot). The HTML might have tags but nothing visible renders. Check: CSS imports in layout.tsx, globals.css exists, Tailwind is configured, components actually render content.');
+
+        // ALWAYS run E2E check when server is up — catches CSS, JS, network, and visual errors
+        if (httpCode !== '000' && httpCode !== '500') {
+          try {
+            const e2eResult = await workspaceService.exec(projectId, userId, 'timeout 45 node /usr/local/bin/e2e-check.js 2>/dev/null');
+            const e2e = JSON.parse(e2eResult.stdout || '{}');
+            if (e2e.passed === false && e2e.errors?.length > 0) {
+              log.info(`[BuildCheck] E2E found ${e2e.errors.length} issues on attempt ${attempt + 1}`);
+              for (const err of e2e.errors.slice(0, 5)) {
+                if (!buildErrors.some(be => be.includes(err.substring(0, 40)))) buildErrors.push(err);
+              }
+            } else if (buildErrors.length === 0) {
+              log.info(`[BuildCheck] Build + E2E OK on attempt ${attempt + 1}`);
+              break; // All clean!
+            }
+          } catch (e2eErr) {
+            if (buildErrors.length === 0) {
+              log.info(`[BuildCheck] Build OK (HTTP ${httpCode}, E2E unavailable) on attempt ${attempt + 1}`);
+              break;
+            }
+          }
+        }
 
         if (buildErrors.length === 0 && attempt > 0) {
           log.info(`[BuildCheck] No more errors detected on attempt ${attempt + 1}`);
