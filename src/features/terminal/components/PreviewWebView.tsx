@@ -638,7 +638,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                 if (navState.url && !navState.loading) {
                   try {
                     const navUrl = new URL(navState.url);
-                    if (navUrl.hostname === 'drape.info' && navUrl.pathname.startsWith('/preview/')) {
+                    if ((navUrl.hostname === 'drape.info' || navUrl.hostname === 'dev.drape.info') && navUrl.pathname.startsWith('/preview/')) {
                       setCurrentPreviewUrl(navState.url);
                     }
                   } catch { /* ignore */ }
@@ -655,7 +655,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                 // Check hostname (not full string) to avoid matching external URLs that reference drape.info in hash/query
                 let urlHost = '';
                 try { urlHost = new URL(url).hostname; } catch {}
-                if (previewPath && urlHost === 'drape.info' && !url.includes(previewPath)) {
+                if (previewPath && (urlHost === 'drape.info' || urlHost === 'dev.drape.info') && !url.includes(previewPath)) {
                   // Extract the path from the URL (e.g., /login from https://drape.info/login)
                   const urlObj = new URL(url);
                   const targetPath = urlObj.pathname;
@@ -669,7 +669,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                     }
                     rewriteCountRef.current++;
                     // Rewrite to stay within preview
-                    const newUrl = `https://drape.info${previewPath}${targetPath}${urlObj.search}`;
+                    const newUrl = `https://${urlHost}${previewPath}${targetPath}${urlObj.search}`;
                     console.log(`[Preview] Rewriting navigation: ${url} -> ${newUrl}`);
                     setCurrentPreviewUrl(newUrl);
                     return false; // Block original navigation, we'll load the rewritten URL
