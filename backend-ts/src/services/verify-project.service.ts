@@ -2,6 +2,8 @@ import { log } from '../utils/logger';
 import { workspaceService } from './workspace.service';
 import { fileService } from './file.service';
 import { aiProviderService } from './ai-provider.service';
+import { sessionService } from './session.service';
+import http from 'http';
 
 export interface VerifyResult {
   passed: boolean;
@@ -156,7 +158,58 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
     }
   }
 
-  // 4. Check HTML body for error indicators
+  // 4. Verify through proxy (same path the user's WebView takes)
+  if (httpCode === '200' && errors.length === 0) {
+    try {
+      const session = await sessionService.getByProjectId(projectId);
+      if (session?.previewPort || session?.agentUrl) {
+        const target = session.previewPort
+          ? { host: '127.0.0.1', port: session.previewPort }
+          : { host: '127.0.0.1', port: session.projectInfo?.port || 3000 };
+
+        const proxyHtml = await new Promise<string>((resolve, reject) => {
+          const req = http.get({
+            hostname: target.host,
+            port: target.port,
+            path: '/',
+            timeout: 10000,
+            headers: { 'accept-encoding': 'identity' },
+          }, (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (c: Buffer) => chunks.push(c));
+            res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+            res.on('error', reject);
+          });
+          req.on('error', reject);
+          req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+        });
+
+        // Check if HTML through proxy has CSS (either <link> tag or <style> tag or CDN script)
+        const hasCssLink = /<link[^>]+\.css/.test(proxyHtml);
+        const hasStyleTag = /<style[\s>]/.test(proxyHtml);
+        const hasTailwindCdn = proxyHtml.includes('cdn.tailwindcss.com');
+        const hasInlineStyles = /style="[^"]*background|style="[^"]*color/.test(proxyHtml);
+
+        if (!hasCssLink && !hasStyleTag && !hasTailwindCdn && !hasInlineStyles) {
+          log.warn(`[Verify] Proxy HTML has no CSS (no <link>, <style>, CDN, or inline styles)`);
+          errors.push('Page has no CSS — Tailwind/styles not loading through proxy. Ensure layout.tsx includes Tailwind CDN: <script src="https://cdn.tailwindcss.com"></script>');
+        } else {
+          log.info(`[Verify] Proxy CSS check passed (link=${hasCssLink}, style=${hasStyleTag}, cdn=${hasTailwindCdn}, inline=${hasInlineStyles})`);
+        }
+
+        // Check if page has actual content (not just loading spinner)
+        const textContent = proxyHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, '').trim();
+        if (textContent.length < 50) {
+          log.warn(`[Verify] Proxy HTML has very little text content (${textContent.length} chars)`);
+          // Don't fail on this — client-side rendering may populate content after JS loads
+        }
+      }
+    } catch (proxyErr: any) {
+      log.warn(`[Verify] Proxy verification failed: ${proxyErr.message}`);
+    }
+  }
+
+  // 5. Check HTML body for error indicators
   if (httpCode === '200') {
     const bodyChecks = [
       { test: "Can't resolve", msg: "Module resolution error in page" },
