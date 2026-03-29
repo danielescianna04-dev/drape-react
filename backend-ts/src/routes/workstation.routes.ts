@@ -1544,7 +1544,7 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
             // Add CDN script + suppressHydrationWarning
             layout = layout.replace(/<html([^>]*)>/, (match: string, attrs: string) => {
               const hasSuppress = attrs.includes('suppressHydrationWarning');
-              return `<html${attrs}${hasSuppress ? '' : ' suppressHydrationWarning'}>\n      <head>\n        <script src="https://cdn.tailwindcss.com" async></script>\n      </head>`;
+              return `<html${attrs}${hasSuppress ? '' : ' suppressHydrationWarning'}>\n      <head>\n        <script src="https://cdn.tailwindcss.com"></script>\n      </head>`;
             });
             // Also add suppressHydrationWarning to body if missing
             if (!layout.includes('body') || !layout.match(/<body[^>]*suppressHydrationWarning/)) {
@@ -1563,7 +1563,7 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
         if (indexResult.success && indexResult.data?.content) {
           let html = indexResult.data.content;
           if (!html.includes('cdn.tailwindcss.com')) {
-            html = html.replace('</head>', '    <script src="https://cdn.tailwindcss.com" async></script>\n  </head>');
+            html = html.replace('</head>', '    <script src="https://cdn.tailwindcss.com"></script>\n  </head>');
             await fileService.writeFile(projectId, 'index.html', html);
             log.info(`[CreateProject] Injected Tailwind CDN into index.html`);
           }
