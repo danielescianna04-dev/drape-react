@@ -1184,6 +1184,8 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
     'package.json', // handled by merge logic above
     'tsconfig.json', 'vite.config.ts', 'vite.config.js',
     'next.config.ts', 'next.config.js', 'postcss.config.mjs', 'postcss.config.js',
+    'tailwind.config.ts', 'tailwind.config.js',
+    'app/globals.css', // Tailwind v4 @import — AI often generates incompatible CSS
     'astro.config.mjs',
     'app.json',
     'index.html', // Vite entry point
@@ -1470,6 +1472,8 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
         'package.json', // handled by merge logic
         'tsconfig.json', 'vite.config.ts', 'vite.config.js',
         'next.config.ts', 'next.config.js', 'postcss.config.mjs', 'postcss.config.js',
+        'tailwind.config.ts', 'tailwind.config.js',
+        'app/globals.css', // Tailwind v4 @import — AI often generates incompatible CSS
         'astro.config.mjs',
         'app.json',
         'index.html',

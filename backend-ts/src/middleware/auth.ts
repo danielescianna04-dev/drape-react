@@ -157,7 +157,7 @@ export async function optionalAuth(
 }
 
 // ── User plan cache ──
-const USER_PLAN_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+const USER_PLAN_CACHE_TTL = 60 * 1000; // 60 seconds — short TTL so plan upgrades apply quickly
 const userPlanCache = new Map<string, { plan: string; expiresAt: number }>();
 
 /** Invalidate plan cache immediately (call after any plan change) */
