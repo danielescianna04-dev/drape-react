@@ -10,6 +10,7 @@ import { fileService } from '../services/file.service';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
 import { aiProviderService } from '../services/ai-provider.service';
+import { verifyAndFixProject } from '../services/verify-project.service';
 import { firebaseService } from '../services/firebase.service';
 import { config } from '../config';
 import { log } from '../utils/logger';
@@ -1707,204 +1708,16 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       }
     }
 
-    // === BUILD CHECK + AUTO-FIX LOOP (max 5 attempts) ===
-    const MAX_FIX_ATTEMPTS = 5;
-    for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS; attempt++) {
-      try {
-        // Wait for dev server to compile
-        await new Promise(r => setTimeout(r, attempt === 0 ? 4000 : 3000));
-        const checkPct = 90 + attempt;
-        update(checkPct, attempt > 0 ? `Fixing errors (attempt ${attempt + 1})...` : 'Checking build...', 'Build Check');
+    // === VERIFY + AUTO-FIX (Puppeteer E2E as source of truth) ===
+    const verifyResult = await verifyAndFixProject({
+      projectId,
+      userId,
+      technology,
+      onProgress: (pct, msg, stage) => update(pct, msg, stage),
+    });
 
-        // Read dev server logs for errors
-        const logsResult = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -80');
-        const serverLog = logsResult.stdout || '';
-
-        // Curl the dev server to trigger compilation AND capture the body for blank page detection
-        const curlResult = await workspaceService.exec(projectId, userId, 'curl -s -w "\\n%{http_code}" http://localhost:3000 2>/dev/null || echo "\\n000"');
-        const curlLines = (curlResult.stdout || '').split('\n');
-        const httpCode = curlLines[curlLines.length - 1]?.trim() || '000';
-        const htmlBody = curlLines.slice(0, -1).join('\n');
-
-        // If server isn't running at all, try to restart it
-        if (httpCode === '000' && attempt < MAX_FIX_ATTEMPTS - 1) {
-          log.warn(`[BuildCheck] Server not responding (HTTP 000) on attempt ${attempt + 1}, restarting...`);
-          update(checkPct, 'Server not responding, restarting...', 'Restarting');
-          try {
-            // Check if it's a dep install issue by reading server.log
-            const crashLog = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -20');
-            const crashText = crashLog.stdout || '';
-            if (crashText.includes('Cannot find module') || crashText.includes('MODULE_NOT_FOUND')) {
-              // Missing module — try reinstalling deps
-              await workspaceService.exec(projectId, userId, 'cd /home/coder/project && bun install --no-save 2>/dev/null || npm install --legacy-peer-deps 2>/dev/null');
-            }
-            // Restart dev server by killing and re-running
-            await workspaceService.exec(projectId, userId, 'pkill -f "next dev\\|vite\\|astro\\|expo" 2>/dev/null; sleep 2');
-            // Re-warm will recreate the dev server
-            try { await workspaceService.warmProject(projectId, userId); } catch {}
-          } catch (restartErr: any) {
-            log.warn(`[BuildCheck] Restart failed: ${restartErr.message}`);
-          }
-          continue;
-        }
-
-        // Check for blank/error page in HTML body
-        const isBlankPage = htmlBody.length < 200 || (!htmlBody.includes('<div') && !htmlBody.includes('<main') && !htmlBody.includes('<section'));
-        const hasClientError = htmlBody.includes('Application error') || htmlBody.includes('Internal Server Error') || htmlBody.includes('Module not found') || htmlBody.includes("Can't resolve") || htmlBody.includes('CssSyntaxError');
-
-        // Take a screenshot with Puppeteer for VISUAL verification (every check, not just retries)
-        let screenshotBase64 = '';
-        let isVisuallyBlank = false;
-        if (httpCode === '200') {
-          try {
-            const ssResult = await workspaceService.exec(projectId, userId, 'timeout 25 node /usr/local/bin/screenshot.js 2>/tmp/ss-err.txt');
-            screenshotBase64 = (ssResult.stdout || '').trim();
-            // If screenshot is very small (< 5KB base64 ≈ ~3KB image), page is likely blank/white
-            if (screenshotBase64 && screenshotBase64.length < 7000) {
-              isVisuallyBlank = true;
-              log.info(`[BuildCheck] Screenshot too small (${screenshotBase64.length} chars) — likely blank page`);
-            }
-          } catch { /* Puppeteer not available — continue without */ }
-        }
-
-        // Re-read logs after curl (compilation may have happened)
-        const logsResult2 = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -80');
-        const fullLog = (serverLog + '\n' + (logsResult2.stdout || '')).trim();
-
-        // Extract errors
-        const errorPatterns = [
-          /(?:Error|ERROR):\s*(.*(?:Cannot find module|Module not found|is not defined|Unexpected token|SyntaxError|TypeError|ReferenceError|Cannot resolve|Can't resolve|Failed to resolve)[^\n]*)/gi,
-          /CssSyntaxError[^\n]*/gi,
-          /error\s+TS\d+:\s*([^\n]*)/gi,
-          /(?:ENOENT):\s*([^\n]*no such file[^\n]*)/gi,
-          /Unexpected token[^\n]*/gi,
-          /Invalid src prop[^\n]*/gi,
-        ];
-
-        const buildErrors: string[] = [];
-        for (const pattern of errorPatterns) {
-          let m;
-          while ((m = pattern.exec(fullLog)) !== null) {
-            const err = (m[1] || m[0]).trim();
-            if (!buildErrors.some(e => e.includes(err.substring(0, 40))) && buildErrors.length < 8) {
-              buildErrors.push(err);
-            }
-          }
-        }
-
-        // Collect Puppeteer JS errors (captured during screenshot)
-        if (screenshotBase64) {
-          try {
-            const ssErr = await workspaceService.exec(projectId, userId, 'cat /tmp/ss-err.txt 2>/dev/null');
-            if (ssErr.stdout?.includes('"errors"')) {
-              const pageErrors = JSON.parse(ssErr.stdout).errors || [];
-              for (const e of pageErrors.slice(0, 3)) {
-                if (!buildErrors.some(be => be.includes(e.substring(0, 30)))) buildErrors.push(e);
-              }
-            }
-          } catch {}
-        }
-
-        // Add blank page / client error to build errors for AI context
-        if (isBlankPage && buildErrors.length === 0) buildErrors.push('Page is blank — HTML body has no content divs. Check that components render properly and use "use client" where needed.');
-        if (hasClientError && buildErrors.length === 0) buildErrors.push('Page shows "Application error: a client-side exception has occurred". Check hydration, window access, and component imports.');
-        if (isVisuallyBlank && buildErrors.length === 0) buildErrors.push('Page renders as a WHITE/BLANK screen (verified with Puppeteer screenshot). The HTML might have tags but nothing visible renders. Check: CSS imports in layout.tsx, globals.css exists, Tailwind is configured, components actually render content.');
-
-        // ALWAYS run E2E check when server is up — catches CSS, JS, network, and visual errors
-        if (httpCode !== '000' && httpCode !== '500') {
-          try {
-            const e2eResult = await workspaceService.exec(projectId, userId, 'timeout 45 node /usr/local/bin/e2e-check.js 2>/dev/null');
-            const e2e = JSON.parse(e2eResult.stdout || '{}');
-            if (e2e.passed === false && e2e.errors?.length > 0) {
-              log.info(`[BuildCheck] E2E found ${e2e.errors.length} issues on attempt ${attempt + 1}`);
-              for (const err of e2e.errors.slice(0, 5)) {
-                if (!buildErrors.some(be => be.includes(err.substring(0, 40)))) buildErrors.push(err);
-              }
-            } else if (buildErrors.length === 0) {
-              log.info(`[BuildCheck] Build + E2E OK on attempt ${attempt + 1}`);
-              break; // All clean!
-            }
-          } catch (e2eErr) {
-            if (buildErrors.length === 0) {
-              log.info(`[BuildCheck] Build OK (HTTP ${httpCode}, E2E unavailable) on attempt ${attempt + 1}`);
-              break;
-            }
-          }
-        }
-
-        if (buildErrors.length === 0 && attempt > 0) {
-          log.info(`[BuildCheck] No more errors detected on attempt ${attempt + 1}`);
-          break;
-        }
-
-        if (buildErrors.length === 0) continue; // No errors found yet, maybe server is still starting
-
-        log.info(`[BuildCheck] Attempt ${attempt + 1}: ${buildErrors.length} errors found`);
-        update(checkPct + 1, `Fixing ${buildErrors.length} error${buildErrors.length > 1 ? 's' : ''}...`, 'Auto-Fix');
-
-        // Read the broken files for AI context
-        const brokenFiles: { path: string; content: string }[] = [];
-        for (const err of buildErrors) {
-          // Extract file path from error
-          const fileMatch = err.match(/(?:\/home\/coder\/project\/|\.\/)?([a-zA-Z0-9_\-/.]+\.(?:tsx?|jsx?|vue|svelte|astro))/);
-          if (fileMatch) {
-            const relPath = fileMatch[1].replace(/^\/home\/coder\/project\//, '');
-            try {
-              const readResult = await workspaceService.exec(projectId, userId, `cat /home/coder/project/${relPath} 2>/dev/null`);
-              if (readResult.stdout) {
-                brokenFiles.push({ path: relPath, content: readResult.stdout });
-              }
-            } catch { /* ignore */ }
-          }
-        }
-
-        // For visual blank pages, also read layout + css files for context
-        if (isVisuallyBlank || isBlankPage) {
-          for (const layoutPath of ['app/layout.tsx', 'app/globals.css', 'src/App.tsx', 'src/index.css', 'src/main.tsx']) {
-            try {
-              const lr = await workspaceService.exec(projectId, userId, `cat /home/coder/project/${layoutPath} 2>/dev/null`);
-              if (lr.stdout && !brokenFiles.some(f => f.path === layoutPath)) {
-                brokenFiles.push({ path: layoutPath, content: lr.stdout });
-              }
-            } catch {}
-          }
-        }
-
-        const fileContext = brokenFiles.map(f => `--- ${f.path} ---\n${f.content}`).join('\n\n');
-        const screenshotNote = screenshotBase64 ? '\n\nA Puppeteer screenshot was taken and the page appears BLANK/WHITE. The page must render visible content.' : '';
-
-        const fixPrompt = `Fix these ${technology} errors:\n\n${buildErrors.join('\n')}${screenshotNote}\n\n${fileContext ? `Current file contents:\n${fileContext}\n\n` : ''}Return JSON array of fixed files: [{"path": "file/path", "content": "complete fixed content"}]\nRules:\n- Return the COMPLETE file content, not just the changed lines\n- For blank/white page: check layout.tsx imports globals.css, check globals.css has @import "tailwindcss", check components actually return visible JSX\n- For 'use client' errors: add 'use client' at the very top of the file\n- For missing import/module errors: add the correct import statement\n- For 'is not defined' errors: add the import for the missing symbol\n- For next/image Invalid src: replace <Image> with <img> and remove the next/image import\n- NEVER import from lucide-react, @heroicons, @fortawesome — use react-icons instead\n- Return valid JSON only`;
-
-        try {
-          const fixStream = aiProviderService.chatStream('gemini-3-flash',
-            [{ role: 'user', content: fixPrompt }],
-            undefined, 'Fix build errors. Return only valid JSON.', { temperature: 0.1, maxTokens: 30000 }
-          );
-          let fixText = '';
-          for await (const chunk of fixStream) { fixText += chunk; }
-
-          const fixMatch = fixText.match(/\[[\s\S]*?\]/);
-          if (fixMatch) {
-            const fixes: { path: string; content: string }[] = JSON.parse(fixMatch[0]);
-            let fixCount = 0;
-            for (const fix of fixes) {
-              if (fix.path && fix.content && fix.content.trim().length > 0) {
-                await fileService.writeFile(projectId, fix.path, fix.content);
-                log.info(`[BuildCheck] Fixed: ${fix.path}`);
-                fixCount++;
-              }
-            }
-            log.info(`[BuildCheck] Applied ${fixCount} fixes on attempt ${attempt + 1}`);
-          }
-        } catch (fixErr: any) {
-          log.warn(`[BuildCheck] AI fix failed on attempt ${attempt + 1}: ${fixErr.message}`);
-          break; // Don't retry if AI fails
-        }
-
-      } catch (checkErr: any) {
-        log.warn(`[BuildCheck] Check failed on attempt ${attempt + 1}: ${checkErr.message}`);
-        break;
-      }
+    if (!verifyResult.passed) {
+      log.warn(`[CreateProject] Project ${projectId} has ${verifyResult.errors.length} unresolved errors after auto-fix`);
     }
 
     // Complete
