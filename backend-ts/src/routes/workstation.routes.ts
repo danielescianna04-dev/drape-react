@@ -1747,7 +1747,7 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
 
         // Check for blank/error page in HTML body
         const isBlankPage = htmlBody.length < 200 || (!htmlBody.includes('<div') && !htmlBody.includes('<main') && !htmlBody.includes('<section'));
-        const hasClientError = htmlBody.includes('Application error') || htmlBody.includes('Internal Server Error') || htmlBody.includes('Module not found');
+        const hasClientError = htmlBody.includes('Application error') || htmlBody.includes('Internal Server Error') || htmlBody.includes('Module not found') || htmlBody.includes("Can't resolve") || htmlBody.includes('CssSyntaxError');
 
         // Take a screenshot with Puppeteer for VISUAL verification (every check, not just retries)
         let screenshotBase64 = '';
@@ -1770,7 +1770,8 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
 
         // Extract errors
         const errorPatterns = [
-          /(?:Error|ERROR):\s*(.*(?:Cannot find module|Module not found|is not defined|Unexpected token|SyntaxError|TypeError|ReferenceError|Cannot resolve|Failed to resolve)[^\n]*)/gi,
+          /(?:Error|ERROR):\s*(.*(?:Cannot find module|Module not found|is not defined|Unexpected token|SyntaxError|TypeError|ReferenceError|Cannot resolve|Can't resolve|Failed to resolve)[^\n]*)/gi,
+          /CssSyntaxError[^\n]*/gi,
           /error\s+TS\d+:\s*([^\n]*)/gi,
           /(?:ENOENT):\s*([^\n]*no such file[^\n]*)/gi,
           /Unexpected token[^\n]*/gi,
