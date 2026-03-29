@@ -99,7 +99,7 @@ dataExportRouter.get('/my-data', asyncHandler(async (req, res) => {
   try {
     const gitSnap = await db.collection('users').doc(userId).collection('git-accounts').get();
     exportData.gitAccounts = gitSnap.docs.map(d => {
-      const data = { id: d.id, ...d.data() };
+      const data: Record<string, any> = { id: d.id, ...d.data() };
       // Strip tokens for security
       delete data.token;
       delete data.accessToken;

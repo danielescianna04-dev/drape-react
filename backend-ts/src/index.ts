@@ -41,8 +41,8 @@ async function main() {
   const app = createApp();
   const server = http.createServer(app);
 
-  // WebSocket server
-  const wss = new WebSocket.Server({ server });
+  // WebSocket server — noServer mode so we control upgrade routing
+  const wss = new WebSocket.Server({ noServer: true });
 
   wss.on('connection', async (ws: WebSocket, req) => {
     // Extract token from query parameter
@@ -261,6 +261,87 @@ async function main() {
         terminalExec = null;
       }
     });
+  });
+
+  // WebSocket upgrade router — HMR proxy vs app WS
+  server.on('upgrade', async (req, socket, head) => {
+    const url = req.url || '';
+
+    // Check if this is an HMR-related WebSocket upgrade
+    const isHmrUpgrade =
+      url.includes('/_next/') ||
+      url.includes('__turbopack') ||
+      url.includes('webpack-hmr') ||
+      url.includes('@vite') ||
+      url.includes('@react-refresh');
+
+    if (!isHmrUpgrade) {
+      // Main app WebSocket — delegate to ws library
+      wss.handleUpgrade(req, socket as any, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+      return;
+    }
+
+    try {
+      // Resolve project from cookies
+      const cookieHeader = req.headers.cookie || '';
+      const cookies: Record<string, string> = {};
+      cookieHeader.split(';').forEach(c => {
+        const [k, ...v] = c.trim().split('=');
+        if (k) cookies[k] = decodeURIComponent(v.join('='));
+      });
+
+      const projectId = cookies.drape_project_id;
+      const previewToken = cookies.drape_preview_token;
+
+      if (!projectId || !previewToken) {
+        log.warn(`[HMR WS] No projectId/token for ${url}`);
+        socket.destroy();
+        return;
+      }
+
+      const session = await sessionService.getByProjectIdAndAccessToken(projectId, previewToken);
+      if (!session) {
+        log.warn(`[HMR WS] No session for project ${projectId}`);
+        socket.destroy();
+        return;
+      }
+
+      const appPort = session.previewPort || session.projectInfo?.port || 3000;
+      const targetHost = '127.0.0.1';
+      const targetPort = session.previewPort || appPort;
+
+      log.info(`[HMR WS] Proxying ${url} → ${targetHost}:${targetPort} (project: ${projectId})`);
+
+      const net = await import('net');
+      const proxySocket = net.connect(targetPort, targetHost, () => {
+        // Forward the original HTTP upgrade request
+        const reqLine = `${req.method} ${url} HTTP/${req.httpVersion}\r\n`;
+        const headers = Object.entries(req.headers)
+          .filter(([k]) => k !== 'host')
+          .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+          .join('\r\n');
+        proxySocket.write(reqLine + `host: ${targetHost}:${targetPort}\r\n` + headers + '\r\n\r\n');
+        if (head.length > 0) proxySocket.write(head);
+
+        // Bi-directional pipe
+        proxySocket.pipe(socket);
+        socket.pipe(proxySocket);
+      });
+
+      proxySocket.on('error', (err) => {
+        log.warn(`[HMR WS] Proxy error: ${err.message}`);
+        socket.destroy();
+      });
+
+      socket.on('error', () => proxySocket.destroy());
+      socket.on('close', () => proxySocket.destroy());
+      proxySocket.on('close', () => socket.destroy());
+    } catch (err: any) {
+      log.error(`[HMR WS] Error: ${err.message}`);
+      socket.destroy();
+    }
   });
 
   // Start listening
