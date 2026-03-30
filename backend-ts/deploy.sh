@@ -19,12 +19,12 @@ ssh ${SSH_OPTS} "$REMOTE" "mkdir -p ${REMOTE_DIR}"
 
 rsync -avz --delete \
   --exclude node_modules \
+  --include 'templates/***' \
   --exclude src \
   --exclude .git \
   --exclude .env \
   --exclude local-data \
   --exclude service-account-key.json \
-  --include 'templates/***' \
   --exclude '*.ts' \
   ./ -e "ssh ${SSH_OPTS}" "${REMOTE}:${REMOTE_DIR}/"
 
