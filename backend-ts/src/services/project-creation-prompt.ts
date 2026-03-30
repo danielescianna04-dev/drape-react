@@ -21,8 +21,10 @@ const TECH_DESCRIPTIONS: Record<string, string> = {
 const TEMPLATE_FILES: Record<string, string[]> = {
   react: [
     'package.json', 'vite.config.ts', 'tsconfig.json', 'index.html',
-    'src/main.tsx', 'src/index.css',
-    'src/components/Navbar.tsx', 'src/components/Footer.tsx', 'src/components/FeatureCard.tsx',
+    'src/main.tsx', 'src/index.css', 'src/lib/utils.ts',
+    'src/components/ui/button.tsx', 'src/components/ui/card.tsx', 'src/components/ui/input.tsx',
+    'src/components/ui/badge.tsx', 'src/components/ui/dialog.tsx', 'src/components/ui/avatar.tsx',
+    'src/components/ui/tabs.tsx', 'src/components/ui/skeleton.tsx',
   ],
   nextjs: [
     'package.json', 'next.config.ts', 'tsconfig.json', 'postcss.config.mjs',
@@ -33,15 +35,16 @@ const TEMPLATE_FILES: Record<string, string[]> = {
   ],
   vue: [
     'package.json', 'vite.config.ts', 'tsconfig.json', 'index.html',
-    'src/main.ts', 'src/App.vue', 'src/style.css',
-    'src/components/NavBar.vue', 'src/components/FooterSection.vue', 'src/components/FeatureCard.vue',
+    'src/main.ts', 'src/App.vue', 'src/style.css', 'src/lib/utils.ts',
+    'src/components/ui/Button.vue', 'src/components/ui/Card.vue', 'src/components/ui/Input.vue',
+    'src/components/ui/Badge.vue', 'src/components/ui/Dialog.vue', 'src/components/ui/Avatar.vue',
+    'src/components/ui/Tabs.vue', 'src/components/ui/Skeleton.vue',
   ],
   astro: [
     'package.json', 'astro.config.mjs', 'tsconfig.json',
-    'src/styles/global.css',
-    'src/components/Navbar.astro', 'src/components/Footer.astro', 'src/components/FeatureCard.astro',
+    'src/styles/global.css', 'src/layouts/Layout.astro',
   ],
-  html: ['style.css', 'script.js'],
+  html: ['style.css', 'script.js', 'index.html'],
   expo: ['package.json', 'app.json', 'tsconfig.json', 'constants/Colors.ts', 'app/_layout.tsx', 'app/(tabs)/_layout.tsx'],
 };
 
@@ -49,8 +52,11 @@ const TEMPLATE_FILES: Record<string, string[]> = {
 const STACK_INSTRUCTIONS: Record<string, string> = {
   react: `
 REACT (VITE) INSTRUCTIONS:
-- Stack: Vite + React 19 + Tailwind v4 + react-router-dom v7 + react-icons
-- Layout: App.tsx already wraps routes with Navbar + Footer. DO NOT re-add them.
+- Stack: Vite + React 19 + Tailwind v4 + react-router-dom v7 + react-icons + shadcn-style UI
+- Layout: App.tsx is MINIMAL (just router). YOU generate Navbar, Footer, all pages.
+- PRE-INSTALLED UI COMPONENTS (use them):
+  Button, Card, Input, Badge, Dialog, Avatar, Tabs, Skeleton — in src/components/ui/
+  cn() utility in src/lib/utils.ts
 - Pages: Add in src/pages/ and register in App.tsx routes
 - Components: Add in src/components/
 - State: Use useState for local, useContext + createContext for shared state across pages
@@ -94,8 +100,11 @@ NEXT.JS (APP ROUTER) INSTRUCTIONS:
 
   vue: `
 VUE 3 (COMPOSITION API) INSTRUCTIONS:
-- Stack: Vue 3.5 + Vite + Tailwind v4 + Vue Router + @iconify/vue
-- Layout: App.vue already wraps RouterView with Navbar + Footer. DO NOT re-add them.
+- Stack: Vue 3.5 + Vite + Tailwind v4 + Vue Router + @iconify/vue + shadcn-style UI
+- Layout: App.vue is MINIMAL (just RouterView). YOU generate Navbar, Footer, all pages.
+- PRE-INSTALLED UI COMPONENTS (use them):
+  Button.vue, Card.vue, Input.vue, Badge.vue, Dialog.vue, Avatar.vue, Tabs.vue, Skeleton.vue — in src/components/ui/
+  cn() utility in src/lib/utils.ts
 - Pages: Add in src/views/ and register in src/router/index.ts
 - Components: Add in src/components/
 - ALWAYS use <script setup lang="ts"> — never Options API
@@ -115,7 +124,7 @@ VUE 3 (COMPOSITION API) INSTRUCTIONS:
   astro: `
 ASTRO 5 INSTRUCTIONS:
 - Stack: Astro 5 + Tailwind v4 + optional React islands
-- Layout: src/layouts/Layout.astro already has Navbar + Footer. DO NOT re-add them.
+- Layout: src/layouts/Layout.astro is MINIMAL (just html/head/body). YOU generate Navbar, Footer, all content.
 - Pages: src/pages/*.astro — frontmatter between --- fences, HTML below
 - Static by default: Astro pages render at build time, zero JS shipped
 - Interactive islands: Add client:load to React/Svelte components for interactivity
@@ -134,10 +143,10 @@ ASTRO 5 INSTRUCTIONS:
   html: `
 HTML/CSS/JS (VANILLA) INSTRUCTIONS:
 - NO framework, NO build tools — pure vanilla HTML + CSS + JS
-- style.css: full design system with CSS custom properties (--color-primary, --color-surface, etc.)
+- style.css has design tokens (CSS custom properties). YOU build everything on top.
 - script.js: IntersectionObserver animations, mobile menu toggle, scroll effects
 - Each page is a separate .html file (index.html, about.html, dashboard.html, etc.)
-- ALL pages share the same Navbar and Footer HTML (copy the same nav/footer structure)
+- YOU generate Navbar and Footer HTML in every page
 - Use CSS Grid + Flexbox for layouts, CSS transitions for animations
 - Use fetch() for API calls, DOM manipulation for dynamic content
 - Use data attributes (data-*) for storing state on elements

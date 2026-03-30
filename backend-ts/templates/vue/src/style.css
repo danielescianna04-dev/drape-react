@@ -14,7 +14,7 @@
   --color-text-secondary: oklch(0.7 0.02 270);
   --color-text-muted: oklch(0.55 0.02 270);
 
-  /* Component tokens (oklch equivalents of old hex values) */
+  /* Component tokens */
   --color-bg-primary: oklch(0.1 0.02 270);
   --color-bg-secondary: oklch(0.14 0.02 270);
   --color-bg-card: oklch(1 0 0 / 0.03);
@@ -28,6 +28,21 @@
   --color-gradient-start: oklch(0.55 0.25 285);
   --color-gradient-mid: oklch(0.55 0.22 265);
   --color-gradient-end: oklch(0.6 0.2 250);
+
+  /* UI primitive tokens */
+  --color-ring: oklch(0.65 0.25 270);
+  --color-input: oklch(0.3 0.02 270);
+  --color-foreground: oklch(0.95 0.01 270);
+  --color-muted: oklch(0.2 0.02 270);
+  --color-muted-foreground: oklch(0.55 0.02 270);
+  --color-popover: oklch(0.15 0.02 270);
+  --color-popover-foreground: oklch(0.95 0.01 270);
+  --color-destructive: oklch(0.55 0.22 25);
+  --color-destructive-foreground: oklch(0.95 0.01 270);
+
+  --radius-lg: 0.5rem;
+  --radius-md: calc(0.5rem - 2px);
+  --radius-sm: calc(0.5rem - 4px);
 }
 
 @layer base {

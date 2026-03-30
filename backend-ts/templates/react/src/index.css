@@ -1,17 +1,26 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-primary: oklch(0.65 0.25 270);
-  --color-primary-light: oklch(0.75 0.2 270);
-  --color-primary-dark: oklch(0.55 0.28 270);
-  --color-accent: oklch(0.7 0.2 250);
-  --color-surface: oklch(0.15 0.02 270);
-  --color-surface-light: oklch(0.2 0.02 270);
-  --color-surface-lighter: oklch(0.25 0.02 270);
-  --color-border: oklch(0.3 0.02 270);
-  --color-text-primary: oklch(0.95 0.01 270);
-  --color-text-secondary: oklch(0.7 0.02 270);
-  --color-text-muted: oklch(0.55 0.02 270);
+  /* Base design tokens — the AI will customize these per project */
+  --color-background: #ffffff;
+  --color-foreground: #0f172a;
+  --color-primary: #6366f1;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f1f5f9;
+  --color-secondary-foreground: #1e293b;
+  --color-muted: #f8fafc;
+  --color-muted-foreground: #64748b;
+  --color-accent: #f1f5f9;
+  --color-accent-foreground: #1e293b;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-card: #ffffff;
+  --color-card-foreground: #0f172a;
+  --color-border: #e2e8f0;
+  --color-input: #e2e8f0;
+  --color-ring: #6366f1;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
 }
 
 @layer base {
@@ -28,46 +37,23 @@
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto,
       Oxygen, Ubuntu, Cantarell, sans-serif;
-    background-color: oklch(0.1 0.02 270);
-    color: var(--color-text-primary);
+    background-color: var(--color-background);
+    color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
-  ::selection {
-    background-color: oklch(0.65 0.25 270 / 0.3);
   }
 }
 
 @layer utilities {
   .gradient-text {
-    background: linear-gradient(135deg, oklch(0.75 0.2 270), oklch(0.7 0.2 250), oklch(0.75 0.15 300));
+    background: linear-gradient(135deg, var(--color-primary), #818cf8);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
 
-  .gradient-bg {
-    background: linear-gradient(135deg, oklch(0.65 0.25 270), oklch(0.6 0.22 250));
-  }
-
   .glass {
-    background: oklch(0.15 0.02 270 / 0.6);
+    background: rgba(255,255,255,0.05);
     backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid oklch(0.3 0.02 270 / 0.5);
-  }
-
-  .glow {
-    box-shadow: 0 0 40px oklch(0.65 0.25 270 / 0.15);
-  }
-
-  .card-hover {
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .card-hover:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 20px 40px oklch(0 0 0 / 0.3), 0 0 40px oklch(0.65 0.25 270 / 0.1);
+    border: 1px solid rgba(255,255,255,0.1);
   }
 }
