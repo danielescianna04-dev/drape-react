@@ -203,6 +203,15 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
           if (!errors.some(ex => ex.includes(err.substring(0, 40)))) errors.push(err);
         }
       }
+
+      // Collect screenshots from E2E — especially broken pages
+      if (e2e.pages) {
+        for (const pg of e2e.pages) {
+          if (pg.screenshot && pg.errors?.length > 0) {
+            screenshots.set(pg.path, pg.screenshot);
+          }
+        }
+      }
     } catch (e2eErr: any) {
       log.warn(`[Verify] E2E check failed: ${e2eErr.message}`);
       // Fallback: take a simple screenshot
@@ -331,14 +340,19 @@ async function autoFix(
 
     const fileContext = brokenFiles.map(f => `--- ${f.path} ---\n${f.content}`).join('\n\n');
 
-    // Include screenshot descriptions in prompt
+    // Include screenshot info in prompt
     let screenshotContext = '';
+    const screenshotImages: { page: string; base64: string }[] = [];
     if (result.screenshots.size > 0) {
-      screenshotContext = '\n\nSCREENSHOTS TAKEN (showing what the user sees):\n';
-      for (const [pagePath] of result.screenshots) {
-        const hasError = result.errors.some(e => e.includes(pagePath));
-        screenshotContext += `- ${pagePath}: ${hasError ? 'BROKEN — shows error or blank' : 'OK'}\n`;
+      screenshotContext = '\n\nSCREENSHOTS OF BROKEN PAGES (what the user sees):\n';
+      for (const [pagePath, base64] of result.screenshots) {
+        screenshotContext += `- ${pagePath}: BROKEN — see screenshot below\n`;
+        // Keep max 3 screenshots to avoid token limits
+        if (screenshotImages.length < 3) {
+          screenshotImages.push({ page: pagePath, base64 });
+        }
       }
+      screenshotContext += '\nAnalyze the screenshots. Fix ALL visual issues: blank pages, missing CSS, wrong layout, 404 errors, missing content.\n';
     }
 
     const fixPrompt = `Fix these ${technology} project errors:
@@ -361,8 +375,24 @@ Rules:
 - All data must be hardcoded const arrays — NEVER use fetch() for mock data
 - Return valid JSON only`;
 
+    // Build messages — include screenshots as image parts if available
+    const messages: any[] = [];
+    if (screenshotImages.length > 0) {
+      // Multimodal message: text + images
+      const parts: any[] = [{ text: fixPrompt }];
+      for (const img of screenshotImages) {
+        parts.push({
+          inlineData: { mimeType: 'image/png', data: img.base64 }
+        });
+        parts.push({ text: `Screenshot of ${img.page} — fix the issues visible here.` });
+      }
+      messages.push({ role: 'user', parts });
+    } else {
+      messages.push({ role: 'user', content: fixPrompt });
+    }
+
     const fixStream = aiProviderService.chatStream('gemini-3-flash',
-      [{ role: 'user', content: fixPrompt }],
+      messages,
       undefined, 'Fix build errors. Return only valid JSON.', { temperature: 0.1, maxTokens: 30000 }
     );
     let fixText = '';

@@ -422,6 +422,22 @@ MANDATORY FILES:
 5. **Custom Footer** — App-specific with relevant links, social icons (as SVG), branding
 6. **Shared types file** — TypeScript interfaces for all data models
 
+=== MOBILE-FIRST DESIGN (CRITICAL) ===
+The user views the preview on a MOBILE PHONE (430px wide). Design for mobile FIRST, then scale up.
+
+MOBILE-FIRST RULES:
+- Default layout is for mobile (single column, full width)
+- Use sm:, md:, lg: breakpoints to ADD desktop features, not the other way
+- Touch targets: min 44x44px for all interactive elements
+- No hover-only interactions — everything must work with tap
+- Bottom navigation preferred over sidebar for mobile
+- Cards: full width on mobile, grid on desktop (grid-cols-1 sm:grid-cols-2 lg:grid-cols-3)
+- Text: base size 16px (text-base), never smaller than 14px on mobile
+- Images: w-full on mobile, constrained on desktop
+- Modals: full screen on mobile (fixed inset-0), centered on desktop (max-w-lg)
+- Forms: stacked labels on mobile, inline on desktop
+- Navigation: hamburger menu on mobile, full nav on desktop
+
 === VISUAL EXCELLENCE ===
 - Micro-animations everywhere: hover scale (hover:scale-[1.02]), shadow transitions, smooth opacity changes
 - Glass morphism for overlays: backdrop-blur-xl bg-white/10 (or bg-black/10 for dark themes)
