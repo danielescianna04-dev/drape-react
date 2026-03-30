@@ -183,13 +183,9 @@ export function createPreviewProxy() {
           res.end(ssrContent);
           return;
         } catch {
-          // No SSR file for this page — check if SSR exists at all (has index.html)
-          // If yes, we know Tailwind CSS needs CDN — inject it in the proxy response
-          try {
-            require('fs').accessSync(`${ssrDir}/index.html`);
-            // SSR exists but not for this page — proxy with CDN injection
-            (session as any)._injectTailwindCDN = true;
-          } catch {}
+          // No SSR file — always inject Tailwind CDN into proxy HTML response
+          // Next.js serves CSS via JS which fails through the proxy
+          (session as any)._injectTailwindCDN = true;
         }
       }
 

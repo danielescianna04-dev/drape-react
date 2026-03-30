@@ -151,6 +151,14 @@ function detectPages() {
           };
         }, tailwindCSS);
 
+        // Skip saving if page is just a loading spinner (no real content)
+        const bodyTextLen = capturedHtml.bodyText.replace(/loading|spinner|caricamento/gi, '').trim().length;
+        if (bodyTextLen < 30 && capturedHtml.html.length < 5000) {
+          console.error(`[SSR] Skipping ${pagePath} — only loading spinner (${bodyTextLen} chars text, ${capturedHtml.html.length} bytes)`);
+          results.errors.push(`${pagePath}: skipped — loading spinner only`);
+          continue;
+        }
+
         // Save HTML file
         const fileName = pagePath === '/' ? 'index.html' : `${pagePath.replace(/^\//, '').replace(/\//g, '_')}.html`;
         const filePath = path.join(SSR_DIR, fileName);
