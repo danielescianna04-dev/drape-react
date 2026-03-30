@@ -86,8 +86,15 @@ function detectPages() {
       const url = `${BASE_URL}${pagePath}`;
       try {
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 15000 });
-        // Wait for hydration + rendering
-        await new Promise(r => setTimeout(r, 2000));
+        // Wait for React hydration — client components need JS to render
+        // Poll until body has meaningful content (not just empty divs)
+        for (let w = 0; w < 10; w++) {
+          const textLen = await page.evaluate(() => (document.body?.innerText?.trim() || '').length);
+          if (textLen > 20) break;
+          await new Promise(r => setTimeout(r, 500));
+        }
+        // Extra wait for CSS injection
+        await new Promise(r => setTimeout(r, 1000));
 
         // First: compile Tailwind CSS for this project (generates only used classes)
         let tailwindCSS = '';
