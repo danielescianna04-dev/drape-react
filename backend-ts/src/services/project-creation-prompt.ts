@@ -518,7 +518,21 @@ Generate REALISTIC data:
 
 Use const arrays at the top of each page or in a separate data/ file. NEVER use "Lorem ipsum", "Coming soon", or "TODO".
 
-For cloud mode with database: Also generate a db/seed.sql file with INSERT statements for 10-20 realistic records.
+For cloud mode with database:
+- Generate a db/seed.sql file with INSERT statements for 10-20 realistic records
+- CRITICAL: Even with a database, ALWAYS have a hardcoded FALLBACK_DATA array
+- If the API fetch fails or returns empty, show the fallback data instead of a loading spinner
+- Pattern for cloud mode pages:
+\`\`\`tsx
+const FALLBACK_DATA = [ /* 10+ realistic items */ ];
+const [items, setItems] = useState(FALLBACK_DATA); // Start with fallback, NOT empty
+useEffect(() => {
+  fetch('/api/items').then(r => r.json()).then(data => {
+    if (data?.length > 0) setItems(data);
+  }).catch(() => {}); // Silently keep fallback data
+}, []);
+// NO loading spinner — page always has content from the start
+\`\`\`
 
 === UX STATES — EVERY PAGE MUST HAVE ALL 3 ===
 1. LOADING STATE: Show skeleton placeholders (animate-pulse) while data loads. Example:
