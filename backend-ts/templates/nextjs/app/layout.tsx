@@ -3,7 +3,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'My App',
-  description: 'Build something amazing with modern tools',
+  description: 'Built with Drape AI',
 }
 
 export default function RootLayout({

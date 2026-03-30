@@ -26,8 +26,10 @@ const TEMPLATE_FILES: Record<string, string[]> = {
   ],
   nextjs: [
     'package.json', 'next.config.ts', 'tsconfig.json', 'postcss.config.mjs',
-    'app/layout.tsx', 'app/globals.css',
-    'app/components/Navbar.tsx', 'app/components/Footer.tsx', 'app/components/FeatureCard.tsx',
+    'app/layout.tsx', 'app/globals.css', 'app/lib/utils.ts',
+    'app/components/ui/button.tsx', 'app/components/ui/card.tsx', 'app/components/ui/input.tsx',
+    'app/components/ui/badge.tsx', 'app/components/ui/dialog.tsx', 'app/components/ui/avatar.tsx',
+    'app/components/ui/tabs.tsx', 'app/components/ui/skeleton.tsx',
   ],
   vue: [
     'package.json', 'vite.config.ts', 'tsconfig.json', 'index.html',
@@ -66,9 +68,19 @@ REACT (VITE) INSTRUCTIONS:
 
   nextjs: `
 NEXT.JS (APP ROUTER) INSTRUCTIONS:
-- Stack: Next.js 15 App Router + React 19 + Tailwind v4 + react-icons
-- Layout: app/layout.tsx already imports CSS, Navbar, Footer. DO NOT re-add them.
-- ALWAYS add suppressHydrationWarning to <html> and <body> in layout.tsx to prevent hydration errors
+- Stack: Next.js 15 App Router + React 19 + Tailwind v4 + react-icons + shadcn-style UI components
+- Layout: app/layout.tsx is MINIMAL (just html/body). YOU generate the full layout with Navbar, Footer, etc.
+- PRE-INSTALLED UI COMPONENTS (use them, don't recreate):
+  - Button: import { Button } from "@/app/components/ui/button" — variants: default, destructive, outline, secondary, ghost, link
+  - Card: import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/app/components/ui/card"
+  - Input: import { Input } from "@/app/components/ui/input"
+  - Badge: import { Badge } from "@/app/components/ui/badge" — variants: default, secondary, destructive, outline
+  - Dialog: import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/app/components/ui/dialog"
+  - Avatar: import { Avatar } from "@/app/components/ui/avatar" — props: src, alt, fallback, size (sm/md/lg)
+  - Tabs: import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/app/components/ui/tabs"
+  - Skeleton: import { Skeleton } from "@/app/components/ui/skeleton"
+  - cn utility: import { cn } from "@/app/lib/utils" — for merging Tailwind classes
+- Design tokens are in globals.css (--color-primary, --color-background, etc.) — use bg-primary, text-foreground, etc.
 - Pages: app/{route}/page.tsx — each page is a SERVER component by default
 - 'use client': Add ONLY to files using useState, useEffect, onClick, or any hook
 - Components: app/components/ — import with @/ alias or relative path
@@ -185,18 +197,14 @@ If you include ANY of these config/CSS files, the app will BREAK.
 The template has pre-installed dependencies. If you need a library that is NOT already in package.json, you MUST generate a MODIFIED package.json that ADDS the new dependency to the existing "dependencies" object. KEEP all existing deps, just add yours. After generation the system will auto-install.
 PREFER using libraries already installed (react-icons, react-hot-toast, better-auth, drizzle-orm, @neondatabase/serverless) before adding new ones. If you DO add a dependency, use a real, popular npm package name — do NOT invent package names.
 
-=== LAYOUT, NAVBAR, FOOTER — ALREADY IN TEMPLATE ===
-The template already includes:
-- A root layout file that imports CSS AND wraps content with Navbar + Footer
-- A Navbar component with responsive mobile menu, logo, navigation links
-- A Footer component with links and branding
+=== LAYOUT — MINIMAL, YOU BUILD EVERYTHING ===
+The template has a MINIMAL layout (just html/body tags + CSS import). You generate EVERYTHING:
+- Navbar component with responsive mobile menu, logo, navigation links
+- Footer component with links, social icons, branding
+- Update app/layout.tsx to import and wrap children with your Navbar + Footer
+- All pages, components, and data
 
-DO NOT generate layout.tsx/App.tsx, Navbar, or Footer from scratch. Instead:
-- MODIFY the existing Navbar (app/components/Navbar.tsx) to customize: logo text, navigation links, CTA buttons for YOUR app
-- MODIFY the existing Footer (app/components/Footer.tsx) to customize: links, social icons, branding for YOUR app
-- If you need a Context Provider, modify the layout to wrap children with it BUT keep the existing Navbar/Footer imports
-
-This ensures EVERY page automatically has consistent navigation without you adding it per-page.
+The UI component primitives (Button, Card, Input, Dialog, Badge, Avatar, Tabs, Skeleton) are PRE-INSTALLED in app/components/ui/. USE THEM in your components — don't recreate them.
 
 === SEO — AUTOMATIC ON EVERY PAGE ===
 ALWAYS implement SEO best practices on every page without the user asking:
