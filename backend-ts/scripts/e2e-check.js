@@ -107,8 +107,19 @@ const TIMEOUT = 12000;
         const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: TIMEOUT });
         pageResult.status = response ? response.status() : 0;
 
+        // Check for redirects — follow them and verify destination exists
+        if (pageResult.status >= 300 && pageResult.status < 400) {
+          const finalUrl = page.url();
+          const finalResponse = await page.goto(finalUrl, { waitUntil: 'networkidle2', timeout: TIMEOUT }).catch(() => null);
+          pageResult.status = finalResponse ? finalResponse.status() : 404;
+          if (pageResult.status === 404) {
+            pageResult.errors.push(`[${pagePath}] Redirects to ${finalUrl} which returns 404`);
+            results.passed = false;
+          }
+        }
+
         if (pageResult.status === 200) {
-          // Wait for hydration + CSS injection (Turbopack injects CSS via JS)
+          // Wait for hydration + CSS injection
           await new Promise(r => setTimeout(r, 2000));
 
           // Check content and styles
@@ -183,7 +194,8 @@ const TIMEOUT = 12000;
             pageResult.errors.push(`[${pagePath}] ${pageAnalysis.unstyledImages} images have no width constraints — CSS not applied`);
           }
         } else if (pageResult.status === 404) {
-          // 404 is OK for sub-pages — they might not exist
+          pageResult.errors.push(`[${pagePath}] Page returns 404 — file exists but page not found`);
+          results.passed = false;
         } else if (pageResult.status >= 500) {
           pageResult.errors.push(`[${pagePath}] Server error: HTTP ${pageResult.status}`);
           results.passed = false;
@@ -194,6 +206,14 @@ const TIMEOUT = 12000;
           pageResult.errors.push(`[${pagePath}] Page timed out — server may not be responding`);
           results.passed = false;
         }
+      }
+
+      // Take screenshot for verification
+      if (pageResult.status === 200 || pageResult.status === 404) {
+        try {
+          const ss = await page.screenshot({ type: 'png', encoding: 'base64' });
+          pageResult.screenshot = ss;
+        } catch {}
       }
 
       // Add console errors
