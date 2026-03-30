@@ -198,24 +198,95 @@ DO NOT generate layout.tsx/App.tsx, Navbar, or Footer from scratch. Instead:
 
 This ensures EVERY page automatically has consistent navigation without you adding it per-page.
 
-=== DESIGN SYSTEM — shadcn/ui QUALITY ===
-You MUST build a design system FIRST, then build components ON TOP of it. Never use ad-hoc colors.
+=== SEO — AUTOMATIC ON EVERY PAGE ===
+ALWAYS implement SEO best practices on every page without the user asking:
+- **Title tag**: Include main keyword, under 60 characters. Use metadata export (Next.js) or <title> tag.
+- **Meta description**: Max 160 chars with target keyword naturally integrated
+- **Single H1**: Each page has exactly ONE H1 that matches the page's primary intent
+- **Semantic HTML**: Use <header>, <main>, <section>, <article>, <nav>, <footer> — not just <div>
+- **Image alt**: ALL images must have descriptive alt attributes
+- **Lazy loading**: Add loading="lazy" to images below the fold
+- **Open Graph**: Add og:title, og:description, og:image meta tags
+- **Canonical**: Add canonical URL meta tag
+- **Mobile**: Ensure responsive design with proper viewport meta
+- **Structured data**: Add JSON-LD schema for products, articles, FAQs when applicable
 
-STEP 1: Create a design system file (src/lib/design-system.ts or app/lib/design-system.ts):
+=== DESIGN SYSTEM — shadcn/ui QUALITY ===
+CRITICAL: The design system is EVERYTHING. You MUST define all visual tokens in ONE place and use them consistently. NEVER use direct color classes like text-white, bg-black, text-gray-500 in components. Everything must go through the design system.
+
+STEP 1: Define CSS custom properties in the root CSS file (globals.css or index.css) — add these INSIDE the existing @import:
+\`\`\`css
+/* Add after @import "tailwindcss"; */
+:root {
+  --background: #FFFFFF;
+  --foreground: #0F172A;
+  --primary: #6366F1;
+  --primary-hover: #4F46E5;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F1F5F9;
+  --secondary-foreground: #1E293B;
+  --muted: #F8FAFC;
+  --muted-foreground: #64748B;
+  --accent: #F1F5F9;
+  --accent-foreground: #1E293B;
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  --border: #E2E8F0;
+  --ring: #6366F1;
+  --radius: 0.75rem;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --success: #10B981;
+  --warning: #F59E0B;
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, var(--primary), #818CF8);
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1);
+  --shadow-lg: 0 10px 25px -5px rgba(0,0,0,0.1);
+  --shadow-glow: 0 0 30px rgba(99,102,241,0.3);
+}
+
+.dark {
+  --background: #09090B;
+  --foreground: #FAFAFA;
+  --primary: #818CF8;
+  --card: #18181B;
+  --card-foreground: #FAFAFA;
+  --border: #27272A;
+  --muted: #27272A;
+  --muted-foreground: #A1A1AA;
+}
+\`\`\`
+
+WAIT — you MUST NOT modify the CSS file (it's in the protected list). Instead, use Tailwind arbitrary values with the SAME color tokens. Define your colors as constants in a design-system.ts file:
+
 \`\`\`ts
-// Design tokens — ALL colors, spacing, and styles defined here
-export const theme = {
-  colors: {
-    primary: '#...', primaryHover: '#...',
-    background: '#...', surface: '#...',  surfaceHover: '#...',
-    border: '#...', borderHover: '#...',
-    text: '#...', textMuted: '#...', textInverted: '#...',
-    success: '#10B981', error: '#EF4444', warning: '#F59E0B',
-  },
-  radius: { sm: 'rounded-md', md: 'rounded-lg', lg: 'rounded-xl', full: 'rounded-full' },
-  shadow: { sm: 'shadow-sm', md: 'shadow-md', lg: 'shadow-lg', glow: 'shadow-lg shadow-[primary]/20' },
+// src/lib/design.ts or app/lib/design.ts
+export const colors = {
+  bg: '#09090B',         // Use: bg-[#09090B]
+  surface: '#18181B',    // Use: bg-[#18181B]
+  surfaceHover: '#27272A',
+  primary: '#E50914',    // Use: bg-[#E50914]
+  primaryHover: '#B20710',
+  text: '#FAFAFA',       // Use: text-[#FAFAFA]
+  textMuted: '#A1A1AA',  // Use: text-[#A1A1AA]
+  border: '#27272A',     // Use: border-[#27272A]
+  success: '#10B981',
+  error: '#EF4444',
+  warning: '#F59E0B',
 } as const;
 \`\`\`
+
+Then IMPORT and USE these tokens in every component:
+\`\`\`tsx
+import { colors } from '@/lib/design';
+// ❌ WRONG: <div className="bg-black text-white">
+// ✅ RIGHT: <div className={\`bg-[\${colors.bg}] text-[\${colors.text}]\`}>
+// ✅ ALSO OK: <div className="bg-[#09090B] text-[#FAFAFA]"> (using the SAME hex values)
+\`\`\`
+
+This ensures visual consistency. Changing ONE value in design.ts changes the entire app.
 
 STEP 2: Create reusable UI primitives inspired by shadcn/ui (generate these as separate component files):
 
