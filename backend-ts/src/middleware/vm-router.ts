@@ -183,7 +183,13 @@ export function createPreviewProxy() {
           res.end(ssrContent);
           return;
         } catch {
-          // No SSR file — fall through to proxy
+          // No SSR file for this page — check if SSR exists at all (has index.html)
+          // If yes, we know Tailwind CSS needs CDN — inject it in the proxy response
+          try {
+            require('fs').accessSync(`${ssrDir}/index.html`);
+            // SSR exists but not for this page — proxy with CDN injection
+            (session as any)._injectTailwindCDN = true;
+          } catch {}
         }
       }
 
@@ -320,6 +326,26 @@ function proxyRequest(
                 const spaScript = `<script>history.replaceState(null,'','/');</script>`;
 
                 html = html.replace('<head>', `<head>${spaScript}`);
+                const responseHeaders = { ...proxyRes.headers };
+                responseHeaders['content-length'] = String(Buffer.byteLength(html));
+                delete responseHeaders['content-encoding'];
+                res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+                res.end(html);
+                resolve();
+              });
+              proxyRes.on('error', (err) => {
+                log.error(`[Preview Proxy] Response error for ${projectId}:`, err.message);
+                reject(err);
+              });
+            } else if ((session as any)?._injectTailwindCDN) {
+              // Non-SPA HTML but needs Tailwind CDN (SSR exists but not for this page)
+              const chunks: Buffer[] = [];
+              proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+              proxyRes.on('end', () => {
+                let html = Buffer.concat(chunks).toString('utf-8');
+                if (!html.includes('cdn.tailwindcss.com')) {
+                  html = html.replace('<head>', '<head>\n<script src="https://cdn.tailwindcss.com"></script>');
+                }
                 const responseHeaders = { ...proxyRes.headers };
                 responseHeaders['content-length'] = String(Buffer.byteLength(html));
                 delete responseHeaders['content-encoding'];
