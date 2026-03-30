@@ -116,6 +116,10 @@ function detectPages() {
             }
           }
 
+          // Check if we have real Tailwind CSS (not just font-face)
+          const hasTailwind = allCSS.includes('.flex') || allCSS.includes('.min-h-screen') || allCSS.includes('bg-');
+          const cdnFallback = hasTailwind ? '' : '<script src="https://cdn.tailwindcss.com"></script>';
+
           const bodyHtml = document.body.innerHTML.replace(/<script[\s\S]*?<\/script>/gi, '');
 
           const finalHtml = `<!DOCTYPE html>
@@ -124,6 +128,7 @@ function detectPages() {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${document.title || 'Preview'}</title>
+  ${cdnFallback}
   <style>${allCSS}</style>
 </head>
 <body${document.body.className ? ` class="${document.body.className}"` : ''}${document.body.getAttribute('style') ? ` style="${document.body.getAttribute('style')}"` : ''}>
