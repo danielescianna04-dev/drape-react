@@ -495,6 +495,11 @@ FILE UPLOAD (if user mentions upload, images, files, media):
 - Create a drag-and-drop upload component with preview
 - For cloud mode: store file metadata in the database
 
+=== CRITICAL: HOME PAGE (app/page.tsx) MUST HAVE REAL CONTENT ===
+NEVER use redirect() in app/page.tsx. The home page MUST render actual visible content directly.
+If the app has a feed/dashboard as main view, render it IN page.tsx — don't redirect to another route.
+Every route you link to MUST have a corresponding page file. If you create a link to /feed, app/feed/page.tsx MUST exist.
+
 === USE 'use client' CORRECTLY ===
 - Add 'use client' at the TOP of any file that uses: useState, useEffect, onClick, onChange, onSubmit, or any React hook
 - Server components (no 'use client') can only render static content — no interactivity
