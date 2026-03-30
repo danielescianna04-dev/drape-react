@@ -84,6 +84,42 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
     const ssr = JSON.parse(ssrResult.stdout || '{}');
     if (ssr.pages?.length > 0) {
       log.info(`[Verify] SSR captured ${ssr.pages.length} pages for ${projectId}`);
+
+      // Verify SSR quality — check that CSS is actually present
+      const { config: appConfig2 } = require('../config');
+      const ssrIndexPath = require('path').join(appConfig2.projectsRoot, projectId, '.ssr', 'index.html');
+      try {
+        const ssrHtml = require('fs').readFileSync(ssrIndexPath, 'utf-8');
+        const hasTailwindCSS = ssrHtml.includes('.flex') || ssrHtml.includes('.min-h-screen') || ssrHtml.includes('background-color');
+        const hasCDN = ssrHtml.includes('cdn.tailwindcss.com');
+        const hasContent = ssrHtml.length > 2000;
+
+        if (!hasTailwindCSS && !hasCDN) {
+          log.warn(`[Verify] SSR HTML has no Tailwind CSS and no CDN fallback — injecting CDN`);
+          // Inject CDN into the SSR file directly
+          const fixed = ssrHtml.replace('</head>', '  <script src="https://cdn.tailwindcss.com"></script>\n</head>');
+          require('fs').writeFileSync(ssrIndexPath, fixed);
+          // Also fix other SSR pages
+          const ssrDir = require('path').join(appConfig2.projectsRoot, projectId, '.ssr');
+          for (const f of require('fs').readdirSync(ssrDir)) {
+            if (f === 'index.html' || f === 'manifest.json') continue;
+            const fp = require('path').join(ssrDir, f);
+            const content = require('fs').readFileSync(fp, 'utf-8');
+            if (!content.includes('cdn.tailwindcss.com') && !content.includes('.flex')) {
+              require('fs').writeFileSync(fp, content.replace('</head>', '  <script src="https://cdn.tailwindcss.com"></script>\n</head>'));
+            }
+          }
+          log.info(`[Verify] Injected CDN fallback into all SSR pages`);
+        } else {
+          log.info(`[Verify] SSR quality OK (tailwind=${hasTailwindCSS}, cdn=${hasCDN}, size=${ssrHtml.length})`);
+        }
+
+        if (!hasContent) {
+          log.warn(`[Verify] SSR HTML too small (${ssrHtml.length} bytes) — may be empty`);
+        }
+      } catch (checkErr: any) {
+        log.warn(`[Verify] SSR quality check failed: ${checkErr.message}`);
+      }
     } else {
       log.warn(`[Verify] SSR capture returned no pages for ${projectId}`);
     }
