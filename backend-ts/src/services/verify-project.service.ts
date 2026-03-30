@@ -302,38 +302,63 @@ async function autoFix(
       }
     }
 
-    // Always read layout + CSS for context on visual errors
-    const hasVisualError = result.errors.some(e =>
-      e.includes('blank') || e.includes('white') || e.includes('CSS') || e.includes('styles') || e.includes('screen')
-    );
-    if (hasVisualError) {
-      for (const p of ['app/layout.tsx', 'app/globals.css', 'app/page.tsx', 'src/App.tsx', 'src/index.css', 'src/main.tsx']) {
-        try {
-          const lr = await workspaceService.exec(projectId, userId, `cat /home/coder/project/${p} 2>/dev/null`);
-          if (lr.stdout && !brokenFiles.some(f => f.path === p)) {
-            brokenFiles.push({ path: p, content: lr.stdout });
-          }
-        } catch {}
+    // Always read key files for context
+    for (const p of ['app/layout.tsx', 'app/page.tsx', 'app/globals.css', 'src/App.tsx', 'src/index.css', 'src/main.tsx']) {
+      try {
+        const lr = await workspaceService.exec(projectId, userId, `cat /home/coder/project/${p} 2>/dev/null`);
+        if (lr.stdout && !brokenFiles.some(f => f.path === p)) {
+          brokenFiles.push({ path: p, content: lr.stdout });
+        }
+      } catch {}
+    }
+
+    // For 404 errors: extract the missing route and read related files
+    for (const err of result.errors) {
+      const routeMatch = err.match(/\[\/([^\]]+)\]/);
+      if (routeMatch) {
+        const route = routeMatch[1];
+        // Check if page file exists
+        for (const ext of ['tsx', 'jsx', 'ts', 'js']) {
+          try {
+            const pg = await workspaceService.exec(projectId, userId, `cat /home/coder/project/app/${route}/page.${ext} 2>/dev/null`);
+            if (pg.stdout && !brokenFiles.some(f => f.path === `app/${route}/page.${ext}`)) {
+              brokenFiles.push({ path: `app/${route}/page.${ext}`, content: pg.stdout });
+            }
+          } catch {}
+        }
       }
     }
 
     const fileContext = brokenFiles.map(f => `--- ${f.path} ---\n${f.content}`).join('\n\n');
 
+    // Include screenshot descriptions in prompt
+    let screenshotContext = '';
+    if (result.screenshots.size > 0) {
+      screenshotContext = '\n\nSCREENSHOTS TAKEN (showing what the user sees):\n';
+      for (const [pagePath] of result.screenshots) {
+        const hasError = result.errors.some(e => e.includes(pagePath));
+        screenshotContext += `- ${pagePath}: ${hasError ? 'BROKEN — shows error or blank' : 'OK'}\n`;
+      }
+    }
+
     const fixPrompt = `Fix these ${technology} project errors:
 
 ERRORS:
 ${result.errors.join('\n')}
-
+${screenshotContext}
 ${fileContext ? `CURRENT FILES:\n${fileContext}\n` : ''}
 Return a JSON array of fixed files: [{"path": "file/path", "content": "complete fixed content"}]
 
 Rules:
 - Return COMPLETE file content, not just changed lines
 - DO NOT modify these files: ${[...PROTECTED_FILES].join(', ')}
+- For 404 errors: CREATE the missing page file with real content (not redirect)
+- For redirect errors: REPLACE redirect() with actual page content
 - For 'use client' errors: add 'use client' at top of file
 - For missing module: add the correct import
 - For blank page: ensure components return visible JSX with Tailwind classes
-- NEVER import from lucide-react, @heroicons, @fortawesome — use inline SVG or emoji
+- Use lucide-react for icons (it's installed in the template)
+- All data must be hardcoded const arrays — NEVER use fetch() for mock data
 - Return valid JSON only`;
 
     const fixStream = aiProviderService.chatStream('gemini-3-flash',
