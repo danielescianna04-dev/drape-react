@@ -62,9 +62,7 @@ const languages = [
 ];
 
 const languageCategories = [
-  { id: 'popular', labelKey: 'create.popular', items: ['react', 'nextjs', 'html'] },
-  { id: 'frontend', labelKey: 'create.frontend', items: ['vue', 'astro'] },
-  { id: 'mobile', labelKey: 'create.mobile', items: ['expo'] },
+  { id: 'all', labelKey: '', items: ['react', 'nextjs', 'html', 'vue', 'astro', 'expo'] },
 ];
 
 const ideaChips = [
@@ -1208,13 +1206,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         )
       )}
 
-      {(showAllLangs ? languageCategories : [languageCategories[0]]).map((category) => {
+      {languageCategories.map((category) => {
         const catLangs = category.items.map(id => languages.find(l => l.id === id)!).filter(Boolean);
         return (
           <View key={category.id}>
-            {showAllLangs && (
-              <Text style={styles.categoryLabel}>{t(category.labelKey)}</Text>
-            )}
             <View style={styles.languagesGrid}>
               {catLangs.map((lang) => {
                 const isSelected = selectedLanguage === lang.id;
@@ -1272,33 +1267,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         );
       })}
 
-      {/* Show all / Show less toggle */}
-      <TouchableOpacity
-        style={[styles.showAllButton, useGlass && styles.showAllButtonGlass]}
-        onPress={() => setShowAllLangs(!showAllLangs)}
-        activeOpacity={0.7}
-      >
-        {useGlass ? (
-          <LiquidGlassView
-            style={styles.showAllButtonLiquid}
-            interactive={true}
-            effect="regular"
-            colorScheme="dark"
-          >
-            <Ionicons name={showAllLangs ? 'chevron-up' : 'grid-outline'} size={16} color={AppColors.primary} />
-            <Text style={styles.showAllText}>
-              {showAllLangs ? t('create.showLess') : t('create.showAll')}
-            </Text>
-          </LiquidGlassView>
-        ) : (
-          <>
-            <Ionicons name={showAllLangs ? 'chevron-up' : 'grid-outline'} size={16} color={AppColors.primary} />
-            <Text style={styles.showAllText}>
-              {showAllLangs ? t('create.showLess') : t('create.showAll')}
-            </Text>
-          </>
-        )}
-      </TouchableOpacity>
+      {/* All languages shown — no toggle needed */}
     </View>
     );
   };
