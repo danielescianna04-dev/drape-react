@@ -483,18 +483,42 @@ FILE UPLOAD (if user mentions upload, images, files, media):
 - Server components (no 'use client') can only render static content — no interactivity
 - When in doubt, add 'use client' — it's better than a broken page
 
-=== SEED DATA (CRITICAL) ===
-NEVER show empty pages. Generate REALISTIC mock data directly in your components:
+=== SEED DATA (CRITICAL — READ THIS CAREFULLY) ===
+NEVER show empty pages. NEVER show loading spinners for mock data. NEVER use fetch() or useEffect to load hardcoded data.
+
+ALL mock data must be HARDCODED as const arrays. The page must render IMMEDIATELY with content — NO loading state for static data.
+
+❌ WRONG (causes infinite loading spinner):
+\`\`\`tsx
+const [movies, setMovies] = useState([]);
+const [loading, setLoading] = useState(true);
+useEffect(() => { fetch('/api/movies').then(r=>r.json()).then(setMovies); }, []); // API doesn't exist!
+if (loading) return <Spinner />; // STUCK FOREVER
+\`\`\`
+
+✅ CORRECT (renders immediately):
+\`\`\`tsx
+const movies = [
+  { id: 1, title: 'Inception', year: 2010, rating: 8.8, image: 'https://images.unsplash.com/photo-...' },
+  { id: 2, title: 'The Matrix', year: 1999, rating: 8.7, image: 'https://images.unsplash.com/photo-...' },
+  // ... 10+ items
+];
+// Render directly — NO loading state needed for hardcoded data
+return <div>{movies.map(m => <MovieCard key={m.id} {...m} />)}</div>;
+\`\`\`
+
+Generate REALISTIC data:
 - E-commerce: 12+ products with real names, prices ($29.99-$299), descriptions, Unsplash images
 - Dashboard: Stats with real numbers (1,247 users, $45,230 revenue, 98.5% uptime)
 - Social: 8+ user profiles with real names, avatars, posts with content
 - Food: 15+ menu items with descriptions, prices, categories, images
 - Fitness: 10+ workouts with exercises, sets, reps, duration
 - Education: 8+ courses with titles, descriptions, instructors, ratings
+- Streaming: 20+ movies/shows with titles, descriptions, genres, ratings, poster images
 
-Use const arrays at the top of each page. NEVER use "Lorem ipsum", "Coming soon", or "TODO".
+Use const arrays at the top of each page or in a separate data/ file. NEVER use "Lorem ipsum", "Coming soon", or "TODO".
 
-For cloud mode with database: Also generate a db/seed.sql file with INSERT statements for 10-20 realistic records. Run the seed after schema migration.
+For cloud mode with database: Also generate a db/seed.sql file with INSERT statements for 10-20 realistic records.
 
 === UX STATES — EVERY PAGE MUST HAVE ALL 3 ===
 1. LOADING STATE: Show skeleton placeholders (animate-pulse) while data loads. Example:
