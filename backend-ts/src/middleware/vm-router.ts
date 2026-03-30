@@ -313,34 +313,19 @@ function proxyRequest(
               && projectType != null && spaTypes.includes(projectType);
             log.info(`[Preview Proxy] HTML response for ${projectId}: type=${projectType}, spaFix=${needsSpaFix}, status=${proxyRes.statusCode}`);
 
-            if (needsSpaFix) {
-              // Buffer HTML response to inject SPA routing fix
+            // ALWAYS buffer HTML and inject Tailwind CDN + SPA fix if needed
+            {
               const chunks: Buffer[] = [];
               proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
               proxyRes.on('end', () => {
                 let html = Buffer.concat(chunks).toString('utf-8');
-                const spaScript = `<script>history.replaceState(null,'','/');</script>`;
-
-                html = html.replace('<head>', `<head>${spaScript}`);
-                const responseHeaders = { ...proxyRes.headers };
-                responseHeaders['content-length'] = String(Buffer.byteLength(html));
-                delete responseHeaders['content-encoding'];
-                res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-                res.end(html);
-                resolve();
-              });
-              proxyRes.on('error', (err) => {
-                log.error(`[Preview Proxy] Response error for ${projectId}:`, err.message);
-                reject(err);
-              });
-            } else if ((session as any)?._injectTailwindCDN) {
-              // Non-SPA HTML but needs Tailwind CDN (SSR exists but not for this page)
-              const chunks: Buffer[] = [];
-              proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
-              proxyRes.on('end', () => {
-                let html = Buffer.concat(chunks).toString('utf-8');
+                // Inject Tailwind CDN if not already present
                 if (!html.includes('cdn.tailwindcss.com')) {
                   html = html.replace('<head>', '<head>\n<script src="https://cdn.tailwindcss.com"></script>');
+                }
+                // SPA routing fix for Vite-based apps
+                if (needsSpaFix) {
+                  html = html.replace('<head>', `<head><script>history.replaceState(null,'','/');</script>`);
                 }
                 const responseHeaders = { ...proxyRes.headers };
                 responseHeaders['content-length'] = String(Buffer.byteLength(html));
@@ -349,15 +334,6 @@ function proxyRequest(
                 res.end(html);
                 resolve();
               });
-              proxyRes.on('error', (err) => {
-                log.error(`[Preview Proxy] Response error for ${projectId}:`, err.message);
-                reject(err);
-              });
-            } else {
-              // Non-SPA HTML: stream directly
-              res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
-              proxyRes.pipe(res);
-              proxyRes.on('end', () => resolve());
               proxyRes.on('error', (err) => {
                 log.error(`[Preview Proxy] Response error for ${projectId}:`, err.message);
                 reject(err);
