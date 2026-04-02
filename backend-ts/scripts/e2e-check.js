@@ -15,7 +15,7 @@ const path = require('path');
 const BASE_URL = 'http://localhost:3000';
 const MAX_CLICKS = 999;      // no limit — test everything
 const CLICK_TIMEOUT = 3000;  // ms to wait after click
-const NAV_TIMEOUT = 8000;    // ms for page.goto
+const NAV_TIMEOUT = 12000;   // ms for page.goto
 
 // ── Page Detection ─────────────────────────────────────────────
 
@@ -138,7 +138,7 @@ async function analyzePage(page) {
 // ── Get all clickable elements ─────────────────────────────────
 
 async function getClickableElements(page) {
-  return page.evaluate(() => {
+  const elements = await page.evaluate(() => {
     const results = [];
     const seen = new Set();
 
@@ -206,6 +206,11 @@ async function getClickableElements(page) {
 
     return results;
   });
+  const links = elements.filter(e => e.type === 'link').length;
+  const buttons = elements.filter(e => e.type === 'button').length;
+  const navItems = elements.filter(e => e.type === 'nav').length;
+  console.error(`[e2e] getClickableElements on ${page.url()}: ${links} links, ${buttons} buttons, ${navItems} nav items`);
+  return elements;
 }
 
 // ── Wait for navigation or content change ──────────────────────
@@ -326,6 +331,7 @@ async function verify(pages) {
       }
 
       // Get clickable elements on this page
+      await page.waitForTimeout(1000); // Wait for hydration before checking clickable elements
       const clickables = await getClickableElements(page).catch(() => []);
       console.error(`[Verify] Page ${testPage}: ${clickables.length} clickable elements`);
 
@@ -444,6 +450,10 @@ async function verify(pages) {
 
         clickResults.push(clickResult);
       }
+    }
+
+    if (clickCount === 0 && results.pages.some(p => p.checks && (p.checks.buttonCount > 0 || p.checks.elementCount > 10))) {
+      console.error('[e2e] WARNING: 0 click tests executed but pages had interactive elements');
     }
 
     results.navigation = clickResults;
