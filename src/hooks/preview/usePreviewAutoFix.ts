@@ -176,7 +176,9 @@ REGOLE:
         body: JSON.stringify({
           prompt,
           projectId,
-          model: 'gemini-3-flash', // Fast model for fixes
+          model: (process.env.EXPO_PUBLIC_ENV === 'development' || process.env.EXPO_PUBLIC_ENV === 'preview')
+            ? 'claude-sonnet-4-6'
+            : 'gemini-3-flash',
           conversationHistory: conversationRef.current,
           images,
           thinkingLevel: 'low',
