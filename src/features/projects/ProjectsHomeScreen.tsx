@@ -30,6 +30,7 @@ import { liveActivityService } from '../../core/services/liveActivityService';
 import { tracciaProgettoAperto, tracciaErrore, tracciaImportGitAvviato, tracciaProgettoEliminato, tracciaProgettoDuplicato, tracciaProgettoCondiviso, tracciaProgettoRinominato, tracciaEsploraFile, tracciaSchermata, tracciaErroreAperturaProgetto } from '../../core/services/analyticsService';
 import { pushNotificationService } from '../../core/services/pushNotificationService';
 import { useTranslation } from 'react-i18next';
+import { DevBanner } from '../../shared/components/DevBanner';
 
 
 interface Props {
@@ -1053,6 +1054,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           <Ionicons name="settings-outline" size={24} color="#B7B3C7" />
         </TouchableOpacity>
       </View>
+
+      <DevBanner />
 
       <ScrollView
         style={styles.scrollView}
