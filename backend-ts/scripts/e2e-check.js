@@ -275,15 +275,14 @@ async function verify(pages) {
           if (!analysis.hasContent) { pageResult.errors.push(`[${pagePath}] No visible content`); results.passed = false; }
           if (!analysis.hasStyles && analysis.hasContent) { pageResult.errors.push(`[${pagePath}] Content without CSS`); results.passed = false; }
           if (analysis.brokenImages > 0) { pageResult.errors.push(`[${pagePath}] ${analysis.brokenImages} broken images`); }
-
-          try { pageResult.screenshot = await page.screenshot({ type: 'png', encoding: 'base64' }); } catch {}
         } else if (pageResult.status === 404) {
           pageResult.errors.push(`[${pagePath}] 404 — page not found`); results.passed = false;
-          try { pageResult.screenshot = await page.screenshot({ type: 'png', encoding: 'base64' }); } catch {}
         } else if (pageResult.status >= 500) {
           pageResult.errors.push(`[${pagePath}] Server error: ${pageResult.status}`); results.passed = false;
-          try { pageResult.screenshot = await page.screenshot({ type: 'png', encoding: 'base64' }); } catch {}
         }
+
+        // Always capture a screenshot for every page, regardless of status or errors
+        try { pageResult.screenshot = await page.screenshot({ type: 'png', encoding: 'base64' }); } catch {}
       } catch (err) {
         pageResult.errors.push(`[${pagePath}] ${err.message}`);
         results.passed = false;
@@ -360,6 +359,10 @@ async function verify(pages) {
         };
 
         try {
+          // Capture "before" screenshot for every click
+          let screenshotBefore = null;
+          try { screenshotBefore = await page.screenshot({ type: 'png', encoding: 'base64' }); } catch {}
+
           await page.mouse.click(el.x, el.y);
           clickCount++;
 
@@ -429,7 +432,11 @@ async function verify(pages) {
             }
           }
 
-          try { clickResult.screenshot = await page.screenshot({ type: 'png', encoding: 'base64' }); } catch {}
+          // Capture "after" screenshot and attach both to the result
+          let screenshotAfter = null;
+          try { screenshotAfter = await page.screenshot({ type: 'png', encoding: 'base64' }); } catch {}
+          clickResult.screenshotBefore = screenshotBefore;
+          clickResult.screenshotAfter = screenshotAfter;
         } catch (err) {
           clickResult.result = 'error';
           clickResult.error = err.message;
