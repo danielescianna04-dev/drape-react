@@ -80,6 +80,16 @@ export function usePreviewAutoFix(projectId: string | undefined): PreviewAutoFix
 
   const esRef = useRef<EventSource | null>(null);
   const conversationRef = useRef<any[]>([]); // Accumulate fix conversation for context
+  const reportRef = useRef<{
+    attempts: Array<{
+      attemptNumber: number;
+      timestamp: string;
+      status: string;
+      jsErrors: string[];
+      rootChildren: number;
+      screenshotBase64: string | null;
+    }>;
+  }>({ attempts: [] });
   const isMountedRef = useRef(true);
 
   // Derive display message from state + fixStatus
@@ -107,6 +117,7 @@ export function usePreviewAutoFix(projectId: string | undefined): PreviewAutoFix
     setFixStatus(null);
     setFixAttempt(0);
     conversationRef.current = [];
+    reportRef.current = { attempts: [] };
   }, [closeStream]);
 
   // ── WebView loaded → start checking ──────────────────────────────
@@ -284,16 +295,46 @@ REGOLE:
     const hasErrors = result.jsErrors.length > 0;
     const isBlankScreen = result.rootChildren === 0;
 
+    reportRef.current.attempts.push({
+      attemptNumber: fixAttempt + (hasErrors || isBlankScreen ? 1 : 0),
+      timestamp: new Date().toISOString(),
+      status: (!hasErrors && !isBlankScreen) ? 'passed' : 'failed',
+      jsErrors: result.jsErrors,
+      rootChildren: result.rootChildren,
+      screenshotBase64: result.screenshotBase64,
+    });
+
     if (!hasErrors && !isBlankScreen) {
       // All good!
       setState('verified');
       setFixStatus(null);
       closeStream();
+
+      // Send preview verification data to backend (fire and forget)
+      if (projectId) {
+        getAuthToken(true).then(authToken => {
+          fetch(`${config.apiUrl}/workstation/${projectId}/verification-report`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+            },
+            body: JSON.stringify({
+              previewVerification: {
+                attempts: reportRef.current.attempts,
+                totalDuration: reportRef.current.attempts.length > 0
+                  ? Date.now() - new Date(reportRef.current.attempts[0].timestamp).getTime()
+                  : 0,
+              },
+            }),
+          }).catch(err => console.warn('[AutoFix] Failed to save report:', err));
+        }).catch(() => {});
+      }
     } else {
       // Needs fix
       startFix(result);
     }
-  }, [startFix, closeStream]);
+  }, [startFix, closeStream, fixAttempt, projectId]);
 
   return {
     state,
