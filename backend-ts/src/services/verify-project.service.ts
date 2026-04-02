@@ -109,8 +109,8 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
     verificationReport.backendVerification.attempts.push(attemptRecord);
 
     if (!fixResult.applied) {
-      log.warn(`[Verify] Auto-fix failed for ${projectId} — stopping`);
-      break;
+      log.warn(`[Verify] Auto-fix could not apply fixes for ${projectId} on attempt ${attempt + 1} — will retry`);
+      continue;
     }
 
     await restartDevServer(projectId, userId);
@@ -361,6 +361,17 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
     }
   }
 
+  // 3b. Verify home page has substantial content (not just empty shell)
+  if (pages) {
+    const homePage = pages.find((p: any) => p.path === '/');
+    if (homePage && (homePage as any).checks) {
+      const checks = (homePage as any).checks;
+      if (checks.textLength < 50 || checks.elementCount < 5) {
+        errors.push(`[content] Home page has minimal content (${checks.textLength} chars, ${checks.elementCount} elements) — may appear blank`);
+      }
+    }
+  }
+
   // 4. Check HTML body for error indicators
   // (CSS is handled by SSR capture after verify — no proxy CSS check needed)
   if (httpCode === '200') {
@@ -586,7 +597,7 @@ Rules:
     log.info(`[Verify] Applied ${filesModified.length} fixes`);
     return { applied: filesModified.length > 0, filesModified, duration: Date.now() - fixStartTime };
   } catch (err: any) {
-    log.warn(`[Verify] Auto-fix failed: ${err.message}`);
+    log.error(`[Verify] Auto-fix crashed: ${err.message}\n${err.stack || ''}`);
     return { applied: false, filesModified: [], duration: Date.now() - fixStartTime };
   }
 }
