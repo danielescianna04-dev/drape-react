@@ -9,6 +9,16 @@ export interface VerifyResult {
   errors: string[];
   screenshots: Map<string, string>;
   serverLog: string;
+  /** E2E page results (populated when e2e-check.js runs successfully) */
+  pages?: { path: string; screenshot?: string; errors?: string[] }[];
+  /** E2E navigation results (populated when e2e-check.js runs successfully) */
+  navigation?: { element?: { text?: string }; error?: string; screenshot?: string }[];
+}
+
+interface AutoFixResult {
+  applied: boolean;
+  filesModified: string[];
+  duration: number;
 }
 
 interface VerifyOptions {
@@ -35,6 +45,19 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
   const { projectId, userId, technology, onProgress } = opts;
   const MAX_ATTEMPTS = 3;
 
+  // ── Verification report accumulator ────────────────────────────────────────
+  const verificationReport: any = {
+    projectId,
+    createdAt: new Date().toISOString(),
+    completedAt: '',
+    status: 'passed' as string,
+    backendVerification: {
+      attempts: [] as any[],
+      totalDuration: 0,
+    },
+  };
+  const reportStartTime = Date.now();
+
   let lastResult: VerifyResult = { passed: false, errors: [], screenshots: new Map(), serverLog: '' };
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -43,10 +66,24 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
 
     if (isRetry) await new Promise(r => setTimeout(r, 3000));
 
+    const attemptStartTime = Date.now();
     lastResult = await verify(projectId, userId);
+    const attemptDuration = Date.now() - attemptStartTime;
+
+    // Build attempt record for the report
+    const attemptRecord: any = {
+      attemptNumber: attempt + 1,
+      timestamp: new Date().toISOString(),
+      duration: attemptDuration,
+      status: lastResult.passed ? 'passed' : 'failed',
+      pages: lastResult.pages || [],
+      navigation: lastResult.navigation || [],
+      errors: lastResult.errors || [],
+    };
 
     if (lastResult.passed) {
       log.info(`[Verify] Project ${projectId} passed on attempt ${attempt + 1}`);
+      verificationReport.backendVerification.attempts.push(attemptRecord);
       break;
     }
 
@@ -54,17 +91,42 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
 
     if (attempt >= MAX_ATTEMPTS - 1) {
       log.warn(`[Verify] Project ${projectId} failed after ${MAX_ATTEMPTS} attempts`);
+      verificationReport.backendVerification.attempts.push(attemptRecord);
       break;
     }
 
     onProgress?.(93 + attempt * 2, `Fixing ${lastResult.errors.length} error(s)...`, 'Auto-Fix');
-    const fixed = await autoFix(projectId, userId, technology, lastResult);
-    if (!fixed) {
+    const fixResult = await autoFix(projectId, userId, technology, lastResult);
+
+    if (fixResult.applied) {
+      attemptRecord.fixes = [{
+        model: 'claude-4-6-sonnet',
+        filesModified: fixResult.filesModified,
+        duration: fixResult.duration,
+      }];
+    }
+
+    verificationReport.backendVerification.attempts.push(attemptRecord);
+
+    if (!fixResult.applied) {
       log.warn(`[Verify] Auto-fix failed for ${projectId} — stopping`);
       break;
     }
 
     await restartDevServer(projectId, userId);
+  }
+
+  // ── Finalize and persist verification report ─────────────────────────────
+  verificationReport.completedAt = new Date().toISOString();
+  verificationReport.status = lastResult.passed ? 'passed' : 'failed';
+  verificationReport.backendVerification.totalDuration = Date.now() - reportStartTime;
+
+  try {
+    await fileService.writeFile(projectId, '.drape/verification-report.json',
+      JSON.stringify(verificationReport, null, 2));
+    log.info(`[Verify] Saved verification report for ${projectId}`);
+  } catch (err) {
+    log.warn('[Verify] Failed to save verification report:', err);
   }
 
   // SSR Capture: ALWAYS run after verify loop (regardless of pass/fail).
@@ -136,6 +198,8 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
 async function verify(projectId: string, userId: string): Promise<VerifyResult> {
   const errors: string[] = [];
   const screenshots = new Map<string, string>();
+  let pages: VerifyResult['pages'];
+  let navigation: VerifyResult['navigation'];
 
   // 1. Wait for server to be ACTUALLY ready — not time-based, event-based.
   //    Check server.log for "Ready" / "Listening" signals, or build failure signals.
@@ -205,7 +269,7 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
       const crashErrors = extractLogErrors(crashLog.stdout || '');
       for (const e of crashErrors) errors.push(e);
     } catch {}
-    return { passed: false, errors, screenshots, serverLog: '' };
+    return { passed: false, errors, screenshots, serverLog: '', pages: undefined, navigation: undefined };
   } else if (httpCode === '500') {
     const errMatch = htmlBody.match(/(?:Error|error)[:\s]([^\n<]{10,200})/);
     errors.push(errMatch ? errMatch[0] : 'Server returned HTTP 500');
@@ -241,8 +305,10 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
           }
         }
 
-        // Collect screenshots from E2E — ALL pages (broken ones for auto-fix context)
+        // Capture pages and navigation for verification report
         if (e2e.pages) {
+          pages = e2e.pages;
+          // Collect screenshots from E2E — ALL pages (broken ones for auto-fix context)
           for (const pg of e2e.pages) {
             if (pg.screenshot && pg.errors?.length > 0) {
               screenshots.set(pg.path, pg.screenshot);
@@ -250,8 +316,10 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
           }
         }
 
-        // Collect screenshots from navigation test (click-through issues)
+        // Capture navigation results for verification report
         if (e2e.navigation) {
+          navigation = e2e.navigation;
+          // Collect screenshots from navigation test (click-through issues)
           for (const nav of e2e.navigation) {
             if (nav.error && nav.screenshot) {
               const key = `click:${nav.element?.text || 'unknown'}`;
@@ -310,7 +378,7 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
     }
   }
 
-  return { passed: errors.length === 0, errors, screenshots, serverLog };
+  return { passed: errors.length === 0, errors, screenshots, serverLog, pages, navigation };
 }
 
 // ── Extract errors from server log ──────────────────────────────────────────
@@ -347,7 +415,8 @@ async function autoFix(
   userId: string,
   technology: string,
   result: VerifyResult,
-): Promise<boolean> {
+): Promise<AutoFixResult> {
+  const fixStartTime = Date.now();
   try {
     // Read broken files for AI context
     const brokenFiles: { path: string; content: string }[] = [];
@@ -498,11 +567,11 @@ Rules:
     const fixMatch = fixText.match(/\[[\s\S]*\]/);
     if (!fixMatch) {
       log.warn(`[Verify] AI returned no valid JSON`);
-      return false;
+      return { applied: false, filesModified: [], duration: Date.now() - fixStartTime };
     }
 
     const fixes: { path: string; content: string }[] = JSON.parse(fixMatch[0]);
-    let fixCount = 0;
+    const filesModified: string[] = [];
     for (const fix of fixes) {
       if (!fix.path || !fix.content?.trim()) continue;
       if (PROTECTED_FILES.has(fix.path)) {
@@ -511,14 +580,14 @@ Rules:
       }
       await fileService.writeFile(projectId, fix.path, fix.content);
       log.info(`[Verify] Fixed: ${fix.path}`);
-      fixCount++;
+      filesModified.push(fix.path);
     }
 
-    log.info(`[Verify] Applied ${fixCount} fixes`);
-    return fixCount > 0;
+    log.info(`[Verify] Applied ${filesModified.length} fixes`);
+    return { applied: filesModified.length > 0, filesModified, duration: Date.now() - fixStartTime };
   } catch (err: any) {
     log.warn(`[Verify] Auto-fix failed: ${err.message}`);
-    return false;
+    return { applied: false, filesModified: [], duration: Date.now() - fixStartTime };
   }
 }
 
