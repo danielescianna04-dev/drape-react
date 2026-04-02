@@ -1,6 +1,7 @@
 import React, { useReducer, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useWorkstationStore } from '../../../../core/terminal/workstationStore';
+import { useUIStore } from '../../../../core/terminal/uiStore';
 import { useDatabaseApi } from '../../../../hooks/useDatabaseApi';
 import { DatabaseDiscovery } from './database/DatabaseDiscovery';
 import { TableListView } from './database/TableListView';
@@ -97,6 +98,15 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
   const api = useDatabaseApi(projectId);
   const [state, dispatch] = useReducer(reducer, initialState);
 
+  // Register back handler for VSCodeSidebar floating button
+  useEffect(() => {
+    const canGoBack = state.screen !== 'discovering' && state.screen !== 'db-list' && state.screen !== 'table-list';
+    useUIStore.setState({
+      databaseBackHandler: canGoBack ? () => dispatch({ type: 'GO_BACK' }) : null,
+    });
+    return () => useUIStore.setState({ databaseBackHandler: null });
+  }, [state.screen]);
+
   // Auto-discover on mount
   useEffect(() => {
     if (!projectId) return;
@@ -119,13 +129,12 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
     });
   }, [state.selectedDb]);
 
-  // If Supabase is detected, auto-select it as the database so we enter table list view
+  // If Neon/Supabase is detected, auto-select it as the database so we enter table list view
   useEffect(() => {
     if (state.supabaseDetected && state.supabaseUrl && !state.isLoading && state.screen === 'db-list') {
-      // Auto-select Supabase as the "database" — uses __supabase__ as the db path marker
-      const hasSupabaseDb = state.databases.some(d => d.path === '__supabase__');
-      if (hasSupabaseDb) {
-        dispatch({ type: 'SELECT_DB', dbPath: '__supabase__' });
+      const cloudDb = state.databases.find(d => d.path === '__neon__' || d.path === '__supabase__');
+      if (cloudDb) {
+        dispatch({ type: 'SELECT_DB', dbPath: cloudDb.path });
       }
     }
   }, [state.supabaseDetected, state.databases, state.isLoading, state.screen]);

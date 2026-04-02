@@ -79,18 +79,32 @@ dbRouter.get('/discover/:projectId', asyncHandler(async (req, res) => {
   const pgCheck = await dockerService.exec(agentUrl, `ss -tlnp 2>/dev/null | grep -q :5432 && echo yes || echo no`, '/home/coder/project', 3000, true);
   if (pgCheck.stdout.trim() === 'yes') pgDetected = true;
 
-  // Check for Supabase connection (.env.local with SUPABASE_URL)
+  // Check for Neon connection (DATABASE_URL with neon.tech)
   let supabaseDetected = false;
   let supabaseUrl = '';
-  const supabaseCheck = await dockerService.exec(
+  const neonCheck = await dockerService.exec(
     agentUrl,
-    `grep -s NEXT_PUBLIC_SUPABASE_URL .env.local .env 2>/dev/null | head -1 || true`,
+    `grep -s 'DATABASE_URL' .env.local .env 2>/dev/null | head -1 || true`,
     '/home/coder/project', 3000, true,
   );
-  const supabaseMatch = supabaseCheck.stdout.match(/NEXT_PUBLIC_SUPABASE_URL=(.+)/);
-  if (supabaseMatch) {
-    supabaseDetected = true;
-    supabaseUrl = supabaseMatch[1].trim();
+  const neonMatch = neonCheck.stdout.match(/DATABASE_URL=(.+)/);
+  if (neonMatch && neonMatch[1].includes('neon.tech')) {
+    supabaseDetected = true; // reuse flag for UI compatibility
+    supabaseUrl = neonMatch[1].trim();
+  }
+
+  // Check for Supabase connection (.env.local with SUPABASE_URL)
+  if (!supabaseDetected) {
+    const supabaseCheck = await dockerService.exec(
+      agentUrl,
+      `grep -s NEXT_PUBLIC_SUPABASE_URL .env.local .env 2>/dev/null | head -1 || true`,
+      '/home/coder/project', 3000, true,
+    );
+    const supabaseMatch = supabaseCheck.stdout.match(/NEXT_PUBLIC_SUPABASE_URL=(.+)/);
+    if (supabaseMatch) {
+      supabaseDetected = true;
+      supabaseUrl = supabaseMatch[1].trim();
+    }
   }
 
   // Also read anon key and service role key for Supabase API access
@@ -107,14 +121,67 @@ dbRouter.get('/discover/:projectId', asyncHandler(async (req, res) => {
     const svcMatch = keysCheck.stdout.match(/SUPABASE_SERVICE_ROLE_KEY=(.+)/);
     if (svcMatch) supabaseServiceKey = svcMatch[1].trim();
 
-    // Return Supabase as a "database" so the existing UI flow works
+    // Return cloud DB as a "database" so the existing UI flow works
     if (supabaseUrl) {
-      files.push({ path: '__supabase__', fullPath: supabaseUrl });
+      const isNeon = supabaseUrl.includes('neon.tech');
+      files.push({ path: isNeon ? '__neon__' : '__supabase__', fullPath: supabaseUrl });
     }
   }
 
   res.json({ databases: files, pgDetected, supabaseDetected, supabaseUrl, supabaseAnonKey, supabaseServiceKey, containerReady: true });
 }));
+
+// ─── Helper: query Neon PostgreSQL via pg inside container ───
+async function neonSQL(agentUrl: string, sql: string): Promise<any[]> {
+  await ensurePg(agentUrl);
+  // Write query script to container, load .env.local, execute
+  const scriptContent = [
+    'const{Pool}=require("pg");',
+    'const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});',
+    `p.query(${JSON.stringify(sql)}).then(r=>{console.log(JSON.stringify(r.rows));p.end()}).catch(e=>{console.error(e.message);process.exit(1)});`,
+  ].join('');
+  await dockerService.exec(agentUrl, `cat > /home/coder/project/.nq.js << 'NQEOF'\n${scriptContent}\nNQEOF`, '/home/coder/project', 3000, true);
+  const result = await dockerService.exec(agentUrl,
+    `bash -c 'cd /home/coder/project && set -a && source .env.local 2>/dev/null; source .env 2>/dev/null && set +a && node .nq.js'`,
+    '/home/coder/project', 15000, true
+  );
+  const stdout = result.stdout?.trim();
+  if (!stdout || !stdout.startsWith('[')) {
+    log.warn(`[DB] neonSQL stderr: ${result.stderr?.substring(0, 300)}`);
+    throw new Error(`Neon query returned no data: ${stdout?.substring(0, 200)}`);
+  }
+  return JSON.parse(stdout);
+}
+
+// ─── Helper: run multiple Neon queries in a single node execution ───
+async function neonMultiQuery(agentUrl: string, queries: string[]): Promise<any[][]> {
+  await ensurePg(agentUrl);
+  const queryArray = JSON.stringify(queries);
+  const scriptContent = [
+    'const{Pool}=require("pg");',
+    'const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});',
+    `const queries=${queryArray};`,
+    '(async()=>{const results=[];for(const q of queries){const r=await p.query(q);results.push(r.rows)}console.log(JSON.stringify(results));await p.end()})().catch(e=>{console.error(e.message);process.exit(1)});',
+  ].join('');
+  await dockerService.exec(agentUrl, `cat > /home/coder/project/.nq.js << 'NQEOF'\n${scriptContent}\nNQEOF`, '/home/coder/project', 3000, true);
+  const result = await dockerService.exec(agentUrl,
+    `bash -c 'cd /home/coder/project && set -a && source .env.local 2>/dev/null; source .env 2>/dev/null && set +a && node .nq.js'`,
+    '/home/coder/project', 15000, true
+  );
+  const stdout = result.stdout?.trim();
+  if (!stdout || !stdout.startsWith('[')) {
+    throw new Error(`Neon multi-query returned no data: ${stdout?.substring(0, 200)}`);
+  }
+  return JSON.parse(stdout);
+}
+
+// Ensure pg is installed in the container
+async function ensurePg(agentUrl: string) {
+  const check = await dockerService.exec(agentUrl, `node -e "require('pg')" 2>&1 && echo ok`, '/home/coder/project', 5000, true);
+  if (check.stdout?.includes('ok')) return;
+  log.info(`[DB] Installing pg in container...`);
+  await dockerService.exec(agentUrl, `npm install pg --no-save --legacy-peer-deps 2>/dev/null`, '/home/coder/project', 30000, true);
+}
 
 // ─── Helper: query Supabase via REST API ───
 async function supabaseQuery(url: string, serviceKey: string, sql: string): Promise<any[]> {
@@ -148,6 +215,22 @@ dbRouter.get('/tables/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
   const dbPath = req.query.db as string;
   if (!dbPath) return res.status(400).json({ error: 'db query param required' });
+
+  // Neon tables — query via pg inside container
+  if (dbPath === '__neon__') {
+    const uid = req.userId!;
+    const agentUrl = await getAgentUrl(projectId, uid);
+
+    try {
+      const tables = await neonSQL(agentUrl,
+        `SELECT relname as name, n_live_tup::int as "rowCount" FROM pg_stat_user_tables WHERE schemaname='public' ORDER BY relname`
+      );
+      return res.json({ tables: tables.map((t: any) => ({ name: t.name, rowCount: parseInt(t.rowCount) || 0 })) });
+    } catch (err: any) {
+      log.warn(`[DB] Neon tables query failed: ${err.message}`);
+      return res.status(500).json({ error: `Neon query failed: ${err.message}` });
+    }
+  }
 
   // Supabase tables — query via Management API
   if (dbPath === '__supabase__') {
@@ -215,6 +298,34 @@ dbRouter.get('/rows/:projectId', asyncHandler(async (req, res) => {
   const filterVal = req.query.filterVal as string;
 
   if (!dbPath || !table) return res.status(400).json({ error: 'db and table query params required' });
+
+  // Neon rows — single combined query via pg inside container
+  if (dbPath === '__neon__') {
+    const uid = req.userId!;
+    const agentUrl = await getAgentUrl(projectId, uid);
+    try {
+      let whereClause = '';
+      if (filterCol && filterOp && filterVal !== undefined) {
+        const ops: Record<string, string> = { eq: '=', neq: '!=', gt: '>', lt: '<', like: 'LIKE' };
+        const sqlOp = ops[filterOp] || '=';
+        const val = filterOp === 'like' ? `%${filterVal.replace(/'/g, "''")}%` : filterVal.replace(/'/g, "''");
+        whereClause = `WHERE "${filterCol}" ${sqlOp} '${val}'`;
+      }
+      const offset = page * limit;
+      const result = await neonMultiQuery(agentUrl, [
+        `SELECT count(*)::int as c FROM public."${table}" ${whereClause}`,
+        `SELECT * FROM public."${table}" ${whereClause} LIMIT ${limit} OFFSET ${offset}`,
+        `SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='${table}' ORDER BY ordinal_position`,
+      ]);
+      return res.json({
+        total: result[0][0]?.c || 0,
+        rows: result[1],
+        columns: result[2].map((c: any) => c.column_name),
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: `Neon query failed: ${err.message}` });
+    }
+  }
 
   // Supabase rows
   if (dbPath === '__supabase__') {
@@ -307,6 +418,28 @@ dbRouter.get('/schema/:projectId', asyncHandler(async (req, res) => {
 
   const uid = req.userId!;
   const agentUrl = await getAgentUrl(projectId, uid);
+
+  // Neon schema
+  if (dbPath === '__neon__') {
+    try {
+      const tables = await neonSQL(agentUrl, `SELECT tablename as name FROM pg_tables WHERE schemaname='public' ORDER BY tablename`);
+      const schema = [];
+      for (const t of tables) {
+        const cols = await neonSQL(agentUrl, `SELECT column_name as name, data_type as type, is_nullable, column_default FROM information_schema.columns WHERE table_schema='public' AND table_name='${t.name}' ORDER BY ordinal_position`);
+        const fks = await neonSQL(agentUrl, `SELECT tc.constraint_name, kcu.column_name, ccu.table_name AS foreign_table, ccu.column_name AS foreign_column FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu ON tc.constraint_name=kcu.constraint_name JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name=tc.constraint_name WHERE tc.constraint_type='FOREIGN KEY' AND tc.table_name='${t.name}'`);
+        const cnt = await neonSQL(agentUrl, `SELECT count(*)::int as c FROM public."${t.name}"`);
+        schema.push({
+          name: t.name,
+          columns: cols.map((c: any) => ({ name: c.name, type: c.type, notnull: c.is_nullable === 'NO' ? 1 : 0, dflt_value: c.column_default })),
+          foreignKeys: fks,
+          rowCount: cnt[0]?.c || 0,
+        });
+      }
+      return res.json({ schema });
+    } catch (err: any) {
+      return res.status(500).json({ error: `Neon schema query failed: ${err.message}` });
+    }
+  }
 
   const script = `
 const Database = require("better-sqlite3");

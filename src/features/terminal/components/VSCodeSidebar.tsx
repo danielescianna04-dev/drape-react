@@ -62,6 +62,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const previewViewportMode = useUIStore((state) => state.previewViewportMode);
   const previewHandlers = useUIStore((state) => state.previewHandlers);
   const previewPublishInfo = useUIStore((state) => state.previewPublishInfo);
+  const databaseBackHandler = useUIStore((state) => state.databaseBackHandler);
 
   const activeTab = tabs.find(t => t.id === activeTabId);
   const isPreviewActive = activeTab?.type === 'preview' || activeTab?.type === 'browser';
@@ -586,17 +587,30 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         <View style={[StyleSheet.absoluteFillObject, { borderRadius: 40, overflow: 'hidden', backgroundColor: AppColors.dark.backgroundAlt }]}>
           {/* Header */}
           <View style={styles.minimalHeader}>
-            <TouchableOpacity activeOpacity={0.7} onPress={() => togglePanel('chat')}>
-              <GlassCard style={styles.headerButtonGlass}>
-                <View style={styles.headerButton}>
-                  <View style={{ width: 18, height: 14, justifyContent: 'space-between' }}>
-                    <Animated.View style={[{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerTopStyle]} />
-                    <Animated.View style={[{ width: 14, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerMidStyle]} />
-                    <Animated.View style={[{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerBotStyle]} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <TouchableOpacity activeOpacity={0.7} onPress={() => togglePanel('chat')}>
+                <GlassCard style={styles.headerButtonGlass}>
+                  <View style={styles.headerButton}>
+                    <View style={{ width: 18, height: 14, justifyContent: 'space-between' }}>
+                      <Animated.View style={[{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerTopStyle]} />
+                      <Animated.View style={[{ width: 14, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerMidStyle]} />
+                      <Animated.View style={[{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerBotStyle]} />
+                    </View>
                   </View>
-                </View>
-              </GlassCard>
-            </TouchableOpacity>
+                </GlassCard>
+              </TouchableOpacity>
+
+              {/* Back button for database table detail */}
+              {activeTab?.type === 'database' && databaseBackHandler && (
+                <TouchableOpacity activeOpacity={0.7} onPress={() => databaseBackHandler?.()}>
+                  <GlassCard style={styles.headerButtonGlass}>
+                    <View style={styles.headerButton}>
+                      <Ionicons name="chevron-back" size={18} color="#fff" />
+                    </View>
+                  </GlassCard>
+                </TouchableOpacity>
+              )}
+            </View>
 
             {/* Navigation + URL bar — only when preview is visible */}
             {isPreviewShowing && <>

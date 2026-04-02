@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { GlassCard } from '../../../../settings/components/GlassCard';
 
 interface Props {
   tables: { name: string; rowCount: number }[];
@@ -23,71 +24,61 @@ const TABLE_COLORS = [
 export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSelectTable, onBack, onOpenSQL, onOpenSchema, showBack }) => {
   const insets = useSafeAreaInsets();
   const isSupabase = dbPath === '__supabase__';
-  const dbName = isSupabase ? 'Supabase' : (dbPath.split('/').pop() || dbPath);
+  const isNeon = dbPath === '__neon__' || dbPath.includes('neon.tech');
+  const isCloud = isSupabase || isNeon;
+  const dbName = isNeon ? 'Neon' : isSupabase ? 'Supabase' : (dbPath.split('/').pop() || dbPath);
+  const accentColor = isNeon ? '#00E599' : isSupabase ? '#3ECF8E' : '#60A5FA';
   const totalRows = tables.reduce((sum, t) => sum + (t.rowCount || 0), 0);
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        {showBack && (
-          <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-            <Ionicons name="chevron-back" size={20} color="#8B5CF6" />
-          </TouchableOpacity>
-        )}
-        <View style={styles.headerInfo}>
-          <View style={styles.headerTitleRow}>
-            {isSupabase && (
-              <View style={styles.supabaseBadge}>
-                <Text style={styles.supabaseBadgeText}>⚡</Text>
-              </View>
-            )}
-            <Text style={styles.headerTitle} numberOfLines={1}>{dbName}</Text>
-          </View>
-          <Text style={styles.headerSubtitle}>
-            {tables.length} table{tables.length !== 1 ? 's' : ''} · {totalRows.toLocaleString()} row{totalRows !== 1 ? 's' : ''}
-          </Text>
-        </View>
-      </View>
-
-      {/* Stats Cards */}
+      {/* Stats Cards — below floating buttons */}
+      <View style={{ height: insets.top + 50 }} />
       <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{tables.length}</Text>
-          <Text style={styles.statLabel}>Tables</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{totalRows.toLocaleString()}</Text>
-          <Text style={styles.statLabel}>Total Rows</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={[styles.statValue, { color: isSupabase ? '#3ECF8E' : '#60A5FA' }]}>
-            {isSupabase ? 'PG' : 'SQLite'}
-          </Text>
-          <Text style={styles.statLabel}>Engine</Text>
-        </View>
+        <GlassCard style={styles.statGlass}>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{tables.length}</Text>
+            <Text style={styles.statLabel}>Tables</Text>
+          </View>
+        </GlassCard>
+        <GlassCard style={styles.statGlass}>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{totalRows.toLocaleString()}</Text>
+            <Text style={styles.statLabel}>Total Rows</Text>
+          </View>
+        </GlassCard>
+        <GlassCard style={styles.statGlass}>
+          <View style={styles.statCard}>
+            <Text style={[styles.statValue, { color: accentColor }]}>
+              {isCloud ? 'PG' : 'SQLite'}
+            </Text>
+            <Text style={styles.statLabel}>Engine</Text>
+          </View>
+        </GlassCard>
       </View>
 
       {/* Quick Actions */}
       <View style={styles.actions}>
-        <TouchableOpacity style={styles.actionBtn} onPress={onOpenSQL} activeOpacity={0.7}>
-          <LinearGradient
-            colors={['rgba(139, 92, 246, 0.15)', 'rgba(139, 92, 246, 0.05)']}
-            style={styles.actionGradient}
-          >
-            <Ionicons name="code-slash-outline" size={18} color="#A78BFA" />
-            <Text style={styles.actionText}>SQL Editor</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={onOpenSchema} activeOpacity={0.7}>
-          <LinearGradient
-            colors={['rgba(96, 165, 250, 0.15)', 'rgba(96, 165, 250, 0.05)']}
-            style={styles.actionGradient}
-          >
-            <Ionicons name="git-network-outline" size={18} color="#60A5FA" />
-            <Text style={[styles.actionText, { color: '#60A5FA' }]}>Schema</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+        <GlassCard style={{ borderRadius: 20 }}>
+          <TouchableOpacity style={styles.actionBtn} onPress={onOpenSQL} activeOpacity={0.7}>
+            <Ionicons name="code-slash-outline" size={15} color="#9D98B2" />
+            <Text style={styles.actionText}>SQL</Text>
+          </TouchableOpacity>
+        </GlassCard>
+        <GlassCard style={{ borderRadius: 20 }}>
+          <TouchableOpacity style={styles.actionBtn} onPress={onOpenSchema} activeOpacity={0.7}>
+            <Ionicons name="git-network-outline" size={15} color="#9D98B2" />
+            <Text style={styles.actionText}>Schema</Text>
+          </TouchableOpacity>
+        </GlassCard>
+        {showBack && (
+          <GlassCard style={{ borderRadius: 20 }}>
+            <TouchableOpacity style={styles.actionBtn} onPress={onBack} activeOpacity={0.7}>
+              <Ionicons name="refresh-outline" size={15} color="#9D98B2" />
+              <Text style={styles.actionText}>Refresh</Text>
+            </TouchableOpacity>
+          </GlassCard>
+        )}
       </View>
 
       {/* Section Label */}
@@ -103,38 +94,37 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {tables.map((table, i) => {
-            const color = TABLE_COLORS[i % TABLE_COLORS.length];
             const hasRows = (table.rowCount || 0) > 0;
             return (
-              <TouchableOpacity
-                key={i}
-                style={styles.tableCard}
-                onPress={() => onSelectTable(table.name)}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.tableColorBar, { backgroundColor: color }]} />
-                <View style={styles.tableContent}>
-                  <View style={styles.tableMain}>
-                    <View style={[styles.tableIconWrap, { backgroundColor: `${color}18` }]}>
-                      <Ionicons name="layers-outline" size={18} color={color} />
+              <GlassCard key={i} style={{ marginBottom: 8 }}>
+                <TouchableOpacity
+                  style={styles.tableCard}
+                  onPress={() => onSelectTable(table.name)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.tableContent}>
+                    <View style={styles.tableMain}>
+                      <View style={styles.tableIconWrap}>
+                        <Ionicons name="layers-outline" size={18} color="#A78BFA" />
+                      </View>
+                      <View style={styles.tableInfo}>
+                        <Text style={styles.tableName}>{table.name}</Text>
+                        <Text style={styles.tableType}>
+                          {isCloud ? 'PostgreSQL' : 'SQLite'} table
+                        </Text>
+                      </View>
                     </View>
-                    <View style={styles.tableInfo}>
-                      <Text style={styles.tableName}>{table.name}</Text>
-                      <Text style={styles.tableType}>
-                        {isSupabase ? 'PostgreSQL' : 'SQLite'} table
-                      </Text>
+                    <View style={styles.tableRight}>
+                      <View style={[styles.rowCountBadge, hasRows && styles.rowCountBadgeActive]}>
+                        <Text style={[styles.rowCountText, hasRows && styles.rowCountTextActive]}>
+                          {(table.rowCount || 0).toLocaleString()}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" />
                     </View>
                   </View>
-                  <View style={styles.tableRight}>
-                    <View style={[styles.rowCountBadge, hasRows && styles.rowCountBadgeActive]}>
-                      <Text style={[styles.rowCountText, hasRows && styles.rowCountTextActive]}>
-                        {(table.rowCount || 0).toLocaleString()}
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" />
-                  </View>
-                </View>
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </GlassCard>
             );
           })}
           {tables.length === 0 && (
@@ -206,12 +196,12 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 14,
   },
-  statCard: {
+  statGlass: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  statCard: {
     paddingVertical: 12,
     alignItems: 'center',
   },
@@ -221,7 +211,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   statLabel: {
-    color: 'rgba(255,255,255,0.35)',
+    color: '#9D98B2',
     fontSize: 10,
     fontWeight: '600',
     textTransform: 'uppercase',
@@ -235,31 +225,23 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   actionBtn: {
-    flex: 1,
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  actionGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.12)',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
   actionText: {
-    color: '#A78BFA',
-    fontSize: 14,
-    fontWeight: '600',
+    color: '#9D98B2',
+    fontSize: 13,
+    fontWeight: '500',
   },
   sectionHeader: {
     paddingHorizontal: 20,
     marginBottom: 8,
   },
   sectionLabel: {
-    color: 'rgba(255,255,255,0.3)',
+    color: '#9D98B2',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1,
@@ -282,15 +264,11 @@ const styles = StyleSheet.create({
   },
   tableCard: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.03)',
     borderRadius: 14,
-    marginBottom: 8,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.04)',
   },
   tableColorBar: {
-    width: 3,
+    width: 0,
   },
   tableContent: {
     flex: 1,
@@ -310,6 +288,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 10,
+    backgroundColor: 'rgba(167, 139, 250, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },

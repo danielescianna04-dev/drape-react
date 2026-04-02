@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV NODE_PATH=/usr/local/lib/node_modules
 
 # Reuse existing 'node' user (uid 1000, gid 1000) — rename home to /home/coder
 RUN userdel -r node 2>/dev/null; \
@@ -46,7 +47,7 @@ RUN mkdir -p /home/coder/project /home/coder/volumes/pnpm-store /data/cache && \
 # Install package managers/tools globally.
 # Bun is still the default package manager in the backend project detector,
 # so it must exist in the workspace image.
-RUN npm install -g pnpm@9 serve bun puppeteer-core@23
+RUN npm install -g pnpm@9 serve bun puppeteer-core@23 pg
 
 # Install OpenCode AI agent (MIT license, multi-provider coding agent)
 RUN curl -fsSL https://opencode.ai/install | bash && \
@@ -68,6 +69,21 @@ COPY scripts/ssr-capture.js /usr/local/bin/ssr-capture.js
 # Copy boilerplate templates
 COPY templates/ /usr/local/share/drape-templates/
 RUN chmod -R 755 /usr/local/share/drape-templates/ && chown -R coder:coder /usr/local/share/drape-templates/
+
+# Pre-install dependencies for each stack template.
+# At project creation, node_modules is symlinked/copied from here → ~2s instead of ~25s.
+RUN mkdir -p /usr/local/share/drape-preinstalled && \
+    for stack in nextjs react vue astro; do \
+      if [ -f "/usr/local/share/drape-templates/$stack/package.json" ]; then \
+        mkdir -p /tmp/pre-$stack && \
+        cp /usr/local/share/drape-templates/$stack/package.json /tmp/pre-$stack/ && \
+        cd /tmp/pre-$stack && \
+        npm install --ignore-scripts --no-audit --no-fund 2>/dev/null && \
+        mv node_modules /usr/local/share/drape-preinstalled/$stack && \
+        cd / && rm -rf /tmp/pre-$stack; \
+      fi; \
+    done && \
+    chown -R coder:coder /usr/local/share/drape-preinstalled/
 
 # Copy OpenCode config (auto-accept all tool permissions)
 RUN mkdir -p /home/coder/.config/opencode

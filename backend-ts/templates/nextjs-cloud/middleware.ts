@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionCookie } from "better-auth/cookies";
 
 export function middleware(request: NextRequest) {
-  const sessionCookie = getSessionCookie(request);
+  // Check for session cookie directly (avoids importing better-auth in Edge Runtime)
+  const sessionCookie = request.cookies.get("better-auth.session_token");
   const { pathname } = request.nextUrl;
 
   // Redirect logged-in users away from auth pages

@@ -112,7 +112,8 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
   const filesChevron = useChevronRotation('files', !!expandedNav.files);
   const previewChevron = useChevronRotation('preview', !!expandedNav.preview);
   const gitChevron = useChevronRotation('git', !!expandedNav.git);
-  const chevronStyles: Record<string, any> = { chat: chatChevron, files: filesChevron, preview: previewChevron, git: gitChevron };
+  const databaseChevron = useChevronRotation('database', !!expandedNav.database);
+  const chevronStyles: Record<string, any> = { chat: chatChevron, files: filesChevron, preview: previewChevron, git: gitChevron, database: databaseChevron };
 
   const toggleNav = useCallback((id: string) => {
     setExpandedNav(prev => {
@@ -658,6 +659,16 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
             {expandedNav.git && (
               <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
                 {renderActionItem('git-branch-outline', 'Pannello Git', handleOpenGit)}
+              </Animated.View>
+            )}
+
+            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
+
+            {/* ── Database Section ── */}
+            {renderNavSectionHeader('database', 'server-outline', 'Database')}
+            {expandedNav.database && (
+              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
+                {renderActionItem('server-outline', 'Gestisci database', handleOpenDatabase)}
               </Animated.View>
             )}
 

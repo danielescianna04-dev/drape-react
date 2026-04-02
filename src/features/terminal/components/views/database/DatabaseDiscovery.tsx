@@ -28,7 +28,7 @@ export const DatabaseDiscovery: React.FC<Props> = ({ databases, pgDetected, supa
           </View>
         </View>
         <Text style={styles.loadingTitle}>Scanning project...</Text>
-        <Text style={styles.loadingSubtitle}>Looking for SQLite databases</Text>
+        <Text style={styles.loadingSubtitle}>Looking for databases</Text>
       </View>
     );
   }
@@ -53,46 +53,52 @@ export const DatabaseDiscovery: React.FC<Props> = ({ databases, pgDetected, supa
     );
   }
 
-  // Supabase detected — show connection info
+  // Neon/Supabase detected — show connection info
   if (supabaseDetected && supabaseUrl) {
-    const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1] || '';
+    const isNeon = supabaseUrl.includes('neon.tech');
+    const displayName = isNeon ? 'Neon PostgreSQL' : 'Supabase';
+    const accentColor = isNeon ? '#00E599' : '#3ECF8E';
+    const dashboardUrl = isNeon
+      ? 'https://console.neon.tech'
+      : (() => {
+          const ref = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1];
+          return ref ? `https://supabase.com/dashboard/project/${ref}` : 'https://supabase.com/dashboard';
+        })();
+
     return (
       <ScrollView contentContainerStyle={[styles.emptyContainer, { paddingTop: insets.top + 80 }]}>
         <View style={styles.glowWrap}>
-          <View style={[styles.glowRing, { borderColor: 'rgba(62, 207, 142, 0.2)' }]}>
+          <View style={[styles.glowRing, { borderColor: `${accentColor}33` }]}>
             <LinearGradient
-              colors={['rgba(62, 207, 142, 0.15)', 'rgba(62, 207, 142, 0.03)']}
+              colors={[`${accentColor}26`, `${accentColor}08`]}
               style={styles.glowGradient}
             />
           </View>
-          <View style={[styles.iconBox, { backgroundColor: 'rgba(62, 207, 142, 0.12)' }]}>
-            <Ionicons name="cloud-done-outline" size={28} color="#3ECF8E" />
+          <View style={[styles.iconBox, { backgroundColor: `${accentColor}1F` }]}>
+            <Ionicons name="cloud-done-outline" size={28} color={accentColor} />
           </View>
         </View>
 
-        <Text style={styles.emptyTitle}>Supabase Connected</Text>
+        <Text style={styles.emptyTitle}>{displayName} Connected</Text>
         <Text style={styles.emptySubtitle}>
-          Your project is connected to a Supabase database with PostgreSQL, Auth, and Storage.
+          {isNeon
+            ? 'Your project is connected to a Neon serverless PostgreSQL database.'
+            : 'Your project is connected to a Supabase database with PostgreSQL, Auth, and Storage.'}
         </Text>
 
         <View style={{ marginTop: 20, gap: 10, width: '100%', paddingHorizontal: 20 }}>
-          <View style={{ backgroundColor: 'rgba(62, 207, 142, 0.08)', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: 'rgba(62, 207, 142, 0.15)' }}>
-            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, marginBottom: 4 }}>PROJECT URL</Text>
-            <Text style={{ color: '#3ECF8E', fontSize: 13, fontFamily: 'monospace' }} numberOfLines={1}>{supabaseUrl}</Text>
+          <View style={{ backgroundColor: `${accentColor}14`, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: `${accentColor}26` }}>
+            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, marginBottom: 4 }}>DATABASE URL</Text>
+            <Text style={{ color: accentColor, fontSize: 13, fontFamily: 'monospace' }} numberOfLines={1}>{supabaseUrl}</Text>
           </View>
 
           <TouchableOpacity
-            style={{ backgroundColor: 'rgba(62, 207, 142, 0.12)', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: 'rgba(62, 207, 142, 0.2)' }}
-            onPress={() => {
-              const url = projectRef
-                ? `https://supabase.com/dashboard/project/${projectRef}`
-                : 'https://supabase.com/dashboard';
-              require('expo-web-browser').openBrowserAsync(url);
-            }}
+            style={{ backgroundColor: `${accentColor}1F`, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: `${accentColor}33` }}
+            onPress={() => require('expo-web-browser').openBrowserAsync(dashboardUrl)}
             activeOpacity={0.7}
           >
-            <Ionicons name="open-outline" size={16} color="#3ECF8E" />
-            <Text style={{ color: '#3ECF8E', fontSize: 14, fontWeight: '600' }}>Open Supabase Dashboard</Text>
+            <Ionicons name="open-outline" size={16} color={accentColor} />
+            <Text style={{ color: accentColor, fontSize: 14, fontWeight: '600' }}>Open {isNeon ? 'Neon' : 'Supabase'} Dashboard</Text>
           </TouchableOpacity>
         </View>
 
@@ -106,49 +112,70 @@ export const DatabaseDiscovery: React.FC<Props> = ({ databases, pgDetected, supa
 
   if (databases.length === 0) {
     return (
-      <ScrollView contentContainerStyle={[styles.emptyContainer, { paddingTop: insets.top + 100 }]}>
-        {/* Glowing icon */}
-        <View style={styles.glowWrap}>
-          <View style={styles.glowRing}>
-            <LinearGradient
-              colors={['rgba(139, 92, 246, 0.15)', 'rgba(139, 92, 246, 0.03)']}
-              style={styles.glowGradient}
-            />
+      <ScrollView contentContainerStyle={[styles.emptyContainer, { paddingTop: insets.top + 60 }]}>
+        <Text style={styles.emptyTitle}>Database</Text>
+        <Text style={styles.emptySubtitle}>
+          Serverless PostgreSQL powered by Neon.{'\n'}Activate Cloud Mode to connect.
+        </Text>
+
+        {/* Feature cards */}
+        <View style={styles.featureGrid}>
+          <View style={styles.featureCard}>
+            <View style={[styles.featureIcon, { backgroundColor: 'rgba(0, 229, 153, 0.1)' }]}>
+              <Ionicons name="flash-outline" size={18} color="#00E599" />
+            </View>
+            <Text style={styles.featureTitle}>Serverless</Text>
+            <Text style={styles.featureDesc}>Scale to zero, pay per use</Text>
           </View>
-          <View style={styles.iconBox}>
-            <Ionicons name="server-outline" size={28} color="#A78BFA" />
+
+          <View style={styles.featureCard}>
+            <View style={[styles.featureIcon, { backgroundColor: 'rgba(99, 102, 241, 0.1)' }]}>
+              <Ionicons name="git-branch-outline" size={18} color="#818CF8" />
+            </View>
+            <Text style={styles.featureTitle}>Branching</Text>
+            <Text style={styles.featureDesc}>Database branches like Git</Text>
+          </View>
+
+          <View style={styles.featureCard}>
+            <View style={[styles.featureIcon, { backgroundColor: 'rgba(251, 191, 36, 0.1)' }]}>
+              <Ionicons name="shield-checkmark-outline" size={18} color="#FBBF24" />
+            </View>
+            <Text style={styles.featureTitle}>Auth</Text>
+            <Text style={styles.featureDesc}>Built-in with Better Auth</Text>
+          </View>
+
+          <View style={styles.featureCard}>
+            <View style={[styles.featureIcon, { backgroundColor: 'rgba(56, 189, 248, 0.1)' }]}>
+              <Ionicons name="globe-outline" size={18} color="#38BDF8" />
+            </View>
+            <Text style={styles.featureTitle}>Edge</Text>
+            <Text style={styles.featureDesc}>Low latency worldwide</Text>
           </View>
         </View>
 
-        <Text style={styles.emptyTitle}>No database</Text>
-        <Text style={styles.emptySubtitle}>
-          This project doesn't have a database yet.
-        </Text>
-        <Text style={styles.emptyHint}>
-          Use <Text style={styles.cloudBadge}>Cloud Mode</Text> to ask AI to create one.
-        </Text>
-
-        {/* Suggestions */}
-        <View style={styles.suggestSection}>
-          <View style={styles.suggestHeader}>
-            <View style={styles.suggestDot} />
-            <Text style={styles.suggestLabel}>Try asking in chat</Text>
+        {/* CTA */}
+        <View style={styles.ctaSection}>
+          <View style={styles.ctaDivider} />
+          <Text style={styles.ctaLabel}>How to enable</Text>
+          <View style={styles.ctaSteps}>
+            <View style={styles.ctaStep}>
+              <View style={styles.ctaStepNum}><Text style={styles.ctaStepNumText}>1</Text></View>
+              <Text style={styles.ctaStepText}>Create a new project</Text>
+            </View>
+            <View style={styles.ctaStep}>
+              <View style={[styles.ctaStepNum, { backgroundColor: 'rgba(0, 229, 153, 0.15)' }]}><Text style={[styles.ctaStepNumText, { color: '#00E599' }]}>2</Text></View>
+              <Text style={styles.ctaStepText}>Toggle <Text style={{ color: '#00E599', fontWeight: '700' }}>Cloud Mode</Text> on</Text>
+            </View>
+            <View style={styles.ctaStep}>
+              <View style={styles.ctaStepNum}><Text style={styles.ctaStepNumText}>3</Text></View>
+              <Text style={styles.ctaStepText}>AI sets up DB + Auth automatically</Text>
+            </View>
           </View>
-
-          <TouchableOpacity style={styles.suggestCard} activeOpacity={0.6}>
-            <Text style={styles.suggestQuote}>"</Text>
-            <Text style={styles.suggestText}>Add a SQLite database with a users table</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.suggestCard} activeOpacity={0.6}>
-            <Text style={styles.suggestQuote}>"</Text>
-            <Text style={styles.suggestText}>Create a todo app with persistent storage</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Scan */}
         <TouchableOpacity style={styles.scanBtn} onPress={onRetry} activeOpacity={0.7}>
-          <Ionicons name="scan-outline" size={15} color="#A78BFA" />
+          <Ionicons name="refresh-outline" size={15} color="rgba(255,255,255,0.5)" />
           <Text style={styles.scanBtnText}>Scan again</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -274,8 +301,29 @@ const styles = StyleSheet.create({
   // Empty state
   emptyContainer: {
     alignItems: 'center',
-    paddingHorizontal: 32,
+    paddingHorizontal: 24,
     paddingBottom: 48,
+  },
+  neonLogoWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 229, 153, 0.15)',
+  },
+  neonLogoBg: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 24,
+  },
+  neonLogoText: {
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: 3,
+    color: '#00E599',
   },
   glowWrap: {
     width: 88,
@@ -307,94 +355,117 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: '#fff',
-    fontSize: 24,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-    marginBottom: 10,
-  },
-  emptySubtitle: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 15,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  emptyHint: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 15,
-    textAlign: 'center',
-    lineHeight: 22,
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  cloudBadge: {
-    color: '#A78BFA',
-    fontWeight: '700',
-  },
-
-  // Suggestions
-  suggestSection: {
-    width: '100%',
-    marginTop: 32,
-  },
-  suggestHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 14,
-  },
-  suggestDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#8B5CF6',
-  },
-  suggestLabel: {
-    color: 'rgba(255,255,255,0.45)',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  suggestCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    width: '100%',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.5,
     marginBottom: 8,
   },
-  suggestQuote: {
-    color: '#8B5CF6',
-    fontSize: 22,
-    fontWeight: '300',
-    lineHeight: 24,
-    marginTop: -2,
-  },
-  suggestText: {
-    color: 'rgba(255,255,255,0.65)',
+  emptySubtitle: {
+    color: 'rgba(255,255,255,0.4)',
     fontSize: 14,
-    flex: 1,
+    textAlign: 'center',
     lineHeight: 21,
+    marginBottom: 4,
   },
+
+  // Feature grid
+  featureGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: 28,
+    rowGap: 10,
+  },
+  featureCard: {
+    width: '48.5%',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 14,
+  },
+  featureIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  featureTitle: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  featureDesc: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+
+  // CTA
+  ctaSection: {
+    width: '100%',
+    marginTop: 28,
+  },
+  ctaDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginBottom: 16,
+  },
+  ctaLabel: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 14,
+  },
+  ctaSteps: {
+    gap: 12,
+  },
+  ctaStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  ctaStepNum: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ctaStepNumText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  ctaStepText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    flex: 1,
+  },
+
   scanBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginTop: 24,
-    paddingHorizontal: 22,
-    paddingVertical: 11,
-    borderRadius: 22,
-    backgroundColor: 'rgba(139, 92, 246, 0.08)',
+    gap: 6,
+    marginTop: 28,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.15)',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   scanBtnText: {
-    color: '#A78BFA',
-    fontSize: 14,
-    fontWeight: '600',
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 13,
+    fontWeight: '500',
   },
 
   // DB List

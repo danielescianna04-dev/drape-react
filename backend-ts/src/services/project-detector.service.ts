@@ -11,6 +11,22 @@ class ProjectDetectorService {
   async detect(projectId: string): Promise<ProjectInfo> {
     const projectDir = path.join(config.projectsRoot, projectId);
 
+    // Read .drape.json for custom overrides (e.g. startCommand)
+    const drapeConfig = await this.readJsonSafe(projectDir, '.drape.json') as any;
+
+    const result = await this.detectInternal(projectDir);
+
+    // Apply custom startCommand from .drape.json
+    if (drapeConfig?.startCommand && typeof drapeConfig.startCommand === 'string') {
+      log.info(`[ProjectDetector] Using custom startCommand from .drape.json: ${drapeConfig.startCommand}`);
+      result.startCommand = drapeConfig.startCommand;
+    }
+
+    return result;
+  }
+
+  private async detectInternal(projectDir: string): Promise<ProjectInfo> {
+
     const [hasPackageJson, hasNextConfig, hasViteConfig, hasPnpmLock, hasYarnLock, hasBunLock, packageJson, hasSvelteConfig, hasAstroConfig, hasAngularJson, hasGoMod, hasGemfile, hasRailsRoutes, hasNuxtConfig, hasPubspec, hasManagePy, hasComposerJson, hasArtisan] =
       await Promise.all([
         this.fileExists(projectDir, 'package.json'),
@@ -367,10 +383,9 @@ class ProjectDetectorService {
     if (!hasPort) flags.push('--port 3000');
     if (!hasHost) flags.push('--hostname 0.0.0.0');
 
-    // Dev mode + Tailwind CDN (injected in layout post-generation).
-    // Production mode (next build) is too strict — fails on prerender errors,
-    // type errors, etc. that dev mode tolerates. AI-generated code needs dev mode.
-    const startCommand = `./node_modules/.bin/next dev ${flags.join(' ')}`;
+    // Production mode only. Always build before starting.
+    // Build is fast if .next cache exists, full rebuild only on first run.
+    const startCommand = `./node_modules/.bin/next build 2>&1 && ./node_modules/.bin/next start ${flags.join(' ')}`;
 
     return {
       type: 'nextjs',

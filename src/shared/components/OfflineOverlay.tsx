@@ -1,27 +1,51 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { config } from '../../config/config';
+
+/** Ping the backend health endpoint to confirm real connectivity */
+async function isReallyOffline(): Promise<boolean> {
+  try {
+    const res = await fetch(`${config.apiUrl}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) });
+    return !res.ok;
+  } catch {
+    return true;
+  }
+}
 
 export const OfflineOverlay: React.FC = () => {
   const [isOffline, setIsOffline] = useState(false);
   const [checking, setChecking] = useState(false);
   const { t } = useTranslation('common');
   const insets = useSafeAreaInsets();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      setIsOffline(!(state.isConnected && state.isInternetReachable !== false));
+      const netInfoSaysOffline = !(state.isConnected && state.isInternetReachable !== false);
+      if (netInfoSaysOffline) {
+        // NetInfo says offline — verify with a real HTTP ping before showing overlay
+        if (!timerRef.current) {
+          timerRef.current = setTimeout(async () => {
+            timerRef.current = null;
+            if (await isReallyOffline()) setIsOffline(true);
+          }, 3000);
+        }
+      } else {
+        if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+        setIsOffline(false);
+      }
     });
-    return () => unsubscribe();
+    return () => { unsubscribe(); if (timerRef.current) clearTimeout(timerRef.current); };
   }, []);
 
   const handleRetry = async () => {
     setChecking(true);
-    const state = await NetInfo.fetch();
-    setIsOffline(!(state.isConnected && state.isInternetReachable !== false));
+    const offline = await isReallyOffline();
+    setIsOffline(offline);
     setChecking(false);
   };
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, TextInput, Alert, Modal, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Props {
   projectId: string;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBack, api }) => {
+  const insets = useSafeAreaInsets();
   const [rows, setRows] = useState<Record<string, any>[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
@@ -22,11 +24,14 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
+  const apiRef = React.useRef(api);
+  apiRef.current = api;
+
   const loadRows = useCallback(async (pageNum: number, append = false) => {
     try {
       if (append) setIsLoadingMore(true);
       else setIsLoading(true);
-      const data = await api.getRows(dbPath, table, pageNum);
+      const data = await apiRef.current.getRows(dbPath, table, pageNum);
       setColumns((data.columns || []).filter((c: string) => c !== 'rowid'));
       setTotal(data.total || 0);
       if (append) setRows(prev => [...prev, ...data.rows]);
@@ -38,9 +43,9 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
       setIsLoading(false);
       setIsLoadingMore(false);
     }
-  }, [api, dbPath, table]);
+  }, [dbPath, table]);
 
-  useEffect(() => { loadRows(0); }, [loadRows]);
+  useEffect(() => { loadRows(0); }, [dbPath, table]);
 
   const handleLoadMore = () => {
     if (isLoadingMore || rows.length >= total) return;
@@ -90,11 +95,7 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
   if (isLoading) {
     return (
       <View style={s.container}>
-        <View style={s.toolbar}>
-          <TouchableOpacity onPress={onBack} style={s.toolbarBtn}><Ionicons name="chevron-back" size={18} color="#A78BFA" /></TouchableOpacity>
-          <Text style={s.toolbarTitle}>{table}</Text>
-          <View style={s.toolbarBtn} />
-        </View>
+        {/* Back button is in VSCodeSidebar header */}
         <View style={s.center}><ActivityIndicator color="#8B5CF6" /><Text style={s.dimText}>Loading...</Text></View>
       </View>
     );
@@ -103,11 +104,6 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
   if (error) {
     return (
       <View style={s.container}>
-        <View style={s.toolbar}>
-          <TouchableOpacity onPress={onBack} style={s.toolbarBtn}><Ionicons name="chevron-back" size={18} color="#A78BFA" /></TouchableOpacity>
-          <Text style={s.toolbarTitle}>{table}</Text>
-          <View style={s.toolbarBtn} />
-        </View>
         <View style={s.center}>
           <Text style={s.errorText}>{error}</Text>
           <TouchableOpacity onPress={() => loadRows(0)} style={s.retryBtn}><Text style={s.retryText}>Retry</Text></TouchableOpacity>
@@ -118,19 +114,7 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
 
   return (
     <View style={s.container}>
-      {/* Toolbar */}
-      <View style={s.toolbar}>
-        <TouchableOpacity onPress={onBack} style={s.toolbarBtn}>
-          <Ionicons name="chevron-back" size={18} color="#A78BFA" />
-        </TouchableOpacity>
-        <View style={s.toolbarCenter}>
-          <Text style={s.toolbarTitle}>{table}</Text>
-          <Text style={s.toolbarSub}>{(total || 0).toLocaleString()} rows · {columns.length} cols</Text>
-        </View>
-        <TouchableOpacity style={s.toolbarBtn} onPress={() => { setPage(0); loadRows(0); }}>
-          <Ionicons name="refresh" size={16} color="rgba(255,255,255,0.4)" />
-        </TouchableOpacity>
-      </View>
+      <View style={{ height: insets.top + 50 }} />
 
       {/* Column Header Row — scrollable */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.colHeaderScroll} contentContainerStyle={s.colHeaderContent}>
@@ -230,7 +214,7 @@ const s = StyleSheet.create({
   dimText: { color: 'rgba(255,255,255,0.3)', fontSize: 13 },
 
   // Toolbar
-  toolbar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 58, paddingBottom: 8, gap: 8 },
+  toolbar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingBottom: 8, gap: 8 },
   toolbarBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center', justifyContent: 'center' },
   toolbarCenter: { flex: 1, alignItems: 'center' },
   toolbarTitle: { color: '#fff', fontSize: 15, fontWeight: '700' },

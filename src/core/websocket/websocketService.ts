@@ -57,7 +57,7 @@ class WebSocketService {
       };
 
       this.ws.onerror = (error) => {
-        console.error('🔌 WebSocket error:', error);
+        console.warn('🔌 WebSocket error:', error);
       };
 
       this.ws.onclose = () => {
@@ -65,7 +65,7 @@ class WebSocketService {
         this.scheduleReconnect();
       };
     } catch (err) {
-      console.error('WebSocket connection error:', err);
+      console.warn('WebSocket connection error:', err);
       this.scheduleReconnect();
     }
   }

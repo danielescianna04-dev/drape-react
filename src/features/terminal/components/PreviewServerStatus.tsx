@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ScrollView, ActivityIndicator, Dimensions } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, ScrollView, ActivityIndicator, Dimensions, TextInput } from 'react-native';
 import Reanimated, { FadeIn, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { PreviewLog } from '../../../hooks/api/usePreviewLogs';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import { tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
+import { WorkstationAPI } from '../../../services/api/workstationAPI';
 
 const techIconMap: Record<string, string> = {
   react: 'logo-react',
@@ -128,6 +129,84 @@ export interface PreviewServerStatusProps {
   // Translation helper
   t: ReturnType<typeof useTranslation>['t'];
 }
+
+// ============ CUSTOM START COMMAND ============
+const CustomStartCommand: React.FC<{ projectId?: string; t: any }> = ({ projectId, t }) => {
+  const [editing, setEditing] = useState(false);
+  const [command, setCommand] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  // Load existing custom command on first tap
+  const handleTap = useCallback(async () => {
+    if (!loaded && projectId) {
+      try {
+        const content = await WorkstationAPI.readFile(projectId, '.drape.json');
+        if (content) {
+          const config = JSON.parse(content);
+          if (config.startCommand) setCommand(config.startCommand);
+        }
+      } catch {}
+      setLoaded(true);
+    }
+    setEditing(true);
+  }, [projectId, loaded]);
+
+  const handleSave = useCallback(async () => {
+    if (!projectId) return;
+    setSaving(true);
+    try {
+      const trimmed = command.trim();
+      if (trimmed) {
+        await WorkstationAPI.writeFile(projectId, '.drape.json', JSON.stringify({ startCommand: trimmed }, null, 2));
+      } else {
+        try { await WorkstationAPI.deleteFile(projectId, '.drape.json'); } catch {}
+      }
+      setEditing(false);
+    } catch {}
+    setSaving(false);
+  }, [projectId, command]);
+
+  if (!editing) {
+    return (
+      <TouchableOpacity style={styles.devInfoRow} onPress={handleTap} activeOpacity={0.6}>
+        <Text style={styles.devInfoLabel}>Comando</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Text style={[styles.devInfoValue, { fontSize: 12, color: command ? '#fff' : 'rgba(255,255,255,0.3)' }]} numberOfLines={1}>
+            {command || 'auto-detect'}
+          </Text>
+          <Ionicons name="pencil-outline" size={12} color="rgba(255,255,255,0.3)" />
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <View style={styles.customCmdEditContainer}>
+      <Text style={[styles.devInfoLabel, { marginBottom: 6 }]}>Comando</Text>
+      <View style={styles.customCmdInputRow}>
+        <TextInput
+          style={styles.customCmdInput}
+          value={command}
+          onChangeText={setCommand}
+          placeholder="es. npm run dev"
+          placeholderTextColor="rgba(255,255,255,0.2)"
+          autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+          autoFocus
+        />
+        <TouchableOpacity style={styles.customCmdSaveBtn} onPress={handleSave} activeOpacity={0.7} disabled={saving}>
+          <Ionicons name="checkmark" size={16} color="#10B981" />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.customCmdSaveBtn} onPress={() => setEditing(false)} activeOpacity={0.7}>
+          <Ionicons name="close" size={16} color="rgba(255,255,255,0.4)" />
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.customCmdHint}>Vuoto = auto-detect</Text>
+    </View>
+  );
+};
 
 // ============ START SCREEN ============
 export const PreviewStartScreen: React.FC<{
@@ -267,6 +346,8 @@ export const PreviewStartScreen: React.FC<{
                 <Text style={styles.devEnvBadgeText}>{t('terminal:preview.dock.development')}</Text>
               </View>
             </View>
+            <View style={styles.devInfoDivider} />
+            <CustomStartCommand projectId={currentWorkstation?.id} t={t} />
           </View>
 
           {/* Start Button */}
@@ -865,6 +946,41 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#22C55E',
   },
+
+  // Custom start command
+  customCmdEditContainer: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  customCmdInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  customCmdInput: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+    fontFamily: 'monospace',
+    color: '#fff',
+  },
+  customCmdHint: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.25)',
+    marginTop: 4,
+    marginLeft: 2,
+  },
+  customCmdSaveBtn: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+
   devStartBtn: {
     width: '100%',
     maxWidth: 280,

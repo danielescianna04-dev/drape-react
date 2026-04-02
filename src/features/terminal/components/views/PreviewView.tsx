@@ -25,7 +25,7 @@ interface Props {
 type DeviceType = 'mobile' | 'tablet' | 'desktop';
 type Orientation = 'portrait' | 'landscape';
 
-export const PreviewView = ({ tab }: Props) => {
+export const PreviewView = React.memo(({ tab }: Props) => {
   const { t } = useTranslation('terminal');
   const [device, setDevice] = useState<DeviceType>('mobile');
   const [orientation, setOrientation] = useState<Orientation>('portrait');
@@ -440,7 +440,7 @@ export const PreviewView = ({ tab }: Props) => {
       {designMode && renderChatContainer()}
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

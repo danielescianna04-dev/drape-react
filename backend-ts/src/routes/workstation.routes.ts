@@ -67,8 +67,20 @@ async function applyBoilerplateTemplate(projectId: string, technology: string, c
       log.info(`[Template] Applied cloud overlay for ${technology} to ${projectId}`);
     }
 
+    // Copy pre-installed node_modules if available (saves ~20s on install)
+    const preinstalledDir = `/usr/local/share/drape-preinstalled/${technology}`;
+    const projectNodeModules = path.join(projectDir, 'node_modules');
+    if (fs.existsSync(preinstalledDir) && !fs.existsSync(projectNodeModules)) {
+      try {
+        execSync(`cp -a ${preinstalledDir} ${projectNodeModules}`, { timeout: 30000 });
+        log.info(`[Template] Copied pre-installed node_modules for ${technology} (~${Math.round(fs.readdirSync(preinstalledDir).length)} top-level packages)`);
+      } catch (e: any) {
+        log.warn(`[Template] Pre-installed copy failed (will install normally): ${e.message}`);
+      }
+    }
+
     // Fix ownership
-    execSync(`chown -R 1000:1000 ${projectDir}`, { timeout: 5000 });
+    execSync(`chown -R 1000:1000 ${projectDir}`, { timeout: 10000 });
 
     log.info(`[Template] Applied boilerplate template for ${technology}${cloudMode ? ' + cloud' : ''} to ${projectId}`);
     return true;
@@ -1243,8 +1255,8 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
 
   // ═══ STEP 2: Full Code Generation with architecture context ═══
   update(17, 'Generating code...', 'AI Generating');
-  // Pro for initial generation (high quality), Flash for fallback/fix
-  const models = ['gemini-3.1-pro', 'gemini-3-flash', 'gemini-3-flash'];
+  // Sonnet 4.6 for initial generation (high quality), Flash for fallback
+  const models = ['claude-4-6-sonnet', 'gemini-3-flash', 'gemini-3-flash'];
   const systemPrompt = getProjectCreationSystemPrompt(technology, isCloudMode, supabaseCredentials, neonCredentials);
   const userPrompt = templateApplied
     ? getProjectCreationUserPrompt(technology, projectName, description, isCloudMode, supabaseCredentials, neonCredentials)
@@ -1369,16 +1381,14 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
             let content = file.content;
             content = content.replace(/import\s+\{[^}]+\}\s+from\s+['"](?:lucide-react|@heroicons\/react[^'"]*|@fortawesome[^'"]*)['"]/g, '');
             content = content.replace(/import\s+(\w+)\s+from\s+['"]better-sqlite3['"]/g, "const $1 = require('better-sqlite3')");
-            // Add missing 'use client' for files with hooks
-            if ((file.path.endsWith('.tsx') || file.path.endsWith('.jsx')) &&
-                /\b(useState|useEffect|useCallback|useMemo|useRef|useReducer)\b/.test(content) &&
-                !content.startsWith("'use client'") && !content.startsWith('"use client"')) {
-              content = "'use client';\n\n" + content;
-            }
-            // Next.js: add force-dynamic to page files to prevent prerender errors in production build
-            if (technology === 'nextjs' && file.path.match(/app\/.*\/page\.tsx$/) && !file.path.includes('layout')) {
-              if (!content.includes("dynamic") && !content.includes("'use client'") && !content.startsWith("'use client'")) {
-                content = `export const dynamic = 'force-dynamic';\n\n` + content;
+            // Fix 'use client' — must be the VERY FIRST line, no exceptions
+            if ((file.path.endsWith('.tsx') || file.path.endsWith('.jsx'))) {
+              const hasHooks = /\b(useState|useEffect|useCallback|useMemo|useRef|useReducer|useContext|useRouter|useParams|useSearchParams|usePathname)\b/.test(content);
+              const hasEvents = /\b(onClick|onChange|onSubmit|onPress)\b/.test(content);
+              if (hasHooks || hasEvents) {
+                // Remove any misplaced 'use client' not at top
+                content = content.replace(/(['"]use client['"]\s*;?\s*\n?)/g, '');
+                content = "'use client';\n\n" + content.trimStart();
               }
             }
             if (content.trim().length === 0) continue;
@@ -1528,15 +1538,14 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       let content = file.content;
       content = content.replace(/import\s+\{[^}]+\}\s+from\s+['"](?:lucide-react|@heroicons[^'"]*|@fortawesome[^'"]*)['"]/g, '');
       content = content.replace(/import\s+(\w+)\s+from\s+['"]better-sqlite3['"]/g, "const $1 = require('better-sqlite3')");
-      if ((file.path.endsWith('.tsx') || file.path.endsWith('.jsx')) &&
-          /\b(useState|useEffect|useCallback|useMemo|useRef|useReducer)\b/.test(content) &&
-          !content.startsWith("'use client'") && !content.startsWith('"use client"')) {
-        content = "'use client';\n\n" + content;
-      }
-      // Next.js: add force-dynamic to page files to prevent prerender errors in production build
-      if (technology === 'nextjs' && file.path.match(/app\/.*\/page\.tsx$/) && !file.path.includes('layout')) {
-        if (!content.includes("dynamic") && !content.includes("'use client'") && !content.startsWith("'use client'")) {
-          content = `export const dynamic = 'force-dynamic';\n\n` + content;
+      // Fix 'use client' — must be the VERY FIRST line
+      if ((file.path.endsWith('.tsx') || file.path.endsWith('.jsx'))) {
+        const hasHooks = /\b(useState|useEffect|useCallback|useMemo|useRef|useReducer|useContext|useRouter|useParams|useSearchParams|usePathname)\b/.test(content);
+        const hasEvents = /\b(onClick|onChange|onSubmit|onPress)\b/.test(content);
+        if (hasHooks || hasEvents) {
+          // Remove any misplaced 'use client' not at top
+          content = content.replace(/(['"]use client['"]\s*;?\s*\n?)/g, '');
+          content = "'use client';\n\n" + content.trimStart();
         }
       }
       await fileService.writeFile(projectId, file.path, content);
@@ -1545,8 +1554,44 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
 
     log.info(`[CreateProject] Total files: ${writtenFiles.length} (${streamWrittenFiles.length} streamed + ${remainingFiles.length} post-stream)`);
 
-    // CSS is handled by SSR capture in verify-project.service.ts
-    // Puppeteer renders each page and inlines all CSS — no CDN needed
+    // Inject Tailwind CDN into layout as fallback (dev mode CSS depends on JS runtime)
+    if (technology === 'nextjs') {
+      try {
+        const layoutResult = await fileService.readFile(projectId, 'app/layout.tsx');
+        if (layoutResult.success && layoutResult.data?.content) {
+          let layout = layoutResult.data.content;
+          if (!layout.includes('cdn.tailwindcss.com')) {
+            // Add next/script import if missing
+            if (!layout.includes("from 'next/script'") && !layout.includes('from "next/script"')) {
+              layout = "import Script from 'next/script';\n" + layout;
+            }
+            // Inject CDN script before {children}
+            layout = layout.replace(
+              /(\{children\})/,
+              '<Script src="https://cdn.tailwindcss.com" strategy="beforeInteractive" />\n        $1'
+            );
+            await fileService.writeFile(projectId, 'app/layout.tsx', layout);
+            log.info(`[CreateProject] Injected Tailwind CDN into layout.tsx`);
+          }
+        }
+      } catch (e: any) {
+        log.warn(`[CreateProject] CDN injection into layout failed: ${e.message}`);
+      }
+    } else if (technology === 'react' || technology === 'vue') {
+      try {
+        const indexResult = await fileService.readFile(projectId, 'index.html');
+        if (indexResult.success && indexResult.data?.content) {
+          let html = indexResult.data.content;
+          if (!html.includes('cdn.tailwindcss.com')) {
+            html = html.replace('</head>', '    <script src="https://cdn.tailwindcss.com"></script>\n  </head>');
+            await fileService.writeFile(projectId, 'index.html', html);
+            log.info(`[CreateProject] Injected Tailwind CDN into index.html`);
+          }
+        }
+      } catch (e: any) {
+        log.warn(`[CreateProject] CDN injection into index.html failed: ${e.message}`);
+      }
+    }
 
     // Run database migrations if cloud credentials available
     let schemaFile = parsed.files.find(f =>
@@ -1720,6 +1765,65 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
         }
         // Non-dep error, don't retry
         break;
+      }
+    }
+
+    // === NEXT.JS BUILD (production mode — pre-compile all pages) ===
+    // Build MUST succeed — no fallback to dev mode. If it fails, fix errors and retry.
+    if (technology === 'nextjs') {
+      const MAX_BUILD_ATTEMPTS = 3;
+      for (let buildAttempt = 1; buildAttempt <= MAX_BUILD_ATTEMPTS; buildAttempt++) {
+        update(92, buildAttempt === 1 ? 'Building for production...' : `Rebuilding (attempt ${buildAttempt})...`, 'Building');
+        try {
+          // Clear previous failed build
+          await workspaceService.exec(projectId, userId, 'rm -rf /home/coder/project/.next 2>/dev/null');
+
+          const buildResult = await workspaceService.exec(projectId, userId,
+            'cd /home/coder/project && timeout 120 ./node_modules/.bin/next build 2>&1'
+          );
+          const buildOutput = buildResult.stdout || '';
+          const buildFailed = buildOutput.includes('Build error') ||
+            buildOutput.includes('Failed to compile') ||
+            buildOutput.includes('Module not found') ||
+            buildOutput.includes("Can't resolve") ||
+            buildOutput.includes('Type error');
+
+          if (!buildFailed) {
+            log.info(`[CreateProject] Next.js build succeeded on attempt ${buildAttempt}`);
+            break;
+          }
+
+          log.warn(`[CreateProject] Next.js build failed (attempt ${buildAttempt}/${MAX_BUILD_ATTEMPTS}): ${buildOutput.substring(buildOutput.lastIndexOf('Error'), buildOutput.lastIndexOf('Error') + 200)}`);
+
+          if (buildAttempt < MAX_BUILD_ATTEMPTS) {
+            // Auto-fix: send build errors to AI
+            update(93, 'Fixing build errors...', 'Auto-Fix');
+            try {
+              const fixStream = aiProviderService.chatStream('claude-4-6-sonnet',
+                [{ role: 'user', content: `Fix these Next.js build errors. Return ONLY a JSON array of fixed files: [{"path":"...","content":"..."}]\n\nBuild output:\n${buildOutput.slice(-3000)}\n\nRules:\n- Return COMPLETE file content\n- Fix all import errors, type errors, missing modules\n- Add 'use client' if needed\n- Do NOT modify package.json, layout.tsx, globals.css` }],
+                undefined, 'Fix build errors. Return only valid JSON.', { temperature: 0.1, maxTokens: 30000 }
+              );
+              let fixText = '';
+              for await (const chunk of fixStream) {
+                fixText += typeof chunk === 'string' ? chunk : (chunk.type === 'text' ? chunk.text : '');
+              }
+              const fixMatch = fixText.match(/\[[\s\S]*\]/);
+              if (fixMatch) {
+                const fixes: { path: string; content: string }[] = JSON.parse(fixMatch[0]);
+                for (const fix of fixes) {
+                  if (fix.path && fix.content?.trim()) {
+                    await fileService.writeFile(projectId, fix.path, fix.content);
+                    log.info(`[CreateProject] Build fix: ${fix.path}`);
+                  }
+                }
+              }
+            } catch (fixErr: any) {
+              log.warn(`[CreateProject] Build auto-fix failed: ${fixErr.message}`);
+            }
+          }
+        } catch (buildErr: any) {
+          log.warn(`[CreateProject] Build attempt ${buildAttempt} error: ${buildErr.message}`);
+        }
       }
     }
 

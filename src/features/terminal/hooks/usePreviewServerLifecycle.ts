@@ -132,8 +132,11 @@ export function usePreviewServerLifecycle({
     // 1. Prefer project-specific URL from the per-project map
     const projectSpecificUrl = projectId ? projectPreviewUrls[projectId] : null;
 
-    // 2. Check if globalServerUrl belongs to THIS project (contains /preview/{projectId})
-    const globalBelongsToProject = globalServerUrl && projectId && globalServerUrl.includes(`/preview/${projectId}`);
+    // 2. Check if globalServerUrl belongs to THIS project
+    const globalBelongsToProject = globalServerUrl && projectId && (
+      globalServerUrl.includes(`/preview/${projectId}`) ||
+      globalServerUrl.includes(`${projectId}.drape.info`)
+    );
 
     // 3. Pick the best source: project-specific > global (if same project) > previewUrl prop
     let url = projectSpecificUrl
@@ -144,15 +147,16 @@ export function usePreviewServerLifecycle({
     if (!url.includes('localhost:3000') && url) {
       try {
         const parsed = new URL(url);
-        const match = parsed.pathname.match(/^(\/preview\/[^/]+)/);
+        const match = parsed.pathname.match(/^\/preview\/([^/]+)/);
         if (match) {
-          // Strip any user-edited path suffix — always open at base preview URL
-          // Trailing slash prevents 301 redirect (iOS WKWebView drops custom headers on redirects)
-          url = `${parsed.origin}${match[1]}/`;
-        } else if (projectId) {
-          // Stored URL is corrupted (no /preview/ path) — reconstruct
-          url = `${parsed.origin}/preview/${projectId}/`;
+          // Convert legacy path-based URL to subdomain: dev.drape.info/preview/proj-123/ → proj-123.drape.info/
+          const projId = match[1];
+          url = `https://${projId}.drape.info/`;
+        } else if (projectId && parsed.hostname === 'drape.info' || parsed.hostname === 'dev.drape.info') {
+          // Stored URL is corrupted — reconstruct as subdomain
+          url = `https://${projectId}.drape.info/`;
         }
+        // If already subdomain format, keep as-is
       } catch {}
     }
     return url;
@@ -169,10 +173,15 @@ export function usePreviewServerLifecycle({
     if (!token) return url;
     try {
       const parsed = new URL(url);
-      if (!parsed.pathname.startsWith('/preview/')) return url;
+      // Subdomain preview: project-xxx.drape.info — always add token
+      const isSubdomainPreview = parsed.hostname.endsWith('.drape.info') && !['www.drape.info', 'dev.drape.info', 'api.drape.info', 'drape.info'].includes(parsed.hostname);
+      // Legacy path-based preview: drape.info/preview/{projectId}/
+      const isPathPreview = parsed.pathname.startsWith('/preview/');
+
+      if (!isSubdomainPreview && !isPathPreview) return url;
+
       // Ensure trailing slash on /preview/{projectId} to prevent 301 redirect
-      // (iOS WKWebView drops custom headers on server-side redirects)
-      if (parsed.pathname.match(/^\/preview\/[^/]+$/)) {
+      if (isPathPreview && parsed.pathname.match(/^\/preview\/[^/]+$/)) {
         parsed.pathname += '/';
       }
       parsed.searchParams.set('pt', token);
@@ -1832,13 +1841,16 @@ export function usePreviewServerLifecycle({
     if (!currentPreviewUrl || !projectId) return;
     try {
       const parsed = new URL(currentPreviewUrl);
+      // Subdomain preview (project-xxx.drape.info) — no fixing needed
+      const isSubdomain = parsed.hostname.endsWith('.drape.info') && !['www.drape.info', 'dev.drape.info', 'api.drape.info', 'drape.info'].includes(parsed.hostname);
+      if (isSubdomain) return;
+
+      // Legacy path-based preview — fix if wrong project
       const match = parsed.pathname.match(/^\/preview\/([^/]+)/);
       if (!match) {
-        // No /preview/ path at all — reconstruct
-        setCurrentPreviewUrl(`${parsed.origin}/preview/${projectId}/`);
+        setCurrentPreviewUrl(`https://${projectId}.drape.info/`);
       } else if (match[1] !== projectId) {
-        // URL has a different project's ID — fix it
-        setCurrentPreviewUrl(`${parsed.origin}/preview/${projectId}/`);
+        setCurrentPreviewUrl(`https://${projectId}.drape.info/`);
       }
     } catch {}
   }, [currentPreviewUrl, projectId]);

@@ -66,7 +66,7 @@ export interface PreviewWebViewProps {
   t: ReturnType<typeof useTranslation>['t'];
 }
 
-export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
+export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
   webViewRef,
   currentPreviewUrl,
   coderToken,
@@ -247,81 +247,40 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                   document.head.appendChild(style);
                 }
 
-                // Fix iOS keyboard pushing content up and showing white space
+                // Fix iOS keyboard pushing content up
                 if (window.visualViewport) {
-                  var lastHeight = window.visualViewport.height;
                   window.visualViewport.addEventListener('resize', function() {
-                    var newHeight = window.visualViewport.height;
-                    if (newHeight < lastHeight) {
-                      // Keyboard opened — constrain body height to visual viewport
-                      document.documentElement.style.height = newHeight + 'px';
-                      document.body.style.height = newHeight + 'px';
-                      document.documentElement.style.overflow = 'auto';
-                      // Ensure focused input stays in view within the constrained area
-                      var focused = document.activeElement;
-                      if (focused && focused.tagName && /INPUT|TEXTAREA|SELECT/.test(focused.tagName)) {
-                        setTimeout(function() { focused.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 50);
-                      }
-                    } else {
-                      // Keyboard closed — restore
-                      document.documentElement.style.height = '';
-                      document.body.style.height = '';
-                      document.documentElement.style.overflow = '';
-                    }
-                    lastHeight = newHeight;
+                    var vh = window.visualViewport.height;
+                    document.documentElement.style.height = vh < window.innerHeight ? vh + 'px' : '';
+                    document.body.style.height = vh < window.innerHeight ? vh + 'px' : '';
                   });
                 }
 
-                // Check for React/Next.js mount
-                var checkCount = 0;
-                var checkInterval = setInterval(function() {
-                  checkCount++;
-                  if (document.body) {
-                    // Support multiple root element IDs
-                    var root = document.getElementById('root') ||
-                               document.getElementById('__next') ||
-                               document.getElementById('__nuxt') ||
-                               document.querySelector('[data-reactroot]') ||
-                               document.querySelector('app-root') ||
-                               document.querySelector('[id^="app"]');
-                    var rootChildren = root ? root.children.length : 0;
-                    var text = document.body.innerText || '';
-
-                    // Check for blockers
-                    if (text.indexOf("Blocked request") !== -1 || text.indexOf("404 (Gateway)") !== -1) {
-                      clearInterval(checkInterval);
-                      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'TRIGGER_REFRESH' }));
-                      return;
-                    }
-
-                    // Flutter web uses canvas rendering — no DOM text.
-                    // Detect via flutter-view, flt-glass-pane, or canvas inside #flutter_target.
-                    var isFlutter = !!(document.querySelector('flutter-view') ||
-                                       document.querySelector('flt-glass-pane') ||
-                                       document.querySelector('canvas'));
-
-                    // React/Next.js/Expo mounted
-                    // If a known root element exists, wait for it to have children AND visible text.
-                    // The text check prevents triggering on empty runtime wrappers (Metro/Expo bootstrap).
-                    // Only use body.children fallback for non-SPA pages (no root element).
-                    var hasText = root && root.innerText && root.innerText.trim().length > 0;
-                    var isReady = isFlutter
-                      ? true
-                      : root
-                        ? rootChildren > 0 && hasText
-                        : document.body.children.length > 2;
-                    if (isReady) {
-                      clearInterval(checkInterval);
-                      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' }));
-                    }
-
-                    // Shorter timeout - 10 seconds (20 checks * 500ms)
-                    if (checkCount >= 20) {
-                      clearInterval(checkInterval);
-                      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' }));
-                    }
+                // Single lightweight ready check — no polling, uses requestAnimationFrame
+                var readySent = false;
+                function checkReady() {
+                  if (readySent) return;
+                  var root = document.getElementById('root') || document.getElementById('__next') ||
+                             document.getElementById('__nuxt') || document.querySelector('[id^="app"]');
+                  var isFlutter = !!document.querySelector('flutter-view, flt-glass-pane');
+                  var hasContent = isFlutter || (root ? root.children.length > 0 && (root.innerText || '').trim().length > 0 : document.body && document.body.children.length > 2);
+                  if (hasContent) {
+                    readySent = true;
+                    window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' }));
                   }
-                }, 500);
+                }
+                // Check on DOMContentLoaded and load
+                document.addEventListener('DOMContentLoaded', checkReady);
+                window.addEventListener('load', checkReady);
+                // Fallback: check a few times with rAF then give up after 5s
+                var rafCount = 0;
+                function rafCheck() {
+                  if (readySent || rafCount++ > 30) { if (!readySent) { readySent = true; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' })); } return; }
+                  checkReady();
+                  if (!readySent) requestAnimationFrame(rafCheck);
+                }
+                requestAnimationFrame(rafCheck);
+                setTimeout(function() { if (!readySent) { readySent = true; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' })); } }, 5000);
               })();
               true;
             `}
@@ -343,280 +302,46 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                 const finalUrl = nativeEvent.url;
                 console.log('WebView load end:', finalUrl);
 
-                // Detect JSON error responses from preview proxy (e.g. ECONNREFUSED)
-                // AND framework build error overlays (Next.js, Vite, etc.)
+                // Lightweight error detection + content check (single injection, no polling)
                 webViewRef.current?.injectJavaScript(`
                (function() {
                  try {
-                   var bodyText = document.body && document.body.innerText && document.body.innerText.trim();
-                   if (!bodyText) return;
-
-                   // 1. JSON proxy errors
+                   var bodyText = (document.body && document.body.innerText || '').trim();
+                   // JSON proxy errors
                    if (bodyText.charAt(0) === '{' && bodyText.indexOf('"error"') !== -1) {
                      try {
-                       var parsed = JSON.parse(bodyText);
-                       if (parsed.error) {
-                         window.ReactNativeWebView?.postMessage(JSON.stringify({
-                           type: 'PREVIEW_ERROR',
-                           message: parsed.error + (parsed.message ? ': ' + parsed.message : '')
-                         }));
-                         return;
-                       }
+                       var p = JSON.parse(bodyText);
+                       if (p.error) { window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'PREVIEW_ERROR', message: p.error + (p.message ? ': ' + p.message : '') })); return; }
                      } catch(e) {}
                    }
-
-                   // 2. Framework build/compile error overlays
+                   // Build errors
                    var lower = bodyText.toLowerCase();
-                   var isBuildError = false;
-                   var errorMsg = '';
-
-                   // Next.js error overlay
-                   var hasServerError = lower.indexOf('server error') !== -1;
-                   var hasUnhandled = lower.indexOf('unhandled') !== -1;
-                   var hasBuildFail = lower.indexOf('module build failed') !== -1
-                     || lower.indexOf('modulebuildError') !== -1
-                     || lower.indexOf('failed to compile') !== -1
-                     || lower.indexOf('build error') !== -1;
-                   var hasSyntaxErr = lower.indexOf('syntaxerror') !== -1
-                     || lower.indexOf('unexpected token') !== -1;
-                   var hasModuleNotFound = lower.indexOf('module not found') !== -1
-                     || lower.indexOf('cannot find module') !== -1;
-
-                   if (hasServerError && (hasBuildFail || hasSyntaxErr || hasModuleNotFound || hasUnhandled)) {
-                     isBuildError = true;
-                   }
-                   if (hasBuildFail || (hasSyntaxErr && hasUnhandled)) {
-                     isBuildError = true;
-                   }
-
-                   // Vite error overlay
-                   if (document.querySelector('vite-error-overlay')) {
-                     isBuildError = true;
-                   }
-
-                   if (isBuildError) {
-                     // Extract a concise error message from the page
-                     var lines = bodyText.split('\\n').map(function(l) { return l.trim(); }).filter(Boolean);
-                     var errorLines = [];
-                     for (var i = 0; i < lines.length && errorLines.length < 8; i++) {
-                       var ll = lines[i].toLowerCase();
-                       if (ll.indexOf('error') !== -1 || ll.indexOf('expected') !== -1
-                           || ll.indexOf('cannot find') !== -1 || ll.indexOf('module not found') !== -1
-                           || ll.indexOf('syntaxerror') !== -1 || (ll.indexOf('|') !== -1 && errorLines.length > 0)) {
-                         errorLines.push(lines[i]);
-                       }
-                     }
-                     errorMsg = errorLines.length > 0 ? errorLines.join('\\n') : bodyText.substring(0, 500);
-                     window.ReactNativeWebView?.postMessage(JSON.stringify({
-                       type: 'BUILD_ERROR',
-                       message: errorMsg
-                     }));
+                   if (lower.indexOf('failed to compile') !== -1 || lower.indexOf('build error') !== -1 || lower.indexOf('module not found') !== -1 || document.querySelector('vite-error-overlay')) {
+                     window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'BUILD_ERROR', message: bodyText.substring(0, 500) }));
                    }
                  } catch(e) {}
-               })();
-               true;
-             `);
-                webViewRef.current?.injectJavaScript(`
-               (function() {
+
+                 // Error listeners (lightweight, no polling)
                  window.addEventListener('error', function(e) {
-                   window.ReactNativeWebView?.postMessage(JSON.stringify({
-                     type: 'JS_ERROR',
-                     message: e.message
-                   }));
+                   window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'JS_ERROR', message: e.message }));
                  });
 
-                 window.addEventListener('unhandledrejection', function(e) {
-                   var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Unhandled promise rejection';
-                   window.ReactNativeWebView?.postMessage(JSON.stringify({
-                     type: 'JS_ERROR',
-                     message: msg
-                   }));
-                 });
-
-                 // Detect React/CRA error overlay ("Uncaught runtime errors" overlay)
-                 // React error boundaries catch errors before window.onerror, so we
-                 // observe DOM mutations for the error overlay iframe/container.
-                 var envErrorSent = false;
-
-                 // Auto-dismiss dev error overlays for all frameworks
-                 function dismissOverlay(el) {
-                   try {
-                     // Try clicking dismiss/close button
-                     if (el.tagName === 'IFRAME' && el.contentDocument) {
-                       var closeBtn = el.contentDocument.querySelector('[aria-label="Dismiss"], button, .close-button');
-                       if (closeBtn) { closeBtn.click(); return; }
-                     }
-                     // For custom elements (Vite), try shadow DOM close button
-                     if (el.shadowRoot) {
-                       var shadowClose = el.shadowRoot.querySelector('button, .close, [aria-label="Dismiss"]');
-                       if (shadowClose) { shadowClose.click(); return; }
-                     }
-                     el.style.display = 'none';
-                     // CRA backdrop
+                 // Auto-dismiss error overlays once (no MutationObserver, no setInterval)
+                 setTimeout(function() {
+                   var overlay = document.querySelector('nextjs-portal, [data-nextjs-dialog], vite-error-overlay, #webpack-dev-server-client-overlay');
+                   if (overlay) {
+                     var text = overlay.innerText || overlay.textContent || '';
+                     if (text) window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'RUNTIME_ENV_ERROR', message: text.substring(0, 500) }));
+                     overlay.style.display = 'none';
                      var backdrop = document.getElementById('webpack-dev-server-client-overlay-div');
                      if (backdrop) backdrop.style.display = 'none';
-                   } catch(e) {}
-                 }
-
-                 function findErrorOverlay() {
-                   // CRA / webpack-dev-server
-                   var el = document.getElementById('webpack-dev-server-client-overlay');
-                   if (el) return el;
-                   // Older CRA
-                   el = document.getElementById('react-error-overlay');
-                   if (el) return el;
-                   // Next.js error overlay
-                   el = document.querySelector('nextjs-portal');
-                   if (el) return el;
-                   el = document.getElementById('__next-build-error');
-                   if (el) return el;
-                   el = document.querySelector('[data-nextjs-dialog]');
-                   if (el) return el;
-                   // Vite error overlay (custom element)
-                   el = document.querySelector('vite-error-overlay');
-                   if (el) return el;
-                   // Nuxt error overlay
-                   el = document.getElementById('__nuxt-error');
-                   if (el) return el;
-                   // Generic: full-screen fixed iframe (common pattern)
-                   el = document.querySelector('iframe[style*="position: fixed"]');
-                   if (el) return el;
-                   return null;
-                 }
-
-                 function getOverlayText(el) {
-                   try {
-                     if (el.tagName === 'IFRAME' && el.contentDocument) {
-                       return el.contentDocument.body ? el.contentDocument.body.innerText : '';
-                     }
-                     if (el.shadowRoot) {
-                       return el.shadowRoot.textContent || '';
-                     }
-                     return el.innerText || el.textContent || '';
-                   } catch(e) {
-                     return el.getAttribute('title') || '';
                    }
-                 }
+                 }, 2000);
 
-                 function checkForErrorOverlay() {
-                   if (envErrorSent) return;
-                   var overlay = findErrorOverlay();
-                   if (overlay) {
-                     var text = getOverlayText(overlay);
-                     if (text) {
-                       envErrorSent = true;
-                       window.ReactNativeWebView?.postMessage(JSON.stringify({
-                         type: 'RUNTIME_ENV_ERROR',
-                         message: text.substring(0, 1000)
-                       }));
-                       dismissOverlay(overlay);
-                       return;
-                     }
-                   }
-
-                   var bodyText = document.body ? (document.body.innerText || '') : '';
-                   var lower = bodyText.toLowerCase();
-                   if (lower.indexOf('uncaught runtime error') !== -1 ||
-                       lower.indexOf('unhandled runtime error') !== -1) {
-                     var lines = bodyText.split('\\n').filter(function(l) { return l.trim(); });
-                     var errorText = lines.slice(0, 10).join('\\n');
-                     envErrorSent = true;
-                     window.ReactNativeWebView?.postMessage(JSON.stringify({
-                       type: 'RUNTIME_ENV_ERROR',
-                       message: errorText.substring(0, 1000)
-                     }));
-                   }
-                 }
-
-                 // Check periodically for error overlays (React renders them async)
-                 var overlayCheckCount = 0;
-                 var overlayInterval = setInterval(function() {
-                   overlayCheckCount++;
-                   checkForErrorOverlay();
-                   if (envErrorSent || overlayCheckCount >= 20) {
-                     clearInterval(overlayInterval);
-                   }
-                 }, 1000);
-
-                 // Also observe DOM for dynamically added overlay elements
-                 if (typeof MutationObserver !== 'undefined') {
-                   var observer = new MutationObserver(function() {
-                     checkForErrorOverlay();
-                     if (envErrorSent) observer.disconnect();
-                   });
-                   observer.observe(document.body || document.documentElement, {
-                     childList: true, subtree: true
-                   });
-                   // Auto-disconnect after 30s to avoid memory leaks
-                   setTimeout(function() { observer.disconnect(); }, 30000);
-                 }
-
-                 // Support multiple root element IDs
-                 const root = document.getElementById('root') ||
-                              document.getElementById('__next') ||
-                              document.querySelector('[data-reactroot]') ||
-                              document.querySelector('[id^="app"]');
-                 const rootChildren = root ? root.children.length : 0;
-
-                 let attempts = 0;
-                 const maxAttempts = 20; // Reduced from 40 to 20 (10 seconds max)
-
-                 function checkContent() {
-                   attempts++;
-                   try {
-                     const root = document.getElementById('root') ||
-                                  document.getElementById('__next') ||
-                                  document.getElementById('__nuxt') ||
-                                  document.querySelector('[data-reactroot]') ||
-                                  document.querySelector('app-root') ||
-                                  document.querySelector('[id^="app"]');
-                     // Flutter web uses canvas — no DOM text. Detect early.
-                     const isFlutter = !!(document.querySelector('flutter-view') ||
-                                          document.querySelector('flt-glass-pane') ||
-                                          document.querySelector('canvas'));
-
-                     // If a known root element exists, wait for it to have children AND visible text.
-                     // The text check prevents triggering on empty runtime wrappers (Metro/Expo bootstrap).
-                     // Only use body.children fallback for non-SPA pages (no root).
-                     const rootChildren = root ? root.children.length : 0;
-                     const hasText = root && root.innerText && root.innerText.trim().length > 0;
-                     const hasContent = isFlutter
-                       ? true
-                       : root
-                         ? rootChildren > 0 && hasText
-                         : document.body.children.length > 2;
-
-                     if (hasContent) {
-                       window.ReactNativeWebView?.postMessage(JSON.stringify({
-                         type: 'PAGE_INFO',
-                         hasContent: hasContent,
-                         rootChildren: isFlutter ? 1 : rootChildren,
-                         forceReady: isFlutter
-                       }));
-                       return true;
-                     }
-
-                     // Force ready after max attempts
-                     if (attempts >= maxAttempts) {
-                       window.ReactNativeWebView?.postMessage(JSON.stringify({
-                         type: 'PAGE_INFO',
-                         hasContent: true,
-                         rootChildren: 0,
-                         forceReady: true
-                       }));
-                       return true;
-                     }
-                   } catch(e) {}
-                   return false;
-                 }
-
-                 if (!checkContent()) {
-                   const interval = setInterval(function() {
-                     if (checkContent()) clearInterval(interval);
-                   }, 500);
-                 }
-
-
+                 // Content ready signal
+                 var root = document.getElementById('root') || document.getElementById('__next') || document.querySelector('[id^="app"]');
+                 var hasContent = root ? root.children.length > 0 : document.body && document.body.children.length > 2;
+                 window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'PAGE_INFO', hasContent: hasContent, rootChildren: root ? root.children.length : 0 }));
                })();
                true;
              `);
@@ -638,7 +363,9 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                 if (navState.url && !navState.loading) {
                   try {
                     const navUrl = new URL(navState.url);
-                    if ((navUrl.hostname === 'drape.info' || navUrl.hostname === 'dev.drape.info') && navUrl.pathname.startsWith('/preview/')) {
+                    const isSubdomainPreview = navUrl.hostname.endsWith('.drape.info') && !['www.drape.info', 'dev.drape.info', 'api.drape.info'].includes(navUrl.hostname);
+                    const isPathPreview = (navUrl.hostname === 'drape.info' || navUrl.hostname === 'dev.drape.info') && navUrl.pathname.startsWith('/preview/');
+                    if (isSubdomainPreview || isPathPreview) {
                       setCurrentPreviewUrl(navState.url);
                     }
                   } catch { /* ignore */ }
@@ -646,36 +373,36 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
               }}
               onShouldStartLoadWithRequest={(request) => {
                 const url = request.url;
-                // Extract the preview base path from currentPreviewUrl
+                let urlHost = '';
+                try { urlHost = new URL(url).hostname; } catch {}
+
+                // Subdomain preview (project-xxx.drape.info) — no rewriting needed,
+                // all navigations stay on the same subdomain naturally
+                const isSubdomainPreview = urlHost.endsWith('.drape.info') && !['www.drape.info', 'dev.drape.info', 'api.drape.info', 'drape.info'].includes(urlHost);
+                if (isSubdomainPreview) return true;
+
+                // Legacy path-based preview (/preview/{projectId}/) — needs URL rewriting
                 const previewBase = currentPreviewUrl.split('?')[0].replace(/\/$/, '');
                 const previewPathMatch = previewBase.match(/\/preview\/[^\/]+/);
                 const previewPath = previewPathMatch ? previewPathMatch[0] : null;
 
-                // If navigating to drape.info but NOT within the preview path, rewrite it
-                // Check hostname (not full string) to avoid matching external URLs that reference drape.info in hash/query
-                let urlHost = '';
-                try { urlHost = new URL(url).hostname; } catch {}
                 if (previewPath && (urlHost === 'drape.info' || urlHost === 'dev.drape.info') && !url.includes(previewPath)) {
-                  // Extract the path from the URL (e.g., /login from https://drape.info/login)
                   const urlObj = new URL(url);
                   const targetPath = urlObj.pathname;
 
-                  // Don't intercept preview paths or special routes
                   if (!targetPath.startsWith('/preview/') && !targetPath.startsWith('/_next/') && !targetPath.startsWith('/@')) {
-                    // Guard against infinite rewrite loops
                     if (rewriteCountRef.current >= MAX_REWRITES) {
                       console.warn('[Preview] Max rewrites exceeded, stopping rewrite loop');
                       return true;
                     }
                     rewriteCountRef.current++;
-                    // Rewrite to stay within preview
                     const newUrl = `https://${urlHost}${previewPath}${targetPath}${urlObj.search}`;
                     console.log(`[Preview] Rewriting navigation: ${url} -> ${newUrl}`);
                     setCurrentPreviewUrl(newUrl);
-                    return false; // Block original navigation, we'll load the rewritten URL
+                    return false;
                   }
                 }
-                return true; // Allow all other navigations
+                return true;
               }}
               onMessage={(event) => {
                 try {
@@ -854,7 +581,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
       </Animated.View>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   webView: {

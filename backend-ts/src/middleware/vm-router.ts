@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { sessionService } from '../services/session.service';
 import { log } from '../utils/logger';
 import * as http from 'http';
+import * as zlib from 'zlib';
 import { Session } from '../types';
 import { AGENT_PORT } from '../utils/constants';
 
@@ -315,9 +316,16 @@ function proxyRequest(
 
             // ALWAYS buffer HTML and inject Tailwind CDN + SPA fix if needed
             {
+              const encoding = (proxyRes.headers['content-encoding'] || '').toLowerCase();
               const chunks: Buffer[] = [];
-              proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
-              proxyRes.on('end', () => {
+              // Pipe through decompressor if compressed
+              let stream: NodeJS.ReadableStream = proxyRes;
+              if (encoding === 'gzip') stream = proxyRes.pipe(zlib.createGunzip());
+              else if (encoding === 'br') stream = proxyRes.pipe(zlib.createBrotliDecompress());
+              else if (encoding === 'deflate') stream = proxyRes.pipe(zlib.createInflate());
+
+              stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+              stream.on('end', () => {
                 let html = Buffer.concat(chunks).toString('utf-8');
                 // Inject Tailwind CDN if not already present
                 if (!html.includes('cdn.tailwindcss.com')) {
@@ -329,14 +337,19 @@ function proxyRequest(
                 }
                 const responseHeaders = { ...proxyRes.headers };
                 responseHeaders['content-length'] = String(Buffer.byteLength(html));
-                delete responseHeaders['content-encoding'];
+                delete responseHeaders['content-encoding']; // We decompressed, so remove encoding header
                 res.writeHead(proxyRes.statusCode || 200, responseHeaders);
                 res.end(html);
                 resolve();
               });
-              proxyRes.on('error', (err) => {
-                log.error(`[Preview Proxy] Response error for ${projectId}:`, err.message);
-                reject(err);
+              stream.on('error', (err) => {
+                log.error(`[Preview Proxy] Decompress/response error for ${projectId}:`, err.message);
+                // Fallback: stream raw
+                if (!res.headersSent) {
+                  res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
+                  res.end(Buffer.concat(chunks));
+                }
+                resolve();
               });
             }
           } else {
@@ -395,4 +408,122 @@ function proxyRequest(
       }
     });
   });
+}
+
+/**
+ * Subdomain-based preview proxy middleware.
+ * Intercepts requests to {projectId}.drape.info and proxies DIRECTLY to the container.
+ * No HTML injection, no decompression, no CDN hacks — the browser sees exactly
+ * what the dev server outputs. CSS, JS, WebSocket, HMR all work natively.
+ */
+export function createSubdomainPreviewProxy() {
+  return async (req: Request, res: Response, next: Function): Promise<void> => {
+    const host = req.hostname || req.headers.host?.split(':')[0] || '';
+
+    // Check if this is a subdomain preview request
+    // Match: {projectId}.drape.info but NOT www.drape.info, dev.drape.info, api.drape.info
+    const match = host.match(/^([a-z0-9][a-z0-9-]+)\.(drape\.info|dev\.drape\.info)$/);
+    if (!match) return next(); // Not a subdomain request — continue to normal routes
+
+    const projectId = match[1];
+    const baseDomain = match[2];
+
+    // Skip known subdomains
+    if (['www', 'dev', 'api', 'mail', 'smtp'].includes(projectId)) return next();
+
+    // Resolve preview token
+    const token = (req.query.pt as string)
+      || (req.headers['x-drape-preview-token'] as string)
+      || parseCookies(req.headers.cookie)['drape_preview_token']
+      || '';
+
+    if (!token) {
+      log.warn(`[Subdomain Preview] No token for ${projectId}.${baseDomain}`);
+      res.status(403).json({ error: 'Preview token required. Add ?pt=TOKEN to the URL.' });
+      return;
+    }
+
+    // Lookup session
+    const session = await sessionService.getByProjectIdAndAccessToken(projectId, token);
+    if (!session) {
+      log.warn(`[Subdomain Preview] Invalid session/token for ${projectId}`);
+      res.status(404).json({ error: 'No active preview session for this project.' });
+      return;
+    }
+
+    // Touch session
+    session.lastUsed = Date.now();
+
+    // Set cookies for sub-resource requests (CSS, JS, images don't carry ?pt=)
+    res.cookie('drape_preview_token', token, { httpOnly: true, secure: true, sameSite: 'none', maxAge: 86400000 });
+    res.cookie('drape_project_id', projectId, { httpOnly: false, secure: true, sameSite: 'none', maxAge: 86400000 });
+
+    // Resolve container target
+    const target = resolvePreviewTarget(session);
+    // Clean proxy path: remove preview token, cache busters, and malformed & in path
+    let proxyPath = req.originalUrl
+      .replace(/[?&]pt=[^&]+/, '')   // Remove preview token
+      .replace(/\/&_=\d+/, '/')      // Fix iOS cache buster in path (/&_=123 → /)
+      .replace(/&_=\d+/, '')         // Remove cache buster from query
+      .replace(/\?$/, '')            // Remove trailing ?
+      || '/';
+
+    log.info(`[Subdomain Preview] ${req.method} ${projectId}.${baseDomain}${proxyPath} → ${target.host}:${target.port}`);
+
+    // DIRECT proxy — no HTML modification, no decompression, pure passthrough
+    await new Promise<void>((resolve, reject) => {
+      const proxyReq = http.request({
+        hostname: target.host,
+        port: target.port,
+        path: proxyPath,
+        method: req.method,
+        headers: {
+          ...req.headers,
+          host: `localhost:${target.port}`,
+          'x-forwarded-for': req.ip || req.socket.remoteAddress || '',
+          'x-forwarded-proto': 'https',
+          'x-forwarded-host': host,
+        },
+        timeout: 30000,
+      }, (proxyRes) => {
+        // Stream response directly — NO buffering, NO modification
+        res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+        proxyRes.pipe(res);
+        proxyRes.on('end', resolve);
+        proxyRes.on('error', (err) => {
+          log.error(`[Subdomain Preview] Response error: ${err.message}`);
+          resolve();
+        });
+      });
+
+      proxyReq.on('error', (err) => {
+        log.error(`[Subdomain Preview] Proxy error for ${projectId}: ${err.message}`);
+        if (!res.headersSent) {
+          res.status(502).json({ error: 'Preview server not responding' });
+        }
+        resolve();
+      });
+
+      proxyReq.on('timeout', () => {
+        proxyReq.destroy();
+        if (!res.headersSent) {
+          res.status(504).json({ error: 'Preview server timeout' });
+        }
+        resolve();
+      });
+
+      // Forward request body
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        req.pipe(proxyReq);
+      } else {
+        proxyReq.end();
+      }
+
+      req.on('close', () => {
+        if (!res.writableEnded && !proxyReq.destroyed) {
+          proxyReq.destroy();
+        }
+      });
+    });
+  };
 }

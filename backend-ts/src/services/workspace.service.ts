@@ -121,6 +121,20 @@ class WorkspaceService {
       try {
         log.info(`[Workspace] Background warming ${projectId}...`);
 
+        // Copy latest e2e-check.js to container (image may be outdated)
+        try {
+          const e2eSrc = require('path').join(__dirname, '../../scripts/e2e-check.js');
+          if (require('fs').existsSync(e2eSrc)) {
+            await fileService.writeFile(projectId, '../.e2e-check.js', require('fs').readFileSync(e2eSrc, 'utf-8'));
+            await workspaceService.exec(projectId, userId, 'cp /home/coder/.e2e-check.js /usr/local/bin/e2e-check.js 2>/dev/null || true');
+          }
+        } catch {}
+
+        // Fix Tailwind CSS version mismatch before build
+        if (projectInfo.type === 'nextjs') {
+          await this.fixTailwindV4Css(projectId);
+        }
+
         // Install dependencies (skip for console projects without deps and static/unknown)
         const skipInstall = projectInfo.type === 'static' || projectInfo.type === 'unknown'
           || (projectInfo.hasWebUI === false && !projectInfo.installCommand);
@@ -143,6 +157,71 @@ class WorkspaceService {
     fileWatcherService.startWatching(projectId).catch(() => {});
 
     return { success: true };
+  }
+
+  /**
+   * Fix Tailwind CSS version mismatch between globals.css and installed package.
+   * If v3 installed but v4 syntax in CSS → convert to v3.
+   * If v4 installed but v3 syntax in CSS → convert to v4.
+   */
+  private async fixTailwindV4Css(projectId: string): Promise<void> {
+    try {
+      // Detect installed Tailwind version
+      const pkgResult = await fileService.readFile(projectId, 'node_modules/tailwindcss/package.json');
+      const pkgContent = pkgResult.success ? pkgResult.data?.content : null;
+      if (!pkgContent) return;
+      const twVersion = parseInt(JSON.parse(pkgContent).version || '3');
+
+      const cssPath = 'app/globals.css';
+      const cssResult = await fileService.readFile(projectId, cssPath);
+      const css = cssResult.success ? cssResult.data?.content : null;
+      if (!css) return;
+
+      const hasV4Syntax = css.includes('@import "tailwindcss"') || css.includes("@import 'tailwindcss'") || css.includes('@theme');
+      const hasV3Syntax = css.includes('@tailwind base') || css.includes('@tailwind components');
+
+      if (twVersion >= 4 && hasV3Syntax) {
+        // v4 installed but v3 CSS → convert to v4
+        log.info(`[Workspace] Fixing Tailwind v3→v4 syntax in globals.css for ${projectId}`);
+        const v4Css = `@import "tailwindcss";\n\n@theme inline {\n  --color-background: hsl(0 0% 100%);\n  --color-foreground: hsl(222.2 84% 4.9%);\n  --color-primary: hsl(222.2 47.4% 11.2%);\n  --color-primary-foreground: hsl(210 40% 98%);\n  --color-secondary: hsl(210 40% 96.1%);\n  --color-secondary-foreground: hsl(222.2 47.4% 11.2%);\n  --color-muted: hsl(210 40% 96.1%);\n  --color-muted-foreground: hsl(215.4 16.3% 46.9%);\n  --color-accent: hsl(210 40% 96.1%);\n  --color-accent-foreground: hsl(222.2 47.4% 11.2%);\n  --color-destructive: hsl(0 84.2% 60.2%);\n  --color-destructive-foreground: hsl(210 40% 98%);\n  --color-border: hsl(214.3 31.8% 91.4%);\n  --color-input: hsl(214.3 31.8% 91.4%);\n  --color-ring: hsl(222.2 84% 4.9%);\n  --radius-lg: 0.5rem;\n  --radius-md: calc(0.5rem - 2px);\n  --radius-sm: calc(0.5rem - 4px);\n}\n\n@layer base {\n  * {\n    border-color: var(--color-border);\n  }\n  body {\n    background-color: var(--color-background);\n    color: var(--color-foreground);\n  }\n}\n`;
+        await fileService.writeFile(projectId, cssPath, v4Css);
+
+        // Ensure postcss uses @tailwindcss/postcss for v4
+        for (const pcFile of ['postcss.config.mjs', 'postcss.config.js']) {
+          const pcResult = await fileService.readFile(projectId, pcFile);
+          const pcContent = pcResult.success ? pcResult.data?.content : null;
+          if (pcContent && !pcContent.includes('@tailwindcss/postcss')) {
+            log.info(`[Workspace] Fixing postcss config for Tailwind v4 in ${projectId}`);
+            const v4PostCss = pcFile.endsWith('.mjs')
+              ? `/** @type {import("postcss-load-config").Config} */\nconst config = {\n  plugins: {\n    "@tailwindcss/postcss": {},\n  },\n};\nexport default config;\n`
+              : `module.exports = {\n  plugins: {\n    "@tailwindcss/postcss": {},\n  },\n};\n`;
+            await fileService.writeFile(projectId, pcFile, v4PostCss);
+            break;
+          }
+        }
+      } else if (twVersion < 4 && hasV4Syntax) {
+        // v3 installed but v4 CSS → convert to v3
+        log.info(`[Workspace] Fixing Tailwind v4→v3 syntax in globals.css for ${projectId}`);
+        const v3Css = `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\n:root {\n  --background: 0 0% 100%;\n  --foreground: 222.2 84% 4.9%;\n  --card: 0 0% 100%;\n  --card-foreground: 222.2 84% 4.9%;\n  --popover: 0 0% 100%;\n  --popover-foreground: 222.2 84% 4.9%;\n  --primary: 222.2 47.4% 11.2%;\n  --primary-foreground: 210 40% 98%;\n  --secondary: 210 40% 96.1%;\n  --secondary-foreground: 222.2 47.4% 11.2%;\n  --muted: 210 40% 96.1%;\n  --muted-foreground: 215.4 16.3% 46.9%;\n  --accent: 210 40% 96.1%;\n  --accent-foreground: 222.2 47.4% 11.2%;\n  --destructive: 0 84.2% 60.2%;\n  --destructive-foreground: 210 40% 98%;\n  --border: 214.3 31.8% 91.4%;\n  --input: 214.3 31.8% 91.4%;\n  --ring: 222.2 84% 4.9%;\n  --radius: 0.5rem;\n}\n\n@layer base {\n  * {\n    border-color: hsl(var(--border));\n  }\n  body {\n    background-color: hsl(var(--background));\n    color: hsl(var(--foreground));\n  }\n}\n`;
+        await fileService.writeFile(projectId, cssPath, v3Css);
+
+        // Fix postcss to use tailwindcss (v3)
+        for (const pcFile of ['postcss.config.mjs', 'postcss.config.js']) {
+          const pcResult = await fileService.readFile(projectId, pcFile);
+          const pcContent = pcResult.success ? pcResult.data?.content : null;
+          if (pcContent && pcContent.includes('@tailwindcss/postcss')) {
+            log.info(`[Workspace] Fixing postcss config for Tailwind v3 in ${projectId}`);
+            const v3PostCss = pcFile.endsWith('.mjs')
+              ? `/** @type {import("postcss-load-config").Config} */\nconst config = {\n  plugins: {\n    tailwindcss: {},\n    autoprefixer: {},\n  },\n};\nexport default config;\n`
+              : `module.exports = {\n  plugins: {\n    tailwindcss: {},\n    autoprefixer: {},\n  },\n};\n`;
+            await fileService.writeFile(projectId, pcFile, v3PostCss);
+            break;
+          }
+        }
+      }
+    } catch {
+      // Non-critical — don't block warming
+    }
   }
 
   /**
@@ -464,7 +543,14 @@ class WorkspaceService {
    * Routes through the backend proxy so iOS only needs to reach port 3001.
    */
   private buildPreviewUrl(session: Session): string {
-    const base = config.publicUrl || `http://localhost:${config.port}`;
+    // Subdomain-based preview: {projectId}.drape.info (direct to container, no proxy)
+    // Wildcard DNS is on *.drape.info — always use drape.info as base, not dev.drape.info
+    const publicUrl = config.publicUrl || '';
+    if (publicUrl.includes('drape.info')) {
+      return `https://${session.projectId}.drape.info/`;
+    }
+    // Fallback: path-based proxy for localhost dev
+    const base = publicUrl || `http://localhost:${config.port}`;
     return `${base}/preview/${session.projectId}/`;
   }
 }

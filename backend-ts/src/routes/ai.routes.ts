@@ -152,13 +152,14 @@ Testo: "${String(message).slice(0, 800)}"`;
  */
 aiRouter.post('/recommend', asyncHandler(async (req: Request, res: Response) => {
   try {
-    const { description } = req.body;
+    const { description, language } = req.body;
 
     if (!description) {
       return res.status(400).json({ error: 'description is required' });
     }
 
-    log.info(`[AI] Recommendation request for: ${description.substring(0, 50)}...`);
+    const lang = language?.startsWith('it') ? 'Italian' : 'English';
+    log.info(`[AI] Recommendation request for: ${description.substring(0, 50)}... (lang: ${lang})`);
     const prompt = `Based on this project description, recommend the BEST technology from this list:
 - react: React SPA
 - nextjs: Next.js (SSR/SSG, full-stack React)
@@ -181,16 +182,24 @@ Project description: "${description}"
 
 Respond with a JSON object with two fields:
 - "recommendation": the technology ID (e.g., "react", "nextjs", "html")
-- "explanation": a brief one-sentence explanation of why this technology is the best fit (max 15 words)
+- "explanation": a brief one-sentence explanation of why this technology is the best fit (max 15 words). Write the explanation in ${lang}.
 
 Respond ONLY with the JSON object, no markdown.`;
 
     const messages = [{ role: 'user' as const, content: prompt }];
 
     let response = '';
-    for await (const chunk of aiProviderService.chatStream('gemini-3.1-flash-lite', messages, undefined, undefined, { thinkingLevel: 'none', maxTokens: 50 })) {
-      if (chunk.type === 'text' && chunk.text) {
-        response += chunk.text;
+    const recModels = ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'claude-3.5-haiku'];
+    for (const model of recModels) {
+      try {
+        response = '';
+        for await (const chunk of aiProviderService.chatStream(model, messages, undefined, undefined, { thinkingLevel: 'none', maxTokens: 100 })) {
+          if (chunk.type === 'text' && chunk.text) response += chunk.text;
+        }
+        if (response.trim().length > 5) break;
+      } catch (modelErr: any) {
+        log.warn(`[AI] Recommend model ${model} failed: ${modelErr.message?.substring(0, 80)}`);
+        continue;
       }
     }
 
@@ -247,5 +256,67 @@ Respond ONLY with the JSON object, no markdown.`;
   } catch (error: any) {
     log.error('[AI] Recommendation error:', error);
     res.status(500).json({ error: 'AI recommendation failed' });
+  }
+}));
+
+// ── Project Questions — AI generates targeted questions about the project idea ──
+aiRouter.post('/project-questions', asyncHandler(async (req: Request, res: Response) => {
+  const { description, technology, language } = req.body;
+  if (!description || typeof description !== 'string') {
+    return res.status(400).json({ error: 'description is required' });
+  }
+
+  try {
+    const techLabel = technology || 'web';
+    const lang = language?.startsWith('it') ? 'Italian' : 'English';
+    const prompt = `The user wants to create a ${techLabel} project: "${description}"
+
+Generate 4 targeted questions to understand EXACTLY what they want. These are NOT generic questions — they must be SPECIFIC to "${description}".
+
+Each question has:
+- "question": the question text (short, clear)
+- "options": 3-4 multiple choice options (short labels, max 5 words each)
+
+Rules:
+- Questions must help you understand: what features, what style/vibe, what content, what audience
+- Options should cover the most likely answers for THIS specific type of project
+- Keep questions casual and easy to understand
+- Write EVERYTHING in ${lang}
+
+Return ONLY valid JSON array: [{"question":"...","options":["A","B","C"]}]`;
+
+    let response = '';
+    const models = ['gemini-3-flash', 'gemini-2.5-flash', 'claude-3.5-haiku'];
+    for (const model of models) {
+      try {
+        response = '';
+        for await (const chunk of aiProviderService.chatStream(model, [{ role: 'user', content: prompt }], undefined, 'Return ONLY valid JSON array. No markdown.', { thinkingLevel: 'none', maxTokens: 2000 })) {
+          if (chunk.type === 'text' && chunk.text) response += chunk.text;
+        }
+        if (response.trim().length > 10) break; // Got a response, stop trying
+      } catch (modelErr: any) {
+        log.warn(`[AI] Questions model ${model} failed: ${modelErr.message?.substring(0, 80)}`);
+        continue;
+      }
+    }
+
+    log.info(`[AI] Raw questions response (${response.length} chars): ${response.substring(0, 200)}`);
+    let clean = response.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    // Try to recover truncated JSON
+    if (!clean.endsWith(']')) {
+      const lastComplete = clean.lastIndexOf('}');
+      if (lastComplete > 0) clean = clean.substring(0, lastComplete + 1) + ']';
+    }
+    const questions = JSON.parse(clean);
+
+    if (!Array.isArray(questions) || questions.length === 0) {
+      throw new Error('Invalid questions format');
+    }
+
+    log.info(`[AI] Generated ${questions.length} project questions for "${description}"`);
+    res.json({ success: true, questions });
+  } catch (error: any) {
+    log.error('[AI] Project questions error:', error.message);
+    res.status(500).json({ error: 'Failed to generate questions' });
   }
 }));

@@ -444,6 +444,36 @@ class DependencyService {
         onProgress?.(`Install attempt ${attempt} failed, retrying...`);
         onLog?.(`Install attempt ${attempt}/${maxInstallAttempts} failed (exit ${result.exitCode}). Retrying...`);
 
+        // Detect packages that don't exist on npm (404) and remove them from package.json
+        const notFoundMatches = errOutput.matchAll(/(?:error:?\s*(?:GET\s+\S+\s*-\s*)?404|failed to resolve)\s*[:\s]*(@?[a-z0-9][\w./-]*@[^\s"']*|@?[a-z0-9][\w./-]*)/gi);
+        const badPackages = new Set<string>();
+        for (const m of notFoundMatches) {
+          const pkg = m[1]?.replace(/@[\^~]?[\d.*]+$/, '').trim();
+          if (pkg && pkg.length > 1) badPackages.add(pkg);
+        }
+        // Also catch "error: @scope/package@version failed to resolve" pattern
+        const failedResolve = errOutput.matchAll(/(@[a-z0-9][\w./-]+)@[^\s]+ failed to resolve/gi);
+        for (const m of failedResolve) {
+          if (m[1]) badPackages.add(m[1]);
+        }
+        if (badPackages.size > 0) {
+          log.warn(`[Deps] Removing non-existent packages from package.json: ${[...badPackages].join(', ')}`);
+          onLog?.(`Removing invalid packages: ${[...badPackages].join(', ')}`);
+          try {
+            const pkgResult = await dockerService.exec(agentUrl, 'cat /home/coder/project/package.json', '/home/coder/project', 5000);
+            const pkg = JSON.parse(pkgResult.stdout || '{}');
+            for (const bad of badPackages) {
+              if (pkg.dependencies?.[bad]) delete pkg.dependencies[bad];
+              if (pkg.devDependencies?.[bad]) delete pkg.devDependencies[bad];
+            }
+            await dockerService.exec(agentUrl,
+              `cat > /home/coder/project/package.json << 'PKGJSON'\n${JSON.stringify(pkg, null, 2)}\nPKGJSON`,
+              '/home/coder/project', 5000);
+          } catch (e: any) {
+            log.warn(`[Deps] Failed to remove bad packages: ${e.message}`);
+          }
+        }
+
         // Detect bun integrity/migration failures.
         // Bun 1.3.x has a known bug where it miscalculates integrity hashes when
         // migrating from package-lock.json, causing IntegrityCheckFailed for certain packages.

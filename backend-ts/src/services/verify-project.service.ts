@@ -137,12 +137,44 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
   const errors: string[] = [];
   const screenshots = new Map<string, string>();
 
-  // 1. Wait for server to be ready (warmProject runs in background via setImmediate)
-  //    Check server.log for build errors while waiting — don't waste 60s if build failed
+  // 1. Wait for server to be ACTUALLY ready — not time-based, event-based.
+  //    Check server.log for "Ready" / "Listening" signals, or build failure signals.
   let httpCode = '000';
   let htmlBody = '';
-  // 24 attempts × 5s = 120s max wait (next build can take 60-90s)
-  for (let wait = 0; wait < 24; wait++) {
+  const maxWaitMs = 180000; // 3 min absolute max
+  const startTime = Date.now();
+
+  for (let wait = 0; (Date.now() - startTime) < maxWaitMs; wait++) {
+    // Check server.log for completion signals
+    try {
+      const buildLog = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -50');
+      const buildText = buildLog.stdout || '';
+
+      // Build/server READY signals
+      const isReady = buildText.includes('Ready in') ||           // next dev/start
+        buildText.includes('ready started server') ||              // next start
+        buildText.includes('Local:') ||                            // vite, astro
+        buildText.includes('listening on') ||                      // generic
+        buildText.includes('started server on') ||                 // next
+        buildText.includes('Server running');                      // custom
+
+      // Build FAILED signals
+      const hasFailed = buildText.includes('Failed to compile') ||
+        buildText.includes('Build error') ||
+        buildText.includes('Process exited with code: 1') ||
+        buildText.includes('exited with code 1') ||
+        buildText.includes('ELIFECYCLE') ||
+        buildText.includes('falling back to dev mode');
+
+      if (isReady || hasFailed) {
+        if (hasFailed) log.info(`[Verify] Build failed — checking if fallback started`);
+        // Give the server 3s to fully bind the port after logging "Ready"
+        await new Promise(r => setTimeout(r, 3000));
+        break;
+      }
+    } catch {}
+
+    // Also try HTTP — if server responds, it's ready regardless of logs
     const curlResult = await workspaceService.exec(projectId, userId,
       'curl -s -w "\\n%{http_code}" http://localhost:3000 2>/dev/null || echo "\\n000"'
     );
@@ -151,19 +183,18 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
     htmlBody = curlLines.slice(0, -1).join('\n');
     if (httpCode !== '000') break;
 
-    // Check if build already failed (don't wait 60s for nothing)
-    try {
-      const buildLog = await workspaceService.exec(projectId, userId, 'cat /home/coder/server.log 2>/dev/null | tail -30');
-      const buildText = buildLog.stdout || '';
-      if (buildText.includes('Failed to compile') || buildText.includes('Build error') ||
-          buildText.includes('Process exited with code: 1') || buildText.includes('exited with code 1')) {
-        log.info(`[Verify] Build failed early — skipping remaining wait`);
-        break;
-      }
-    } catch {}
-
-    log.info(`[Verify] Waiting for server... (${wait + 1}/12)`);
+    log.info(`[Verify] Waiting for server... (${Math.round((Date.now() - startTime) / 1000)}s)`);
     await new Promise(r => setTimeout(r, 5000));
+  }
+
+  // Final HTTP check if we exited via log signals
+  if (httpCode === '000') {
+    const curlResult = await workspaceService.exec(projectId, userId,
+      'curl -s -w "\\n%{http_code}" http://localhost:3000 2>/dev/null || echo "\\n000"'
+    );
+    const curlLines = (curlResult.stdout || '').split('\n');
+    httpCode = curlLines[curlLines.length - 1]?.trim() || '000';
+    htmlBody = curlLines.slice(0, -1).join('\n');
   }
 
   if (httpCode === '000') {
@@ -194,27 +225,59 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
   if (httpCode !== '000') {
     try {
       const e2eResult = await workspaceService.exec(projectId, userId,
-        'timeout 60 node /usr/local/bin/e2e-check.js 2>/dev/null'
+        'NODE_PATH=/usr/local/lib/node_modules node /usr/local/bin/e2e-check.js 2>/tmp/e2e-stderr.txt'
       );
-      const e2e = JSON.parse(e2eResult.stdout || '{}');
+      const e2eRaw = (e2eResult.stdout || '').trim();
+      if (!e2eRaw || !e2eRaw.startsWith('{')) {
+        // E2E script crashed or produced no output — treat as failed
+        log.warn(`[Verify] E2E produced no valid output (${e2eRaw.length} chars)`);
+        errors.push('E2E verification failed — could not analyze pages');
+      } else {
+        const e2e = JSON.parse(e2eRaw);
 
-      if (e2e.passed === false && e2e.errors?.length > 0) {
-        for (const err of e2e.errors.slice(0, 8)) {
-          if (!errors.some(ex => ex.includes(err.substring(0, 40)))) errors.push(err);
+        if (e2e.passed === false && e2e.errors?.length > 0) {
+          for (const err of e2e.errors.slice(0, 8)) {
+            if (!errors.some(ex => ex.includes(err.substring(0, 40)))) errors.push(err);
+          }
         }
-      }
 
-      // Collect screenshots from E2E — especially broken pages
-      if (e2e.pages) {
-        for (const pg of e2e.pages) {
-          if (pg.screenshot && pg.errors?.length > 0) {
-            screenshots.set(pg.path, pg.screenshot);
+        // Collect screenshots from E2E — ALL pages (broken ones for auto-fix context)
+        if (e2e.pages) {
+          for (const pg of e2e.pages) {
+            if (pg.screenshot && pg.errors?.length > 0) {
+              screenshots.set(pg.path, pg.screenshot);
+            }
+          }
+        }
+
+        // Collect screenshots from navigation test (click-through issues)
+        if (e2e.navigation) {
+          for (const nav of e2e.navigation) {
+            if (nav.error && nav.screenshot) {
+              const key = `click:${nav.element?.text || 'unknown'}`;
+              screenshots.set(key, nav.screenshot);
+            }
           }
         }
       }
+
+      // Log stderr for debugging
+      try {
+        const stderrLog = await workspaceService.exec(projectId, userId, 'cat /tmp/e2e-stderr.txt 2>/dev/null');
+        if (stderrLog.stdout?.trim()) {
+          log.info(`[Verify] E2E stderr: ${stderrLog.stdout.trim().substring(0, 500)}`);
+        }
+      } catch {}
     } catch (e2eErr: any) {
       log.warn(`[Verify] E2E check failed: ${e2eErr.message}`);
-      // Fallback: take a simple screenshot
+      // Read stderr for diagnostic info
+      try {
+        const stderrLog = await workspaceService.exec(projectId, userId, 'cat /tmp/e2e-stderr.txt 2>/dev/null');
+        if (stderrLog.stdout?.trim()) {
+          log.warn(`[Verify] E2E stderr: ${stderrLog.stdout.trim().substring(0, 500)}`);
+        }
+      } catch {}
+      // Fallback: take screenshots of homepage + any detected sub-pages
       if (httpCode === '200') {
         try {
           const ssResult = await workspaceService.exec(projectId, userId,
@@ -224,14 +287,6 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
           if (ss) {
             screenshots.set('/', ss);
             if (ss.length < 7000) errors.push('Page renders as blank/white screen (screenshot too small)');
-          }
-          // Read Puppeteer JS errors from stderr
-          const ssErr = await workspaceService.exec(projectId, userId, 'cat /tmp/ss-err.txt 2>/dev/null');
-          if (ssErr.stdout?.includes('"errors"')) {
-            const pageErrors = JSON.parse(ssErr.stdout).errors || [];
-            for (const e of pageErrors.slice(0, 3)) {
-              if (!errors.some(ex => ex.includes(e.substring(0, 30)))) errors.push(e);
-            }
           }
         } catch { /* screenshot not available */ }
       }
@@ -326,7 +381,6 @@ async function autoFix(
       const routeMatch = err.match(/\[\/([^\]]+)\]/);
       if (routeMatch) {
         const route = routeMatch[1];
-        // Check if page file exists
         for (const ext of ['tsx', 'jsx', 'ts', 'js']) {
           try {
             const pg = await workspaceService.exec(projectId, userId, `cat /home/coder/project/app/${route}/page.${ext} 2>/dev/null`);
@@ -335,6 +389,44 @@ async function autoFix(
             }
           } catch {}
         }
+      }
+    }
+
+    // For navigation errors: read pages involved + state/store/context files
+    const hasNavErrors = result.errors.some(e => e.includes('[nav]'));
+    if (hasNavErrors) {
+      // Read all page files to understand navigation flow
+      try {
+        const findResult = await workspaceService.exec(projectId, userId,
+          'find /home/coder/project/app -name "page.tsx" -o -name "page.jsx" 2>/dev/null | head -15'
+        );
+        for (const pagePath of (findResult.stdout || '').trim().split('\n').filter(Boolean)) {
+          const relPath = pagePath.replace('/home/coder/project/', '');
+          if (PROTECTED_FILES.has(relPath) || brokenFiles.some(f => f.path === relPath)) continue;
+          try {
+            const content = await workspaceService.exec(projectId, userId, `cat ${pagePath} 2>/dev/null`);
+            if (content.stdout) brokenFiles.push({ path: relPath, content: content.stdout });
+          } catch {}
+        }
+      } catch {}
+
+      // Read store/context/state files — often where navigation bugs live
+      const statePatterns = [
+        'find /home/coder/project/app -maxdepth 3 -name "store*" -o -name "context*" -o -name "provider*" -o -name "auth*" 2>/dev/null | head -10',
+        'find /home/coder/project/src -maxdepth 3 -name "store*" -o -name "context*" -o -name "provider*" -o -name "auth*" 2>/dev/null | head -10',
+      ];
+      for (const cmd of statePatterns) {
+        try {
+          const stateFiles = await workspaceService.exec(projectId, userId, cmd);
+          for (const sf of (stateFiles.stdout || '').trim().split('\n').filter(Boolean)) {
+            const relPath = sf.replace('/home/coder/project/', '');
+            if (brokenFiles.some(f => f.path === relPath)) continue;
+            try {
+              const content = await workspaceService.exec(projectId, userId, `cat ${sf} 2>/dev/null`);
+              if (content.stdout) brokenFiles.push({ path: relPath, content: content.stdout });
+            } catch {}
+          }
+        } catch {}
       }
     }
 
@@ -373,25 +465,28 @@ Rules:
 - For blank page: ensure components return visible JSX with Tailwind classes
 - Use lucide-react for icons (it's installed in the template)
 - All data must be hardcoded const arrays — NEVER use fetch() for mock data
+- For "broken click handler" / "nothing happened" errors: the button's onClick doesn't work. Check the state management (store/context) — the state change may not trigger a re-render or navigation. Common fixes: use router.push() after state change, use localStorage/sessionStorage to persist state, ensure setState triggers re-render
+- For redirect loops (page X redirects to page Y): the guard/redirect logic doesn't persist state. Fix by using localStorage or cookies to persist auth/profile state across navigations, not just React state
+- For pages that redirect to a selection screen: ensure the selection state persists in localStorage so the guard check passes after page reload
 - Return valid JSON only`;
 
-    // Build messages — include screenshots as image parts if available
+    // Build messages — include screenshots as image content blocks (Anthropic format)
     const messages: any[] = [];
     if (screenshotImages.length > 0) {
-      // Multimodal message: text + images
-      const parts: any[] = [{ text: fixPrompt }];
+      const content: any[] = [{ type: 'text', text: fixPrompt }];
       for (const img of screenshotImages) {
-        parts.push({
-          inlineData: { mimeType: 'image/png', data: img.base64 }
+        content.push({
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/png', data: img.base64 }
         });
-        parts.push({ text: `Screenshot of ${img.page} — fix the issues visible here.` });
+        content.push({ type: 'text', text: `Screenshot of ${img.page} — fix the issues visible here.` });
       }
-      messages.push({ role: 'user', parts });
+      messages.push({ role: 'user', content });
     } else {
       messages.push({ role: 'user', content: fixPrompt });
     }
 
-    const fixStream = aiProviderService.chatStream('gemini-3-flash',
+    const fixStream = aiProviderService.chatStream('claude-4-6-sonnet',
       messages,
       undefined, 'Fix build errors. Return only valid JSON.', { temperature: 0.1, maxTokens: 30000 }
     );

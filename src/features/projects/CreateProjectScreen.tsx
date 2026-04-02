@@ -36,6 +36,7 @@ import { AgentModeModal } from '../../shared/components/molecules/AgentModeModal
 import { config } from '../../config/config';
 import { getAuthHeaders } from '../../core/api/getAuthToken';
 import { useTranslation } from 'react-i18next';
+import i18n from '../../i18n';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -141,6 +142,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [showAllLangs, setShowAllLangs] = useState(false);
   const [editingField, setEditingField] = useState<'name' | 'description' | null>(null);
+  // AI Interview (step 3)
+  const [aiQuestions, setAiQuestions] = useState<{ question: string; options: string[] }[]>([]);
+  const [aiAnswers, setAiAnswers] = useState<Record<number, { selected: string[]; custom: string }>>({});
+  const [questionsLoading, setQuestionsLoading] = useState(false);
   const [cloudEnabled, setCloudEnabled] = useState(false);
   const [showCloudInfo, setShowCloudInfo] = useState(false);
   const [cloudInfoVisible, setCloudInfoVisible] = useState(false);
@@ -331,7 +336,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         setKeyboardVisible(true);
         setKeyboardHeight(e.endCoordinates.height);
         setTimeout(() => {
-          if (step === 3) {
+          if (step === 4) {
             scrollViewRef.current?.scrollTo({ y: 0, animated: true });
           } else {
             scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -675,18 +680,55 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       Keyboard.dismiss();
       tracciaContinuaPremuto('Descrivi la tua idea');
 
-      // AI Analysis
-      analyzeRequirements();
+      // Fetch AI interview questions
+      fetchAiQuestions();
       animateStepTransition(2, 'forward');
     } else if (step === 2) {
+      // AI interview done — go to tech selection
+      Keyboard.dismiss();
+      tracciaContinuaPremuto('AI Interview');
+      // AI Analysis for tech recommendation
+      analyzeRequirements();
+      animateStepTransition(3, 'forward');
+    } else if (step === 3) {
       if (!selectedLanguage) {
         Alert.alert(t('common:warning'), t('alerts.selectLanguage'));
         return;
       }
       Keyboard.dismiss();
-      const lang = languages.find(l => l.id === selectedLanguage);
       tracciaContinuaPremuto('Seleziona linguaggio');
+      animateStepTransition(4, 'forward');
+    }
+  };
+
+  const fetchAiQuestions = async () => {
+    setQuestionsLoading(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${config.apiUrl}/ai/project-questions`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: description.trim(), technology: selectedLanguage, language: i18n.language }),
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.questions) && data.questions.length > 0) {
+        setAiQuestions(data.questions.slice(0, 5));
+        const initial: Record<number, { selected: string[]; custom: string }> = {};
+        data.questions.forEach((_: any, i: number) => { initial[i] = { selected: [], custom: '' }; });
+        setAiAnswers(initial);
+      } else {
+        // No questions — skip interview, go straight to tech
+        console.warn('[AI] No questions returned, skipping interview');
+        analyzeRequirements();
+        animateStepTransition(3, 'forward');
+      }
+    } catch (err: any) {
+      console.warn('[AI] Failed to fetch questions:', err.message);
+      // Skip interview on error — go straight to tech
+      analyzeRequirements();
       animateStepTransition(3, 'forward');
+    } finally {
+      setQuestionsLoading(false);
     }
   };
 
@@ -703,7 +745,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   };
 
   useEffect(() => {
-    if (aiAnalyzing) {
+    if (aiAnalyzing || questionsLoading) {
       shimmerAnim.setValue(0);
       const loop = Animated.loop(
         Animated.timing(shimmerAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
@@ -713,7 +755,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     } else {
       LayoutAnimation.configureNext(LayoutAnimation.create(400, 'easeInEaseOut', 'opacity'));
     }
-  }, [aiAnalyzing]);
+  }, [aiAnalyzing, questionsLoading]);
 
   const analyzeRequirements = async () => {
     let isMounted = true;
@@ -728,7 +770,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       const response = await fetch(`${apiUrl}/ai/recommend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...recAuthHeaders },
-        body: JSON.stringify({ description: description.trim() }),
+        body: JSON.stringify({ description: description.trim(), language: i18n.language }),
       });
 
       if (!isMounted) return;
@@ -769,7 +811,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
   const handleBack = () => {
     if (step > 1) {
-      const stepNames = ['', 'Descrivi la tua idea', 'Scegli il linguaggio', 'Nome del progetto'];
+      const stepNames = ['', 'Descrivi la tua idea', 'Personalizza', 'Scegli il linguaggio', 'Nome del progetto'];
       tracciaNavigazioneIndietro(stepNames[step - 1]);
       animateStepTransition(step - 1, 'back');
     } else {
@@ -829,7 +871,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         body: JSON.stringify({
           projectName: projectName.trim(),
           technology: selectedLanguage,
-          description: description.trim(),
+          description: getEnrichedDescription(),
           cloudEnabled,
           userId,
         }),
@@ -907,9 +949,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       const oldAuthHeaders = await getAuthHeaders();
 
       // 1. Start Task
+      const enrichedDesc = getEnrichedDescription();
       const cloudDesc = cloudEnabled
-        ? `${description.trim()}\n\nIMPORTANT: Enable Cloud mode with a SQLite database.`
-        : description.trim();
+        ? `${enrichedDesc}\n\nIMPORTANT: Enable Cloud mode with a SQLite database.`
+        : enrichedDesc;
       const response = await fetch(`${apiUrl}/workstation/create-with-template`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...oldAuthHeaders },
@@ -966,17 +1009,24 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   };
 
   const selectedLang = languages.find(l => l.id === selectedLanguage);
-  // Step 1: Name + Desc, Step 2: Tech, Step 3: Review
+  // Step 1: Desc, Step 2: Tech, Step 3: AI Interview, Step 4: Review
+  const allQuestionsAnswered = aiQuestions.length > 0 && aiQuestions.every((_, idx) => {
+    const a = aiAnswers[idx];
+    return a && (a.selected.length > 0 || a.custom?.trim());
+  });
   const canProceed = step === 1 ? (description.trim().length > 0)
-    : step === 2 ? selectedLanguage !== ''
-      : projectName.trim().length > 0;
+    : step === 2 ? (!questionsLoading && allQuestionsAnswered)
+      : step === 3 ? selectedLanguage !== ''
+        : projectName.trim().length > 0;
 
-  const p1 = `${Math.round(((progressOffset + 1) / progressTotal) * 100)}%`;
-  const p2 = `${Math.round(((progressOffset + 2) / progressTotal) * 100)}%`;
-  const p3 = `${Math.round(((progressOffset + 3) / progressTotal) * 100)}%`;
+  const totalSteps = 4;
+  const p1 = `${Math.round(((progressOffset + 1) / (progressOffset + totalSteps)) * 100)}%`;
+  const p2 = `${Math.round(((progressOffset + 2) / (progressOffset + totalSteps)) * 100)}%`;
+  const p3 = `${Math.round(((progressOffset + 3) / (progressOffset + totalSteps)) * 100)}%`;
+  const p4 = `${Math.round(((progressOffset + 4) / (progressOffset + totalSteps)) * 100)}%`;
   const progressWidth = progressAnim.interpolate({
-    inputRange: [1, 2, 3],
-    outputRange: [p1, p2, p3],
+    inputRange: [1, 2, 3, 4],
+    outputRange: [p1, p2, p3, p4],
   });
 
   const handleChipPress = (chipId: string) => {
@@ -1121,11 +1171,22 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             </View>
           </View>
         )}
+
+        {/* Disclaimer tip */}
+        <View style={styles.disclaimerBox}>
+          <Ionicons name="sparkles" size={14} color={AppColors.primary} />
+          <Text style={styles.disclaimerText}>
+            <Text style={{ fontWeight: '600' }}>Tip: </Text>
+            {i18n.language?.startsWith('it')
+              ? 'Più dettagli scrivi, migliore sarà il risultato generato.'
+              : 'The more details you provide, the better the generated result.'}
+          </Text>
+        </View>
       </View>
     </View>
   );
 
-  const ShimmerBlock: React.FC<{ style: any }> = ({ style, children }) => {
+  const ShimmerBlock: React.FC<{ style: any; children?: React.ReactNode }> = ({ style, children }) => {
     const shimmerTranslate = shimmerAnim.interpolate({
       inputRange: [0, 1],
       outputRange: [-SCREEN_WIDTH, SCREEN_WIDTH],
@@ -1311,9 +1372,9 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
               if (field === 'name') {
                 setEditingField(editingField === 'name' ? null : 'name');
               } else if (field === 'description') {
-                setStep(1);
+                animateStepTransition(1, 'back');
               } else {
-                setStep(2);
+                animateStepTransition(2, 'back');
               }
             }}
           >
@@ -1333,6 +1394,106 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       {renderSummaryRow(selectedLang?.icon || 'code-outline', selectedLang?.color || '#fff', t('create.technology'), selectedLang?.name || '', 'tech')}
     </>
   );
+
+  const renderStep3Interview = () => {
+    if (questionsLoading || aiQuestions.length === 0) {
+      return (
+        <View style={styles.stepContent}>
+          <View style={styles.stepHeader}>
+            <Text style={styles.stepTitle}>Personalizza il progetto</Text>
+            <Text style={styles.stepSubtitle}>L'AI sta preparando domande specifiche...</Text>
+          </View>
+          {[0, 1, 2, 3].map(i => (
+            <ShimmerBlock key={i} style={{ height: 100, borderRadius: 16, marginBottom: 12, backgroundColor: 'rgba(255,255,255,0.05)' }} />
+          ))}
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.stepContent}>
+        <View style={styles.stepHeader}>
+          <Text style={styles.stepTitle}>Personalizza</Text>
+          <Text style={styles.stepSubtitle}>Rispondi per un risultato migliore</Text>
+        </View>
+
+        {aiQuestions.map((q, idx) => {
+          const answer = aiAnswers[idx] || { selected: null, custom: '' };
+          const cardContent = (
+            <>
+              <View style={styles.interviewHeader}>
+                <View style={styles.interviewBadge}>
+                  <Text style={styles.interviewBadgeText}>{idx + 1}</Text>
+                </View>
+                <Text style={styles.interviewQuestion}>{q.question}</Text>
+              </View>
+              <View style={styles.interviewOptions}>
+                {q.options.map((opt, oi) => (
+                  <TouchableOpacity
+                    key={oi}
+                    style={[styles.interviewChip, answer.selected.includes(opt) && styles.interviewChipActive]}
+                    activeOpacity={0.7}
+                    onPress={() => setAiAnswers(prev => {
+                      const current = prev[idx]?.selected || [];
+                      const toggled = current.includes(opt)
+                        ? current.filter(s => s !== opt)
+                        : [...current, opt];
+                      return { ...prev, [idx]: { selected: toggled, custom: '' } };
+                    })}
+                  >
+                    <Text style={[styles.interviewChipText, answer.selected.includes(opt) && styles.interviewChipTextActive]}>{opt}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TextInput
+                style={styles.interviewInput}
+                placeholder="Oppure scrivi qui..."
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                value={answer.custom}
+                onChangeText={(text) => setAiAnswers(prev => ({
+                  ...prev,
+                  [idx]: { selected: [], custom: text },
+                }))}
+                keyboardAppearance="dark"
+              />
+            </>
+          );
+
+          return useGlass ? (
+            <LiquidGlassView
+              key={idx}
+              style={[styles.interviewCard, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            >
+              {cardContent}
+            </LiquidGlassView>
+          ) : (
+            <View key={idx} style={styles.interviewCard}>
+              {cardContent}
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
+  /** Build enriched description with AI interview answers */
+  const getEnrichedDescription = () => {
+    let enriched = description.trim();
+    const parts: string[] = [];
+    aiQuestions.forEach((q, idx) => {
+      const answer = aiAnswers[idx];
+      if (!answer) return;
+      const val = answer.custom?.trim() || (answer.selected.length > 0 ? answer.selected.join(', ') : '');
+      if (val) parts.push(`${q.question} ${val}`);
+    });
+    if (parts.length > 0) {
+      enriched += '\n\n' + parts.join('\n');
+    }
+    return enriched;
+  };
 
   const renderStep3 = () => (
     <View style={styles.stepContent}>
@@ -1456,8 +1617,9 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         >
           <Animated.View style={{ transform: [{ translateX: stepTranslateX }] }}>
             {step === 1 && renderStep1()}
-            {step === 2 && renderStep2()}
-            {step === 3 && renderStep3()}
+            {step === 2 && renderStep3Interview()}
+            {step === 3 && renderStep2()}
+            {step === 4 && renderStep3()}
           </Animated.View>
         </ScrollView>
       </Animated.View>
@@ -1470,7 +1632,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       ]}>
         <TouchableOpacity
           style={[styles.actionBtn, !canProceed && styles.actionBtnDisabled]}
-          onPress={step === 3 ? handleCreate : handleNext}
+          onPress={step === 4 ? handleCreate : handleNext}
           disabled={!canProceed || isCreating}
           activeOpacity={0.85}
         >
@@ -1485,11 +1647,11 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             ) : (
               <>
                 <Text style={[styles.actionBtnText, !canProceed && styles.actionBtnTextDisabled]}>
-                  {step === 3 ? t('create.createButton') : t('common:continue')}
+                  {step === 4 ? t('create.createButton') : t('common:continue')}
                 </Text>
                 {canProceed && (
                   <View style={styles.actionBtnIconBox}>
-                    <Ionicons name={step === 3 ? "checkmark" : "arrow-forward"} size={18} color="#fff" />
+                    <Ionicons name={step === 4 ? "checkmark" : "arrow-forward"} size={18} color="#fff" />
                   </View>
                 )}
               </>
@@ -2564,5 +2726,98 @@ const styles = StyleSheet.create({
   upgradeDismissText: {
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.4)',
+  },
+  // AI Interview (step 3)
+  interviewCard: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+  },
+  interviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 14,
+  },
+  interviewBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(109, 76, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  interviewBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: AppColors.primary,
+  },
+  interviewQuestion: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+    lineHeight: 21,
+    flex: 1,
+  },
+  interviewOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  interviewChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  interviewChipActive: {
+    backgroundColor: 'rgba(109, 76, 255, 0.2)',
+    borderColor: AppColors.primary,
+  },
+  interviewChipText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.65)',
+    fontWeight: '500',
+  },
+  interviewChipTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  interviewInput: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 13,
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    textAlign: 'center',
+  },
+  disclaimerBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: 'rgba(99,102,241,0.08)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.15)',
+  },
+  disclaimerText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
   },
 });

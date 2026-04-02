@@ -221,8 +221,8 @@ class DockerService {
         // noexec causes SIGBUS in forked Node.js child processes (e.g. Next.js
         // start-server.js) because V8/SWC need to mmap executable pages from /tmp.
         Tmpfs: { '/tmp': 'rw,exec,nosuid,size=512m' },
-        // Prevent fork bombs
-        PidsLimit: 512,
+        // Prevent fork bombs (1024 needed for next build worker threads)
+        PidsLimit: 1024,
       },
       Healthcheck: {
         Test: ['CMD', 'node', '-e',

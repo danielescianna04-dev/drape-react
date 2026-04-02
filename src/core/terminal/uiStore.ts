@@ -56,6 +56,9 @@ export interface UIState {
   setPreviewHandlers: (handlers: Partial<UIState['previewHandlers']>) => void;
   setPreviewPublishInfo: (info: { slug: string; url: string } | null) => void;
 
+  // Database navigation
+  databaseBackHandler: (() => void) | null;
+
   // Pending message to send to main chat (e.g. from preview error)
   pendingChatMessage: string | null;
   // Auto-retry preview after AI fix
@@ -133,6 +136,7 @@ export const useUIStore = create<UIState>((set) => ({
     previewCurrentUrl: '',
     previewViewportMode: 'mobile' as const,
     previewHandlers: { refresh: null, publish: null, setViewportMode: null, setUrl: null, goBack: null, goForward: null },
+    databaseBackHandler: null,
     previewPublishInfo: null,
     setPreviewCurrentUrl: (url: string) => set({ previewCurrentUrl: url }),
     setPreviewViewportMode: (mode: 'mobile' | 'desktop') => set({ previewViewportMode: mode }),
