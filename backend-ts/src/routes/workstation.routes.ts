@@ -470,6 +470,57 @@ workstationRouter.get('/:projectId/build-report', asyncHandler(async (req, res) 
   }
 }));
 
+// GET /workstation/:projectId/verification-report
+workstationRouter.get('/:projectId/verification-report', asyncHandler(async (req, res) => {
+  const { projectId } = req.params;
+  const uid = req.userId || 'anonymous';
+
+  const isOwner = await verifyProjectOwnership(uid, projectId);
+  if (!isOwner) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  const result = await fileService.readFile(projectId, '.drape/verification-report.json');
+  if (!result.success || !result.data) {
+    return res.json({ success: true, report: null });
+  }
+
+  try {
+    const report = JSON.parse(result.data.content);
+    res.json({ success: true, report });
+  } catch {
+    res.json({ success: true, report: null });
+  }
+}));
+
+// POST /workstation/:projectId/verification-report
+workstationRouter.post('/:projectId/verification-report', asyncHandler(async (req, res) => {
+  const { projectId } = req.params;
+  const uid = req.userId || 'anonymous';
+  const { previewVerification } = req.body;
+
+  const isOwner = await verifyProjectOwnership(uid, projectId);
+  if (!isOwner) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  // Read existing report (from backend E2E) or create new
+  let report: any = { projectId, backendVerification: null, previewVerification: null };
+  const existing = await fileService.readFile(projectId, '.drape/verification-report.json');
+  if (existing.success && existing.data) {
+    try { report = JSON.parse(existing.data.content); } catch {}
+  }
+
+  // Merge preview verification data
+  report.previewVerification = previewVerification;
+  report.completedAt = new Date().toISOString();
+
+  await fileService.writeFile(projectId, '.drape/verification-report.json',
+    JSON.stringify(report, null, 2));
+
+  res.json({ success: true });
+}));
+
 // POST /workstation/read-file
 workstationRouter.post('/read-file', asyncHandler(async (req, res) => {
   const { projectId, filePath, path: fp } = req.body;
