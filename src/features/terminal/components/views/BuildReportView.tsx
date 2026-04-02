@@ -6,6 +6,7 @@ import { Tab } from '../../../../core/tabs/tabStore';
 import { config } from '../../../../config/config';
 import { getAuthHeaders } from '../../../../core/api/getAuthToken';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
+import { VerificationSection } from './VerificationSection';
 
 // ── Types ──
 
@@ -130,6 +131,7 @@ const SectionHeader = ({ icon, iconColor, title, time, defaultOpen = false, chil
 
 export const BuildReportView: React.FC<Props> = ({ tab }) => {
   const [report, setReport] = useState<BuildReport | null>(null);
+  const [verificationReport, setVerificationReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const currentProjectId = useTerminalStore(s => s.currentWorkstation?.id);
   const insets = useSafeAreaInsets();
@@ -154,6 +156,15 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         console.log('[BuildReport] Report loaded. Files:', data.report.summary?.generatedFiles?.length, 'Envs:', data.report.summary?.envVars?.length, 'Tables:', data.report.summary?.tablesCreated?.length, 'Chats:', data.report.chatSessions?.length);
         setReport(data.report);
       }
+      // Also fetch verification report
+      try {
+        const vUrl = `${config.apiUrl}/workstation/${currentProjectId}/verification-report`;
+        const vRes = await fetch(vUrl, { headers, signal: controller.signal });
+        const vData = await vRes.json();
+        if (vData.success && vData.report) {
+          setVerificationReport(vData.report);
+        }
+      } catch {}
     } catch (err: any) {
       console.warn('[BuildReport] Failed:', err?.message);
     } finally {
@@ -273,6 +284,18 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
           </View>
         )}
       </SectionHeader>
+
+      {/* ═══ VERIFICA & TEST QA ═══ */}
+      {verificationReport && (
+        <SectionHeader
+          icon="shield-checkmark-outline"
+          iconColor="#22C55E"
+          title="Verifica & Test QA"
+          time={verificationReport.completedAt ? `${formatDate(verificationReport.completedAt)}, ${formatTime(verificationReport.completedAt)}` : undefined}
+        >
+          <VerificationSection report={verificationReport} />
+        </SectionHeader>
+      )}
 
       {/* ═══ CHAT SESSIONS ═══ */}
       {report.chatSessions?.map(chat => (
