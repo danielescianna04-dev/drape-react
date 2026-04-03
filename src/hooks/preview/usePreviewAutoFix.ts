@@ -188,7 +188,7 @@ REGOLE:
           prompt,
           projectId,
           model: (process.env.EXPO_PUBLIC_ENV === 'development' || process.env.EXPO_PUBLIC_ENV === 'preview')
-            ? 'claude-sonnet-4-6'
+            ? 'claude-4-6-sonnet'
             : 'gemini-3-flash',
           conversationHistory: conversationRef.current,
           images,

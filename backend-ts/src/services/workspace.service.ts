@@ -122,13 +122,29 @@ class WorkspaceService {
         log.info(`[Workspace] Background warming ${projectId}...`);
 
         // Copy latest e2e-check.js to container (image may be outdated)
+        // Write directly to bind-mount path on host, then cp inside container
         try {
           const e2eSrc = require('path').join(__dirname, '../../scripts/e2e-check.js');
+          const { config: appConfig } = require('../config');
+          const hostDrapeDir = require('path').join(appConfig.projectsRoot, projectId, '.drape');
+          const hostDst = require('path').join(hostDrapeDir, 'e2e-check.js');
           if (require('fs').existsSync(e2eSrc)) {
-            await fileService.writeFile(projectId, '../.e2e-check.js', require('fs').readFileSync(e2eSrc, 'utf-8'));
-            await workspaceService.exec(projectId, userId, 'cp /home/coder/.e2e-check.js /usr/local/bin/e2e-check.js 2>/dev/null || true');
+            if (!require('fs').existsSync(hostDrapeDir)) require('fs').mkdirSync(hostDrapeDir, { recursive: true });
+            require('fs').copyFileSync(e2eSrc, hostDst);
+            // Can't write to /usr/local/bin as coder user — use docker cp from host
+            const containerList = await dockerService.listContainers();
+            const container = containerList.find((c: any) => c.projectId === projectId);
+            if (container) {
+              require('child_process').execSync(
+                `docker cp ${hostDst} ${container.id}:/usr/local/bin/e2e-check.js`
+              );
+            }
+            const copiedSize = require('fs').statSync(hostDst).size;
+            log.info(`[Workspace] Copied e2e-check.js to container via bind mount (${copiedSize} bytes)`);
           }
-        } catch {}
+        } catch (e2eErr: any) {
+          log.warn(`[Workspace] Failed to copy e2e-check.js: ${e2eErr.message}`);
+        }
 
         // Fix Tailwind CSS version mismatch before build
         if (projectInfo.type === 'nextjs') {

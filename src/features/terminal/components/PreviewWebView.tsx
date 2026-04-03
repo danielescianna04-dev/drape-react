@@ -450,7 +450,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
                       }
                     }
                     // Exhausted retries or non-transient error — check for env error first
-                    console.error('WebView detected proxy error:', rawMsg);
+                    console.warn('WebView detected proxy error:', rawMsg);
                     if (onEnvError && isEnvRelatedMessage(rawMsg)) {
                       onEnvError(rawMsg);
                       return;

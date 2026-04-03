@@ -15,11 +15,15 @@ import { iapRouter } from './iap.routes';
 import { authRouter } from './auth.routes';
 import { dbRouter } from './db.routes';
 import { dataExportRouter } from './data-export.routes';
-import { createPreviewProxy, createAssetProxy } from '../middleware/vm-router';
+import { createPreviewProxy, createAssetProxy, createSubdomainPreviewProxy } from '../middleware/vm-router';
 import { config } from '../config';
 import { requireAuth } from '../middleware/auth';
 
 export function mountRoutes(app: Express): void {
+  // Subdomain preview proxy: {projectId}.drape.info → container dev server
+  // Must be registered BEFORE all other routes to intercept subdomain requests
+  app.use(createSubdomainPreviewProxy());
+
   // Health & logs (root level) — public
   app.use('/', healthRouter);
 

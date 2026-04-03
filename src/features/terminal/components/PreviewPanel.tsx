@@ -341,62 +341,50 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   t={t}
                 />
               ) : (
-                <>
-                  {/* Gate: hide WebView visually while QA verification is in progress */}
-                  {autoFix.state !== 'verified' && autoFix.state !== 'idle' && serverStatus === 'running' && (
-                    <PreviewVerifyingScreen statusMessage={autoFix.statusMessage} />
-                  )}
-                  <View style={
-                    autoFix.state !== 'verified' && autoFix.state !== 'idle' && serverStatus === 'running'
-                      ? { position: 'absolute', opacity: 0, pointerEvents: 'none', width: '100%', height: '100%' }
-                      : { flex: 1 }
-                  }>
-                    <PreviewWebView
-                      webViewRef={webViewRef}
-                      currentPreviewUrl={currentPreviewUrl}
-                      coderToken={coderToken}
-                      globalFlyMachineId={globalFlyMachineId}
-                      previewAccessToken={previewAccessToken}
-                      flyMachineIdRef={flyMachineIdRef}
-                      hasWebUI={hasWebUI}
-                      webViewReady={webViewReady && (autoFix.state === 'verified' || autoFix.state === 'idle' || preflightDoneRef.current)}
-                      serverStatus={serverStatus}
-                      isLoading={isLoading}
-                      terminalOutput={terminalOutput}
-                      terminalScrollRef={terminalScrollRef}
-                      maskOpacityAnim={startup.maskOpacityAnim}
-                      previewError={startup.previewError}
-                      previewLogs={startup.previewLogs}
-                      displayedMessage={autoFix.isFixing ? autoFix.statusMessage : startup.displayedMessage}
-                      startingMessage={startup.startingMessage}
-                      smoothProgress={startup.smoothProgress}
-                      elapsedSeconds={startup.elapsedSeconds}
-                      pulseAnim={startup.pulseAnim}
-                      setIsLoading={setIsLoading}
-                      setCanGoBack={setCanGoBack}
-                      setCanGoForward={setCanGoForward}
-                      setWebViewReady={setWebViewReady}
-                      setCurrentPreviewUrl={setCurrentPreviewUrl}
-                      setSelectedElement={chat.setSelectedElement}
-                      setPreviewError={startup.setPreviewError}
-                      setServerStatus={setServerStatus}
-                      setIsStarting={startup.setIsStarting}
-                      handleRefresh={handleRefresh}
-                      onClose={handleClose}
-                      onRetryPreview={handleRetryPreview}
-                      onSendErrorReport={sendErrorToChat}
-                      onEnvError={redirectToEnvVarsWithError}
-                      onJsError={(msg: string) => { if (!preflightDoneRef.current) jsErrorsRef.current.push(msg); }}
-                      topInset={insets.top}
-                      viewportMode={viewportMode}
-                      projectId={projectId || ''}
-                      wsUrl={wsUrl}
-                      authToken={terminalAuthToken}
-                      startCommand={projectInfo?.startCommand}
-                      t={t}
-                    />
-                  </View>
-                </>
+                <PreviewWebView
+                  webViewRef={webViewRef}
+                  currentPreviewUrl={currentPreviewUrl}
+                  coderToken={coderToken}
+                  globalFlyMachineId={globalFlyMachineId}
+                  previewAccessToken={previewAccessToken}
+                  flyMachineIdRef={flyMachineIdRef}
+                  hasWebUI={hasWebUI}
+                  webViewReady={webViewReady && (autoFix.state === 'verified' || autoFix.state === 'idle' || preflightDoneRef.current)}
+                  serverStatus={serverStatus}
+                  isLoading={isLoading}
+                  terminalOutput={terminalOutput}
+                  terminalScrollRef={terminalScrollRef}
+                  maskOpacityAnim={startup.maskOpacityAnim}
+                  previewError={startup.previewError}
+                  previewLogs={startup.previewLogs}
+                  displayedMessage={autoFix.isFixing ? autoFix.statusMessage : startup.displayedMessage}
+                  startingMessage={startup.startingMessage}
+                  smoothProgress={startup.smoothProgress}
+                  elapsedSeconds={startup.elapsedSeconds}
+                  pulseAnim={startup.pulseAnim}
+                  setIsLoading={setIsLoading}
+                  setCanGoBack={setCanGoBack}
+                  setCanGoForward={setCanGoForward}
+                  setWebViewReady={setWebViewReady}
+                  setCurrentPreviewUrl={setCurrentPreviewUrl}
+                  setSelectedElement={chat.setSelectedElement}
+                  setPreviewError={startup.setPreviewError}
+                  setServerStatus={setServerStatus}
+                  setIsStarting={startup.setIsStarting}
+                  handleRefresh={handleRefresh}
+                  onClose={handleClose}
+                  onRetryPreview={handleRetryPreview}
+                  onSendErrorReport={sendErrorToChat}
+                  onEnvError={redirectToEnvVarsWithError}
+                  onJsError={(msg: string) => { if (!preflightDoneRef.current) jsErrorsRef.current.push(msg); }}
+                  topInset={insets.top}
+                  viewportMode={viewportMode}
+                  projectId={projectId || ''}
+                  wsUrl={wsUrl}
+                  authToken={terminalAuthToken}
+                  startCommand={projectInfo?.startCommand}
+                  t={t}
+                />
               )}
             </View>
           </View>

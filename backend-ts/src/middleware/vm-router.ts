@@ -480,6 +480,7 @@ export function createSubdomainPreviewProxy() {
         headers: {
           ...req.headers,
           host: `localhost:${target.port}`,
+          'accept-encoding': 'identity',
           'x-forwarded-for': req.ip || req.socket.remoteAddress || '',
           'x-forwarded-proto': 'https',
           'x-forwarded-host': host,

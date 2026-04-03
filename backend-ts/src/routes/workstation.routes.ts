@@ -1292,7 +1292,7 @@ Return a JSON object with this EXACT structure:
 
 Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 components, relevant API routes.`;
 
-    const archStream = aiProviderService.chatStream('gemini-3-flash',
+    const archStream = aiProviderService.chatStream('claude-4-6-sonnet',
       [{ role: 'user', content: archPrompt }],
       undefined, 'Return only valid JSON.', { temperature: 0.2, maxTokens: 4000 }
     );
@@ -1307,7 +1307,7 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
   // ═══ STEP 2: Full Code Generation with architecture context ═══
   update(17, 'Generating code...', 'AI Generating');
   // Sonnet 4.6 for initial generation (high quality), Flash for fallback
-  const models = ['claude-4-6-sonnet', 'gemini-3-flash', 'gemini-3-flash'];
+  const models = ['claude-4-6-sonnet', 'claude-4-6-sonnet', 'claude-4-6-sonnet'];
   const systemPrompt = getProjectCreationSystemPrompt(technology, isCloudMode, supabaseCredentials, neonCredentials);
   const userPrompt = templateApplied
     ? getProjectCreationUserPrompt(technology, projectName, description, isCloudMode, supabaseCredentials, neonCredentials)
