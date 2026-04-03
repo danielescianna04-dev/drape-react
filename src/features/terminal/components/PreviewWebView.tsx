@@ -147,8 +147,8 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
     if (!webViewRef.current || serverStatus !== 'running') return;
     const isDesktop = viewportMode === 'desktop';
     const content = isDesktop
-      ? 'width=1280, initial-scale=0.3, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes'
-      : 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes';
+      ? 'width=1280, initial-scale=0.3, minimum-scale=0.1, maximum-scale=1.0, user-scalable=no'
+      : 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no';
     webViewRef.current.injectJavaScript(`
       (function() {
         var meta = document.querySelector('meta[name="viewport"]');
@@ -207,6 +207,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
 
               injectedJavaScriptBeforeContentLoaded={`
               (function() {
+                if (window.__drapeInit) return; window.__drapeInit = true;
                 var token = ${JSON.stringify(coderToken || '')};
                 var vmId = ${JSON.stringify(globalFlyMachineId || '')};
                 var previewToken = ${JSON.stringify(previewAccessToken || '')};
@@ -227,8 +228,8 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
                 // Set viewport based on mode (mobile or desktop)
                 var isDesktopMode = ${JSON.stringify(viewportMode === 'desktop')};
                 var viewportContent = isDesktopMode
-                  ? 'width=1280, initial-scale=0.3, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes'
-                  : 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes';
+                  ? 'width=1280, initial-scale=0.3, minimum-scale=0.1, maximum-scale=1.0, user-scalable=no'
+                  : 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no';
                 var existingMeta = document.querySelector('meta[name="viewport"]');
                 if (existingMeta) {
                   existingMeta.setAttribute('content', viewportContent);
@@ -243,7 +244,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
                 // White background (most generated apps use white)
                 if (document.head) {
                   var style = document.createElement('style');
-                  style.innerHTML = 'html, body { background-color: #ffffff !important; }';
+                  style.textContent = 'html, body { background-color: #ffffff !important; -webkit-tap-highlight-color: transparent; } * { touch-action: pan-x pan-y; }';
                   document.head.appendChild(style);
                 }
 
@@ -521,7 +522,6 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
               javaScriptEnabled={true}
               domStorageEnabled={true}
               startInLoadingState={false}
-              scalesPageToFit={true}
               bounces={false}
               mixedContentMode="compatibility"
               allowsInlineMediaPlayback={true}

@@ -141,61 +141,35 @@ async function getClickableElements(page) {
   const elements = await page.evaluate(() => {
     const results = [];
     const seen = new Set();
+    const rects = []; // For bounding box deduplication
 
-    // Internal links (a[href])
-    for (const a of document.querySelectorAll('a[href]')) {
-      const href = a.getAttribute('href') || '';
-      // Skip external links, anchors, javascript:, mailto:, tel:
-      if (href.startsWith('http') || href.startsWith('#') || href.startsWith('javascript:') ||
-          href.startsWith('mailto:') || href.startsWith('tel:') || href === '') continue;
-      const key = `link:${href}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      const rect = a.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) continue; // hidden
-      const text = (a.innerText || a.getAttribute('aria-label') || '').trim().substring(0, 50);
-      results.push({
-        type: 'link',
-        href,
-        text,
-        x: Math.round(rect.x + rect.width / 2),
-        y: Math.round(rect.y + rect.height / 2),
-        selector: null, // will use coordinates
-      });
+    // Helper: check if a rect is fully contained in an already-captured rect
+    function isContainedByExisting(rect) {
+      for (const r of rects) {
+        if (rect.x >= r.x && rect.y >= r.y &&
+            rect.x + rect.width <= r.x + r.width &&
+            rect.y + rect.height <= r.y + r.height) {
+          return true;
+        }
+      }
+      return false;
     }
 
-    // Buttons and clickable elements (not in forms)
-    for (const btn of document.querySelectorAll('button, [role="button"], [onclick]')) {
-      const rect = btn.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) continue;
-      // Skip submit buttons inside forms
-      if (btn.closest('form') && btn.type === 'submit') continue;
-      const text = (btn.innerText || btn.getAttribute('aria-label') || '').trim().substring(0, 50);
-      const key = `btn:${text}:${Math.round(rect.x)}:${Math.round(rect.y)}`;
-      if (seen.has(key) || !text) continue;
-      seen.add(key);
-      results.push({
-        type: 'button',
-        href: null,
-        text,
-        x: Math.round(rect.x + rect.width / 2),
-        y: Math.round(rect.y + rect.height / 2),
-        selector: null,
-      });
-    }
+    function addElement(el, type, href) {
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) return; // Too small
+      if (isContainedByExisting(rect)) return; // Child of already-captured parent
 
-    // Nav items that aren't already captured
-    for (const nav of document.querySelectorAll('nav a, nav button, [role="navigation"] a, [role="tab"], [role="menuitem"]')) {
-      const rect = nav.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) continue;
-      const text = (nav.innerText || nav.getAttribute('aria-label') || '').trim().substring(0, 50);
-      const href = nav.getAttribute('href') || '';
-      const key = `nav:${text}:${href}`;
-      if (seen.has(key) || !text) continue;
+      const text = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().substring(0, 50);
+      if (!text) return; // No text = can't identify in report
+
+      const key = `${type}:${text}:${Math.round(rect.x)}:${Math.round(rect.y)}`;
+      if (seen.has(key)) return;
       seen.add(key);
+
+      rects.push({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
       results.push({
-        type: 'nav',
+        type,
         href: href || null,
         text,
         x: Math.round(rect.x + rect.width / 2),
@@ -204,26 +178,103 @@ async function getClickableElements(page) {
       });
     }
 
+    // 1. Internal links (a[href])
+    for (const a of document.querySelectorAll('a[href]')) {
+      const href = a.getAttribute('href') || '';
+      if (href.startsWith('http') || href.startsWith('javascript:') ||
+          href.startsWith('mailto:') || href.startsWith('tel:') || href === '') continue;
+      if (href === '#' || (href.startsWith('#') && href.length < 30)) {
+        addElement(a, 'link', href);
+        continue;
+      }
+      addElement(a, 'link', href);
+    }
+
+    // 2. Buttons and role="button"
+    for (const btn of document.querySelectorAll('button, [role="button"], [onclick], input[type="button"], input[type="submit"]')) {
+      if (btn.closest('form') && (btn.type === 'submit' || btn.tagName === 'INPUT')) continue;
+      addElement(btn, 'button', null);
+    }
+
+    // 3. Nav items
+    for (const nav of document.querySelectorAll('nav a, nav button, [role="navigation"] a, [role="tab"], [role="menuitem"]')) {
+      const href = nav.getAttribute('href') || '';
+      addElement(nav, 'nav', href || null);
+    }
+
+    // 4. Elements with cursor: pointer (Tailwind cursor-pointer, inline styles, CSS)
+    const allViewportEls = document.querySelectorAll('div, span, li, td, th, label, [tabindex]');
+    const viewportEls = Array.from(allViewportEls).filter(el => {
+      const r = el.getBoundingClientRect();
+      return r.bottom > 0 && r.top < window.innerHeight && r.width >= 10 && r.height >= 10;
+    }).slice(0, 200);
+    for (const el of viewportEls) {
+      if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' ||
+          el.getAttribute('role') === 'button' || el.getAttribute('role') === 'tab' ||
+          el.getAttribute('role') === 'menuitem') continue;
+
+      const rect = el.getBoundingClientRect();
+
+      const style = window.getComputedStyle(el);
+      const hasCursorPointer = style.cursor === 'pointer';
+      const hasTabindex = el.hasAttribute('tabindex') && el.getAttribute('tabindex') !== '-1';
+      const hasDataAction = el.hasAttribute('data-action');
+
+      if (hasCursorPointer || hasTabindex || hasDataAction) {
+        addElement(el, 'interactive', null);
+      }
+    }
+
+    // 5. Broken links (a without href or href="#")
+    for (const a of document.querySelectorAll('a:not([href]), a[href=""], a[href="#"]')) {
+      addElement(a, 'broken-link', null);
+    }
+
     return results;
   });
-  const links = elements.filter(e => e.type === 'link').length;
-  const buttons = elements.filter(e => e.type === 'button').length;
-  const navItems = elements.filter(e => e.type === 'nav').length;
-  console.error(`[e2e] getClickableElements on ${page.url()}: ${links} links, ${buttons} buttons, ${navItems} nav items`);
+
+  const counts = {};
+  for (const e of elements) counts[e.type] = (counts[e.type] || 0) + 1;
+  console.error('[e2e] getClickableElements on ' + page.url() + ': ' + JSON.stringify(counts) + ' (' + elements.length + ' total)');
   return elements;
 }
 
-// ── Wait for navigation or content change ──────────────────────
+// ── Deep DOM snapshot for change detection ────────────────────
 
-async function waitForChange(page, prevUrl, prevText, timeout = CLICK_TIMEOUT) {
+async function takeDomSnapshot(page) {
+  return page.evaluate(() => {
+    const body = document.body;
+    const text = (body?.innerText?.trim() || '').substring(0, 500);
+    const topChildren = body ? Array.from(body.children).slice(0, 50).map(c =>
+      c.tagName + (c.id ? '#' + c.id : '') + (c.className ? '.' + String(c.className).split(' ')[0] : '')
+    ).join('|') : '';
+    const modalCount = document.querySelectorAll(
+      '[role="dialog"], .modal, [aria-modal="true"], dialog, [class*="modal"], [class*="popup"], [class*="overlay"], [class*="drawer"]'
+    ).length;
+    const visibleCount = document.querySelectorAll('*').length;
+    return {
+      url: window.location.href,
+      text,
+      domStructure: topChildren,
+      scrollY: window.scrollY,
+      modalCount,
+      visibleCount,
+    };
+  }).catch(() => ({ url: '', text: '', domStructure: '', scrollY: 0, modalCount: 0, visibleCount: 0 }));
+}
+
+async function waitForChange(page, prevSnapshot, timeout = CLICK_TIMEOUT) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     await new Promise(r => setTimeout(r, 300));
-    const curUrl = page.url();
-    if (curUrl !== prevUrl) return { changed: true, type: 'navigation', url: curUrl };
-    // Check if content changed (e.g. modal opened, tab switched)
-    const curText = await page.evaluate(() => (document.body?.innerText?.trim() || '').substring(0, 200)).catch(() => '');
-    if (curText !== prevText && curText.length > 0) return { changed: true, type: 'content', url: curUrl };
+    const cur = await takeDomSnapshot(page);
+
+    if (cur.url !== prevSnapshot.url) return { changed: true, type: 'navigation', url: cur.url };
+    if (cur.text !== prevSnapshot.text && cur.text.length > 0) return { changed: true, type: 'content', url: cur.url };
+    if (cur.domStructure !== prevSnapshot.domStructure) return { changed: true, type: 'dom-change', url: cur.url };
+    if (cur.modalCount !== prevSnapshot.modalCount) return { changed: true, type: 'modal', url: cur.url };
+    if (Math.abs(cur.scrollY - prevSnapshot.scrollY) > 50) return { changed: true, type: 'scroll', url: cur.url };
+    if (cur.visibleCount !== prevSnapshot.visibleCount) return { changed: true, type: 'elements-changed', url: cur.url };
   }
   return { changed: false, type: 'none', url: page.url() };
 }
@@ -331,13 +382,28 @@ async function verify(pages) {
       }
 
       // Get clickable elements on this page
-      await page.waitForTimeout(1000); // Wait for hydration before checking clickable elements
+      await new Promise(r => setTimeout(r, 1000)); // Wait for hydration before checking clickable elements
       const clickables = await getClickableElements(page).catch(() => []);
       console.error(`[Verify] Page ${testPage}: ${clickables.length} clickable elements`);
 
       for (const el of clickables) {
         if (clickCount >= MAX_CLICKS) break;
-        const clickKey = `${el.type}:${el.text}:${el.href || ''}`;
+
+        // Broken links are structural errors — report without clicking
+        if (el.type === 'broken-link') {
+          clickResults.push({
+            element: { type: el.type, text: el.text, href: el.href },
+            fromPage: testPage,
+            result: 'broken-link',
+            toPage: null,
+            error: `"${el.text}" is a link without a destination (no href) — broken link`,
+          });
+          results.passed = false;
+          results.errors.push(`[nav] "${el.text}" is a broken link (no href)`);
+          continue;
+        }
+
+        const clickKey = `${testPage}:${el.type}:${el.text}:${el.href || ''}`;
         if (testedClicks.has(clickKey)) continue;
         testedClicks.add(clickKey);
 
@@ -352,8 +418,7 @@ async function verify(pages) {
           else continue; // Element not found anymore — skip
         }
 
-        const prevUrl = page.url();
-        const prevText = await page.evaluate(() => (document.body?.innerText?.trim() || '').substring(0, 200)).catch(() => '');
+        const prevSnapshot = await takeDomSnapshot(page);
         jsErrors.length = 0;
 
         const clickResult = {
@@ -372,10 +437,10 @@ async function verify(pages) {
           await page.mouse.click(el.x, el.y);
           clickCount++;
 
-          const change = await waitForChange(page, prevUrl, prevText);
+          const change = await waitForChange(page, prevSnapshot);
 
           if (change.changed) {
-            const newPath = new URL(change.url).pathname;
+            const newPath = change.url ? new URL(change.url).pathname : '(unknown)';
             clickResult.toPage = newPath;
             clickResult.result = change.type;
 
@@ -415,27 +480,10 @@ async function verify(pages) {
             }
           } else {
             clickResult.result = 'no-change';
-            // Check if this button is in a group (profile selector, tabs, menu)
-            if (el.type === 'button' || el.type === 'nav') {
-              const isSuspicious = await page.evaluate((x, y) => {
-                let target = document.elementFromPoint(x, y);
-                if (!target) return false;
-                const btn = target.closest('button, [role="button"]');
-                if (!btn) return false;
-                const parent = btn.parentElement;
-                if (!parent) return false;
-                const sibs = parent.querySelectorAll('button, [role="button"]').length;
-                if (sibs >= 2) return true;
-                const gp = parent.parentElement;
-                return gp ? gp.querySelectorAll('button, [role="button"]').length >= 3 : false;
-              }, el.x, el.y).catch(() => false);
-
-              if (isSuspicious) {
-                clickResult.error = `Button "${el.text}" in a group produced no change — broken click handler`;
-                results.passed = false;
-                results.errors.push(`[nav] Button "${el.text}" clicked but nothing happened — broken interaction`);
-              }
-            }
+            // Zero-tolerance: in a generated project, every interactive element MUST do something
+            clickResult.error = `"${el.text}" (${el.type}) clicked but nothing happened — non-functional interactive element`;
+            results.passed = false;
+            results.errors.push(`[nav] "${el.text}" (${el.type}) clicked but nothing happened — broken interaction`);
           }
 
           // Capture "after" screenshot and attach both to the result
@@ -487,5 +535,24 @@ async function verify(pages) {
   const navIssues = results.navigation.filter(n => n.error).length;
   console.error(`[Verify] ${passCount}/${results.pages.length} pages OK. ${navIssues} nav issues. ${results.errors.length} total errors.`);
 
-  process.stdout.write(JSON.stringify(results));
+  // Write full results (with screenshots) to file in project dir (bind-mounted)
+  const drapeDir = '/home/coder/project/.drape';
+  try {
+    if (!fs.existsSync(drapeDir)) fs.mkdirSync(drapeDir, { recursive: true });
+    const outputPath = path.join(drapeDir, 'e2e-results.json');
+    fs.writeFileSync(outputPath, JSON.stringify(results));
+    console.error('[e2e] Full results written to ' + outputPath + ' (' + Math.round(fs.statSync(outputPath).size / 1024) + 'KB)');
+  } catch (writeErr) {
+    console.error('[e2e] Failed to write full results file: ' + writeErr.message);
+  }
+
+  // Write stripped version (no screenshots) to stdout for backward compat
+  const stripped = JSON.parse(JSON.stringify(results));
+  if (stripped.pages) {
+    stripped.pages.forEach(p => { delete p.screenshot; });
+  }
+  if (stripped.navigation) {
+    stripped.navigation.forEach(n => { delete n.screenshotBefore; delete n.screenshotAfter; delete n.screenshot; });
+  }
+  process.stdout.write(JSON.stringify(stripped));
 })();

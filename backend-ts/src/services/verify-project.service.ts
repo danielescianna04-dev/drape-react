@@ -299,6 +299,21 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
       } else {
         const e2e = JSON.parse(e2eRaw);
 
+        // Read full results (with screenshots) from bind-mounted file
+        try {
+          const { config: appConfig } = require('../config');
+          const fullResultPath = require('path').join(
+            appConfig.projectsRoot, projectId, '.drape', 'e2e-results.json'
+          );
+          const fullData = require('fs').readFileSync(fullResultPath, 'utf8');
+          const fullE2e = JSON.parse(fullData);
+          if (fullE2e.pages) e2e.pages = fullE2e.pages;
+          if (fullE2e.navigation) e2e.navigation = fullE2e.navigation;
+          log.info(`[Verify] Loaded full E2E results from file: ${fullE2e.pages?.length || 0} pages, ${fullE2e.navigation?.length || 0} nav tests`);
+        } catch (readErr: any) {
+          log.warn(`[Verify] Could not read full e2e results file — using stripped stdout: ${readErr.message}`);
+        }
+
         if (e2e.passed === false && e2e.errors?.length > 0) {
           for (const err of e2e.errors.slice(0, 8)) {
             if (!errors.some(ex => ex.includes(err.substring(0, 40)))) errors.push(err);
@@ -308,9 +323,9 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
         // Capture pages and navigation for verification report
         if (e2e.pages) {
           pages = e2e.pages;
-          // Collect screenshots from E2E — ALL pages (broken ones for auto-fix context)
+          // Collect screenshots for ALL pages (not just broken ones)
           for (const pg of e2e.pages) {
-            if (pg.screenshot && pg.errors?.length > 0) {
+            if (pg.screenshot) {
               screenshots.set(pg.path, pg.screenshot);
             }
           }
@@ -319,11 +334,15 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
         // Capture navigation results for verification report
         if (e2e.navigation) {
           navigation = e2e.navigation;
-          // Collect screenshots from navigation test (click-through issues)
+          // Collect screenshots from navigation tests (field names: screenshotBefore/screenshotAfter)
           for (const nav of e2e.navigation) {
-            if (nav.error && nav.screenshot) {
-              const key = `click:${nav.element?.text || 'unknown'}`;
-              screenshots.set(key, nav.screenshot);
+            if (nav.screenshotBefore) {
+              const key = `click:${nav.element?.text || 'unknown'}:before`;
+              screenshots.set(key, nav.screenshotBefore);
+            }
+            if (nav.error && nav.screenshotAfter) {
+              const key = `click:${nav.element?.text || 'unknown'}:after`;
+              screenshots.set(key, nav.screenshotAfter);
             }
           }
         }
