@@ -43,10 +43,8 @@ export const SchemaVisualizerView: React.FC<Props> = ({ projectId, dbPath, onBac
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={20} color="#8B5CF6" />
-        </TouchableOpacity>
+      <View style={{ height: insets.top + 50 }} />
+      <View style={styles.header}>
         <Text style={styles.headerTitle}>Schema</Text>
         <Text style={styles.headerSubtitle}>{schema.length} tables</Text>
       </View>
@@ -102,21 +100,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-    gap: 10,
-  },
-  backBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(139, 92, 246, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerTitle: {
     color: '#fff',

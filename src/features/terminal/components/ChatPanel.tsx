@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Dimensions, Keyboard, InteractionManager } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Dimensions, Keyboard, InteractionManager, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
@@ -15,6 +15,8 @@ import { useAuthStore } from '../../../core/auth/authStore';
 import { ChatSession } from '../../../shared/types';
 import { FolderPickerModal } from './FolderPickerModal';
 import { tracciaNuovaChat, tracciaChatSelezionata, tracciaChatEliminata, tracciaChatRinominata, tracciaChatFissata, tracciaChatSpostataCartella, tracciaPannelloAperto } from '../../../core/services/analyticsService';
+import { getAuthToken } from '../../../core/api/getAuthToken';
+import { config } from '../../../config/config';
 
 // ── Navigation section definitions ────────────────────────────────────
 const NAV_SECTIONS = [
@@ -290,22 +292,27 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
   };
 
   // ── Navigation action handlers ────────────────────────────────────
-  const handleOpenFiles = useCallback(() => {
+  const handleOpenFiles = useCallback(async () => {
     Keyboard.dismiss();
     tracciaPannelloAperto('files');
-    const filesTab = tabs.find(t => t.id === 'files');
-    if (filesTab) {
-      setActiveTab('files');
-    } else {
-      addTab({
-        id: 'files',
-        type: 'files' as any,
-        title: 'File',
-        data: {},
-      });
+    const projectId = currentWorkstation?.projectId || currentWorkstation?.id;
+    if (!projectId) {
+      Alert.alert('Error', 'No project selected');
+      return;
+    }
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        Alert.alert('Error', 'Authentication required');
+        return;
+      }
+      const url = `${config.apiUrl}/files/${projectId}/browse?token=${encodeURIComponent(token)}`;
+      await Linking.openURL(url);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to open file browser');
     }
     handleClose();
-  }, [tabs, setActiveTab, addTab]);
+  }, [currentWorkstation]);
 
   const handleOpenPreview = useCallback(() => {
     Keyboard.dismiss();

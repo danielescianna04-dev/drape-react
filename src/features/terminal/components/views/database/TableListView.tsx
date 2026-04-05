@@ -2,8 +2,6 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { GlassCard } from '../../../../settings/components/GlassCard';
 
 interface Props {
   tables: { name: string; rowCount: number }[];
@@ -16,72 +14,58 @@ interface Props {
   showBack: boolean;
 }
 
-const TABLE_COLORS = [
-  '#8B5CF6', '#3ECF8E', '#60A5FA', '#F59E0B', '#EF4444',
-  '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#84CC16',
-];
+const GlassWrap = ({ children, style }: { children: React.ReactNode; style?: any }) => (
+  <View style={[styles.glassWrap, style]}>{children}</View>
+);
 
 export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSelectTable, onBack, onOpenSQL, onOpenSchema, showBack }) => {
   const insets = useSafeAreaInsets();
   const isSupabase = dbPath === '__supabase__';
   const isNeon = dbPath === '__neon__' || dbPath.includes('neon.tech');
   const isCloud = isSupabase || isNeon;
-  const dbName = isNeon ? 'Neon' : isSupabase ? 'Supabase' : (dbPath.split('/').pop() || dbPath);
-  const accentColor = isNeon ? '#00E599' : isSupabase ? '#3ECF8E' : '#60A5FA';
   const totalRows = tables.reduce((sum, t) => sum + (t.rowCount || 0), 0);
 
   return (
     <View style={styles.container}>
-      {/* Stats Cards — below floating buttons */}
       <View style={{ height: insets.top + 50 }} />
       <View style={styles.statsRow}>
-        <GlassCard style={styles.statGlass}>
+        <GlassWrap style={styles.statGlass}>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{tables.length}</Text>
             <Text style={styles.statLabel}>Tables</Text>
           </View>
-        </GlassCard>
-        <GlassCard style={styles.statGlass}>
+        </GlassWrap>
+        <GlassWrap style={styles.statGlass}>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{totalRows.toLocaleString()}</Text>
             <Text style={styles.statLabel}>Total Rows</Text>
           </View>
-        </GlassCard>
-        <GlassCard style={styles.statGlass}>
-          <View style={styles.statCard}>
-            <Text style={[styles.statValue, { color: accentColor }]}>
-              {isCloud ? 'PG' : 'SQLite'}
-            </Text>
-            <Text style={styles.statLabel}>Engine</Text>
-          </View>
-        </GlassCard>
+        </GlassWrap>
       </View>
 
-      {/* Quick Actions */}
       <View style={styles.actions}>
-        <GlassCard style={{ borderRadius: 20 }}>
+        <GlassWrap style={{ borderRadius: 20 }}>
           <TouchableOpacity style={styles.actionBtn} onPress={onOpenSQL} activeOpacity={0.7}>
             <Ionicons name="code-slash-outline" size={15} color="#9D98B2" />
             <Text style={styles.actionText}>SQL</Text>
           </TouchableOpacity>
-        </GlassCard>
-        <GlassCard style={{ borderRadius: 20 }}>
+        </GlassWrap>
+        <GlassWrap style={{ borderRadius: 20 }}>
           <TouchableOpacity style={styles.actionBtn} onPress={onOpenSchema} activeOpacity={0.7}>
             <Ionicons name="git-network-outline" size={15} color="#9D98B2" />
             <Text style={styles.actionText}>Schema</Text>
           </TouchableOpacity>
-        </GlassCard>
+        </GlassWrap>
         {showBack && (
-          <GlassCard style={{ borderRadius: 20 }}>
+          <GlassWrap style={{ borderRadius: 20 }}>
             <TouchableOpacity style={styles.actionBtn} onPress={onBack} activeOpacity={0.7}>
               <Ionicons name="refresh-outline" size={15} color="#9D98B2" />
               <Text style={styles.actionText}>Refresh</Text>
             </TouchableOpacity>
-          </GlassCard>
+          </GlassWrap>
         )}
       </View>
 
-      {/* Section Label */}
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionLabel}>TABLES</Text>
       </View>
@@ -96,35 +80,31 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
           {tables.map((table, i) => {
             const hasRows = (table.rowCount || 0) > 0;
             return (
-              <GlassCard key={i} style={{ marginBottom: 8 }}>
+              <GlassWrap key={i} style={styles.tableCardGlass}>
                 <TouchableOpacity
                   style={styles.tableCard}
                   onPress={() => onSelectTable(table.name)}
                   activeOpacity={0.7}
                 >
-                  <View style={styles.tableContent}>
-                    <View style={styles.tableMain}>
-                      <View style={styles.tableIconWrap}>
-                        <Ionicons name="layers-outline" size={18} color="#A78BFA" />
-                      </View>
-                      <View style={styles.tableInfo}>
-                        <Text style={styles.tableName}>{table.name}</Text>
-                        <Text style={styles.tableType}>
-                          {isCloud ? 'PostgreSQL' : 'SQLite'} table
-                        </Text>
-                      </View>
+                  <View style={styles.tableIconWrap}>
+                    <Ionicons name="layers-outline" size={18} color="#A78BFA" />
+                  </View>
+                  <View style={styles.tableInfo}>
+                    <Text style={styles.tableName}>{table.name}</Text>
+                    <Text style={styles.tableType}>
+                      {isCloud ? 'PostgreSQL' : 'SQLite'} table
+                    </Text>
+                  </View>
+                  <View style={styles.tableRight}>
+                    <View style={[styles.rowCountBadge, hasRows && styles.rowCountBadgeActive]}>
+                      <Text style={[styles.rowCountText, hasRows && styles.rowCountTextActive]}>
+                        {(table.rowCount || 0).toLocaleString()}
+                      </Text>
                     </View>
-                    <View style={styles.tableRight}>
-                      <View style={[styles.rowCountBadge, hasRows && styles.rowCountBadgeActive]}>
-                        <Text style={[styles.rowCountText, hasRows && styles.rowCountTextActive]}>
-                          {(table.rowCount || 0).toLocaleString()}
-                        </Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" />
-                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" />
                   </View>
                 </TouchableOpacity>
-              </GlassCard>
+              </GlassWrap>
             );
           })}
           {tables.length === 0 && (
@@ -145,50 +125,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 48,
-    paddingBottom: 14,
-  },
-  backBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(139, 92, 246, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  headerInfo: {
-    flex: 1,
-  },
-  headerTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  supabaseBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    backgroundColor: 'rgba(62, 207, 142, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  supabaseBadgeText: {
-    fontSize: 12,
-  },
-  headerTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  headerSubtitle: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 12,
-    marginTop: 3,
+  glassWrap: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(22, 18, 35, 0.7)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(180, 160, 255, 0.08)',
+    borderTopColor: 'rgba(200, 180, 255, 0.10)',
   },
   statsRow: {
     flexDirection: 'row',
@@ -198,8 +141,6 @@ const styles = StyleSheet.create({
   },
   statGlass: {
     flex: 1,
-    borderRadius: 14,
-    overflow: 'hidden',
   },
   statCard: {
     paddingVertical: 12,
@@ -262,27 +203,14 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
   },
+  tableCardGlass: {
+    marginBottom: 8,
+  },
   tableCard: {
     flexDirection: 'row',
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  tableColorBar: {
-    width: 0,
-  },
-  tableContent: {
-    flex: 1,
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingVertical: 14,
     paddingHorizontal: 14,
-  },
-  tableMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
   },
   tableIconWrap: {
     width: 36,
@@ -291,6 +219,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(167, 139, 250, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 12,
   },
   tableInfo: {
     flex: 1,

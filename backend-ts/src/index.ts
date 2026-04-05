@@ -64,7 +64,7 @@ async function main() {
           return;
         }
       } catch (err: any) {
-        log.warn('[WS] Invalid auth token — rejecting connection');
+        log.warn(`[WS] Invalid auth token — rejecting connection: ${err.message}`);
         ws.send(JSON.stringify({ type: 'error', message: 'Invalid or expired auth token' }));
         ws.close(4001, 'Invalid auth token');
         return;

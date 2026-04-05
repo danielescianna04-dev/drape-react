@@ -1,5 +1,6 @@
 import React, { useReducer, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useWorkstationStore } from '../../../../core/terminal/workstationStore';
 import { useUIStore } from '../../../../core/terminal/uiStore';
 import { useDatabaseApi } from '../../../../hooks/useDatabaseApi';
@@ -141,6 +142,14 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
 
   return (
     <View style={styles.container}>
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <LinearGradient
+          colors={['#0C0816', '#1a0a2e', '#2d0845', '#0C0816']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
       {(state.screen === 'discovering' || state.screen === 'db-list') && (
         <DatabaseDiscovery
           databases={state.databases}
@@ -205,6 +214,6 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: '#0A0812',
   },
 });

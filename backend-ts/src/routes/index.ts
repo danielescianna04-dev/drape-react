@@ -15,6 +15,7 @@ import { iapRouter } from './iap.routes';
 import { authRouter } from './auth.routes';
 import { dbRouter } from './db.routes';
 import { dataExportRouter } from './data-export.routes';
+import { filesBrowseRouter } from './files-browse.routes';
 import { createPreviewProxy, createAssetProxy, createSubdomainPreviewProxy } from '../middleware/vm-router';
 import { config } from '../config';
 import { requireAuth } from '../middleware/auth';
@@ -65,6 +66,9 @@ export function mountRoutes(app: Express): void {
 
   // Auth email routes — public (called during registration before user is authenticated)
   app.use('/auth', authRouter);
+
+  // File browser — public (auth via query token for browser access)
+  app.use('/files', filesBrowseRouter);
 
   // --- Auth-protected routes ---
 
