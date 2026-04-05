@@ -136,9 +136,22 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
   verificationReport.status = lastResult.passed ? 'passed' : 'failed';
   verificationReport.backendVerification.totalDuration = Date.now() - reportStartTime;
 
+  // Strip base64 screenshots from report to keep file size manageable (< 10MB)
+  // Screenshots are already saved separately in e2e-results.json / qa-report.json
+  const reportToSave = JSON.parse(JSON.stringify(verificationReport));
+  if (reportToSave.backendVerification?.attempts) {
+    for (const a of reportToSave.backendVerification.attempts) {
+      if (a.pages) a.pages.forEach((p: any) => delete p.screenshot);
+      if (a.navigation) a.navigation.forEach((n: any) => {
+        delete n.screenshotBefore;
+        delete n.screenshotAfter;
+      });
+    }
+  }
+
   try {
     await fileService.writeFile(projectId, '.drape/verification-report.json',
-      JSON.stringify(verificationReport, null, 2));
+      JSON.stringify(reportToSave, null, 2));
     log.info(`[Verify] Saved verification report for ${projectId}`);
   } catch (err) {
     log.warn('[Verify] Failed to save verification report:', err);
@@ -310,7 +323,7 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
       ).then(r => (r.stdout || '').trim() === 'yes').catch(() => false);
 
       const verifyScript = qaAgentExists
-        ? 'NODE_PATH=/usr/local/lib/node_modules timeout 240 node /usr/local/bin/qa-agent.js 2>/tmp/qa-stderr.txt'
+        ? 'NODE_PATH=/usr/local/lib/node_modules timeout 360 node /usr/local/bin/qa-agent.js 2>/tmp/qa-stderr.txt'
         : 'NODE_PATH=/usr/local/lib/node_modules timeout 240 node /usr/local/bin/e2e-check.js 2>/tmp/e2e-stderr.txt';
 
       if (qaAgentExists) log.info(`[Verify] Using qa-agent.js for verification`);

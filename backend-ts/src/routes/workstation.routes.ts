@@ -504,20 +504,56 @@ workstationRouter.post('/:projectId/verification-report', asyncHandler(async (re
     return res.status(403).json({ error: 'Access denied' });
   }
 
-  // Read existing report (from backend E2E) or create new
-  let report: any = { projectId, backendVerification: null, previewVerification: null };
+  // Read existing report and MERGE — never overwrite backendVerification/qaReport
+  let report: any = null;
+
+  // Try fileService first, fallback to direct fs read
   const existing = await fileService.readFile(projectId, '.drape/verification-report.json');
   if (existing.success && existing.data) {
     try { report = JSON.parse(existing.data.content); } catch {}
   }
 
-  // Merge preview verification data
+  // Fallback: direct fs read (handles "file too large" from fileService)
+  if (!report) {
+    try {
+      const { config: appConfig } = require('../config');
+      const reportPath = require('path').join(appConfig.projectsRoot, projectId, '.drape', 'verification-report.json');
+      if (require('fs').existsSync(reportPath)) {
+        const raw = require('fs').readFileSync(reportPath, 'utf-8');
+        report = JSON.parse(raw);
+        log.info(`[Verify] Loaded verification report via direct fs fallback`);
+      }
+    } catch (fsErr: any) {
+      log.warn(`[Verify] Cannot read existing verification report: ${fsErr.message?.substring(0, 80)}`);
+    }
+  }
+
+  // If we still have no report, create minimal — but NEVER write a report that
+  // overwrites backendVerification with null
+  if (!report) {
+    report = { projectId };
+  }
+
+  // Merge preview data — preserve ALL existing fields
   report.previewVerification = previewVerification;
   report.completedAt = new Date().toISOString();
+  if (!report.projectId) report.projectId = projectId;
 
-  await fileService.writeFile(projectId, '.drape/verification-report.json',
-    JSON.stringify(report, null, 2));
+  // Write back — if report is too large, strip screenshots to fit
+  let reportJson = JSON.stringify(report, null, 2);
+  if (reportJson.length > 10_000_000) {
+    // Strip base64 screenshots to reduce size
+    if (report.backendVerification?.attempts) {
+      for (const a of report.backendVerification.attempts) {
+        if (a.pages) a.pages.forEach((p: any) => delete p.screenshot);
+        if (a.navigation) a.navigation.forEach((n: any) => { delete n.screenshotBefore; delete n.screenshotAfter; });
+      }
+    }
+    reportJson = JSON.stringify(report, null, 2);
+    log.info(`[Verify] Stripped screenshots from report to reduce size (now ${Math.round(reportJson.length / 1024)}KB)`);
+  }
 
+  await fileService.writeFile(projectId, '.drape/verification-report.json', reportJson);
   res.json({ success: true });
 }));
 

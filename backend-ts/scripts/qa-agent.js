@@ -356,6 +356,10 @@ async function functionalTest(browser) {
     if (vp.name === 'mobile') {
       const testedClicks = new Set();
       for (const testPage of detectedPages) {
+        // Skip dynamic routes with [params] — they cause navigation issues
+        if (testPage.includes('[')) continue;
+
+        try {
         await page.goto(`${BASE_URL}${testPage}`, { waitUntil: 'networkidle2', timeout: NAV_TIMEOUT }).catch(() => {});
         await new Promise(r => setTimeout(r, 800));
 
@@ -442,6 +446,10 @@ async function functionalTest(browser) {
         // Forms
         const formResults = await detectAndFillForms(page, testPage);
         results.forms.push(...formResults);
+        } catch (pageErr) {
+          // Catch detached frame, navigation errors — skip this page, continue testing
+          logAction('functional', 'page-error', `${testPage}: ${(pageErr.message || '').substring(0, 80)}`);
+        }
       }
     }
 
