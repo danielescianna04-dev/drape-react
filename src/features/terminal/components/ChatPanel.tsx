@@ -505,7 +505,7 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
             <Ionicons name="pin" size={12} color={AppColors.primary} style={{ marginRight: -4 }} />
           )}
           <Ionicons name={chat.id.startsWith('preview-') ? 'eye-outline' : 'chatbubble-outline'} size={16} color="rgba(255,255,255,0.5)" />
-          <Text style={styles.chatTitle} numberOfLines={1}>{chat.title.replace(/^..?\s?/, '')}</Text>
+          <Text style={styles.chatTitle} numberOfLines={1}>{chat.title.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s?/u, '')}</Text>
           <View
             ref={(ref) => { menuButtonRefs.current[chat.id] = ref; }}
             collapsable={false}

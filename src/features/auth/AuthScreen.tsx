@@ -497,7 +497,7 @@ export const AuthScreen = () => {
   useEffect(() => {
     let targetHeight = 200; // Initial state
     if (mode === 'login') targetHeight = 500; // Added Apple button
-    if (mode === 'register') targetHeight = 660; // ToS checkbox + DOB + parental notice
+    if (mode === 'register') targetHeight = 700; // ToS checkbox + DOB + Apple button
     if (mode === 'forgot') targetHeight = 300;
     if (mode === 'verify') targetHeight = 340;
 
