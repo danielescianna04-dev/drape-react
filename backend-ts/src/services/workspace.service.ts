@@ -146,6 +146,26 @@ class WorkspaceService {
           log.warn(`[Workspace] Failed to copy e2e-check.js: ${e2eErr.message}`);
         }
 
+        // Copy qa-agent.js to container
+        try {
+          const qaSrc = require('path').join(__dirname, '../../scripts/qa-agent.js');
+          const { config: appConfig } = require('../config');
+          const hostDrapeDir = require('path').join(appConfig.projectsRoot, projectId, '.drape');
+          if (require('fs').existsSync(qaSrc)) {
+            if (!require('fs').existsSync(hostDrapeDir)) require('fs').mkdirSync(hostDrapeDir, { recursive: true });
+            const qaDst = require('path').join(hostDrapeDir, 'qa-agent.js');
+            require('fs').copyFileSync(qaSrc, qaDst);
+            const containerList = await dockerService.listContainers();
+            const cont = containerList.find((c: any) => c.projectId === projectId);
+            if (cont) {
+              require('child_process').execSync(`docker cp ${qaDst} ${cont.id}:/usr/local/bin/qa-agent.js`);
+            }
+            log.info(`[Workspace] Copied qa-agent.js to container (${require('fs').statSync(qaDst).size} bytes)`);
+          }
+        } catch (qaErr: any) {
+          log.warn(`[Workspace] Failed to copy qa-agent.js: ${qaErr.message}`);
+        }
+
         // Fix Tailwind CSS version mismatch before build
         if (projectInfo.type === 'nextjs') {
           await this.fixTailwindV4Css(projectId);

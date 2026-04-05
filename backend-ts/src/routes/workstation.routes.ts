@@ -1878,7 +1878,8 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       }
     }
 
-    // === VERIFY + AUTO-FIX (Puppeteer E2E as source of truth) ===
+    // === VERIFY + AUTO-FIX (QA Agent: functional + vision + self-healing) ===
+    const qaActionId = report.startAction('qa', 'QA Verification — functional + visual testing');
     const verifyResult = await verifyAndFixProject({
       projectId,
       userId,
@@ -1886,13 +1887,39 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       onProgress: (pct, msg, stage) => update(pct, msg, stage),
     });
 
-    if (!verifyResult.passed) {
-      log.warn(`[CreateProject] Project ${projectId} has ${verifyResult.errors.length} unresolved errors after auto-fix`);
+    // Log QA results to build report
+    if (verifyResult.qaReport) {
+      report.completeAction(qaActionId, {
+        qaStatus: verifyResult.qaReport.status,
+        qualityScore: verifyResult.qaReport.qualityScore,
+        attempts: verifyResult.qaReport.attempts?.length || 0,
+        totalIssues: verifyResult.qaReport.totalIssues || 0,
+      });
+      report.updateQaSummary(verifyResult.qaReport);
+    } else {
+      report.completeAction(qaActionId);
     }
 
-    // Complete
-    report.complete();
-    update(100, 'Project Created Successfully!', 'Complete');
+    // Quality gate: qaReport must be 'verified' with score >= 8
+    const qaStatus = verifyResult.qaReport?.status;
+    const qaScore = verifyResult.qaReport?.qualityScore ?? 0;
+    const qaGatePassed = qaStatus === 'verified' && qaScore >= 8;
+
+    if (!verifyResult.passed || !qaGatePassed) {
+      const reason = !verifyResult.passed
+        ? `${verifyResult.errors.length} unresolved errors`
+        : `QA gate: status=${qaStatus}, score=${qaScore}/10 (min 8)`;
+      log.warn(`[CreateProject] Project ${projectId} needs review: ${reason}`);
+    }
+
+    // Complete — mark as 'needs_review' if QA gate failed, 'completed' otherwise
+    if (qaGatePassed || !verifyResult.qaReport) {
+      report.complete();
+      update(100, 'Project Created Successfully!', 'Complete');
+    } else {
+      report.complete(); // still mark report as done
+      update(100, `Project created — QA score ${qaScore}/10`, 'Needs Review');
+    }
     task.status = 'completed';
     task.result = {
       projectId,
@@ -1900,6 +1927,13 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       technology,
       templateDescription: description,
       files: writtenFiles,
+      // Structured QA gate result persisted in task result
+      qaGate: verifyResult.qaReport ? {
+        passed: qaGatePassed,
+        status: qaStatus || 'unknown',
+        qualityScore: qaScore,
+        totalIssues: verifyResult.qaReport.totalIssues || 0,
+      } : undefined,
     };
 
     // Clean up task after 5 minutes

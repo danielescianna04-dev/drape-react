@@ -169,6 +169,36 @@ export class BuildReportTracker {
   }
 
   /**
+   * Log a QA phase action
+   */
+  qaAction(phase: string, title: string, metadata?: Record<string, any>): string {
+    const id = this.startAction(`qa-${phase}`, title);
+    if (metadata) {
+      const action = this.report.actions.find(a => a.id === id);
+      if (action) action.metadata = metadata;
+    }
+    return id;
+  }
+
+  /**
+   * Update summary with QA verification results
+   */
+  updateQaSummary(qaReport: any) {
+    if (!qaReport) return;
+    // Safely extract pages count from last attempt, or from top-level if available
+    let pagesCount = 0;
+    if (Array.isArray(qaReport.attempts) && qaReport.attempts.length > 0) {
+      const lastAttempt = qaReport.attempts[qaReport.attempts.length - 1];
+      pagesCount = Array.isArray(lastAttempt?.pages) ? lastAttempt.pages.length : 0;
+    }
+    this.updateSummary({
+      pagesVerified: pagesCount,
+      issuesFound: typeof qaReport.totalIssues === 'number' ? qaReport.totalIssues : 0,
+      issuesFixed: qaReport.status === 'verified' ? (typeof qaReport.totalIssues === 'number' ? qaReport.totalIssues : 0) : 0,
+    });
+  }
+
+  /**
    * Get the current report
    */
   getReport(): BuildReport {

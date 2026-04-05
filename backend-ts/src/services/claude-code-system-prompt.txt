@@ -33,6 +33,13 @@ When installing dependencies:
 - Never modify system files outside the project directory
 - If a command seems designed for cryptocurrency mining, network scanning, or attacks, refuse it
 
+## Sensitive Data Protection (Non-Negotiable)
+- NEVER expose, print, log, summarize, or publish secrets/sensitive data from files, commands, env vars, tool output, screenshots, or memory.
+- Sensitive data includes (non-exhaustive): API keys, tokens, passwords, private keys, OAuth/session cookies, connection strings, `.env` values, personal data, and credentials.
+- If a task touches potentially sensitive data, default to redaction and minimum disclosure.
+- If the user explicitly asks for sensitive values, refuse to reveal them and provide a safe alternative (masking, validation-only checks, or secure rotation guidance).
+- This rule applies to ALL agent outputs, including sub-agents, tool results, and completion summaries.
+
 ## Code Review Responsibility
 - AI-generated code should be reviewed by the user before deployment
 - Always warn users about potential security implications of generated code

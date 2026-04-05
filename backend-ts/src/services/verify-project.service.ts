@@ -2,6 +2,7 @@ import { log } from '../utils/logger';
 import { workspaceService } from './workspace.service';
 import { fileService } from './file.service';
 import { aiProviderService } from './ai-provider.service';
+import { shellEscape } from '../utils/helpers';
 // sessionService and http removed — proxy CSS check replaced by SSR capture
 
 export interface VerifyResult {
@@ -9,10 +10,18 @@ export interface VerifyResult {
   errors: string[];
   screenshots: Map<string, string>;
   serverLog: string;
-  /** E2E page results (populated when e2e-check.js runs successfully) */
+  /** E2E page results (populated when e2e-check.js or qa-agent.js runs successfully) */
   pages?: { path: string; screenshot?: string; errors?: string[] }[];
-  /** E2E navigation results (populated when e2e-check.js runs successfully) */
+  /** E2E navigation results (populated when e2e-check.js or qa-agent.js runs successfully) */
   navigation?: { element?: { text?: string }; error?: string; screenshot?: string }[];
+  /** QA Agent report (populated when qa-agent.js runs) */
+  qaReport?: {
+    status?: string;
+    qualityScore?: number;
+    totalIssues?: number;
+    attempts?: any[];
+    log?: any[];
+  };
 }
 
 interface AutoFixResult {
@@ -55,6 +64,7 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
       attempts: [] as any[],
       totalDuration: 0,
     },
+    qaReport: null as any,
   };
   const reportStartTime = Date.now();
 
@@ -80,6 +90,11 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
       navigation: lastResult.navigation || [],
       errors: lastResult.errors || [],
     };
+
+    // Persist qaReport at top level of verification report (latest wins)
+    if (lastResult.qaReport) {
+      verificationReport.qaReport = lastResult.qaReport;
+    }
 
     if (lastResult.passed) {
       log.info(`[Verify] Project ${projectId} passed on attempt ${attempt + 1}`);
@@ -200,6 +215,7 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
   const screenshots = new Map<string, string>();
   let pages: VerifyResult['pages'];
   let navigation: VerifyResult['navigation'];
+  let qaReport: VerifyResult['qaReport'];
 
   // 1. Wait for server to be ACTUALLY ready — not time-based, event-based.
   //    Check server.log for "Ready" / "Listening" signals, or build failure signals.
@@ -288,30 +304,78 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
   // 3. Run Puppeteer E2E (only if server is responding)
   if (httpCode !== '000') {
     try {
-      const e2eResult = await workspaceService.exec(projectId, userId,
-        'NODE_PATH=/usr/local/lib/node_modules node /usr/local/bin/e2e-check.js 2>/tmp/e2e-stderr.txt'
-      );
+      // Use qa-agent.js (functional + vision + self-healing) if available, fallback to e2e-check.js
+      const qaAgentExists = await workspaceService.exec(projectId, userId,
+        'test -f /usr/local/bin/qa-agent.js && echo "yes" || echo "no"'
+      ).then(r => (r.stdout || '').trim() === 'yes').catch(() => false);
+
+      const verifyScript = qaAgentExists
+        ? 'NODE_PATH=/usr/local/lib/node_modules timeout 240 node /usr/local/bin/qa-agent.js 2>/tmp/qa-stderr.txt'
+        : 'NODE_PATH=/usr/local/lib/node_modules timeout 240 node /usr/local/bin/e2e-check.js 2>/tmp/e2e-stderr.txt';
+
+      if (qaAgentExists) log.info(`[Verify] Using qa-agent.js for verification`);
+
+      let e2eResult: any = { stdout: '', exitCode: -1 };
+      let usedQaAgent = qaAgentExists;
+
+      // Run primary verify script
+      try {
+        e2eResult = await workspaceService.exec(projectId, userId, verifyScript);
+      } catch (scriptErr: any) {
+        e2eResult = { stdout: '', exitCode: -1, error: scriptErr.message };
+      }
+
+      // Check if qa-agent produced valid output; if not, fallback to e2e-check.js
+      const qaExitCode = e2eResult.exitCode ?? (e2eResult.error ? -1 : 0);
+      const qaStdout = (e2eResult.stdout || '').trim();
+      const qaOutputValid = qaStdout.length > 0 && qaStdout.startsWith('{');
+
+      if (usedQaAgent && (qaExitCode !== 0 || !qaOutputValid)) {
+        log.warn(`[Verify] qa-agent failed with exitCode ${qaExitCode}, falling back to e2e-check.js`);
+        usedQaAgent = false;
+        try {
+          e2eResult = await workspaceService.exec(projectId, userId,
+            'NODE_PATH=/usr/local/lib/node_modules timeout 240 node /usr/local/bin/e2e-check.js 2>/tmp/e2e-stderr.txt'
+          );
+        } catch (fallbackErr: any) {
+          log.warn(`[Verify] e2e-check.js fallback also failed: ${fallbackErr.message?.substring(0, 80)}`);
+          e2eResult = { stdout: '' };
+        }
+      }
+
       const e2eRaw = (e2eResult.stdout || '').trim();
       if (!e2eRaw || !e2eRaw.startsWith('{')) {
-        // E2E script crashed or produced no output — treat as failed
-        log.warn(`[Verify] E2E produced no valid output (${e2eRaw.length} chars)`);
+        log.warn(`[Verify] Verification script produced no valid output (${e2eRaw.length} chars)`);
         errors.push('E2E verification failed — could not analyze pages');
       } else {
         const e2e = JSON.parse(e2eRaw);
 
         // Read full results (with screenshots) from bind-mounted file
+        // qa-agent.js writes to qa-report.json; e2e-check.js writes to e2e-results.json
         try {
           const { config: appConfig } = require('../config');
+          const resultFile = usedQaAgent ? 'qa-report.json' : 'e2e-results.json';
           const fullResultPath = require('path').join(
-            appConfig.projectsRoot, projectId, '.drape', 'e2e-results.json'
+            appConfig.projectsRoot, projectId, '.drape', resultFile
           );
-          const fullData = require('fs').readFileSync(fullResultPath, 'utf8');
-          const fullE2e = JSON.parse(fullData);
-          if (fullE2e.pages) e2e.pages = fullE2e.pages;
-          if (fullE2e.navigation) e2e.navigation = fullE2e.navigation;
-          log.info(`[Verify] Loaded full E2E results from file: ${fullE2e.pages?.length || 0} pages, ${fullE2e.navigation?.length || 0} nav tests`);
+          if (require('fs').existsSync(fullResultPath)) {
+            const fullData = require('fs').readFileSync(fullResultPath, 'utf8');
+            const fullE2e = JSON.parse(fullData);
+            // qa-report.json stores pages/navigation inside attempts; e2e-results.json at top level
+            if (usedQaAgent && fullE2e.attempts?.length > 0) {
+              const last = fullE2e.attempts[fullE2e.attempts.length - 1];
+              if (last.pages && !e2e.pages?.length) e2e.pages = last.pages;
+              if (last.clicks && !e2e.navigation?.length) e2e.navigation = last.clicks;
+              log.info(`[Verify] Loaded qa-report.json: ${last.pages?.length || 0} pages, ${last.clicks?.length || 0} clicks`);
+            } else {
+              if (fullE2e.pages) e2e.pages = fullE2e.pages;
+              if (fullE2e.navigation) e2e.navigation = fullE2e.navigation;
+              log.info(`[Verify] Loaded e2e-results.json: ${fullE2e.pages?.length || 0} pages, ${fullE2e.navigation?.length || 0} nav tests`);
+            }
+          }
         } catch (readErr: any) {
-          log.warn(`[Verify] Could not read full e2e results file — using stripped stdout: ${readErr.message}`);
+          // Not an error if file doesn't exist yet — stdout data is sufficient
+          log.info(`[Verify] No full results file found — using stdout data`);
         }
 
         if (e2e.passed === false && e2e.errors?.length > 0) {
@@ -346,13 +410,20 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
             }
           }
         }
+
+        // Capture QA report if present (qa-agent.js adds this field)
+        if (e2e.qaReport) {
+          qaReport = e2e.qaReport;
+          log.info(`[Verify] QA report: status=${e2e.qaReport.status}, score=${e2e.qaReport.qualityScore}, issues=${e2e.qaReport.totalIssues}`);
+        }
       }
 
-      // Log stderr for debugging
+      // Log stderr for debugging (check both qa and e2e stderr)
       try {
-        const stderrLog = await workspaceService.exec(projectId, userId, 'cat /tmp/e2e-stderr.txt 2>/dev/null');
+        const stderrFile = usedQaAgent ? '/tmp/qa-stderr.txt' : '/tmp/e2e-stderr.txt';
+        const stderrLog = await workspaceService.exec(projectId, userId, `cat ${stderrFile} 2>/dev/null`);
         if (stderrLog.stdout?.trim()) {
-          log.info(`[Verify] E2E stderr: ${stderrLog.stdout.trim().substring(0, 500)}`);
+          log.info(`[Verify] QA stderr: ${stderrLog.stdout.trim().substring(0, 500)}`);
         }
       } catch {}
     } catch (e2eErr: any) {
@@ -408,7 +479,17 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
     }
   }
 
-  return { passed: errors.length === 0, errors, screenshots, serverLog, pages, navigation };
+  // QA Agent is the source of truth: if qaReport says not verified, mark as failed
+  // even if errors array is empty (e.g. visual-only issues don't add to errors[])
+  let passed = errors.length === 0;
+  if (qaReport && qaReport.status !== 'verified') {
+    passed = false;
+    if (errors.length === 0) {
+      errors.push(`QA verification failed: status=${qaReport.status}, issues=${qaReport.totalIssues || 0}`);
+    }
+  }
+
+  return { passed, errors, screenshots, serverLog, pages, navigation, qaReport };
 }
 
 // ── Extract errors from server log ──────────────────────────────────────────
@@ -457,7 +538,7 @@ async function autoFix(
         const relPath = fileMatch[1].replace(/^\/home\/coder\/project\//, '');
         if (PROTECTED_FILES.has(relPath)) continue;
         try {
-          const readResult = await workspaceService.exec(projectId, userId, `cat /home/coder/project/${relPath} 2>/dev/null`);
+          const readResult = await workspaceService.exec(projectId, userId, `cat ${shellEscape(`/home/coder/project/${relPath}`)} 2>/dev/null`);
           if (readResult.stdout && !brokenFiles.some(f => f.path === relPath)) {
             brokenFiles.push({ path: relPath, content: readResult.stdout });
           }
@@ -468,7 +549,7 @@ async function autoFix(
     // Always read key files for context
     for (const p of ['app/layout.tsx', 'app/page.tsx', 'app/globals.css', 'src/App.tsx', 'src/index.css', 'src/main.tsx']) {
       try {
-        const lr = await workspaceService.exec(projectId, userId, `cat /home/coder/project/${p} 2>/dev/null`);
+        const lr = await workspaceService.exec(projectId, userId, `cat ${shellEscape(`/home/coder/project/${p}`)} 2>/dev/null`);
         if (lr.stdout && !brokenFiles.some(f => f.path === p)) {
           brokenFiles.push({ path: p, content: lr.stdout });
         }
@@ -480,9 +561,10 @@ async function autoFix(
       const routeMatch = err.match(/\[\/([^\]]+)\]/);
       if (routeMatch) {
         const route = routeMatch[1];
+        if (!/^[a-zA-Z0-9_/-]+$/.test(route)) continue;
         for (const ext of ['tsx', 'jsx', 'ts', 'js']) {
           try {
-            const pg = await workspaceService.exec(projectId, userId, `cat /home/coder/project/app/${route}/page.${ext} 2>/dev/null`);
+            const pg = await workspaceService.exec(projectId, userId, `cat ${shellEscape(`/home/coder/project/app/${route}/page.${ext}`)} 2>/dev/null`);
             if (pg.stdout && !brokenFiles.some(f => f.path === `app/${route}/page.${ext}`)) {
               brokenFiles.push({ path: `app/${route}/page.${ext}`, content: pg.stdout });
             }
@@ -497,13 +579,13 @@ async function autoFix(
       // Read all page files to understand navigation flow
       try {
         const findResult = await workspaceService.exec(projectId, userId,
-          'find /home/coder/project/app -name "page.tsx" -o -name "page.jsx" 2>/dev/null | head -15'
+          'find /home/coder/project/app \( -name "page.tsx" -o -name "page.jsx" \) 2>/dev/null | head -15'
         );
         for (const pagePath of (findResult.stdout || '').trim().split('\n').filter(Boolean)) {
           const relPath = pagePath.replace('/home/coder/project/', '');
           if (PROTECTED_FILES.has(relPath) || brokenFiles.some(f => f.path === relPath)) continue;
           try {
-            const content = await workspaceService.exec(projectId, userId, `cat ${pagePath} 2>/dev/null`);
+            const content = await workspaceService.exec(projectId, userId, `cat ${shellEscape(pagePath)} 2>/dev/null`);
             if (content.stdout) brokenFiles.push({ path: relPath, content: content.stdout });
           } catch {}
         }
@@ -511,8 +593,8 @@ async function autoFix(
 
       // Read store/context/state files — often where navigation bugs live
       const statePatterns = [
-        'find /home/coder/project/app -maxdepth 3 -name "store*" -o -name "context*" -o -name "provider*" -o -name "auth*" 2>/dev/null | head -10',
-        'find /home/coder/project/src -maxdepth 3 -name "store*" -o -name "context*" -o -name "provider*" -o -name "auth*" 2>/dev/null | head -10',
+        'find /home/coder/project/app -maxdepth 3 \( -name "store*" -o -name "context*" -o -name "provider*" -o -name "auth*" \) 2>/dev/null | head -10',
+        'find /home/coder/project/src -maxdepth 3 \( -name "store*" -o -name "context*" -o -name "provider*" -o -name "auth*" \) 2>/dev/null | head -10',
       ];
       for (const cmd of statePatterns) {
         try {
@@ -521,7 +603,7 @@ async function autoFix(
             const relPath = sf.replace('/home/coder/project/', '');
             if (brokenFiles.some(f => f.path === relPath)) continue;
             try {
-              const content = await workspaceService.exec(projectId, userId, `cat ${sf} 2>/dev/null`);
+              const content = await workspaceService.exec(projectId, userId, `cat ${shellEscape(sf)} 2>/dev/null`);
               if (content.stdout) brokenFiles.push({ path: relPath, content: content.stdout });
             } catch {}
           }

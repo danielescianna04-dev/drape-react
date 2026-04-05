@@ -23,7 +23,7 @@ interface PageResult {
     hasStyles?: boolean;
     hasError?: boolean;
     isBlank?: boolean;
-    brokenImages?: string[];
+    brokenImages?: number | string[];
     jsErrors?: string[];
   };
 }
@@ -75,8 +75,34 @@ interface VerificationReport {
   };
 }
 
+// ── QA Report Types ──
+
+interface VisualIssue {
+  page?: string;
+  type?: string;
+  severity?: string;
+  description?: string;
+  suggestion?: string;
+}
+
+interface QAAttempt {
+  cycle: number;
+  functionalIssues: number;
+  visualIssues: number;
+  criticalHighCount: number;
+  visualAnalysis?: VisualIssue[];
+  fix?: { applied: boolean; filesModified: string[] };
+}
+
+interface QAReport {
+  status?: string;
+  qualityScore?: number;
+  totalIssues?: number;
+  attempts?: QAAttempt[];
+}
+
 interface Props {
-  report: VerificationReport;
+  report: VerificationReport & { qaReport?: QAReport };
 }
 
 // ── Helpers ──
@@ -231,9 +257,9 @@ const PageCard = ({ page, onScreenshotPress }: PageCardProps) => {
         {page.checks?.jsErrors?.map((err, i) => (
           <Text key={`js-${i}`} style={st.pageError} numberOfLines={1}>{err}</Text>
         ))}
-        {page.checks?.brokenImages?.length ? (
+        {(typeof page.checks?.brokenImages === 'number' ? page.checks.brokenImages > 0 : (page.checks?.brokenImages?.length ?? 0) > 0) ? (
           <Text style={st.pageWarning}>
-            {page.checks.brokenImages.length} immagini rotte
+            {typeof page.checks?.brokenImages === 'number' ? page.checks.brokenImages : page.checks?.brokenImages?.length} immagini rotte
           </Text>
         ) : null}
       </View>
@@ -513,6 +539,85 @@ export const VerificationSection: React.FC<Props> = ({ report }) => {
           ))}
         </Collapsible>
       ) : null}
+
+      {/* QA Report — Visual Analysis + Quality Score */}
+      {report.qaReport && (
+        <Collapsible
+          icon="eye-outline"
+          iconColor="#8B5CF6"
+          title="Analisi Visiva AI"
+          count={report.qaReport.attempts?.length}
+          defaultOpen
+        >
+          {/* Quality Score */}
+          {report.qaReport.qualityScore != null && (
+            <View style={st.qaScoreRow}>
+              <Text style={st.qaScoreLabel}>Quality Score</Text>
+              <View style={[st.qaScoreBadge, {
+                backgroundColor: report.qaReport.qualityScore >= 8 ? 'rgba(34,197,94,0.15)' :
+                  report.qaReport.qualityScore >= 5 ? 'rgba(234,179,8,0.15)' : 'rgba(239,68,68,0.15)'
+              }]}>
+                <Text style={[st.qaScoreValue, {
+                  color: report.qaReport.qualityScore >= 8 ? '#22C55E' :
+                    report.qaReport.qualityScore >= 5 ? '#EAB308' : '#EF4444'
+                }]}>{report.qaReport.qualityScore}/10</Text>
+              </View>
+              <View style={[st.qaStatusBadge, {
+                backgroundColor: report.qaReport.status === 'verified' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'
+              }]}>
+                <Text style={[st.qaStatusText, {
+                  color: report.qaReport.status === 'verified' ? '#22C55E' : '#EF4444'
+                }]}>{report.qaReport.status === 'verified' ? 'Verificato' : 'Non superato'}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Attempts */}
+          {report.qaReport.attempts?.map((attempt, i) => (
+            <View key={i} style={st.qaAttemptCard}>
+              <View style={st.qaAttemptHeader}>
+                <Text style={st.qaAttemptTitle}>Ciclo {attempt.cycle}</Text>
+                <Text style={st.qaAttemptDetail}>
+                  {attempt.functionalIssues} funzionali | {attempt.visualIssues} visivi | {attempt.criticalHighCount} critici
+                </Text>
+              </View>
+
+              {/* Visual Issues */}
+              {attempt.visualAnalysis && attempt.visualAnalysis.length > 0 && (
+                <View style={st.qaIssuesList}>
+                  {attempt.visualAnalysis.slice(0, 8).map((issue, j) => (
+                    <View key={j} style={st.qaIssueRow}>
+                      <View style={[st.qaIssueDot, {
+                        backgroundColor: issue.severity === 'critical' ? '#EF4444' :
+                          issue.severity === 'high' ? '#F97316' :
+                          issue.severity === 'medium' ? '#EAB308' : '#555'
+                      }]} />
+                      <Text style={st.qaIssueText} numberOfLines={2}>
+                        {issue.page ? `${issue.page}: ` : ''}{issue.description}
+                      </Text>
+                      {issue.type && (
+                        <View style={st.qaIssueTypeBadge}>
+                          <Text style={st.qaIssueTypeText}>{issue.type}</Text>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Fix Applied */}
+              {attempt.fix?.applied && Array.isArray(attempt.fix?.filesModified) && attempt.fix.filesModified.length > 0 && (
+                <View style={st.qaFixRow}>
+                  <Ionicons name="hammer-outline" size={12} color="#22C55E" />
+                  <Text style={st.qaFixText}>
+                    {attempt.fix.filesModified.length} file fixati: {attempt.fix.filesModified.join(', ')}
+                  </Text>
+                </View>
+              )}
+            </View>
+          ))}
+        </Collapsible>
+      )}
 
       {/* Screenshot Modal */}
       <ScreenshotModal
@@ -846,5 +951,105 @@ const st = StyleSheet.create({
   previewErrors: {
     marginBottom: 6,
     gap: 2,
+  },
+
+  // QA Report
+  qaScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#111',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+  },
+  qaScoreLabel: {
+    color: '#888',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  qaScoreBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  qaScoreValue: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  qaStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginLeft: 'auto',
+  },
+  qaStatusText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  qaAttemptCard: {
+    backgroundColor: '#111',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+  },
+  qaAttemptHeader: {
+    marginBottom: 6,
+  },
+  qaAttemptTitle: {
+    color: '#E2E8F0',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  qaAttemptDetail: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  qaIssuesList: {
+    gap: 4,
+    marginBottom: 6,
+  },
+  qaIssueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  qaIssueDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  qaIssueText: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
+    flex: 1,
+  },
+  qaIssueTypeBadge: {
+    backgroundColor: 'rgba(139,92,246,0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  qaIssueTypeText: {
+    color: '#8B5CF6',
+    fontSize: 9,
+    fontWeight: '600',
+  },
+  qaFixRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  qaFixText: {
+    color: '#22C55E',
+    fontSize: 10,
+    flex: 1,
   },
 });

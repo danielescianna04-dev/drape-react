@@ -494,6 +494,14 @@ ${cloudMode
 
 The MOST IMPORTANT thing is that the app is beautiful and works. No build errors. Valid TypeScript and CSS. All imports correct.
 
+QUALITY REQUIREMENTS (an AI QA agent will verify ALL of these):
+- Every button MUST have a working onClick handler that does something visible (navigation, modal, state change).
+- Every link MUST navigate to an existing page — no broken hrefs.
+- Every form MUST have proper input handling and submit logic.
+- Layout MUST look correct on mobile (430px), tablet (768px), and desktop (1280px).
+- No overlapping elements, no truncated text, no empty sections.
+- Use shadcn/ui components (Button, Card, Input, Dialog) for reliable, tested UI.
+
 This is the first interaction of the user with this project so make sure to wow them with a really, really beautiful and well coded app!`;
 
   if (cloudMode && neon) {
