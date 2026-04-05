@@ -25,7 +25,7 @@ agentRouter.get('/status', asyncHandler(async (req, res) => {
       streaming: true,
       tools: true,
       multimodal: true,
-      models: ['claude-sonnet-4', 'claude-4-6-sonnet', 'claude-4-6-opus'],
+      models: ['gemini-3-flash', 'gemini-3.1-pro', 'gemini-3.1-flash-lite'],
     },
     version: '1.0.0',
   });

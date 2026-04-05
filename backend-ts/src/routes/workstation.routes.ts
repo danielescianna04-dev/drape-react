@@ -1292,7 +1292,7 @@ Return a JSON object with this EXACT structure:
 
 Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 components, relevant API routes.`;
 
-    const archStream = aiProviderService.chatStream('claude-4-6-sonnet',
+    const archStream = aiProviderService.chatStream('gemini-3-flash',
       [{ role: 'user', content: archPrompt }],
       undefined, 'Return only valid JSON.', { temperature: 0.2, maxTokens: 4000 }
     );
@@ -1306,8 +1306,8 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
 
   // ═══ STEP 2: Full Code Generation with architecture context ═══
   update(17, 'Generating code...', 'AI Generating');
-  // Sonnet 4.6 for initial generation (high quality), Flash for fallback
-  const models = ['claude-4-6-sonnet', 'claude-4-6-sonnet', 'claude-4-6-sonnet'];
+  // Gemini 3 Flash for all generation steps
+  const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3-flash'];
   const systemPrompt = getProjectCreationSystemPrompt(technology, isCloudMode, supabaseCredentials, neonCredentials);
   const userPrompt = templateApplied
     ? getProjectCreationUserPrompt(technology, projectName, description, isCloudMode, supabaseCredentials, neonCredentials)
@@ -1850,7 +1850,7 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
             // Auto-fix: send build errors to AI
             update(93, 'Fixing build errors...', 'Auto-Fix');
             try {
-              const fixStream = aiProviderService.chatStream('claude-4-6-sonnet',
+              const fixStream = aiProviderService.chatStream('gemini-3-flash',
                 [{ role: 'user', content: `Fix these Next.js build errors. Return ONLY a JSON array of fixed files: [{"path":"...","content":"..."}]\n\nBuild output:\n${buildOutput.slice(-3000)}\n\nRules:\n- Return COMPLETE file content\n- Fix all import errors, type errors, missing modules\n- Add 'use client' if needed\n- Do NOT modify package.json, layout.tsx, globals.css` }],
                 undefined, 'Fix build errors. Return only valid JSON.', { temperature: 0.1, maxTokens: 30000 }
               );

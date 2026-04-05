@@ -187,9 +187,7 @@ REGOLE:
         body: JSON.stringify({
           prompt,
           projectId,
-          model: (process.env.EXPO_PUBLIC_ENV === 'development' || process.env.EXPO_PUBLIC_ENV === 'preview')
-            ? 'claude-4-6-sonnet'
-            : 'gemini-3-flash',
+          model: 'gemini-3-flash',
           conversationHistory: conversationRef.current,
           images,
           thinkingLevel: 'low',

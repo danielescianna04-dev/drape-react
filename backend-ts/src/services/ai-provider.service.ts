@@ -258,24 +258,14 @@ class AIProviderService {
 
   /**
    * Non-streaming chat for internal use (e.g. context summarization).
-   * Uses Claude Haiku 3.5 for minimal cost.
+   * Uses Gemini Flash Lite for minimal cost.
    */
   public async chatSimple(messages: ChatMessage[], systemPrompt?: string): Promise<string> {
-    if (!this.anthropicClient) {
-      throw new Error('Anthropic client not initialized — cannot summarize context');
+    let result = '';
+    for await (const chunk of this.chatStream('gemini-3.1-flash-lite', messages, undefined, systemPrompt, { maxTokens: 4096 })) {
+      if (chunk.type === 'text') result += chunk.text;
     }
-
-    const formattedMessages = this.formatMessagesForProvider(messages, 'anthropic');
-
-    const response = await this.anthropicClient.messages.create({
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 4096,
-      messages: formattedMessages,
-      ...(systemPrompt ? { system: systemPrompt } : {}),
-    });
-
-    const textBlocks = response.content.filter((b: any) => b.type === 'text');
-    return textBlocks.map((b: any) => b.text).join('\n') || '';
+    return result;
   }
 
   /**

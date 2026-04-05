@@ -6,7 +6,7 @@ import { log } from '../utils/logger';
 export const aiRouter = Router();
 
 function normalizeModel(model: string | undefined): string {
-  if (!model) return 'claude-4-6-sonnet';
+  if (!model) return 'gemini-3-flash';
   const aliases: Record<string, string> = {
     'gemini-3-0-pro': 'gemini-3.1-pro',
     'gemini-3-pro': 'gemini-3.1-pro',
@@ -189,7 +189,7 @@ Respond ONLY with the JSON object, no markdown.`;
     const messages = [{ role: 'user' as const, content: prompt }];
 
     let response = '';
-    const recModels = ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'claude-3.5-haiku'];
+    const recModels = ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-3-flash'];
     for (const model of recModels) {
       try {
         response = '';
@@ -286,7 +286,7 @@ Rules:
 Return ONLY valid JSON array: [{"question":"...","options":["A","B","C"]}]`;
 
     let response = '';
-    const models = ['gemini-3-flash', 'gemini-2.5-flash', 'claude-3.5-haiku'];
+    const models = ['gemini-3-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
     for (const model of models) {
       try {
         response = '';

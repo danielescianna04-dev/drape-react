@@ -27,6 +27,7 @@ import { DrapeLogo } from '../../shared/components/icons/DrapeLogo';
 import { useAuthStore } from '../../core/auth/authStore';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { tracciaLogin, tracciaRegistrazione, tracciaResetPassword, tracciaErrore, tracciaErroreLogin, tracciaErroreRegistrazione } from '../../core/services/analyticsService';
+import { DevBanner } from '../../shared/components/DevBanner';
 
 const TERMS_URL = 'https://www.drape-dev.it/terms-of-service.html';
 const PRIVACY_URL = 'https://www.drape-dev.it/privacy-policy.html';
@@ -1105,6 +1106,7 @@ export const AuthScreen = () => {
             <Text style={styles.brandName}>Drape</Text>
             <Text style={styles.tagline}>{t('auth:tagline')}</Text>
           </Animated.View>
+          <DevBanner />
         </View>
         {/* Modal — sits at bottom, shrinks with keyboard via adjustResize */}
         <View style={{ marginHorizontal: 16, paddingBottom: 16 }}>
@@ -1146,6 +1148,7 @@ export const AuthScreen = () => {
           <Text style={styles.brandName}>Drape</Text>
           <Text style={styles.tagline}>{t('auth:tagline')}</Text>
         </Animated.View>
+        <DevBanner />
       </View>
 
       {/* Blur Overlay when modal expanded */}

@@ -104,10 +104,10 @@ export class AgentLoop {
   constructor(options: AgentOptions) {
     this.projectId = options.projectId;
     this.mode = options.mode || 'fast';
-    this.model = options.model || 'claude-sonnet-4';
+    this.model = options.model || 'gemini-3-flash';
     // Thinking config: Claude causes multi-minute stalls with thinking enabled
     // (no chunks streamed during thinking). Force disable for Claude regardless of client request.
-    const isClaude = (options.model || 'claude-sonnet-4').startsWith('claude');
+    const isClaude = (options.model || 'gemini-3-flash').startsWith('claude');
     if (isClaude) {
       this.thinkingLevel = null; // NEVER enable thinking for Claude — causes stalls
     } else if (options.thinkingLevel) {
@@ -1177,7 +1177,7 @@ export class AgentLoop {
     const childLoop = new AgentLoop({
       projectId: this.projectId,
       mode: 'fast',
-      model: type === 'explore' ? 'claude-3.5-haiku' : this.model,
+      model: type === 'explore' ? 'gemini-3.1-flash-lite' : this.model,
       conversationHistory: [], // Isolated context
       userId: this.userId || undefined,
       userPlan: this.userPlan,

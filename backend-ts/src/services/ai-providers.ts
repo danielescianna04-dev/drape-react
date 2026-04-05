@@ -434,7 +434,7 @@ export async function vercelChatSimple(
   const coreMessages = convertMessages(messages);
 
   const result = await generateText({
-    model: anthropicProvider('claude-haiku-4-5-20251001'),
+    model: googleProvider('gemini-3.1-flash-lite-preview'),
     system: systemPrompt,
     messages: coreMessages,
     maxOutputTokens: 4096,
@@ -457,7 +457,7 @@ export async function vercelGenerateObject<T>(
   if (!anthropicProvider) throw new Error('Anthropic API key not configured');
   const coreMessages = convertMessages(messages);
   const result = await generateObject({
-    model: anthropicProvider('claude-haiku-4-5-20251001'),
+    model: googleProvider('gemini-3.1-flash-lite-preview'),
     schema,
     system: systemPrompt,
     messages: coreMessages,
