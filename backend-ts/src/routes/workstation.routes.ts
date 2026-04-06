@@ -576,51 +576,39 @@ workstationRouter.get('/:projectId/screenshots', asyncHandler(async (req, res) =
   const isOwner = await verifyProjectOwnership(uid, projectId);
   if (!isOwner) return res.status(403).json({ error: 'Access denied' });
 
-  const screenshots: Record<string, string> = {};
-  // Navigation screenshots: keyed as "click:ElementText:before" / "click:ElementText:after"
-  const navScreenshots: Record<string, string> = {};
+  let screenshots: Record<string, string> = {};
+  let navScreenshots: Record<string, string> = {};
 
   const { config: appConfig } = require('../config');
+  const drapeDir = require('path').join(appConfig.projectsRoot, projectId, '.drape');
 
-  // Read from e2e-results.json (has full screenshots)
+  // Priority 1: qa-screenshots.json (dedicated file saved by qa-agent.js)
   try {
-    const e2ePath = require('path').join(appConfig.projectsRoot, projectId, '.drape', 'e2e-results.json');
-    if (require('fs').existsSync(e2ePath)) {
-      const raw = require('fs').readFileSync(e2ePath, 'utf-8');
-      const data = JSON.parse(raw);
-      if (data.pages) {
-        for (const pg of data.pages) {
-          if (pg.screenshot && pg.path) screenshots[pg.path] = pg.screenshot;
-        }
-      }
-      if (data.navigation) {
-        for (const nav of data.navigation) {
-          const key = nav.element?.text || 'unknown';
-          if (nav.screenshotBefore) navScreenshots[`click:${key}:before`] = nav.screenshotBefore;
-          if (nav.screenshotAfter) navScreenshots[`click:${key}:after`] = nav.screenshotAfter;
-        }
-      }
+    const qaSsPath = require('path').join(drapeDir, 'qa-screenshots.json');
+    if (require('fs').existsSync(qaSsPath)) {
+      const data = JSON.parse(require('fs').readFileSync(qaSsPath, 'utf-8'));
+      if (data.pages) screenshots = data.pages;
+      if (data.nav) navScreenshots = data.nav;
     }
   } catch {}
 
-  // Fallback: qa-report.json
+  // Priority 2: e2e-results.json (e2e-check.js fallback)
   if (Object.keys(screenshots).length === 0) {
     try {
-      const qaPath = require('path').join(appConfig.projectsRoot, projectId, '.drape', 'qa-report.json');
-      if (require('fs').existsSync(qaPath)) {
-        const raw = require('fs').readFileSync(qaPath, 'utf-8');
-        const data = JSON.parse(raw);
-        const lastAttempt = data.attempts?.[data.attempts.length - 1];
-        if (lastAttempt?.pages) {
-          for (const pg of lastAttempt.pages) {
+      const e2ePath = require('path').join(drapeDir, 'e2e-results.json');
+      if (require('fs').existsSync(e2ePath)) {
+        const data = JSON.parse(require('fs').readFileSync(e2ePath, 'utf-8'));
+        if (data.pages) {
+          for (const pg of data.pages) {
             if (pg.screenshot && pg.path) screenshots[pg.path] = pg.screenshot;
           }
         }
-        if (lastAttempt?.clicks) {
-          for (const nav of lastAttempt.clicks) {
-            const key = nav.element?.text || 'unknown';
-            if (nav.screenshotBefore) navScreenshots[`click:${key}:before`] = nav.screenshotBefore;
-            if (nav.screenshotAfter) navScreenshots[`click:${key}:after`] = nav.screenshotAfter;
+        if (data.navigation) {
+          for (const nav of data.navigation) {
+            // e2e-check uses simple keys; build robust key for consistency
+            const key = `${nav.fromPage || '/'}|${nav.element?.type || ''}|${nav.element?.text || ''}`;
+            if (nav.screenshotBefore) navScreenshots[key + '|before'] = nav.screenshotBefore;
+            if (nav.screenshotAfter) navScreenshots[key + '|after'] = nav.screenshotAfter;
           }
         }
       }
@@ -1805,11 +1793,22 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
     // - Next.js: SKIP — production build compiles CSS, CDN causes FOUC
     // - React/Vue: inject ONLY if no Tailwind config exists (pure fallback)
     if (technology !== 'nextjs') {
-      // Check if project has Tailwind properly configured
+      // Check if project has Tailwind or any CSS properly configured
       const hasTailwindConfig = (await fileService.readFile(projectId, 'tailwind.config.js')).success ||
         (await fileService.readFile(projectId, 'tailwind.config.ts')).success;
 
-      if (!hasTailwindConfig) {
+      // Also check if index.html already links a stylesheet
+      let hasStylesheet = false;
+      try {
+        const indexCheck = await fileService.readFile(projectId, 'index.html');
+        if (indexCheck.success && indexCheck.data?.content) {
+          hasStylesheet = indexCheck.data.content.includes('stylesheet') ||
+            indexCheck.data.content.includes('.css"') ||
+            indexCheck.data.content.includes(".css'");
+        }
+      } catch {}
+
+      if (!hasTailwindConfig && !hasStylesheet) {
         try {
           const indexResult = await fileService.readFile(projectId, 'index.html');
           if (indexResult.success && indexResult.data?.content) {
@@ -1817,7 +1816,7 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
             if (!html.includes('cdn.tailwindcss.com')) {
               html = html.replace('</head>', '    <script src="https://cdn.tailwindcss.com"></script>\n  </head>');
               await fileService.writeFile(projectId, 'index.html', html);
-              log.info(`[CreateProject] Injected Tailwind CDN into index.html (no tailwind config found)`);
+              log.info(`[CreateProject] Injected Tailwind CDN into index.html (no tailwind config or stylesheet found)`);
             }
           }
         } catch (e: any) {

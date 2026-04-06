@@ -796,12 +796,38 @@ async function main() {
     if (browser) await browser.close().catch(() => {});
   }
 
-  // Save full report (cap size: remove screenshots from attempts)
   const drapeDir = path.join(PROJECT_DIR, '.drape');
+  if (!fs.existsSync(drapeDir)) fs.mkdirSync(drapeDir, { recursive: true });
+
+  // Save screenshots separately BEFORE stripping them from the report
+  // This file is read by the /screenshots endpoint for Project History
   try {
-    if (!fs.existsSync(drapeDir)) fs.mkdirSync(drapeDir, { recursive: true });
+    const ssData = { pages: {}, nav: {} };
+    const lastAttemptData = report.attempts[report.attempts.length - 1];
+    if (lastAttemptData?.pages) {
+      for (const p of lastAttemptData.pages) {
+        if (p.screenshot && p.path) ssData.pages[p.path] = p.screenshot;
+      }
+    }
+    if (lastAttemptData?.clicks) {
+      for (const c of lastAttemptData.clicks) {
+        // Robust key: fromPage|type|text to avoid collisions
+        const key = `${c.fromPage || '/'}|${c.element?.type || ''}|${c.element?.text || ''}`;
+        if (c.screenshotBefore) ssData.nav[key + '|before'] = c.screenshotBefore;
+        if (c.screenshotAfter) ssData.nav[key + '|after'] = c.screenshotAfter;
+      }
+    }
+    if (Object.keys(ssData.pages).length > 0 || Object.keys(ssData.nav).length > 0) {
+      fs.writeFileSync(path.join(drapeDir, 'qa-screenshots.json'), JSON.stringify(ssData));
+      logAction('qa', 'saved', `Screenshots saved: ${Object.keys(ssData.pages).length} pages, ${Object.keys(ssData.nav).length} nav`);
+    }
+  } catch (ssErr) {
+    console.error('[QA] Failed to save screenshots:', ssErr.message);
+  }
+
+  // Save report WITHOUT screenshots (keep it small)
+  try {
     const reportToSave = JSON.parse(JSON.stringify(report));
-    // Strip screenshots from saved report to prevent huge files
     if (reportToSave.attempts) {
       for (const a of reportToSave.attempts) {
         if (a.pages) a.pages.forEach(p => delete p.screenshot);

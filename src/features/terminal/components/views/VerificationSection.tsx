@@ -443,13 +443,16 @@ export const VerificationSection: React.FC<Props> = ({ report }) => {
     ...p,
     screenshot: p.screenshot || screenshots[p.path] || undefined,
   }));
-  // Merge fetched nav screenshots into navigation data
+  // Merge fetched nav screenshots — robust key: fromPage|type|text|before/after
   const rawNavigation = latestAttempt?.navigation ?? [];
-  const allNavigation = rawNavigation.map(n => ({
-    ...n,
-    screenshotBefore: n.screenshotBefore || navScreenshots[`click:${n.element?.text || 'unknown'}:before`] || undefined,
-    screenshotAfter: n.screenshotAfter || navScreenshots[`click:${n.element?.text || 'unknown'}:after`] || undefined,
-  }));
+  const allNavigation = rawNavigation.map(n => {
+    const navKey = `${n.fromPage || '/'}|${n.element?.type || ''}|${n.element?.text || ''}`;
+    return {
+      ...n,
+      screenshotBefore: n.screenshotBefore || navScreenshots[navKey + '|before'] || undefined,
+      screenshotAfter: n.screenshotAfter || navScreenshots[navKey + '|after'] || undefined,
+    };
+  });
   const allFixes = backendAttempts.flatMap(a =>
     (a.fixes ?? []).map(f => ({ ...f, attemptNumber: a.attemptNumber }))
   );
