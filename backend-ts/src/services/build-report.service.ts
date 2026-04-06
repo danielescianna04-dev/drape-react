@@ -34,6 +34,7 @@ export interface BuildReport {
   completedAt?: string;
   totalDurationMs?: number;
   status: 'running' | 'completed' | 'failed';
+  previewBlocked?: boolean;
   actions: BuildAction[];
   summary: {
     filesGenerated: number;
@@ -196,6 +197,14 @@ export class BuildReportTracker {
       issuesFound: typeof qaReport.totalIssues === 'number' ? qaReport.totalIssues : 0,
       issuesFixed: qaReport.status === 'verified' ? (typeof qaReport.totalIssues === 'number' ? qaReport.totalIssues : 0) : 0,
     });
+  }
+
+  /**
+   * Set preview blocked state (persisted in build-report.json)
+   */
+  setPreviewBlocked(blocked: boolean) {
+    this.report.previewBlocked = blocked;
+    this.save();
   }
 
   /**

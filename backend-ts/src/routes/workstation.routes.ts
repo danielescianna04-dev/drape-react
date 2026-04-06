@@ -2041,10 +2041,12 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
     const qaScore = verifyResult.qaReport?.qualityScore ?? 0;
 
     if (verifyResult.passed) {
+      report.setPreviewBlocked(false);
       report.complete();
       update(100, 'Project Created Successfully!', 'Complete');
       task.status = 'completed';
     } else {
+      report.setPreviewBlocked(true);
       report.fail();
       const reason = `${verifyResult.errors.length} errors — ${verifyResult.errors.slice(0, 2).join('; ')}`;
       update(100, `Verification failed: ${reason}`, 'Needs Fix');

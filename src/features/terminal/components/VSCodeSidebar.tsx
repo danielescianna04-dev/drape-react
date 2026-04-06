@@ -179,6 +179,35 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     }
   }, [tabs, setActiveTab, addTab, currentWorkstation]);
 
+  // ============ REHYDRATE PREVIEW GATE from backend data ============
+  useEffect(() => {
+    const projectId = currentWorkstation?.projectId || currentWorkstation?.id;
+    if (!projectId) return;
+    // Skip if we already have a definitive answer from the create flow
+    const already = useUIStore.getState().previewBlockedProjects[projectId];
+    if (already !== undefined) return;
+
+    // Fetch from backend — derive previewBlocked from build-report or verification-report
+    getAuthHeaders().then(headers => {
+      fetch(`${config.apiUrl}/workstation/${projectId}/project-history`, { headers })
+        .then(r => r.json())
+        .then(data => {
+          if (!data.success || !data.history) return;
+          const br = data.history.buildReport;
+          const vr = data.history.verificationReport;
+          // Source of truth: build-report.previewBlocked, fallback to verification status
+          let blocked = false;
+          if (br && typeof br.previewBlocked === 'boolean') {
+            blocked = br.previewBlocked;
+          } else if (vr && vr.status === 'failed') {
+            blocked = true;
+          }
+          useUIStore.getState().setPreviewBlocked(projectId, blocked);
+        })
+        .catch(() => {});
+    }).catch(() => {});
+  }, [currentWorkstation?.id]);
+
   // ============ HEARTBEAT: Keep container alive while user is in project ============
   useEffect(() => {
     if (!currentWorkstation?.id || !flyMachineId) return;
