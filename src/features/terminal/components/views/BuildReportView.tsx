@@ -140,30 +140,43 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
     if (!currentProjectId) { setLoading(false); return; }
     setLoading(true);
     try {
-      console.log('[BuildReport] Loading for project:', currentProjectId);
       const headers = await getAuthHeaders();
-      console.log('[BuildReport] Auth headers:', Object.keys(headers));
-      const url = `${config.apiUrl}/workstation/${currentProjectId}/build-report`;
-      console.log('[BuildReport] Fetching:', url);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
-      const res = await fetch(url, { headers, signal: controller.signal });
+
+      // Use aggregated endpoint first
+      const histUrl = `${config.apiUrl}/workstation/${currentProjectId}/project-history`;
+      const histRes = await fetch(histUrl, { headers, signal: controller.signal }).catch(() => null);
       clearTimeout(timeout);
-      console.log('[BuildReport] Response status:', res.status);
-      const data = await res.json();
-      console.log('[BuildReport] Data:', JSON.stringify(data).substring(0, 200));
-      if (data.success && data.report) {
-        console.log('[BuildReport] Report loaded. Files:', data.report.summary?.generatedFiles?.length, 'Envs:', data.report.summary?.envVars?.length, 'Tables:', data.report.summary?.tablesCreated?.length, 'Chats:', data.report.chatSessions?.length);
-        setReport(data.report);
+
+      if (histRes?.ok) {
+        const histData = await histRes.json();
+        if (histData.success && histData.history) {
+          if (histData.history.buildReport) setReport(histData.history.buildReport);
+          if (histData.history.verificationReport) setVerificationReport(histData.history.verificationReport);
+          // qaReport is merged into verificationReport for display
+          if (histData.history.qaReport && !histData.history.verificationReport?.qaReport) {
+            setVerificationReport((prev: any) => ({
+              ...(prev || {}),
+              qaReport: histData.history.qaReport,
+            }));
+          }
+          setLoading(false);
+          return;
+        }
       }
-      // Also fetch verification report
+
+      // Fallback: legacy endpoints
+      const url = `${config.apiUrl}/workstation/${currentProjectId}/build-report`;
+      const res = await fetch(url, { headers });
+      const data = await res.json();
+      if (data.success && data.report) setReport(data.report);
+
       try {
         const vUrl = `${config.apiUrl}/workstation/${currentProjectId}/verification-report`;
-        const vRes = await fetch(vUrl, { headers, signal: controller.signal });
+        const vRes = await fetch(vUrl, { headers });
         const vData = await vRes.json();
-        if (vData.success && vData.report) {
-          setVerificationReport(vData.report);
-        }
+        if (vData.success && vData.report) setVerificationReport(vData.report);
       } catch {}
     } catch (err: any) {
       console.warn('[BuildReport] Failed:', err?.message);
@@ -174,22 +187,39 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
 
   useEffect(() => { loadReport(); }, [loadReport]);
 
+  // Auto-refresh after creation: poll every 5s for 30s if report is empty
+  useEffect(() => {
+    if (report || !currentProjectId) return;
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      if (attempts > 6) { clearInterval(interval); return; }
+      loadReport();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [report, currentProjectId, loadReport]);
+
   if (loading) {
     return <View style={st.center}><ActivityIndicator size="large" color="#8B5CF6" /><Text style={st.loadingText}>Loading...</Text></View>;
   }
 
-  if (!report) {
+  // Show empty state only if absolutely no data and no verification report
+  if (!report && !verificationReport) {
     return (
       <View style={st.center}>
         <Ionicons name="time-outline" size={48} color="#333" />
         <Text style={st.emptyTitle}>No history yet</Text>
-        <Text style={st.emptySubtitle}>Create a project with Cloud Mode to see the project history</Text>
+        <Text style={st.emptySubtitle}>Project history will appear here after creation</Text>
+        <TouchableOpacity style={st.refreshBtn} onPress={loadReport}>
+          <Ionicons name="refresh-outline" size={14} color="#8B5CF6" />
+          <Text style={st.refreshText}>Refresh</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
-  const totalChats = report.chatSessions?.length || 0;
-  const totalChanges = (report.chatSessions || []).reduce((sum, chat) =>
+  const totalChats = report?.chatSessions?.length || 0;
+  const totalChanges = (report?.chatSessions || []).reduce((sum, chat) =>
     sum + chat.messages.reduce((ms, m) =>
       ms + (m.filesCreated?.length || 0) + (m.filesModified?.length || 0) + (m.filesDeleted?.length || 0), 0), 0);
 
@@ -200,17 +230,17 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         <Ionicons name="time-outline" size={20} color="#8B5CF6" />
         <Text style={st.headerTitle}>Project History</Text>
       </View>
-      <Text style={st.headerSubtitle}>{report.projectName}</Text>
+      <Text style={st.headerSubtitle}>{report?.projectName || 'Project'}</Text>
 
       {/* Stats */}
       <View style={st.statsRow}>
         <View style={st.statItem}>
-          <Text style={st.statValue}>{report.summary.filesGenerated}</Text>
+          <Text style={st.statValue}>{report?.summary?.filesGenerated ?? 0}</Text>
           <Text style={st.statLabel}>Files</Text>
         </View>
         <View style={st.statDivider} />
         <View style={st.statItem}>
-          <Text style={st.statValue}>{report.summary.tablesCreated.length}</Text>
+          <Text style={st.statValue}>{report?.summary?.tablesCreated?.length ?? 0}</Text>
           <Text style={st.statLabel}>Tables</Text>
         </View>
         <View style={st.statDivider} />
@@ -226,6 +256,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
       </View>
 
       {/* ═══ CREAZIONE ═══ */}
+      {report && (
       <SectionHeader
         icon="rocket-outline"
         iconColor="#8B5CF6"
@@ -234,7 +265,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         defaultOpen={true}
       >
         {/* Files Generated */}
-        {report.summary.generatedFiles && report.summary.generatedFiles.length > 0 && (
+        {report.summary?.generatedFiles && report.summary.generatedFiles.length > 0 && (
           <ExpandableCard icon="document-outline" iconColor="#3B82F6" title="File generati" count={report.summary.generatedFiles.length}>
             {report.summary.generatedFiles.map(f => (
               <Text key={f} style={st.monoItem}>{f}</Text>
@@ -243,7 +274,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         )}
 
         {/* Tables Created */}
-        {report.summary.tablesCreated.length > 0 && (
+        {(report.summary?.tablesCreated?.length ?? 0) > 0 && (
           <ExpandableCard icon="server-outline" iconColor="#22C55E" title="Tabelle create" count={report.summary.tablesCreated.length}>
             {report.summary.tablesCreated.map(t => (
               <View key={t} style={st.tableRow}>
@@ -251,7 +282,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
                 <Text style={st.monoItem}>{t}</Text>
               </View>
             ))}
-            {report.summary.sqlExecuted && (
+            {report.summary?.sqlExecuted && (
               <View style={st.sqlBox}>
                 <Text style={st.sqlText}>{report.summary.sqlExecuted}</Text>
               </View>
@@ -260,7 +291,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         )}
 
         {/* Env Vars */}
-        {report.summary.envVars && report.summary.envVars.length > 0 && (
+        {report.summary?.envVars && report.summary.envVars.length > 0 && (
           <ExpandableCard icon="key-outline" iconColor="#F59E0B" title="Variabili ambiente" count={report.summary.envVars.length}>
             {report.summary.envVars.map(v => (
               <Text key={v} style={st.monoItem}>{v}</Text>
@@ -269,7 +300,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         )}
 
         {/* Errors */}
-        {report.actions.filter(a => a.status === 'failed').map(a => (
+        {(report.actions || []).filter(a => a.status === 'failed').map(a => (
           <View key={a.id} style={st.errorItem}>
             <Ionicons name="warning-outline" size={14} color="#EF4444" />
             <Text style={st.errorItemText}>{a.error || a.title}</Text>
@@ -277,13 +308,29 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         ))}
 
         {/* Success indicator */}
-        {report.status === 'completed' && report.actions.every(a => a.status !== 'failed') && (
+        {report.status === 'completed' && (report.actions || []).every(a => a.status !== 'failed') && (
           <View style={st.successItem}>
             <Ionicons name="checkmark-circle" size={14} color="#22C55E" />
             <Text style={st.successItemText}>Progetto creato con successo</Text>
           </View>
         )}
+
+        {/* QA Actions from build report */}
+        {(report.actions || []).filter(a => a.step?.startsWith('qa')).map(a => (
+          <View key={a.id} style={[st.successItem, { backgroundColor: a.status === 'completed' ? '#22C55E10' : '#8B5CF610' }]}>
+            <Ionicons
+              name={a.status === 'completed' ? 'shield-checkmark' : a.status === 'failed' ? 'shield-half' : 'shield'}
+              size={14}
+              color={a.status === 'completed' ? '#22C55E' : a.status === 'failed' ? '#EF4444' : '#8B5CF6'}
+            />
+            <Text style={[st.successItemText, { color: a.status === 'completed' ? '#22C55E' : a.status === 'failed' ? '#EF4444' : '#8B5CF6' }]}>
+              {a.title}
+              {a.metadata?.qualityScore != null ? ` — Score: ${a.metadata.qualityScore}/10` : ''}
+            </Text>
+          </View>
+        ))}
       </SectionHeader>
+      )}
 
       {/* ═══ VERIFICA & TEST QA ═══ */}
       {verificationReport && (
@@ -298,7 +345,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
       )}
 
       {/* ═══ CHAT SESSIONS ═══ */}
-      {report.chatSessions?.map(chat => (
+      {report?.chatSessions?.map(chat => (
         <SectionHeader
           key={chat.id}
           icon="chatbubble-outline"

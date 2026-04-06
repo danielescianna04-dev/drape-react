@@ -447,6 +447,88 @@ workstationRouter.get('/:projectId/files', asyncHandler(async (req, res) => {
   res.json({ success: true, files: result.data || [] });
 }));
 
+// GET /workstation/:projectId/project-history — aggregated history from all .drape files
+workstationRouter.get('/:projectId/project-history', asyncHandler(async (req, res) => {
+  const { projectId } = req.params;
+  const uid = req.userId || 'anonymous';
+
+  const isOwner = await verifyProjectOwnership(uid, projectId);
+  if (!isOwner) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  const history: any = { projectId, buildReport: null, verificationReport: null, qaReport: null };
+
+  // Read each file independently — never fail if one is missing
+  const files = [
+    { key: 'buildReport', path: '.drape/build-report.json' },
+    { key: 'verificationReport', path: '.drape/verification-report.json' },
+    { key: 'qaReport', path: '.drape/qa-report.json' },
+  ];
+
+  for (const { key, path: filePath } of files) {
+    try {
+      const result = await fileService.readFile(projectId, filePath);
+      if (result.success && result.data) {
+        const parsed = JSON.parse(result.data.content);
+        // Strip base64 screenshots to keep payload slim
+        if (key === 'verificationReport' && parsed.backendVerification?.attempts) {
+          for (const a of parsed.backendVerification.attempts) {
+            if (a.pages) a.pages.forEach((p: any) => delete p.screenshot);
+            if (a.navigation) a.navigation.forEach((n: any) => { delete n.screenshotBefore; delete n.screenshotAfter; });
+          }
+        }
+        if (key === 'qaReport' && parsed.attempts) {
+          for (const a of parsed.attempts) {
+            if (a.pages) a.pages.forEach((p: any) => delete p.screenshot);
+            if (a.clicks) a.clicks.forEach((c: any) => { delete c.screenshotBefore; delete c.screenshotAfter; });
+          }
+        }
+        history[key] = parsed;
+      }
+    } catch {
+      // Fallback: direct fs read for large files
+      try {
+        const { config: appConfig } = require('../config');
+        const fullPath = require('path').join(appConfig.projectsRoot, projectId, filePath);
+        if (require('fs').existsSync(fullPath)) {
+          const raw = require('fs').readFileSync(fullPath, 'utf-8');
+          if (raw.length < 5_000_000) { // Skip if > 5MB
+            history[key] = JSON.parse(raw);
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // If no build report but we have other data, synthesize minimal report
+  if (!history.buildReport && (history.verificationReport || history.qaReport)) {
+    history.buildReport = {
+      projectId,
+      projectName: projectId.replace('project-', ''),
+      technology: 'unknown',
+      cloudMode: false,
+      createdAt: history.verificationReport?.createdAt || history.qaReport?.log?.[0]?.ts || new Date().toISOString(),
+      status: 'completed',
+      actions: [],
+      summary: {
+        filesGenerated: 0, filesProtected: 0, tablesCreated: [],
+        seedRecords: 0, pagesVerified: 0, issuesFound: 0, issuesFixed: 0,
+        aiModel: '', aiTokensUsed: 0,
+      },
+    };
+    // Populate from QA report
+    if (history.qaReport) {
+      const lastAttempt = history.qaReport.attempts?.[history.qaReport.attempts.length - 1];
+      history.buildReport.summary.pagesVerified = lastAttempt?.pages?.length || 0;
+      history.buildReport.summary.issuesFound = history.qaReport.totalIssues || 0;
+    }
+  }
+
+  const hasAnyData = history.buildReport || history.verificationReport || history.qaReport;
+  res.json({ success: true, history: hasAnyData ? history : null });
+}));
+
 // GET /workstation/:projectId/build-report — get the build report for a project
 workstationRouter.get('/:projectId/build-report', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
@@ -1914,8 +1996,11 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       }
     }
 
-    // === VERIFY + AUTO-FIX (QA Agent: functional + vision + self-healing) ===
+    // === MARK PROJECT AS READY (preview available immediately) ===
+    // Quick verification — just check server is responding and home page loads
+    update(95, 'Verifico la preview...', 'Verify');
     const qaActionId = report.startAction('qa', 'QA Verification — functional + visual testing');
+
     const verifyResult = await verifyAndFixProject({
       projectId,
       userId,
@@ -1936,7 +2021,7 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       report.completeAction(qaActionId);
     }
 
-    // Quality gate: qaReport must be 'verified' with score >= 8
+    // Quality gate
     const qaStatus = verifyResult.qaReport?.status;
     const qaScore = verifyResult.qaReport?.qualityScore ?? 0;
     const qaGatePassed = qaStatus === 'verified' && qaScore >= 8;
@@ -1948,12 +2033,11 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       log.warn(`[CreateProject] Project ${projectId} needs review: ${reason}`);
     }
 
-    // Complete — mark as 'needs_review' if QA gate failed, 'completed' otherwise
+    // Complete — always mark as completed so user can use preview
+    report.complete();
     if (qaGatePassed || !verifyResult.qaReport) {
-      report.complete();
       update(100, 'Project Created Successfully!', 'Complete');
     } else {
-      report.complete(); // still mark report as done
       update(100, `Project created — QA score ${qaScore}/10`, 'Needs Review');
     }
     task.status = 'completed';
