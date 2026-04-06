@@ -218,6 +218,7 @@ export class BuildReportTracker {
       try { await this.savePromise; } catch {}
     }
     this.savePromise = fileService.writeFile(this.projectId, '.drape/build-report.json', snapshot)
+      .then(() => {}) // Normalize Result<void> → void
       .catch((err: any) => {
         log.warn(`[BuildReport] Failed to save report for ${this.projectId}: ${err.message}`);
       });

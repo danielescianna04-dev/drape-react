@@ -2012,50 +2012,9 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       }
     }
 
-    // === MARK PROJECT AS READY (preview available immediately) ===
-    // Quick verification — just check server is responding and home page loads
-    update(95, 'Verifico la preview...', 'Verify');
-    const qaActionId = report.startAction('qa', 'QA Verification — functional + visual testing');
-
-    const verifyResult = await verifyAndFixProject({
-      projectId,
-      userId,
-      technology,
-      onProgress: (pct, msg, stage) => update(pct, msg, stage),
-    });
-
-    // Log QA results to build report
-    if (verifyResult.qaReport) {
-      report.completeAction(qaActionId, {
-        qaStatus: verifyResult.qaReport.status,
-        qualityScore: verifyResult.qaReport.qualityScore,
-        attempts: verifyResult.qaReport.attempts?.length || 0,
-        totalIssues: verifyResult.qaReport.totalIssues || 0,
-      });
-      report.updateQaSummary(verifyResult.qaReport);
-    } else {
-      report.completeAction(qaActionId);
-    }
-
-    // Quality gate
-    const qaStatus = verifyResult.qaReport?.status;
-    const qaScore = verifyResult.qaReport?.qualityScore ?? 0;
-    const qaGatePassed = qaStatus === 'verified' && qaScore >= 8;
-
-    if (!verifyResult.passed || !qaGatePassed) {
-      const reason = !verifyResult.passed
-        ? `${verifyResult.errors.length} unresolved errors`
-        : `QA gate: status=${qaStatus}, score=${qaScore}/10 (min 8)`;
-      log.warn(`[CreateProject] Project ${projectId} needs review: ${reason}`);
-    }
-
-    // Complete — always mark as completed so user can use preview
+    // === MARK PROJECT AS READY — preview available NOW ===
     report.complete();
-    if (qaGatePassed || !verifyResult.qaReport) {
-      update(100, 'Project Created Successfully!', 'Complete');
-    } else {
-      update(100, `Project created — QA score ${qaScore}/10`, 'Needs Review');
-    }
+    update(100, 'Project Created Successfully!', 'Complete');
     task.status = 'completed';
     task.result = {
       projectId,
@@ -2063,14 +2022,33 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       technology,
       templateDescription: description,
       files: writtenFiles,
-      // Structured QA gate result persisted in task result
-      qaGate: verifyResult.qaReport ? {
-        passed: qaGatePassed,
-        status: qaStatus || 'unknown',
-        qualityScore: qaScore,
-        totalIssues: verifyResult.qaReport.totalIssues || 0,
-      } : undefined,
     };
+
+    // === BACKGROUND QA — runs after project is marked complete ===
+    // User can already use the preview while QA verifies and auto-fixes
+    const qaActionId = report.startAction('qa', 'QA Verification — functional + visual testing');
+    verifyAndFixProject({
+      projectId,
+      userId,
+      technology,
+      onProgress: (_pct, msg) => log.info(`[QA:bg] ${projectId}: ${msg}`),
+    }).then(verifyResult => {
+      if (verifyResult.qaReport) {
+        report.completeAction(qaActionId, {
+          qaStatus: verifyResult.qaReport.status,
+          qualityScore: verifyResult.qaReport.qualityScore,
+          attempts: verifyResult.qaReport.attempts?.length || 0,
+          totalIssues: verifyResult.qaReport.totalIssues || 0,
+        });
+        report.updateQaSummary(verifyResult.qaReport);
+      } else {
+        report.completeAction(qaActionId);
+      }
+      log.info(`[QA:bg] ${projectId} complete: passed=${verifyResult.passed}, errors=${verifyResult.errors.length}`);
+    }).catch(err => {
+      report.failAction(qaActionId, err.message);
+      log.warn(`[QA:bg] ${projectId} failed: ${err.message}`);
+    });
 
     // Clean up task after 5 minutes
     setTimeout(() => creationTasks.delete(projectId), 5 * 60 * 1000);

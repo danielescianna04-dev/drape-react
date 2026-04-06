@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "tsc && cp src/services/*.txt dist/services/ 2>/dev/null || true",
+    "build": "tsc && (cp src/services/*.txt dist/services/ 2>/dev/null || true)",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"
   },
