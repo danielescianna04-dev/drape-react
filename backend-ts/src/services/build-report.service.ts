@@ -208,12 +208,19 @@ export class BuildReportTracker {
   /**
    * Save report to .drape/build-report.json in the project directory
    */
+  private savePromise: Promise<void> | null = null;
+
   private async save() {
-    try {
-      await fileService.writeFile(this.projectId, '.drape/build-report.json', JSON.stringify(this.report, null, 2));
-    } catch (err: any) {
-      // Don't let report saving errors break the creation flow
-      log.warn(`[BuildReport] Failed to save report for ${this.projectId}: ${err.message}`);
+    // Serialize a snapshot to avoid race conditions between concurrent saves
+    const snapshot = JSON.stringify(this.report, null, 2);
+    // Wait for any in-flight save to finish before writing
+    if (this.savePromise) {
+      try { await this.savePromise; } catch {}
     }
+    this.savePromise = fileService.writeFile(this.projectId, '.drape/build-report.json', snapshot)
+      .catch((err: any) => {
+        log.warn(`[BuildReport] Failed to save report for ${this.projectId}: ${err.message}`);
+      });
+    await this.savePromise;
   }
 }

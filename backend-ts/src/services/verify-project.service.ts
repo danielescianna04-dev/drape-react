@@ -52,7 +52,9 @@ const PROTECTED_FILES = new Set([
  */
 export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyResult> {
   const { projectId, userId, technology, onProgress } = opts;
-  const MAX_ATTEMPTS = 3;
+  // qa-agent.js already does 3 internal fix cycles, so 1 attempt here is sufficient.
+  // Multiple outer attempts only made sense with the old e2e-check.js that had no self-healing.
+  const MAX_ATTEMPTS = 1;
 
   // ── Verification report accumulator ────────────────────────────────────────
   const verificationReport: any = {

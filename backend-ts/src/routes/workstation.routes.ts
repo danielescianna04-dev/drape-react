@@ -459,6 +459,16 @@ workstationRouter.get('/:projectId/project-history', asyncHandler(async (req, re
 
   const history: any = { projectId, buildReport: null, verificationReport: null, qaReport: null };
 
+  // Tolerant JSON parse — handles trailing garbage from race conditions
+  const safeParseJSON = (raw: string): any => {
+    try { return JSON.parse(raw); } catch {
+      // Try to extract the first valid JSON object
+      const match = raw.match(/^\s*\{[\s\S]*?\n\}/);
+      if (match) try { return JSON.parse(match[0]); } catch {}
+      return null;
+    }
+  };
+
   // Read each file independently — never fail if one is missing
   const files = [
     { key: 'buildReport', path: '.drape/build-report.json' },
@@ -470,7 +480,7 @@ workstationRouter.get('/:projectId/project-history', asyncHandler(async (req, re
     try {
       const result = await fileService.readFile(projectId, filePath);
       if (result.success && result.data) {
-        const parsed = JSON.parse(result.data.content);
+        const parsed = safeParseJSON(result.data.content);
         // Strip base64 screenshots to keep payload slim
         if (key === 'verificationReport' && parsed.backendVerification?.attempts) {
           for (const a of parsed.backendVerification.attempts) {
@@ -545,7 +555,13 @@ workstationRouter.get('/:projectId/build-report', asyncHandler(async (req, res) 
   }
 
   try {
-    const report = JSON.parse(result.data.content);
+    let report;
+    try { report = JSON.parse(result.data.content); } catch {
+      // Tolerant parse for truncated/corrupt JSON
+      const match = (result.data.content || '').match(/^\s*\{[\s\S]*?\n\}/);
+      if (match) report = JSON.parse(match[0]);
+    }
+    if (!report) return res.json({ success: true, report: null });
     res.json({ success: true, report });
   } catch {
     res.json({ success: true, report: null });
