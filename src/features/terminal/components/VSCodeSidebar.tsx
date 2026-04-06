@@ -153,14 +153,19 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     if (projectId && useUIStore.getState().isPreviewBlocked(projectId)) {
       Alert.alert(
         'Preview Unavailable',
-        'Preview is blocked until verification passes. Check Project History for details.',
+        'Verification failed — the preview may have issues. Check Project History for details.',
         [
           { text: 'Open History', onPress: () => {
             const histTab = tabs.find(t => t.id === 'buildReport');
             if (histTab) { setActiveTab('buildReport'); }
             else { addTab({ id: 'buildReport', type: 'buildReport', title: 'History', data: {} }); }
           }},
-          { text: 'OK' },
+          { text: 'Open Preview Anyway', style: 'destructive', onPress: () => {
+            const existing = tabs.find(t => t.id === 'preview');
+            if (existing) { setActiveTab('preview'); }
+            else { addTab({ id: 'preview', type: 'preview', title: 'Preview', data: {} }); }
+          }},
+          { text: 'Cancel' },
         ]
       );
       return;

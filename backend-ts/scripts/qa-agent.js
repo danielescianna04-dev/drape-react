@@ -32,12 +32,13 @@ const VIEWPORTS = [
   { name: 'mobile', width: 430, height: 932 },
 ];
 
+// Files AI must NEVER modify (secrets, core config). CSS plumbing files ARE repairable.
 const PROTECTED_FILES = new Set([
   'package.json', 'tsconfig.json',
-  'next.config.ts', 'next.config.js', 'postcss.config.mjs', 'postcss.config.js',
-  'tailwind.config.ts', 'tailwind.config.js', 'astro.config.mjs',
-  'app/globals.css', 'app/layout.tsx', 'src/index.css',
-  'vite.config.ts', 'vite.config.js', 'index.html',
+  'next.config.ts', 'next.config.js',
+  'astro.config.mjs',
+  'vite.config.ts', 'vite.config.js',
+  'index.html',
 ]);
 
 // ── Logging (no base64, no secrets) ────────────────────────────
@@ -425,8 +426,12 @@ async function functionalTest(browser) {
               }
             } else {
               clickResult.result = 'no-change';
+              // Same-page nav links (current page link) and decorative elements are expected to do nothing
+              // Only CTA buttons that should navigate are truly broken
+              const isLikelySamePageLink = el.href === testPage || el.href === testPage + '/';
+              const severity = isLikelySamePageLink ? 'low' : (el.type === 'button' ? 'high' : 'medium');
               clickResult.error = `"${el.text}" (${el.type}) clicked but nothing happened`;
-              results.issues.push({ type: 'functional', severity: 'high', page: testPage, description: clickResult.error });
+              results.issues.push({ type: 'functional', severity, page: testPage, description: clickResult.error });
             }
 
             let screenshotAfter = null;

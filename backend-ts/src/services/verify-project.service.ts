@@ -37,13 +37,19 @@ interface VerifyOptions {
   onProgress?: (pct: number, msg: string, stage: string) => void;
 }
 
+// Files that AI auto-fix must NEVER modify (secrets, core config)
 const PROTECTED_FILES = new Set([
   'package.json', 'tsconfig.json',
-  'next.config.ts', 'next.config.js', 'postcss.config.mjs', 'postcss.config.js',
-  'tailwind.config.ts', 'tailwind.config.js', 'astro.config.mjs',
-  'app/globals.css', 'src/index.css', 'index.html',
+  'next.config.ts', 'next.config.js',
+  'astro.config.mjs',
   'vite.config.ts', 'vite.config.js',
+  'index.html',
 ]);
+// CSS plumbing files CAN be repaired by auto-fix (root cause of "Content without CSS"):
+// - app/globals.css, src/index.css
+// - postcss.config.mjs, postcss.config.js
+// - tailwind.config.ts, tailwind.config.js
+// - app/layout.tsx (for CSS import fixes)
 
 /**
  * Verify a project is working correctly using Puppeteer E2E.
@@ -70,6 +76,14 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
     qaReport: null as any,
   };
   const reportStartTime = Date.now();
+
+  // ── CSS Repair: ensure Tailwind plumbing is correct before verifying ──
+  onProgress?.(91, 'Repairing CSS pipeline...', 'CSS Repair');
+  try {
+    await repairCSSPipeline(projectId, userId, technology);
+  } catch (cssErr: any) {
+    log.warn(`[Verify] CSS repair failed (non-fatal): ${cssErr.message}`);
+  }
 
   let lastResult: VerifyResult = { passed: false, errors: [], screenshots: new Map(), serverLog: '' };
 
@@ -717,6 +731,68 @@ Rules:
     log.error(`[Verify] Auto-fix crashed: ${err.message}\n${err.stack || ''}`);
     return { applied: false, filesModified: [], duration: Date.now() - fixStartTime };
   }
+}
+
+// ── CSS Pipeline Repair ────────────────────────────────────────────────────
+
+async function repairCSSPipeline(projectId: string, userId: string, technology: string): Promise<void> {
+  if (technology !== 'nextjs') return; // Only Next.js needs this — React/Vue use CDN fallback
+
+  // 1. Ensure globals.css exists and has Tailwind directives
+  try {
+    const globalsResult = await workspaceService.exec(projectId, userId, 'cat /home/coder/project/app/globals.css 2>/dev/null');
+    const globals = globalsResult.stdout || '';
+    if (!globals.includes('@tailwind') && !globals.includes('@import "tailwindcss"')) {
+      log.info(`[CSS Repair] globals.css missing Tailwind directives — injecting`);
+      const fixed = `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\n${globals}`;
+      await fileService.writeFile(projectId, 'app/globals.css', fixed);
+    }
+  } catch {}
+
+  // 2. Ensure layout.tsx imports globals.css
+  try {
+    const layoutResult = await workspaceService.exec(projectId, userId, 'cat /home/coder/project/app/layout.tsx 2>/dev/null');
+    const layout = layoutResult.stdout || '';
+    if (layout && !layout.includes('globals.css') && !layout.includes('global.css')) {
+      log.info(`[CSS Repair] layout.tsx missing globals.css import — injecting`);
+      const fixed = "import './globals.css';\n" + layout;
+      await fileService.writeFile(projectId, 'app/layout.tsx', fixed);
+    }
+    // Remove CDN script if present (production build handles CSS)
+    if (layout.includes('cdn.tailwindcss.com')) {
+      log.info(`[CSS Repair] Removing CDN from layout.tsx`);
+      let cleaned = layout
+        .replace(/.*cdn\.tailwindcss\.com.*\n?/g, '')
+        .replace(/import Script from ['"]next\/script['"];?\n?/g, '');
+      await fileService.writeFile(projectId, 'app/layout.tsx', cleaned);
+    }
+  } catch {}
+
+  // 3. Ensure postcss.config exists
+  try {
+    const pcResult = await workspaceService.exec(projectId, userId,
+      'test -f /home/coder/project/postcss.config.mjs -o -f /home/coder/project/postcss.config.js && echo "exists" || echo "missing"'
+    );
+    if ((pcResult.stdout || '').trim() === 'missing') {
+      log.info(`[CSS Repair] postcss.config.mjs missing — creating`);
+      await fileService.writeFile(projectId, 'postcss.config.mjs',
+        'const config = {\n  plugins: {\n    tailwindcss: {},\n    autoprefixer: {},\n  },\n};\nexport default config;\n');
+    }
+  } catch {}
+
+  // 4. Ensure tailwind.config exists
+  try {
+    const twResult = await workspaceService.exec(projectId, userId,
+      'test -f /home/coder/project/tailwind.config.ts -o -f /home/coder/project/tailwind.config.js && echo "exists" || echo "missing"'
+    );
+    if ((twResult.stdout || '').trim() === 'missing') {
+      log.info(`[CSS Repair] tailwind.config.ts missing — creating`);
+      await fileService.writeFile(projectId, 'tailwind.config.ts',
+        `import type { Config } from "tailwindcss";\n\nconst config: Config = {\n  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],\n  theme: { extend: {} },\n  plugins: [],\n};\nexport default config;\n`);
+    }
+  } catch {}
+
+  log.info(`[CSS Repair] Pipeline check complete for ${projectId}`);
 }
 
 // ── Restart dev server ──────────────────────────────────────────────────────

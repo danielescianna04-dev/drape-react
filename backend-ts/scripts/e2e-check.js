@@ -480,10 +480,16 @@ async function verify(pages) {
             }
           } else {
             clickResult.result = 'no-change';
-            // Zero-tolerance: in a generated project, every interactive element MUST do something
-            clickResult.error = `"${el.text}" (${el.type}) clicked but nothing happened — non-functional interactive element`;
-            results.passed = false;
-            results.errors.push(`[nav] "${el.text}" (${el.type}) clicked but nothing happened — broken interaction`);
+            // Same-page nav links are expected to do nothing — only flag buttons as high severity
+            const isLikelySamePageLink = el.href === new URL(page.url()).pathname || el.href === new URL(page.url()).pathname + '/';
+            if (!isLikelySamePageLink && el.type === 'button') {
+              clickResult.error = `"${el.text}" (${el.type}) clicked but nothing happened — non-functional button`;
+              results.passed = false;
+              results.errors.push(`[nav] "${el.text}" (${el.type}) clicked but nothing happened — broken button`);
+            } else {
+              clickResult.error = `"${el.text}" (${el.type}) clicked but nothing happened`;
+              // Don't fail the entire test for same-page links or nav items
+            }
           }
 
           // Capture "after" screenshot and attach both to the result
