@@ -114,7 +114,7 @@ export interface UIState {
   setSkipNextPreflight: (value: boolean) => void;
 }
 
-export const useUIStore = create<UIState>((set) => ({
+export const useUIStore = create<UIState>((set, get) => ({
     // Initial state - Terminal
     globalTerminalLog: [],
     terminalItems: [],

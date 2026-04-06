@@ -568,6 +568,51 @@ workstationRouter.get('/:projectId/build-report', asyncHandler(async (req, res) 
   }
 }));
 
+// GET /workstation/:projectId/screenshots — serve page screenshots from e2e-results.json
+workstationRouter.get('/:projectId/screenshots', asyncHandler(async (req, res) => {
+  const { projectId } = req.params;
+  const uid = req.userId || 'anonymous';
+
+  const isOwner = await verifyProjectOwnership(uid, projectId);
+  if (!isOwner) return res.status(403).json({ error: 'Access denied' });
+
+  // Read from e2e-results.json (has full screenshots)
+  const screenshots: Record<string, string> = {};
+  try {
+    const { config: appConfig } = require('../config');
+    const e2ePath = require('path').join(appConfig.projectsRoot, projectId, '.drape', 'e2e-results.json');
+    if (require('fs').existsSync(e2ePath)) {
+      const raw = require('fs').readFileSync(e2ePath, 'utf-8');
+      const data = JSON.parse(raw);
+      if (data.pages) {
+        for (const pg of data.pages) {
+          if (pg.screenshot && pg.path) screenshots[pg.path] = pg.screenshot;
+        }
+      }
+    }
+  } catch {}
+
+  // Also try qa-report.json
+  if (Object.keys(screenshots).length === 0) {
+    try {
+      const { config: appConfig } = require('../config');
+      const qaPath = require('path').join(appConfig.projectsRoot, projectId, '.drape', 'qa-report.json');
+      if (require('fs').existsSync(qaPath)) {
+        const raw = require('fs').readFileSync(qaPath, 'utf-8');
+        const data = JSON.parse(raw);
+        const lastAttempt = data.attempts?.[data.attempts.length - 1];
+        if (lastAttempt?.pages) {
+          for (const pg of lastAttempt.pages) {
+            if (pg.screenshot && pg.path) screenshots[pg.path] = pg.screenshot;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  res.json({ success: true, screenshots });
+}));
+
 // GET /workstation/:projectId/verification-report
 workstationRouter.get('/:projectId/verification-report', asyncHandler(async (req, res) => {
   const { projectId } = req.params;

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenshotModal } from './ScreenshotModal';
+import { config } from '../../../../config/config';
+import { getAuthHeaders } from '../../../../core/api/getAuthToken';
+import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 
 // ── Types ──
 
@@ -398,6 +401,21 @@ export const VerificationSection: React.FC<Props> = ({ report }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [modalScreenshot, setModalScreenshot] = useState('');
   const [modalTitle, setModalTitle] = useState('');
+  const [screenshots, setScreenshots] = useState<Record<string, string>>({});
+  const currentProjectId = useTerminalStore(s => s.currentWorkstation?.id);
+
+  // Fetch screenshots on demand from dedicated endpoint
+  useEffect(() => {
+    if (!currentProjectId) return;
+    getAuthHeaders().then(headers => {
+      fetch(`${config.apiUrl}/workstation/${currentProjectId}/screenshots`, { headers })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.screenshots) setScreenshots(data.screenshots);
+        })
+        .catch(() => {});
+    }).catch(() => {});
+  }, [currentProjectId]);
 
   const openScreenshot = useCallback((base64: string, title: string) => {
     setModalScreenshot(base64);
@@ -415,7 +433,12 @@ export const VerificationSection: React.FC<Props> = ({ report }) => {
     ? backendAttempts[backendAttempts.length - 1]
     : undefined;
 
-  const allPages = latestAttempt?.pages ?? [];
+  // Merge fetched screenshots into page data (pages may have screenshot stripped)
+  const rawPages = latestAttempt?.pages ?? [];
+  const allPages = rawPages.map(p => ({
+    ...p,
+    screenshot: p.screenshot || screenshots[p.path] || undefined,
+  }));
   const allNavigation = latestAttempt?.navigation ?? [];
   const allFixes = backendAttempts.flatMap(a =>
     (a.fixes ?? []).map(f => ({ ...f, attemptNumber: a.attemptNumber }))

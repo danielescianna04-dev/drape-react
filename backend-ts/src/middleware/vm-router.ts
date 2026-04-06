@@ -327,8 +327,10 @@ function proxyRequest(
               stream.on('data', (chunk: Buffer) => chunks.push(chunk));
               stream.on('end', () => {
                 let html = Buffer.concat(chunks).toString('utf-8');
-                // Inject Tailwind CDN if not already present
-                if (!html.includes('cdn.tailwindcss.com')) {
+                // Inject Tailwind CDN only if no compiled CSS detected and CDN not already present
+                // Built Next.js/Vite projects have CSS in <link> or <style> tags — skip CDN for those
+                const hasCompiledCSS = html.includes('.css"') || html.includes("stylesheet") || html.includes('<style');
+                if (!hasCompiledCSS && !html.includes('cdn.tailwindcss.com')) {
                   html = html.replace('<head>', '<head>\n<script src="https://cdn.tailwindcss.com"></script>');
                 }
                 // SPA routing fix for Vite-based apps

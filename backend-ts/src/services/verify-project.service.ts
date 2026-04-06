@@ -326,7 +326,7 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
       ).then(r => (r.stdout || '').trim() === 'yes').catch(() => false);
 
       const verifyScript = qaAgentExists
-        ? 'NODE_PATH=/usr/local/lib/node_modules timeout 360 node /usr/local/bin/qa-agent.js 2>/tmp/qa-stderr.txt'
+        ? 'NODE_PATH=/usr/local/lib/node_modules timeout 180 node /usr/local/bin/qa-agent.js 2>/tmp/qa-stderr.txt'
         : 'NODE_PATH=/usr/local/lib/node_modules timeout 240 node /usr/local/bin/e2e-check.js 2>/tmp/e2e-stderr.txt';
 
       if (qaAgentExists) log.info(`[Verify] Using qa-agent.js for verification`);

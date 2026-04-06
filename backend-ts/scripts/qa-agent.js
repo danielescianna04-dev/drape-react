@@ -18,17 +18,17 @@ const https = require('https');
 const BASE_URL = 'http://localhost:3000';
 const CLICK_TIMEOUT = 3000;
 const NAV_TIMEOUT = 12000;
-const MAX_QA_CYCLES = 3;
+// Single QA cycle: the outer verify loop in verify-project.service.ts handles retries
+const MAX_QA_CYCLES = 1;
 const VISION_API_KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || '';
 const PROJECT_DIR = '/home/coder/project';
 const MAX_SCREENSHOTS_PER_BATCH = 4;
 const MAX_SCREENSHOTS_TOTAL = 20; // Prevent OOM on large projects
 const MAX_FIX_FILES = 8;
 
+// Mobile-only for speed during creation gate. Multi-viewport is future deep QA.
 const VIEWPORTS = [
   { name: 'mobile', width: 430, height: 932 },
-  { name: 'tablet', width: 768, height: 1024 },
-  { name: 'desktop', width: 1280, height: 720 },
 ];
 
 const PROTECTED_FILES = new Set([
