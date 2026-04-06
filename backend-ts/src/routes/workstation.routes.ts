@@ -576,10 +576,14 @@ workstationRouter.get('/:projectId/screenshots', asyncHandler(async (req, res) =
   const isOwner = await verifyProjectOwnership(uid, projectId);
   if (!isOwner) return res.status(403).json({ error: 'Access denied' });
 
-  // Read from e2e-results.json (has full screenshots)
   const screenshots: Record<string, string> = {};
+  // Navigation screenshots: keyed as "click:ElementText:before" / "click:ElementText:after"
+  const navScreenshots: Record<string, string> = {};
+
+  const { config: appConfig } = require('../config');
+
+  // Read from e2e-results.json (has full screenshots)
   try {
-    const { config: appConfig } = require('../config');
     const e2ePath = require('path').join(appConfig.projectsRoot, projectId, '.drape', 'e2e-results.json');
     if (require('fs').existsSync(e2ePath)) {
       const raw = require('fs').readFileSync(e2ePath, 'utf-8');
@@ -589,13 +593,19 @@ workstationRouter.get('/:projectId/screenshots', asyncHandler(async (req, res) =
           if (pg.screenshot && pg.path) screenshots[pg.path] = pg.screenshot;
         }
       }
+      if (data.navigation) {
+        for (const nav of data.navigation) {
+          const key = nav.element?.text || 'unknown';
+          if (nav.screenshotBefore) navScreenshots[`click:${key}:before`] = nav.screenshotBefore;
+          if (nav.screenshotAfter) navScreenshots[`click:${key}:after`] = nav.screenshotAfter;
+        }
+      }
     }
   } catch {}
 
-  // Also try qa-report.json
+  // Fallback: qa-report.json
   if (Object.keys(screenshots).length === 0) {
     try {
-      const { config: appConfig } = require('../config');
       const qaPath = require('path').join(appConfig.projectsRoot, projectId, '.drape', 'qa-report.json');
       if (require('fs').existsSync(qaPath)) {
         const raw = require('fs').readFileSync(qaPath, 'utf-8');
@@ -606,11 +616,18 @@ workstationRouter.get('/:projectId/screenshots', asyncHandler(async (req, res) =
             if (pg.screenshot && pg.path) screenshots[pg.path] = pg.screenshot;
           }
         }
+        if (lastAttempt?.clicks) {
+          for (const nav of lastAttempt.clicks) {
+            const key = nav.element?.text || 'unknown';
+            if (nav.screenshotBefore) navScreenshots[`click:${key}:before`] = nav.screenshotBefore;
+            if (nav.screenshotAfter) navScreenshots[`click:${key}:after`] = nav.screenshotAfter;
+          }
+        }
       }
     } catch {}
   }
 
-  res.json({ success: true, screenshots });
+  res.json({ success: true, screenshots, navScreenshots });
 }));
 
 // GET /workstation/:projectId/verification-report
@@ -1784,42 +1801,30 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
 
     log.info(`[CreateProject] Total files: ${writtenFiles.length} (${streamWrittenFiles.length} streamed + ${remainingFiles.length} post-stream)`);
 
-    // Inject Tailwind CDN into layout as fallback (dev mode CSS depends on JS runtime)
-    if (technology === 'nextjs') {
-      try {
-        const layoutResult = await fileService.readFile(projectId, 'app/layout.tsx');
-        if (layoutResult.success && layoutResult.data?.content) {
-          let layout = layoutResult.data.content;
-          if (!layout.includes('cdn.tailwindcss.com')) {
-            // Add next/script import if missing
-            if (!layout.includes("from 'next/script'") && !layout.includes('from "next/script"')) {
-              layout = "import Script from 'next/script';\n" + layout;
+    // Tailwind CDN injection:
+    // - Next.js: SKIP — production build compiles CSS, CDN causes FOUC
+    // - React/Vue: inject ONLY if no Tailwind config exists (pure fallback)
+    if (technology !== 'nextjs') {
+      // Check if project has Tailwind properly configured
+      const hasTailwindConfig = (await fileService.readFile(projectId, 'tailwind.config.js')).success ||
+        (await fileService.readFile(projectId, 'tailwind.config.ts')).success;
+
+      if (!hasTailwindConfig) {
+        try {
+          const indexResult = await fileService.readFile(projectId, 'index.html');
+          if (indexResult.success && indexResult.data?.content) {
+            let html = indexResult.data.content;
+            if (!html.includes('cdn.tailwindcss.com')) {
+              html = html.replace('</head>', '    <script src="https://cdn.tailwindcss.com"></script>\n  </head>');
+              await fileService.writeFile(projectId, 'index.html', html);
+              log.info(`[CreateProject] Injected Tailwind CDN into index.html (no tailwind config found)`);
             }
-            // Inject CDN script before {children}
-            layout = layout.replace(
-              /(\{children\})/,
-              '<Script src="https://cdn.tailwindcss.com" strategy="beforeInteractive" />\n        $1'
-            );
-            await fileService.writeFile(projectId, 'app/layout.tsx', layout);
-            log.info(`[CreateProject] Injected Tailwind CDN into layout.tsx`);
           }
+        } catch (e: any) {
+          log.warn(`[CreateProject] CDN injection failed: ${e.message}`);
         }
-      } catch (e: any) {
-        log.warn(`[CreateProject] CDN injection into layout failed: ${e.message}`);
-      }
-    } else if (technology === 'react' || technology === 'vue') {
-      try {
-        const indexResult = await fileService.readFile(projectId, 'index.html');
-        if (indexResult.success && indexResult.data?.content) {
-          let html = indexResult.data.content;
-          if (!html.includes('cdn.tailwindcss.com')) {
-            html = html.replace('</head>', '    <script src="https://cdn.tailwindcss.com"></script>\n  </head>');
-            await fileService.writeFile(projectId, 'index.html', html);
-            log.info(`[CreateProject] Injected Tailwind CDN into index.html`);
-          }
-        }
-      } catch (e: any) {
-        log.warn(`[CreateProject] CDN injection into index.html failed: ${e.message}`);
+      } else {
+        log.info(`[CreateProject] Skipping CDN injection — Tailwind config exists`);
       }
     }
 

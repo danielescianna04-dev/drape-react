@@ -18,8 +18,9 @@ const https = require('https');
 const BASE_URL = 'http://localhost:3000';
 const CLICK_TIMEOUT = 3000;
 const NAV_TIMEOUT = 12000;
-// Single QA cycle: the outer verify loop in verify-project.service.ts handles retries
-const MAX_QA_CYCLES = 1;
+// 2 cycles: verify → self-heal → reverify. Mobile-only viewport for speed.
+// Outer verify loop (verify-project.service.ts MAX_ATTEMPTS=2) adds another layer.
+const MAX_QA_CYCLES = 2;
 const VISION_API_KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || '';
 const PROJECT_DIR = '/home/coder/project';
 const MAX_SCREENSHOTS_PER_BATCH = 4;

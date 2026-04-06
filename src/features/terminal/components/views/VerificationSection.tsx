@@ -402,16 +402,20 @@ export const VerificationSection: React.FC<Props> = ({ report }) => {
   const [modalScreenshot, setModalScreenshot] = useState('');
   const [modalTitle, setModalTitle] = useState('');
   const [screenshots, setScreenshots] = useState<Record<string, string>>({});
+  const [navScreenshots, setNavScreenshots] = useState<Record<string, string>>({});
   const currentProjectId = useTerminalStore(s => s.currentWorkstation?.id);
 
-  // Fetch screenshots on demand from dedicated endpoint
+  // Fetch page + navigation screenshots from dedicated endpoint
   useEffect(() => {
     if (!currentProjectId) return;
     getAuthHeaders().then(headers => {
       fetch(`${config.apiUrl}/workstation/${currentProjectId}/screenshots`, { headers })
         .then(r => r.json())
         .then(data => {
-          if (data.success && data.screenshots) setScreenshots(data.screenshots);
+          if (data.success) {
+            if (data.screenshots) setScreenshots(data.screenshots);
+            if (data.navScreenshots) setNavScreenshots(data.navScreenshots);
+          }
         })
         .catch(() => {});
     }).catch(() => {});
@@ -439,7 +443,13 @@ export const VerificationSection: React.FC<Props> = ({ report }) => {
     ...p,
     screenshot: p.screenshot || screenshots[p.path] || undefined,
   }));
-  const allNavigation = latestAttempt?.navigation ?? [];
+  // Merge fetched nav screenshots into navigation data
+  const rawNavigation = latestAttempt?.navigation ?? [];
+  const allNavigation = rawNavigation.map(n => ({
+    ...n,
+    screenshotBefore: n.screenshotBefore || navScreenshots[`click:${n.element?.text || 'unknown'}:before`] || undefined,
+    screenshotAfter: n.screenshotAfter || navScreenshots[`click:${n.element?.text || 'unknown'}:after`] || undefined,
+  }));
   const allFixes = backendAttempts.flatMap(a =>
     (a.fixes ?? []).map(f => ({ ...f, attemptNumber: a.attemptNumber }))
   );
