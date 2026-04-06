@@ -479,25 +479,38 @@ export function getProjectCreationUserPrompt(
 
   prompt += `\n\nThis is the first version of this project. The codebase is a template that hasn't been edited yet.
 
-Here's what you need to do:
-1. Take time to think about what the user wants to build.
-2. Think about what this app evokes and what existing beautiful designs you can draw inspiration from.
-3. List what features you'll implement in this first version. It's a first version so the user will be able to iterate on it. Don't do too much, but make it look good.
-4. Choose colors, gradients, animations, fonts and styles that fit the app's personality.
-5. Set up the design system FIRST (colors file), then build components on top.
-6. Create small, focused components — one file per component, aim for 50 lines or less.
-7. Every button, link, tab, form must be FULLY FUNCTIONAL — no dead UI.
-${cloudMode
-  ? `8. ALL data comes from API routes that query the database — NO hardcoded/mock data. Create API routes in app/api/ and fetch from client-side pages. Seed data goes in db/schema.sql INSERT statements.`
-  : `8. Use realistic hardcoded data (const arrays) — never fetch() for mock data.`}
-9. Use Unsplash images relevant to the app theme.
+PRODUCT PHILOSOPHY — FOCUSED V1:
+Build a focused, opinionated V1 — not a broad feature showcase.
+- Identify 2-3 core user flows and make them PERFECT
+- Better 3 polished, working screens than 8 half-broken ones
+- The user should navigate the entire app without hitting a dead end
+- Every visible element must be real — no fake UI, no placeholder screens
 
-The MOST IMPORTANT thing is that the app is beautiful and works. No build errors. Valid TypeScript and CSS. All imports correct.
+DO NOT CREATE:
+- Dead buttons or placeholder CTAs that don't do anything when clicked
+- Dynamic routes like /chat/[id] or /user/[slug] WITHOUT providing concrete navigable instances with real mock data
+- Features you can't fully implement (video call, stories, real-time notifications)
+- Tabs or nav items leading to empty or stub screens
+- "Coming soon" or placeholder sections
+If a feature isn't ready, HIDE IT — don't expose broken UI.
+
+Here's what you need to do:
+1. Think about the 2-3 core journeys the user expects from this app.
+2. Design and implement ONLY those journeys end-to-end.
+3. Choose colors, gradients, animations, fonts and styles that fit the app's personality.
+4. Set up the design system FIRST (colors file), then build components on top.
+5. Create small, focused components — one file per component, aim for 50 lines or less.
+6. Every button, link, tab, form must be FULLY FUNCTIONAL — if you show it, it must work.
+${cloudMode
+  ? `7. ALL data comes from API routes that query the database — NO hardcoded/mock data. Create API routes in app/api/ and fetch from client-side pages. Seed data goes in db/schema.sql INSERT statements.`
+  : `7. Use realistic hardcoded data (const arrays) — never fetch() for mock data.`}
+8. Use Unsplash images relevant to the app theme.
 
 QUALITY REQUIREMENTS (an AI QA agent will verify ALL of these):
 - Every button MUST have a working onClick handler that does something visible (navigation, modal, state change).
 - Every link MUST navigate to an existing page — no broken hrefs.
 - Every form MUST have proper input handling and submit logic.
+- Do NOT create links to routes with [params] unless those routes have concrete instances reachable from the UI.
 - Layout MUST look correct on mobile (430px), tablet (768px), and desktop (1280px).
 - No overlapping elements, no truncated text, no empty sections.
 - Use shadcn/ui components (Button, Card, Input, Dialog) for reliable, tested UI.

@@ -1464,8 +1464,21 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
 User request: ${description}
 ${isCloudMode ? 'Cloud mode is enabled with PostgreSQL database and authentication.' : ''}
 
+SCOPE DISCIPLINE — V1 FOCUSED:
+- Identify the 2-3 core user journeys that define this app
+- Plan ONLY the screens needed for those journeys — 3-5 pages maximum
+- Every page must be fully functional and navigable end-to-end
+- Do NOT plan features you cannot fully implement in V1:
+  - no video call screens unless the app is specifically a video app
+  - no dynamic routes like [id] or [slug] unless you provide concrete navigable instances
+  - no settings/preferences pages unless core to the product
+- If a feature isn't ready for V1, it simply doesn't exist — don't plan it
+- Better 3 polished screens than 6 half-broken ones
+
 Return a JSON object with this EXACT structure:
 {
+  "coreFlows": ["Flow 1 description", "Flow 2 description"],
+  "excludedFeatures": ["Feature deliberately left out", ...],
   "pages": ["page1.tsx", "page2.tsx", ...],
   "components": ["Component1.tsx", "Component2.tsx", ...],
   "apiRoutes": ["api/route1/route.ts", ...],
@@ -1474,7 +1487,7 @@ Return a JSON object with this EXACT structure:
   "appDescription": "One sentence describing the app's purpose and style"
 }
 
-Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 components, relevant API routes.`;
+Return ONLY the JSON, no markdown, no explanation. Plan 3-5 pages, 5-7 components.`;
 
     const archStream = aiProviderService.chatStream('gemini-3-flash',
       [{ role: 'user', content: archPrompt }],

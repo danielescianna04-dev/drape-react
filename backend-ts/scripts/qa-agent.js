@@ -100,7 +100,11 @@ function detectPages() {
     }
   } catch {}
 
-  return [...new Set(pages)].slice(0, 15); // Cap at 15 pages
+  // Filter out dynamic routes with unresolved params — these return 404 when tested literally
+  // Only test concrete, navigable URLs
+  const concrete = [...new Set(pages)].filter(p => !p.includes('[') && !p.includes(']'));
+  logAction('detect', 'pages', `${concrete.length} concrete pages (filtered ${pages.length - concrete.length} dynamic routes)`);
+  return concrete.slice(0, 15);
 }
 
 // ── Page Analysis ──────────────────────────────────────────────

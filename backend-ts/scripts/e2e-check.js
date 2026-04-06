@@ -73,7 +73,8 @@ function detectPages() {
     }
   } catch {}
 
-  return [...new Set(pages)];
+  // Filter out dynamic routes with unresolved params — they 404 when tested literally
+  return [...new Set(pages)].filter(p => !p.includes('[') && !p.includes(']'));
 }
 
 // ── Page Analysis ──────────────────────────────────────────────
