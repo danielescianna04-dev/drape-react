@@ -25,6 +25,7 @@ import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useAuthStore } from '../../core/auth/authStore';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
+import { useUIStore } from '../../core/terminal/uiStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 // DescriptionInput no longer used — step 1 uses inline textarea
 import { liveActivityService } from '../../core/services/liveActivityService';
@@ -399,37 +400,9 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                   step: task.step,
                 });
 
-                if (task.status === 'completed') {
+                if (task.status === 'completed' || task.status === 'verification_failed') {
                   activeTaskIdRef.current = null;
-
-                  const workstation = {
-                    id: task.result.projectId,
-                    projectId: task.result.projectId,
-                    name: task.result.projectName,
-                    language: task.result.technology,
-                    technology: task.result.technology,
-                    templateDescription: task.result.templateDescription,
-                    status: 'ready' as const,
-                    createdAt: new Date(),
-                    files: task.result.files || [],
-                    folderId: null,
-                  };
-
-                  const pName = task.result.projectName || projectName.trim();
-                  if (liveActivityService.isActivityActive()) {
-                    liveActivityService.endWithSuccess(pName, t('alerts.projectCreated')).catch(() => {});
-                  }
-
-                  setTimeout(() => {
-                    setIsCreating(false);
-                    setCreationTask(null);
-                    tracciaEntrataNelProgetto(pName);
-                    onCreate(workstation);
-                  }, 500);
-                  return;
-                } else if (task.status === 'verification_failed') {
-                  activeTaskIdRef.current = null;
-                  liveActivityService.endPreviewActivity().catch(() => {});
+                  const verifyFailed = task.status === 'verification_failed';
 
                   const workstation = {
                     id: task.result?.projectId || task.projectId,
@@ -444,17 +417,25 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                     folderId: null,
                   };
 
-                  Alert.alert(
-                    'Verification Failed',
-                    task.error || 'The project has issues that need attention. Check Project History for details.',
-                    [
-                      { text: 'Open Project', onPress: () => {
-                        setIsCreating(false);
-                        setCreationTask(null);
-                        onCreate(workstation);
-                      }},
-                    ]
-                  );
+                  // Set preview gate — blocked if verification failed
+                  const { setPreviewBlocked } = useUIStore.getState();
+                  setPreviewBlocked(workstation.projectId, verifyFailed);
+
+                  const pName = task.result?.projectName || projectName.trim();
+                  if (liveActivityService.isActivityActive()) {
+                    if (verifyFailed) {
+                      liveActivityService.endPreviewActivity().catch(() => {});
+                    } else {
+                      liveActivityService.endWithSuccess(pName, t('alerts.projectCreated')).catch(() => {});
+                    }
+                  }
+
+                  setTimeout(() => {
+                    setIsCreating(false);
+                    setCreationTask(null);
+                    tracciaEntrataNelProgetto(pName);
+                    onCreate(workstation);
+                  }, 500);
                   return;
                 } else if (task.status === 'failed') {
                   activeTaskIdRef.current = null;
@@ -631,49 +612,13 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             }).catch(() => {});
           }
 
-          if (task.status === 'completed') {
+          if (task.status === 'completed' || task.status === 'verification_failed') {
             if (pollIntervalRef.current) {
               clearInterval(pollIntervalRef.current);
               pollIntervalRef.current = null;
             }
             activeTaskIdRef.current = null;
-
-            const workstation = {
-              id: task.result.projectId,
-              projectId: task.result.projectId,
-              name: task.result.projectName,
-              language: task.result.technology,
-              technology: task.result.technology,
-              templateDescription: task.result.templateDescription,
-              status: 'ready' as const,
-              createdAt: new Date(),
-              files: task.result.files || [],
-              folderId: null,
-            };
-
-            const pName = task.result.projectName || projectName.trim();
-            if (liveActivityService.isActivityActive()) {
-              liveActivityService.endWithSuccess(pName, t('alerts.projectCreated')).catch(() => {});
-            }
-            liveActivityService.sendNotification(
-              t('alerts.projectCreated'),
-              t('alerts.projectReady', { name: pName }),
-              { type: 'project_created', projectId: task.result.projectId || '' }
-            ).catch(() => {});
-
-            setTimeout(() => {
-              setIsCreating(false);
-              setCreationTask(null);
-              tracciaEntrataNelProgetto(pName);
-              onCreate(workstation);
-            }, 1200);
-          } else if (task.status === 'verification_failed') {
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
-            activeTaskIdRef.current = null;
-            liveActivityService.endPreviewActivity().catch(() => {});
+            const verifyFailed = task.status === 'verification_failed';
 
             const workstation = {
               id: task.result?.projectId || '',
@@ -688,17 +633,32 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
               folderId: null,
             };
 
-            Alert.alert(
-              'Verification Failed',
-              task.error || 'The project has issues. Check Project History for details.',
-              [
-                { text: 'Open Project', onPress: () => {
-                  setIsCreating(false);
-                  setCreationTask(null);
-                  onCreate(workstation);
-                }},
-              ]
-            );
+            // Set preview gate
+            const { setPreviewBlocked } = useUIStore.getState();
+            setPreviewBlocked(workstation.projectId, verifyFailed);
+
+            const pName = task.result?.projectName || projectName.trim();
+            if (liveActivityService.isActivityActive()) {
+              if (verifyFailed) {
+                liveActivityService.endPreviewActivity().catch(() => {});
+              } else {
+                liveActivityService.endWithSuccess(pName, t('alerts.projectCreated')).catch(() => {});
+              }
+            }
+            if (!verifyFailed) {
+              liveActivityService.sendNotification(
+                t('alerts.projectCreated'),
+                t('alerts.projectReady', { name: pName }),
+                { type: 'project_created', projectId: workstation.projectId }
+              ).catch(() => {});
+            }
+
+            setTimeout(() => {
+              setIsCreating(false);
+              setCreationTask(null);
+              tracciaEntrataNelProgetto(pName);
+              onCreate(workstation);
+            }, 1200);
           } else if (task.status === 'failed') {
             if (pollIntervalRef.current) {
               clearInterval(pollIntervalRef.current);

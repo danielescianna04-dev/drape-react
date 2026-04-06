@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Dimensions, TouchableWithoutFeedback, TouchableOpacity, InteractionManager, Keyboard, AppState, Modal } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, TouchableWithoutFeedback, TouchableOpacity, InteractionManager, Keyboard, AppState, Modal, Alert } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring, FadeInDown, ZoomIn, FadeIn, interpolate, Extrapolate } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -120,9 +120,12 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const skipZoomAnimation = useSharedValue(false);
   const pillTranslateY = useSharedValue(SCREEN_HEIGHT / 2 - 40); // Initial center position
   // Auto-open preview when requested (e.g. after AI fix) — opens as a tab
+  // Respects preview gate: if blocked, don't auto-open
   React.useEffect(() => {
     if (openPreviewRequested) {
       useUIStore.getState().setOpenPreviewRequested(false);
+      const pid = currentWorkstation?.projectId || currentWorkstation?.id;
+      if (pid && useUIStore.getState().isPreviewBlocked(pid)) return;
       openPreviewTab();
       setActivePanel(null);
     }
@@ -145,6 +148,24 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   }, [openEnvVarsRequested]);
 
   const openPreviewTab = useCallback(() => {
+    // Preview gate: block if verification failed
+    const projectId = currentWorkstation?.projectId || currentWorkstation?.id;
+    if (projectId && useUIStore.getState().isPreviewBlocked(projectId)) {
+      Alert.alert(
+        'Preview Unavailable',
+        'Preview is blocked until verification passes. Check Project History for details.',
+        [
+          { text: 'Open History', onPress: () => {
+            const histTab = tabs.find(t => t.id === 'buildReport');
+            if (histTab) { setActiveTab('buildReport'); }
+            else { addTab({ id: 'buildReport', type: 'buildReport', title: 'History', data: {} }); }
+          }},
+          { text: 'OK' },
+        ]
+      );
+      return;
+    }
+
     const existing = tabs.find(t => t.id === 'preview');
     if (existing) {
       setActiveTab('preview');
@@ -156,7 +177,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         data: {},
       });
     }
-  }, [tabs, setActiveTab, addTab]);
+  }, [tabs, setActiveTab, addTab, currentWorkstation]);
 
   // ============ HEARTBEAT: Keep container alive while user is in project ============
   useEffect(() => {

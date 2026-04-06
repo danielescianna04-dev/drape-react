@@ -69,6 +69,11 @@ export interface UIState {
   openEnvVarsRequested: boolean;
   skipNextPreflight: boolean;
 
+  // Preview gate: blocked per project until verification passes
+  previewBlockedProjects: Record<string, boolean>;
+  setPreviewBlocked: (projectId: string, blocked: boolean) => void;
+  isPreviewBlocked: (projectId: string) => boolean;
+
   // Autocomplete
   autocompleteOptions: AutocompleteOption[];
   showAutocomplete: boolean;
@@ -151,6 +156,11 @@ export const useUIStore = create<UIState>((set) => ({
     openGitSheetTab: null,
     openEnvVarsRequested: false,
     skipNextPreflight: false,
+    previewBlockedProjects: {},
+    setPreviewBlocked: (projectId, blocked) => set(state => ({
+      previewBlockedProjects: { ...state.previewBlockedProjects, [projectId]: blocked },
+    })),
+    isPreviewBlocked: (projectId) => get().previewBlockedProjects[projectId] === true,
 
     // Initial state - Autocomplete
     autocompleteOptions: [],
