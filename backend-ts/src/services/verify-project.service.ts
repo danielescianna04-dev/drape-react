@@ -77,13 +77,7 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
   };
   const reportStartTime = Date.now();
 
-  // ── CSS Repair: ensure Tailwind plumbing is correct before verifying ──
-  onProgress?.(91, 'Repairing CSS pipeline...', 'CSS Repair');
-  try {
-    await repairCSSPipeline(projectId, userId, technology);
-  } catch (cssErr: any) {
-    log.warn(`[Verify] CSS repair failed (non-fatal): ${cssErr.message}`);
-  }
+  // CSS repair is now done in workspace.service.ts ensureCSSPipeline() before build
 
   let lastResult: VerifyResult = { passed: false, errors: [], screenshots: new Map(), serverLog: '' };
 

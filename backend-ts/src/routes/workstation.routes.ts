@@ -1957,8 +1957,8 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
     update(91, 'Installing dependencies...', 'Building');
     for (let warmAttempt = 0; warmAttempt < 3; warmAttempt++) {
       try {
-        // Timeout warmProject at 90s to prevent blocking BuildCheck
-        const warmTimeout = new Promise<void>((_, reject) => setTimeout(() => reject(new Error('warmProject timeout (90s)')), 90000));
+        // Timeout warmProject at 150s (Next.js build can take 60s + install 40s + start 10s)
+        const warmTimeout = new Promise<void>((_, reject) => setTimeout(() => reject(new Error('warmProject timeout (150s)')), 150000));
         await Promise.race([workspaceService.warmProject(projectId, userId), warmTimeout]);
         break; // Success
       } catch (warmErr: any) {
@@ -2002,64 +2002,10 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       }
     }
 
-    // === NEXT.JS BUILD (production mode — pre-compile all pages) ===
-    // Build MUST succeed — no fallback to dev mode. If it fails, fix errors and retry.
-    if (technology === 'nextjs') {
-      const MAX_BUILD_ATTEMPTS = 3;
-      for (let buildAttempt = 1; buildAttempt <= MAX_BUILD_ATTEMPTS; buildAttempt++) {
-        update(92, buildAttempt === 1 ? 'Building for production...' : `Rebuilding (attempt ${buildAttempt})...`, 'Building');
-        try {
-          // Clear previous failed build
-          await workspaceService.exec(projectId, userId, 'rm -rf /home/coder/project/.next 2>/dev/null');
-
-          const buildResult = await workspaceService.exec(projectId, userId,
-            'cd /home/coder/project && timeout 120 ./node_modules/.bin/next build 2>&1'
-          );
-          const buildOutput = buildResult.stdout || '';
-          const buildFailed = buildOutput.includes('Build error') ||
-            buildOutput.includes('Failed to compile') ||
-            buildOutput.includes('Module not found') ||
-            buildOutput.includes("Can't resolve") ||
-            buildOutput.includes('Type error');
-
-          if (!buildFailed) {
-            log.info(`[CreateProject] Next.js build succeeded on attempt ${buildAttempt}`);
-            break;
-          }
-
-          log.warn(`[CreateProject] Next.js build failed (attempt ${buildAttempt}/${MAX_BUILD_ATTEMPTS}): ${buildOutput.substring(buildOutput.lastIndexOf('Error'), buildOutput.lastIndexOf('Error') + 200)}`);
-
-          if (buildAttempt < MAX_BUILD_ATTEMPTS) {
-            // Auto-fix: send build errors to AI
-            update(93, 'Fixing build errors...', 'Auto-Fix');
-            try {
-              const fixStream = aiProviderService.chatStream('gemini-3-flash',
-                [{ role: 'user', content: `Fix these Next.js build errors. Return ONLY a JSON array of fixed files: [{"path":"...","content":"..."}]\n\nBuild output:\n${buildOutput.slice(-3000)}\n\nRules:\n- Return COMPLETE file content\n- Fix all import errors, type errors, missing modules\n- Add 'use client' if needed\n- Do NOT modify package.json, layout.tsx, globals.css` }],
-                undefined, 'Fix build errors. Return only valid JSON.', { temperature: 0.1, maxTokens: 30000 }
-              );
-              let fixText = '';
-              for await (const chunk of fixStream) {
-                fixText += typeof chunk === 'string' ? chunk : (chunk.type === 'text' ? chunk.text : '');
-              }
-              const fixMatch = fixText.match(/\[[\s\S]*\]/);
-              if (fixMatch) {
-                const fixes: { path: string; content: string }[] = JSON.parse(fixMatch[0]);
-                for (const fix of fixes) {
-                  if (fix.path && fix.content?.trim()) {
-                    await fileService.writeFile(projectId, fix.path, fix.content);
-                    log.info(`[CreateProject] Build fix: ${fix.path}`);
-                  }
-                }
-              }
-            } catch (fixErr: any) {
-              log.warn(`[CreateProject] Build auto-fix failed: ${fixErr.message}`);
-            }
-          }
-        } catch (buildErr: any) {
-          log.warn(`[CreateProject] Build attempt ${buildAttempt} error: ${buildErr.message}`);
-        }
-      }
-    }
+    // NOTE: Next.js build is handled by warmProject() via project-detector startCommand
+    // (next build && next start). No separate build step needed here.
+    // The warm step already installs deps, builds, and starts the server.
+    // A second build would race with the running server and cause CSS/asset corruption.
 
     // === VERIFY + AUTO-FIX (blocking — preview NOT available until this completes) ===
     update(92, 'Verifying preview...', 'Verify');

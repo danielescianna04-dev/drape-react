@@ -166,9 +166,10 @@ class WorkspaceService {
           log.warn(`[Workspace] Failed to copy qa-agent.js: ${qaErr.message}`);
         }
 
-        // Fix Tailwind CSS version mismatch before build
+        // Fix Tailwind CSS version mismatch + ensure CSS plumbing before build
         if (projectInfo.type === 'nextjs') {
           await this.fixTailwindV4Css(projectId);
+          await this.ensureCSSPipeline(projectId);
         }
 
         // Install dependencies (skip for console projects without deps and static/unknown)
@@ -257,6 +258,68 @@ class WorkspaceService {
       }
     } catch {
       // Non-critical — don't block warming
+    }
+  }
+
+  /**
+   * Ensure CSS pipeline is correct for Next.js before build.
+   * Checks globals.css, layout.tsx import, postcss config, tailwind config.
+   * Removes CDN injection (production build compiles CSS).
+   */
+  private async ensureCSSPipeline(projectId: string): Promise<void> {
+    try {
+      // 1. Ensure globals.css has Tailwind directives
+      const globalsResult = await fileService.readFile(projectId, 'app/globals.css');
+      if (globalsResult.success && globalsResult.data?.content) {
+        const globals = globalsResult.data.content;
+        if (!globals.includes('@tailwind') && !globals.includes('@import "tailwindcss"')) {
+          log.info(`[CSS] globals.css missing Tailwind directives — injecting`);
+          await fileService.writeFile(projectId, 'app/globals.css',
+            `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\n${globals}`);
+        }
+      }
+
+      // 2. Ensure layout.tsx imports globals.css + remove CDN
+      const layoutResult = await fileService.readFile(projectId, 'app/layout.tsx');
+      if (layoutResult.success && layoutResult.data?.content) {
+        let layout = layoutResult.data.content;
+        let changed = false;
+        if (!layout.includes('globals.css') && !layout.includes('global.css')) {
+          layout = "import './globals.css';\n" + layout;
+          changed = true;
+          log.info(`[CSS] layout.tsx missing globals.css import — injected`);
+        }
+        if (layout.includes('cdn.tailwindcss.com')) {
+          layout = layout
+            .replace(/.*cdn\.tailwindcss\.com.*\n?/g, '')
+            .replace(/import Script from ['"]next\/script['"];?\n?/g, '');
+          changed = true;
+          log.info(`[CSS] Removed CDN from layout.tsx`);
+        }
+        if (changed) await fileService.writeFile(projectId, 'app/layout.tsx', layout);
+      }
+
+      // 3. Ensure postcss.config exists
+      const pcCheck = await fileService.readFile(projectId, 'postcss.config.mjs');
+      const pcCheck2 = await fileService.readFile(projectId, 'postcss.config.js');
+      if (!pcCheck.success && !pcCheck2.success) {
+        await fileService.writeFile(projectId, 'postcss.config.mjs',
+          'const config = {\n  plugins: {\n    tailwindcss: {},\n    autoprefixer: {},\n  },\n};\nexport default config;\n');
+        log.info(`[CSS] Created postcss.config.mjs`);
+      }
+
+      // 4. Ensure tailwind.config exists
+      const twCheck = await fileService.readFile(projectId, 'tailwind.config.ts');
+      const twCheck2 = await fileService.readFile(projectId, 'tailwind.config.js');
+      if (!twCheck.success && !twCheck2.success) {
+        await fileService.writeFile(projectId, 'tailwind.config.ts',
+          `import type { Config } from "tailwindcss";\n\nconst config: Config = {\n  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],\n  theme: { extend: {} },\n  plugins: [],\n};\nexport default config;\n`);
+        log.info(`[CSS] Created tailwind.config.ts`);
+      }
+
+      log.info(`[CSS] Pipeline check complete for ${projectId}`);
+    } catch (err: any) {
+      log.warn(`[CSS] Pipeline repair failed (non-fatal): ${err.message}`);
     }
   }
 
