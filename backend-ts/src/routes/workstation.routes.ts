@@ -2012,43 +2012,59 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       }
     }
 
-    // === MARK PROJECT AS READY — preview available NOW ===
-    report.complete();
-    update(100, 'Project Created Successfully!', 'Complete');
-    task.status = 'completed';
+    // === VERIFY + AUTO-FIX (blocking — preview NOT available until this completes) ===
+    update(92, 'Verifying preview...', 'Verify');
+    const qaActionId = report.startAction('qa', 'QA Verification — functional + visual testing');
+
+    const verifyResult = await verifyAndFixProject({
+      projectId,
+      userId,
+      technology,
+      onProgress: (pct, msg, stage) => update(pct, msg, stage),
+    });
+
+    // Log QA results to build report
+    if (verifyResult.qaReport) {
+      report.completeAction(qaActionId, {
+        qaStatus: verifyResult.qaReport.status,
+        qualityScore: verifyResult.qaReport.qualityScore,
+        attempts: verifyResult.qaReport.attempts?.length || 0,
+        totalIssues: verifyResult.qaReport.totalIssues || 0,
+      });
+      report.updateQaSummary(verifyResult.qaReport);
+    } else {
+      report.completeAction(qaActionId);
+    }
+
+    // Quality gate — preview blocked if verification fails
+    const qaStatus = verifyResult.qaReport?.status;
+    const qaScore = verifyResult.qaReport?.qualityScore ?? 0;
+
+    if (verifyResult.passed) {
+      report.complete();
+      update(100, 'Project Created Successfully!', 'Complete');
+      task.status = 'completed';
+    } else {
+      report.fail();
+      const reason = `${verifyResult.errors.length} errors — ${verifyResult.errors.slice(0, 2).join('; ')}`;
+      update(100, `Verification failed: ${reason}`, 'Needs Fix');
+      task.status = 'completed'; // Task finished but with errors
+      log.warn(`[CreateProject] ${projectId} verification failed: ${reason}`);
+    }
+
     task.result = {
       projectId,
       projectName,
       technology,
       templateDescription: description,
       files: writtenFiles,
+      qaGate: {
+        passed: verifyResult.passed,
+        status: qaStatus || (verifyResult.passed ? 'passed' : 'failed'),
+        qualityScore: qaScore,
+        totalIssues: verifyResult.qaReport?.totalIssues || verifyResult.errors.length,
+      },
     };
-
-    // === BACKGROUND QA — runs after project is marked complete ===
-    // User can already use the preview while QA verifies and auto-fixes
-    const qaActionId = report.startAction('qa', 'QA Verification — functional + visual testing');
-    verifyAndFixProject({
-      projectId,
-      userId,
-      technology,
-      onProgress: (_pct, msg) => log.info(`[QA:bg] ${projectId}: ${msg}`),
-    }).then(verifyResult => {
-      if (verifyResult.qaReport) {
-        report.completeAction(qaActionId, {
-          qaStatus: verifyResult.qaReport.status,
-          qualityScore: verifyResult.qaReport.qualityScore,
-          attempts: verifyResult.qaReport.attempts?.length || 0,
-          totalIssues: verifyResult.qaReport.totalIssues || 0,
-        });
-        report.updateQaSummary(verifyResult.qaReport);
-      } else {
-        report.completeAction(qaActionId);
-      }
-      log.info(`[QA:bg] ${projectId} complete: passed=${verifyResult.passed}, errors=${verifyResult.errors.length}`);
-    }).catch(err => {
-      report.failAction(qaActionId, err.message);
-      log.warn(`[QA:bg] ${projectId} failed: ${err.message}`);
-    });
 
     // Clean up task after 5 minutes
     setTimeout(() => creationTasks.delete(projectId), 5 * 60 * 1000);
