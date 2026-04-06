@@ -436,21 +436,21 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
                       if (proxyRetryCountRef.current < MAX_PROXY_RETRIES) {
                         proxyRetryCountRef.current++;
                         console.warn(`[Preview] Transient proxy error (retry ${proxyRetryCountRef.current}/${MAX_PROXY_RETRIES}):`, rawMsg);
+                        // Exponential backoff: 2s, 4s, 6s...
                         setTimeout(() => {
                           webViewRef.current?.reload();
-                        }, 2000);
+                        }, Math.min(2000 * proxyRetryCountRef.current, 8000));
                         return;
                       }
-                      // Even after max retries, don't show error for "Endpoint not found" — just keep retrying silently
-                      if (rawMsg.includes('Endpoint not found')) {
-                        console.warn('[Preview] Endpoint not found — resetting retry counter, will keep trying');
-                        proxyRetryCountRef.current = 0;
-                        setTimeout(() => { webViewRef.current?.reload(); }, 3000);
-                        return;
-                      }
+                      // Transient errors exhausted retries — keep preview visible, just reset and keep trying
+                      // Do NOT set serverStatus='stopped' for transient errors
+                      console.warn('[Preview] Transient error retries exhausted — resetting counter, keeping preview visible');
+                      proxyRetryCountRef.current = 0;
+                      setTimeout(() => { webViewRef.current?.reload(); }, 5000);
+                      return;
                     }
-                    // Exhausted retries or non-transient error — check for env error first
-                    console.warn('WebView detected proxy error:', rawMsg);
+                    // Non-transient error — check for env error first
+                    console.warn('WebView detected non-transient proxy error:', rawMsg);
                     if (onEnvError && isEnvRelatedMessage(rawMsg)) {
                       onEnvError(rawMsg);
                       return;

@@ -77,6 +77,7 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
   const serverStatusRef = useRef(serverStatus);
   const preflightDoneRef = useRef(false);
   const autoFixTriggeredRef = useRef(false);
+  const hasReachedReadyRef = useRef(false);
 
   // ── Hooks ──
   const autoFix = usePreviewAutoFix(projectId);
@@ -182,10 +183,18 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
     if (serverStatus === 'stopped' && !startup.previewError && !autoFixTriggeredRef.current) {
       return 'start';
     }
-    if (serverStatus === 'running' && webViewReady && !autoFix.isFixing && (autoFix.state === 'verified' || autoFix.state === 'idle' || preflightDoneRef.current)) {
+    // Once preview has reached 'ready' at least once, stay ready — don't re-enter loading for transient errors
+    const isReady = serverStatus === 'running' && webViewReady && !autoFix.isFixing &&
+      (autoFix.state === 'verified' || autoFix.state === 'idle' || autoFix.state === 'exhausted' || preflightDoneRef.current);
+    if (isReady) {
+      hasReachedReadyRef.current = true;
       return 'ready';
     }
-    return 'loading'; // Everything else = loading (including errors being fixed)
+    // After first stable ready, don't go back to loading
+    if (hasReachedReadyRef.current && serverStatus === 'running') {
+      return 'ready';
+    }
+    return 'loading';
   }, [serverStatus, webViewReady, autoFix.isFixing, autoFix.state, startup.previewError]);
 
   // ── Loading message logic ──
@@ -199,8 +208,9 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
   }, [autoFix.isFixing, autoFix.statusMessage, startup.displayedMessage, serverStatus, webViewReady]);
 
   // ── Auto-fix on fatal error (stays in preview, never goes to chat) ──
+  // Only trigger during initial preflight — after first ready, don't auto-fix
   useEffect(() => {
-    if (startup.previewError && !autoFixTriggeredRef.current) {
+    if (startup.previewError && !autoFixTriggeredRef.current && !hasReachedReadyRef.current) {
       autoFixTriggeredRef.current = true;
       const timer = setTimeout(() => {
         console.log('[PreviewV2] Auto-fixing fatal error in-place');
@@ -236,7 +246,7 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
 
   // ── WebView preflight check ──
   useEffect(() => {
-    if (!webViewReady || preflightDoneRef.current || autoFix.state === 'verified' || autoFix.state === 'fixing') return;
+    if (!webViewReady || preflightDoneRef.current || hasReachedReadyRef.current || autoFix.state === 'verified' || autoFix.state === 'exhausted' || autoFix.state === 'fixing') return;
     const timer = setTimeout(() => {
       const errors = [...jsErrorsRef.current];
       if (errors.length === 0) {
@@ -253,6 +263,7 @@ export const PreviewPanelV2 = React.memo(({ onClose, previewUrl: propUrl, projec
   useEffect(() => {
     preflightDoneRef.current = false;
     autoFixTriggeredRef.current = false;
+    hasReachedReadyRef.current = false;
     autoFix.reset();
     jsErrorsRef.current = [];
   }, [projectId]);

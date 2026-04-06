@@ -20,7 +20,10 @@ export type PreflightState =
   | 'checking'    // Checking for errors
   | 'fixing'      // AI is fixing
   | 'rechecking'  // Re-checking after fix
-  | 'verified';   // All good — show preview
+  | 'verified'    // All good — show preview
+  | 'exhausted';  // Max attempts reached — show preview anyway, no more auto-fix
+
+const MAX_AUTO_FIX_ATTEMPTS = 3;
 
 export type FixStatus =
   | 'error_found'
@@ -60,6 +63,9 @@ export interface PreviewAutoFixReturn {
 
   /** Call with check results. Triggers fix if errors found. */
   reportCheckResult: (result: CheckResult) => void;
+
+  /** True when max fix attempts exhausted — show preview anyway */
+  isExhausted: boolean;
 
   /** Reset to idle (e.g. when preview is closed). */
   reset: () => void;
@@ -329,7 +335,14 @@ REGOLE:
         }).catch(() => {});
       }
     } else {
-      // Needs fix
+      // Needs fix — but respect max attempts
+      if (fixAttempt >= MAX_AUTO_FIX_ATTEMPTS) {
+        console.warn(`[AutoFix] Max attempts (${MAX_AUTO_FIX_ATTEMPTS}) reached — stopping auto-fix, showing preview as-is`);
+        setState('exhausted');
+        setFixStatus(null);
+        closeStream();
+        return;
+      }
       startFix(result);
     }
   }, [startFix, closeStream, fixAttempt, projectId]);
@@ -339,6 +352,7 @@ REGOLE:
     statusMessage,
     fixAttempt,
     isFixing: state === 'fixing' || state === 'rechecking',
+    isExhausted: state === 'exhausted',
     onWebViewLoaded,
     reportCheckResult,
     reset,
