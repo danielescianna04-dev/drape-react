@@ -427,6 +427,35 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                     onCreate(workstation);
                   }, 500);
                   return;
+                } else if (task.status === 'verification_failed') {
+                  activeTaskIdRef.current = null;
+                  liveActivityService.endPreviewActivity().catch(() => {});
+
+                  const workstation = {
+                    id: task.result?.projectId || task.projectId,
+                    projectId: task.result?.projectId || task.projectId,
+                    name: task.result?.projectName || projectName.trim(),
+                    language: task.result?.technology || selectedTech,
+                    technology: task.result?.technology || selectedTech,
+                    templateDescription: task.result?.templateDescription || '',
+                    status: 'ready' as const,
+                    createdAt: new Date(),
+                    files: task.result?.files || [],
+                    folderId: null,
+                  };
+
+                  Alert.alert(
+                    'Verification Failed',
+                    task.error || 'The project has issues that need attention. Check Project History for details.',
+                    [
+                      { text: 'Open Project', onPress: () => {
+                        setIsCreating(false);
+                        setCreationTask(null);
+                        onCreate(workstation);
+                      }},
+                    ]
+                  );
+                  return;
                 } else if (task.status === 'failed') {
                   activeTaskIdRef.current = null;
                   liveActivityService.endPreviewActivity().catch(() => {});
@@ -638,6 +667,38 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
               tracciaEntrataNelProgetto(pName);
               onCreate(workstation);
             }, 1200);
+          } else if (task.status === 'verification_failed') {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            activeTaskIdRef.current = null;
+            liveActivityService.endPreviewActivity().catch(() => {});
+
+            const workstation = {
+              id: task.result?.projectId || '',
+              projectId: task.result?.projectId || '',
+              name: task.result?.projectName || projectName.trim(),
+              language: task.result?.technology || selectedTech,
+              technology: task.result?.technology || selectedTech,
+              templateDescription: task.result?.templateDescription || '',
+              status: 'ready' as const,
+              createdAt: new Date(),
+              files: task.result?.files || [],
+              folderId: null,
+            };
+
+            Alert.alert(
+              'Verification Failed',
+              task.error || 'The project has issues. Check Project History for details.',
+              [
+                { text: 'Open Project', onPress: () => {
+                  setIsCreating(false);
+                  setCreationTask(null);
+                  onCreate(workstation);
+                }},
+              ]
+            );
           } else if (task.status === 'failed') {
             if (pollIntervalRef.current) {
               clearInterval(pollIntervalRef.current);

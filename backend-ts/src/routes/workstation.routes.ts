@@ -94,7 +94,7 @@ async function applyBoilerplateTemplate(projectId: string, technology: string, c
 interface CreationTask {
   id: string;
   projectId: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'failed' | 'verification_failed';
   progress: number;
   message: string;
   step: string;
@@ -2048,7 +2048,8 @@ Return ONLY the JSON, no markdown, no explanation. Plan 6-8 pages, 8-10 componen
       report.fail();
       const reason = `${verifyResult.errors.length} errors — ${verifyResult.errors.slice(0, 2).join('; ')}`;
       update(100, `Verification failed: ${reason}`, 'Needs Fix');
-      task.status = 'completed'; // Task finished but with errors
+      task.status = 'verification_failed';
+      task.error = reason;
       log.warn(`[CreateProject] ${projectId} verification failed: ${reason}`);
     }
 
