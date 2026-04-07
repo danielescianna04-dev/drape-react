@@ -16,6 +16,7 @@ import { config } from '../config';
 import { log } from '../utils/logger';
 import { auditService } from '../services/audit.service';
 import { getProjectCreationSystemPrompt, getProjectCreationUserPrompt, getExcludedFiles } from '../services/project-creation-prompt';
+import { buildPreviewContract, contractToPromptConstraint, ProductContract } from '../services/product-contract';
 import { supabaseManagementService, SupabaseCredentials } from '../services/supabase-management.service';
 import { neonManagementService, NeonCredentials } from '../services/neon-management.service';
 import { BuildReportTracker } from '../services/build-report.service';
@@ -1123,7 +1124,7 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
 
 // POST /workstation/create-with-template
 workstationRouter.post('/create-with-template', asyncHandler(async (req, res) => {
-  const { projectName, technology, description, projectId, agentMode, cloudEnabled } = req.body;
+  const { projectName, technology, description, projectId, agentMode, cloudEnabled, structuredAnswers } = req.body;
   if (!projectName) throw new ValidationError('projectName required');
 
   // Enforce project creation + storage limits using lifetime creation counts
@@ -1192,7 +1193,7 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
 
   // Run generation in background (skip if agent mode — agent stream handles generation)
   if (!agentMode) {
-    generateProject(id, projectName, technology || 'nextjs', description || '', task, userId, cloudEnabled === true).catch(err => {
+    generateProject(id, projectName, technology || 'nextjs', description || '', task, userId, cloudEnabled === true, structuredAnswers).catch(err => {
       log.error(`[CreateProject] Failed: ${err.message}`);
       task.status = 'failed';
       task.error = err.message;
@@ -1232,7 +1233,7 @@ workstationRouter.get('/create-status/:taskId', asyncHandler(async (req, res) =>
  * Background AI project generation using Gemini Flash
  */
 async function generateProject(
-  projectId: string, projectName: string, technology: string, description: string, task: CreationTask, userId: string, cloudMode: boolean = false
+  projectId: string, projectName: string, technology: string, description: string, task: CreationTask, userId: string, cloudMode: boolean = false, structuredAnswers?: any
 ): Promise<void> {
   const update = (progress: number, message: string, step: string) => {
     const normalized = Math.max(0, Math.min(100, Math.round(progress)));
@@ -1456,49 +1457,77 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
   const streamWrittenFiles: string[] = [];
   update(17, 'Starting AI generation...', 'AI Generating');
 
-  // ═══ STEP 1: Architecture Planning (fast, small output) ═══
+  // ═══ STEP 1: Product Contract + Architecture Planning ═══
   update(15, 'Planning app architecture...', 'Planning');
+
+  // Build deterministic preview contract from structured answers (single source of truth)
+  let contract: ProductContract = buildPreviewContract(
+    projectName, description, technology, structuredAnswers || {}
+  );
+  log.info(`[CreateProject] Preview contract: ${contract.coreFlows.length} flows, ${contract.pages.length} pages, ${contract.primaryCtas.length} CTAs`);
+
+  // Try AI refinement (may clarify, narrow, add selectors — never widen)
   let architecturePlan = '';
   try {
-    const archPrompt = `You are planning a ${technology} web application called "${projectName}".
+    const contractJson = JSON.stringify(contract, null, 2);
+    const archPrompt = `You are refining a product contract for a ${technology} web application called "${projectName}".
 User request: ${description}
 ${isCloudMode ? 'Cloud mode is enabled with PostgreSQL database and authentication.' : ''}
 
-SCOPE DISCIPLINE — V1 FOCUSED:
-- Identify the 2-3 core user journeys that define this app
-- Plan ONLY the screens needed for those journeys — 3-5 pages maximum
-- Every page must be fully functional and navigable end-to-end
-- Do NOT plan features you cannot fully implement in V1:
-  - no video call screens unless the app is specifically a video app
-  - no dynamic routes like [id] or [slug] unless you provide concrete navigable instances
-  - no settings/preferences pages unless core to the product
-- If a feature isn't ready for V1, it simply doesn't exist — don't plan it
-- Better 3 polished screens than 6 half-broken ones
+Here is the initial product contract:
+${contractJson}
 
-Return a JSON object with this EXACT structure:
+REFINEMENT RULES (STRICT):
+- You may clarify labels, add component lists, add testSelector hints (data-testid values)
+- You may narrow scope (remove a secondary flow or reduce components)
+- You may add a colorPalette and appDescription
+- You may NOT add new flows, new pages, or features from excludedFeatures
+- You may NOT exceed the feature budget (${contract.featureBudget.maxPages} pages, ${contract.featureBudget.maxComponents} components)
+- Pages must match the paths in the contract — do not invent new routes
+
+Return a JSON object with:
 {
-  "coreFlows": ["Flow 1 description", "Flow 2 description"],
-  "excludedFeatures": ["Feature deliberately left out", ...],
-  "pages": ["page1.tsx", "page2.tsx", ...],
   "components": ["Component1.tsx", "Component2.tsx", ...],
-  "apiRoutes": ["api/route1/route.ts", ...],
-  "dataModels": ["User", "Product", ...],
   "colorPalette": { "primary": "#hex", "background": "#hex", "surface": "#hex", "text": "#hex" },
-  "appDescription": "One sentence describing the app's purpose and style"
+  "appDescription": "One sentence",
+  "testSelectors": { "like-btn": "[data-testid=like-btn]", ... }
 }
 
-Return ONLY the JSON, no markdown, no explanation. Plan 3-5 pages, 5-7 components.`;
+Return ONLY the JSON, no markdown, no explanation.`;
 
     const archStream = aiProviderService.chatStream('gemini-3-flash',
       [{ role: 'user', content: archPrompt }],
-      undefined, 'Return only valid JSON.', { temperature: 0.2, maxTokens: 4000 }
+      undefined, 'Return only valid JSON.', { temperature: 0.2, maxTokens: 3000 }
     );
     for await (const chunk of archStream) {
       if (chunk.type === 'text') architecturePlan += chunk.text;
     }
-    log.info(`[CreateProject] Architecture plan generated (${architecturePlan.length} chars)`);
+
+    // Parse refinement and merge test selectors into contract
+    try {
+      const refined = JSON.parse(architecturePlan.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, ''));
+      if (refined.testSelectors) {
+        for (const cta of contract.primaryCtas) {
+          if (refined.testSelectors[cta.id]) cta.testSelector = cta.id;
+        }
+        for (const inter of contract.requiredInteractions) {
+          if (refined.testSelectors[inter.id]) inter.testSelector = inter.id;
+        }
+      }
+      log.info(`[CreateProject] Contract refined with ${Object.keys(refined.testSelectors || {}).length} selectors, ${(refined.components || []).length} components`);
+    } catch {
+      log.info(`[CreateProject] Refinement parse failed — using preview contract as-is`);
+    }
   } catch (archErr: any) {
-    log.warn(`[CreateProject] Architecture planning failed (non-fatal): ${archErr.message}`);
+    log.warn(`[CreateProject] Architecture refinement failed — using preview contract as fallback: ${archErr.message}`);
+  }
+
+  // Save contract to .drape/ — this is the source of truth for generation + gate
+  try {
+    await fileService.writeFile(projectId, '.drape/product-contract.json', JSON.stringify(contract, null, 2));
+    log.info(`[CreateProject] Saved product contract to .drape/product-contract.json`);
+  } catch (saveErr: any) {
+    log.warn(`[CreateProject] Failed to save contract (non-fatal): ${saveErr.message}`);
   }
 
   // ═══ STEP 2: Full Code Generation with architecture context ═══
@@ -1509,11 +1538,12 @@ Return ONLY the JSON, no markdown, no explanation. Plan 3-5 pages, 5-7 component
   const userPrompt = templateApplied
     ? getProjectCreationUserPrompt(technology, projectName, description, isCloudMode, supabaseCredentials, neonCredentials)
     : prompt;
-  // Inject architecture plan into the user prompt for consistency
+  // Inject product contract as hard constraint + architecture details if available
+  const contractConstraint = contractToPromptConstraint(contract);
   const architectureContext = architecturePlan
-    ? `\n\nARCHITECTURE PLAN (follow this structure exactly):\n${architecturePlan}\n\nGenerate ALL the files listed in the plan above. Use the exact color palette specified.`
+    ? `\n\nARCHITECTURE DETAILS (use components/colors from here):\n${architecturePlan}`
     : '';
-  const chatMessages = [{ role: 'user' as const, content: userPrompt + architectureContext }];
+  const chatMessages = [{ role: 'user' as const, content: userPrompt + '\n\n' + contractConstraint + architectureContext }];
   const chatOptions = { temperature: 0.3, maxTokens: isCloudMode ? 100000 : 60000 };
 
   try {

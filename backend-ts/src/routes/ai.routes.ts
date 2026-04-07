@@ -271,19 +271,40 @@ aiRouter.post('/project-questions', asyncHandler(async (req: Request, res: Respo
     const lang = language?.startsWith('it') ? 'Italian' : 'English';
     const prompt = `The user wants to create a ${techLabel} project: "${description}"
 
-Generate 4 targeted questions to understand EXACTLY what they want. These are NOT generic questions — they must be SPECIFIC to "${description}".
+Generate exactly 4 product-oriented questions with stable IDs. These help define the V1 scope.
 
-Each question has:
-- "question": the question text (short, clear)
-- "options": 3-4 multiple choice options (short labels, max 5 words each)
+REQUIRED QUESTIONS (use these exact questionIds):
+
+1. questionId: "core_flows"
+   Purpose: Which core experiences should the V1 include?
+   Generate 4-5 options specific to "${description}", each with a short stable optionId (lowercase, underscores).
+   multiSelect: true
+
+2. questionId: "key_interaction"
+   Purpose: What's the most important interaction?
+   Generate 3-4 options specific to the app type, each with a stable optionId.
+   multiSelect: false
+
+3. questionId: "data_mode"
+   Purpose: How should data and accounts work?
+   Use these EXACT options:
+   - optionId: "mock_no_login", label: "Mock data, no login"
+   - optionId: "mock_with_login", label: "Mock data with login"
+   - optionId: "real_db_auth", label: "Real database + auth"
+   multiSelect: false
+
+4. questionId: "visual_style"
+   Purpose: What visual style fits?
+   Generate 3-4 style options specific to the app type, each with a stable optionId.
+   multiSelect: false
 
 Rules:
-- Questions must help you understand: what features, what style/vibe, what content, what audience
-- Options should cover the most likely answers for THIS specific type of project
-- Keep questions casual and easy to understand
-- Write EVERYTHING in ${lang}
+- Write question text and option labels in ${lang}
+- optionIds must be in English, lowercase, with underscores (e.g. "swipe_gesture", "dark_bold")
+- Keep labels short (max 5 words)
 
-Return ONLY valid JSON array: [{"question":"...","options":["A","B","C"]}]`;
+Return ONLY valid JSON array:
+[{"questionId":"core_flows","question":"...","multiSelect":true,"options":[{"optionId":"discover","label":"..."},...]},...]`;
 
     let response = '';
     const models = ['gemini-3-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
@@ -319,4 +340,24 @@ Return ONLY valid JSON array: [{"question":"...","options":["A","B","C"]}]`;
     log.error('[AI] Project questions error:', error.message);
     res.status(500).json({ error: 'Failed to generate questions' });
   }
+}));
+
+// ── Preview Contract — deterministic, no AI ────────────────────────────────
+import { buildPreviewContract, contractToSummary, StructuredAnswers } from '../services/product-contract';
+
+aiRouter.post('/preview-contract', asyncHandler(async (req: Request, res: Response) => {
+  const { description, technology, projectName, answers } = req.body;
+  if (!description) {
+    return res.status(400).json({ error: 'description is required' });
+  }
+
+  const contract = buildPreviewContract(
+    projectName || 'My Project',
+    description,
+    technology || 'nextjs',
+    (answers || {}) as StructuredAnswers,
+  );
+  const summary = contractToSummary(contract);
+
+  res.json({ success: true, contract, summary });
 }));

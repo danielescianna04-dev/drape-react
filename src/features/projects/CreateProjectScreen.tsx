@@ -143,9 +143,12 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [showAllLangs, setShowAllLangs] = useState(false);
   const [editingField, setEditingField] = useState<'name' | 'description' | null>(null);
-  // AI Interview (step 3)
-  const [aiQuestions, setAiQuestions] = useState<{ question: string; options: string[] }[]>([]);
-  const [aiAnswers, setAiAnswers] = useState<Record<number, { selected: string[]; custom: string }>>({});
+  // AI Interview (step 3) — structured with stable IDs
+  const [aiQuestions, setAiQuestions] = useState<{ questionId: string; question: string; multiSelect?: boolean; options: { optionId: string; label: string }[] }[]>([]);
+  const [aiAnswers, setAiAnswers] = useState<Record<string, { selectedIds: string[]; custom: string }>>({});
+  // Product contract preview
+  const [contractSummary, setContractSummary] = useState<{ coreFlows: string[]; interactions: string[]; excluded: string[]; assumptions: string[] } | null>(null);
+  const [contractLoading, setContractLoading] = useState(false);
   const [questionsLoading, setQuestionsLoading] = useState(false);
   const [cloudEnabled, setCloudEnabled] = useState(false);
   const [showCloudInfo, setShowCloudInfo] = useState(false);
@@ -718,6 +721,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       }
       Keyboard.dismiss();
       tracciaContinuaPremuto('Seleziona linguaggio');
+      fetchPreviewContract(); // Fetch contract summary for review step
       animateStepTransition(4, 'forward');
     }
   };
@@ -733,9 +737,18 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       });
       const data = await res.json();
       if (data.success && Array.isArray(data.questions) && data.questions.length > 0) {
-        setAiQuestions(data.questions.slice(0, 5));
-        const initial: Record<number, { selected: string[]; custom: string }> = {};
-        data.questions.forEach((_: any, i: number) => { initial[i] = { selected: [], custom: '' }; });
+        // Normalize: support both old format (string[]) and new format (optionId/label)
+        const normalized = data.questions.slice(0, 5).map((q: any, i: number) => ({
+          questionId: q.questionId || `q${i}`,
+          question: q.question,
+          multiSelect: q.multiSelect ?? true,
+          options: Array.isArray(q.options)
+            ? q.options.map((o: any) => typeof o === 'string' ? { optionId: o, label: o } : o)
+            : [],
+        }));
+        setAiQuestions(normalized);
+        const initial: Record<string, { selectedIds: string[]; custom: string }> = {};
+        normalized.forEach((q: any) => { initial[q.questionId] = { selectedIds: [], custom: '' }; });
         setAiAnswers(initial);
       } else {
         // No questions — skip interview, go straight to tech
@@ -893,6 +906,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           projectName: projectName.trim(),
           technology: selectedLanguage,
           description: getEnrichedDescription(),
+          structuredAnswers: getStructuredAnswers(),
           cloudEnabled,
           userId,
         }),
@@ -981,6 +995,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           projectName: projectName.trim(),
           technology: selectedLanguage,
           description: cloudDesc,
+          structuredAnswers: getStructuredAnswers(),
           cloudEnabled,
           userId,
         }),
@@ -1031,9 +1046,9 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
   const selectedLang = languages.find(l => l.id === selectedLanguage);
   // Step 1: Desc, Step 2: Tech, Step 3: AI Interview, Step 4: Review
-  const allQuestionsAnswered = aiQuestions.length > 0 && aiQuestions.every((_, idx) => {
-    const a = aiAnswers[idx];
-    return a && (a.selected.length > 0 || a.custom?.trim());
+  const allQuestionsAnswered = aiQuestions.length > 0 && aiQuestions.every((q) => {
+    const a = aiAnswers[q.questionId];
+    return a && (a.selectedIds.length > 0 || a.custom?.trim());
   });
   const canProceed = step === 1 ? (description.trim().length > 0)
     : step === 2 ? (!questionsLoading && allQuestionsAnswered)
@@ -1413,6 +1428,49 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       {renderSummaryRow('document-text-outline', '#fff', t('create.description'), description, 'description')}
       <View style={styles.summaryDivider} />
       {renderSummaryRow(selectedLang?.icon || 'code-outline', selectedLang?.color || '#fff', t('create.technology'), selectedLang?.name || '', 'tech')}
+
+      {/* Product Contract Summary */}
+      {contractSummary && (
+        <>
+          <View style={styles.summaryDivider} />
+          <View style={{ paddingVertical: 10, gap: 8 }}>
+            <Text style={{ color: '#8B5CF6', fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>V1 Plan</Text>
+
+            {contractSummary.coreFlows.length > 0 && (
+              <View style={{ gap: 2 }}>
+                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: '600' }}>Core Flows</Text>
+                <Text style={{ color: '#fff', fontSize: 13 }}>{contractSummary.coreFlows.join(' · ')}</Text>
+              </View>
+            )}
+
+            {contractSummary.interactions.length > 0 && (
+              <View style={{ gap: 2 }}>
+                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: '600' }}>Interactions</Text>
+                <Text style={{ color: '#fff', fontSize: 13 }}>{contractSummary.interactions.join(' · ')}</Text>
+              </View>
+            )}
+
+            {contractSummary.excluded.length > 0 && (
+              <View style={{ gap: 2 }}>
+                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: '600' }}>Excluded from V1</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{contractSummary.excluded.join(', ')}</Text>
+              </View>
+            )}
+
+            {contractSummary.assumptions.length > 0 && (
+              <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, fontStyle: 'italic' }}>{contractSummary.assumptions.join(' · ')}</Text>
+            )}
+          </View>
+        </>
+      )}
+      {contractLoading && (
+        <>
+          <View style={styles.summaryDivider} />
+          <View style={{ paddingVertical: 10, alignItems: 'center' }}>
+            <ActivityIndicator size="small" color="#8B5CF6" />
+          </View>
+        </>
+      )}
     </>
   );
 
@@ -1439,7 +1497,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         </View>
 
         {aiQuestions.map((q, idx) => {
-          const answer = aiAnswers[idx] || { selected: null, custom: '' };
+          const answer = aiAnswers[q.questionId] || { selectedIds: [], custom: '' };
           const cardContent = (
             <>
               <View style={styles.interviewHeader}>
@@ -1449,20 +1507,20 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                 <Text style={styles.interviewQuestion}>{q.question}</Text>
               </View>
               <View style={styles.interviewOptions}>
-                {q.options.map((opt, oi) => (
+                {q.options.map((opt) => (
                   <TouchableOpacity
-                    key={oi}
-                    style={[styles.interviewChip, answer.selected.includes(opt) && styles.interviewChipActive]}
+                    key={opt.optionId}
+                    style={[styles.interviewChip, answer.selectedIds.includes(opt.optionId) && styles.interviewChipActive]}
                     activeOpacity={0.7}
                     onPress={() => setAiAnswers(prev => {
-                      const current = prev[idx]?.selected || [];
-                      const toggled = current.includes(opt)
-                        ? current.filter(s => s !== opt)
-                        : [...current, opt];
-                      return { ...prev, [idx]: { selected: toggled, custom: '' } };
+                      const current = prev[q.questionId]?.selectedIds || [];
+                      const toggled = q.multiSelect
+                        ? (current.includes(opt.optionId) ? current.filter(s => s !== opt.optionId) : [...current, opt.optionId])
+                        : (current.includes(opt.optionId) ? [] : [opt.optionId]);
+                      return { ...prev, [q.questionId]: { selectedIds: toggled, custom: '' } };
                     })}
                   >
-                    <Text style={[styles.interviewChipText, answer.selected.includes(opt) && styles.interviewChipTextActive]}>{opt}</Text>
+                    <Text style={[styles.interviewChipText, answer.selectedIds.includes(opt.optionId) && styles.interviewChipTextActive]}>{opt.label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -1473,7 +1531,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                 value={answer.custom}
                 onChangeText={(text) => setAiAnswers(prev => ({
                   ...prev,
-                  [idx]: { selected: [], custom: text },
+                  [q.questionId]: { selectedIds: [], custom: text },
                 }))}
                 keyboardAppearance="dark"
               />
@@ -1504,16 +1562,60 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const getEnrichedDescription = () => {
     let enriched = description.trim();
     const parts: string[] = [];
-    aiQuestions.forEach((q, idx) => {
-      const answer = aiAnswers[idx];
+    aiQuestions.forEach((q) => {
+      const answer = aiAnswers[q.questionId];
       if (!answer) return;
-      const val = answer.custom?.trim() || (answer.selected.length > 0 ? answer.selected.join(', ') : '');
+      const selectedLabels = answer.selectedIds
+        .map(id => q.options.find(o => o.optionId === id)?.label || id)
+        .join(', ');
+      const val = answer.custom?.trim() || selectedLabels;
       if (val) parts.push(`${q.question} ${val}`);
     });
     if (parts.length > 0) {
       enriched += '\n\n' + parts.join('\n');
     }
     return enriched;
+  };
+
+  /** Build structured answers for preview contract */
+  const getStructuredAnswers = () => {
+    const result: Record<string, string | string[]> = {};
+    for (const q of aiQuestions) {
+      const a = aiAnswers[q.questionId];
+      if (!a) continue;
+      if (q.multiSelect) {
+        result[q.questionId] = a.selectedIds.length > 0 ? a.selectedIds : [];
+      } else {
+        result[q.questionId] = a.selectedIds[0] || a.custom?.trim() || '';
+      }
+    }
+    return result;
+  };
+
+  /** Fetch preview contract when entering review step */
+  const fetchPreviewContract = async () => {
+    setContractLoading(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${config.apiUrl}/ai/preview-contract`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: description.trim(),
+          technology: selectedLanguage,
+          projectName: projectName.trim(),
+          answers: getStructuredAnswers(),
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.summary) {
+        setContractSummary(data.summary);
+      }
+    } catch (err: any) {
+      console.warn('[Contract] Failed to fetch preview:', err.message);
+    } finally {
+      setContractLoading(false);
+    }
   };
 
   const renderStep3 = () => (
