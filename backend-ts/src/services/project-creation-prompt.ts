@@ -52,6 +52,7 @@ const STACK_INSTRUCTIONS: Record<string, string> = {
 REACT (VITE) SPECIFIC:
 - Stack: Vite + React 19 + Tailwind CSS + react-router-dom v7 + shadcn-style UI
 - Layout: App.tsx is MINIMAL (just router). YOU generate all pages and components.
+- CRITICAL: main.tsx already wraps App with <BrowserRouter>. Do NOT add BrowserRouter in App.tsx — just use <Routes> and <Route> directly.
 - PRE-INSTALLED UI: Button, Card, Input, Badge, Dialog, Avatar, Tabs, Skeleton in src/components/ui/. cn() in src/lib/utils.ts. USE THEM — don't recreate.
 - Pages in src/pages/, register in App.tsx routes
 - Components in src/components/
@@ -282,15 +283,15 @@ Never implement a feature to switch between light and dark mode — it's not a p
 - Skeleton loading states (animate-pulse)
 - Focus states on inputs: focus:ring-2
 
-=== REAL UNSPLASH IMAGES ===
-Use REAL Unsplash photo URLs:
-- Fitness: photo-1517836357463-d25dfeac3438, photo-1534438327276-14e5300c3a48
-- Food: photo-1504674900247-0877df9cc836, photo-1565299624946-b28f40a0ae38
-- E-commerce: photo-1441986300917-64674bd600d8, photo-1556742049-0cfed4f6a45d
-- Tech: photo-1518770660439-4636190af475, photo-1451187580459-43490279c0fa
-- Nature: photo-1506905925346-21bda4d32df4
-- Education: photo-1523050854058-8df90110c476
-Format: https://images.unsplash.com/{photo-id}?w=800&h=600&fit=crop
+=== IMAGES — USE PICSUM (ALWAYS WORKS) ===
+NEVER use Unsplash photo IDs — they break. Use picsum.photos which ALWAYS returns a real image:
+- Avatar: https://picsum.photos/seed/{username}/200/200
+- Hero/banner: https://picsum.photos/seed/{topic}/800/400
+- Card thumbnail: https://picsum.photos/seed/{item-name}/400/300
+- Story circle: https://picsum.photos/seed/{user}/100/100
+- Post image: https://picsum.photos/seed/{post-id}/600/400
+
+The "seed" parameter ensures the same URL always returns the same image. Use descriptive seeds like "sarah", "sunset", "food1", etc.
 
 === ICONS ===
 SAFE Feather Icons (from 'react-icons/fi'):
@@ -544,4 +545,117 @@ This is the first interaction of the user with this project so make sure to wow 
 /** Get the list of config files that should NOT be regenerated */
 export function getExcludedFiles(technology: string): string[] {
   return TEMPLATE_FILES[technology] || [];
+}
+
+/**
+ * Build a prompt for OpenCode agent-based project creation.
+ * Unlike the JSON-based prompt, this tells the agent to use write_file tool calls.
+ */
+export function getAgentCreationPrompt(
+  technology: string,
+  projectName: string,
+  description: string,
+  cloudMode: boolean,
+  structuredAnswers?: Record<string, string | string[]>,
+  supabase?: SupabaseCredentials | null,
+  neon?: NeonCredentials | null,
+): string {
+  const systemPrompt = getProjectCreationSystemPrompt(technology, cloudMode, supabase, neon);
+  const techDesc = TECH_DESCRIPTIONS[technology] || TECH_DESCRIPTIONS['nextjs'];
+  const templateFiles = TEMPLATE_FILES[technology] || [];
+
+  // Strip the JSON output format instruction from system prompt
+  const cleanSystem = systemPrompt
+    .replace(/=== OUTPUT FORMAT ===[\s\S]*?ONLY the JSON object\./, '')
+    .replace(/Return ONLY valid JSON[\s\S]*?No markdown fences.*$/m, '');
+
+  // Build structured context from interview answers
+  let answersContext = '';
+  if (structuredAnswers && Object.keys(structuredAnswers).length > 0) {
+    const parts = Object.entries(structuredAnswers)
+      .filter(([_, v]) => v && (Array.isArray(v) ? v.length > 0 : v.toString().trim()))
+      .map(([k, v]) => `- ${k}: ${Array.isArray(v) ? v.join(', ') : v}`);
+    if (parts.length > 0) {
+      answersContext = `\n\nUser's answers to clarifying questions:\n${parts.join('\n')}`;
+    }
+  }
+
+  return `${cleanSystem}
+
+=== HOW TO CREATE FILES ===
+You have tools available: write_file, read_file, run_command, glob_search, grep_search.
+Use write_file to create each file. Do NOT output JSON — use the tools.
+
+WORKFLOW (follow this EXACTLY):
+
+PHASE 1 — PLAN (do NOT write files yet):
+1. Read package.json to see what dependencies are available
+2. Read the existing template files (main.tsx, layout, css)
+3. Decide: what pages will exist? What routes? What components? Write this plan as a comment to yourself.
+
+PHASE 2 — BUILD (create files one by one):
+4. Create the design system file first (colors, tokens)
+5. Create ALL page files (3-5 pages minimum). Each page = separate file with real content.
+6. Create shared components (Navbar, Footer, cards, etc.)
+7. Create App.tsx with ALL routes registered — every page must have a route
+8. If you need new deps, run: npm install <package>
+
+PHASE 3 — VERIFY AND FIX (critical — do NOT skip):
+9. Run: grep -rn "onClick\|onPress\|href\|to=" src/pages/ src/components/ --include="*.tsx" — check every interactive element has a handler
+10. Run: grep -rn "Link to\|navigate(" src/ --include="*.tsx" — check all navigation targets match routes in App.tsx
+11. Read App.tsx and verify every <Route path="/..."> has a matching page file
+12. For each page: read it and verify every button/link does something. If a button has no handler or links to a non-existent page, FIX IT immediately.
+13. Run: npm run build 2>&1 | head -50 — check for build errors. If any, fix them.
+
+DO NOT consider your work done until Phase 3 is complete. The verification step is what separates working apps from broken ones.
+
+CRITICAL RULES:
+- NEVER overwrite main.tsx, index.html, vite.config.ts, or any config file
+- main.tsx already has BrowserRouter — just use <Routes>/<Route> in App.tsx
+- App.tsx should ONLY contain Routes + Toaster — no BrowserRouter wrapper
+- Every import must point to a file you created or that exists in the template
+
+=== EVERY BUTTON MUST WORK — #1 PRIORITY ===
+An app where buttons don't work is WORSE than an app with fewer features. Follow this strictly:
+
+STEP 1: Plan your routes FIRST. Every tab, nav item, or CTA must point to a real page you will create.
+STEP 2: Create ALL the pages/routes before creating components.
+STEP 3: Wire every interactive element to a real action.
+
+ACTION MAP — every element type MUST have one of these:
+- Nav tabs / bottom bar → <Link to="/page"> or router.push() to a page you created
+- Cards / list items → <Link to="/detail/id"> to a detail page you created
+- Like/heart/bookmark → useState toggle (icon change + count +1/-1)
+- Settings/gear icon → <Link to="/settings"> page
+- Profile avatar → <Link to="/profile"> page
+- Search icon → <Link to="/search"> page or open search input with useState
+- Add/plus button → open modal with form (useState for modal visibility)
+- Form submit → validate + add to state array + toast("Saved!")
+- Share → toast("Link copied!")
+- Menu/hamburger → useState sidebar toggle
+- Close/X → set modal/sidebar state to false
+
+CREATE MULTIPLE PAGES. A typical app should have 3-5 pages minimum:
+- Home/feed page (main content)
+- Detail page (when you tap an item)
+- Profile/settings page
+- Search/explore page (if applicable)
+- Create/add page (if applicable)
+
+Each page is a separate file. Register ALL routes in App.tsx.
+If a button would navigate somewhere, that "somewhere" MUST exist as a page file.
+If you can't build the destination page, DON'T show the button.
+
+FILES ALREADY IN TEMPLATE (do NOT overwrite):
+${templateFiles.map(f => `- ${f}`).join('\n')}
+
+---
+
+Build "${projectName}" — a ${techDesc} app.
+
+What the user wants: ${description}${answersContext}
+
+This is the first version. The codebase is a fresh template. Create a focused, beautiful V1 with 2-3 core user flows that work perfectly end-to-end. Every button, link, and form must be functional. Mobile-first (430px).
+
+Start by reading the existing files, plan your pages and routes, then create the project. After writing all files, you MUST run the verification phase: grep for handlers, check routes match pages, and run a build to catch errors. Fix anything broken before finishing.`;
 }

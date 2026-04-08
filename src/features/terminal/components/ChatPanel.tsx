@@ -825,8 +825,8 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 24,
     gap: 8,
@@ -836,6 +836,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 13,
     padding: 0,
+    height: 20,
   },
   content: {
     flex: 1,

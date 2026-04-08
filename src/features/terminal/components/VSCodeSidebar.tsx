@@ -655,6 +655,20 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                 </GlassCard>
               </TouchableOpacity>
 
+              {/* Back to chat button — shown when not on terminal/chat */}
+              {activeTab?.type !== 'terminal' && activeTab?.type !== 'chat' && (
+                <TouchableOpacity activeOpacity={0.7} onPress={() => {
+                  const chatTab = tabs.find(t => t.type === 'terminal' || t.type === 'chat');
+                  if (chatTab) setActiveTab(chatTab.id);
+                }}>
+                  <GlassCard style={styles.headerButtonGlass}>
+                    <View style={styles.headerButton}>
+                      <Ionicons name="chatbubble-ellipses-outline" size={18} color="#fff" />
+                    </View>
+                  </GlassCard>
+                </TouchableOpacity>
+              )}
+
               {/* Back button for database table detail */}
               {activeTab?.type === 'database' && databaseBackHandler && (
                 <TouchableOpacity activeOpacity={0.7} onPress={() => databaseBackHandler?.()}>

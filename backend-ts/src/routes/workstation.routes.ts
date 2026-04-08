@@ -15,7 +15,7 @@ import { firebaseService } from '../services/firebase.service';
 import { config } from '../config';
 import { log } from '../utils/logger';
 import { auditService } from '../services/audit.service';
-import { getProjectCreationSystemPrompt, getProjectCreationUserPrompt, getExcludedFiles } from '../services/project-creation-prompt';
+import { getProjectCreationSystemPrompt, getProjectCreationUserPrompt, getExcludedFiles, getAgentCreationPrompt } from '../services/project-creation-prompt';
 import { buildPreviewContract, contractToPromptConstraint, ProductContract } from '../services/product-contract';
 import { supabaseManagementService, SupabaseCredentials } from '../services/supabase-management.service';
 import { neonManagementService, NeonCredentials } from '../services/neon-management.service';
@@ -1206,6 +1206,22 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
   }
 
   res.json({ success: true, taskId: id, projectId: id, message: 'Template creation started' });
+}));
+
+// POST /workstation/agent-prompt — returns the full prompt for OpenCode agent creation
+workstationRouter.post('/agent-prompt', asyncHandler(async (req, res) => {
+  const { projectId, technology, projectName, description, cloudEnabled, structuredAnswers } = req.body;
+  if (!projectId) throw new ValidationError('projectId required');
+
+  const prompt = getAgentCreationPrompt(
+    technology || 'nextjs',
+    projectName || 'My App',
+    description || '',
+    cloudEnabled === true,
+    structuredAnswers,
+  );
+
+  res.json({ success: true, prompt });
 }));
 
 // GET /workstation/templates

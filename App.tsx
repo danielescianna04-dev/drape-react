@@ -186,7 +186,40 @@ const fuStyles = StyleSheet.create({
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });
 
+const MAINTENANCE_MODE = false;
+
+function MaintenanceScreen() {
+  return (
+    <View style={{ flex: 1, backgroundColor: '#0C0816', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+      <StatusBar style="light" />
+      <Ionicons name="construct-outline" size={64} color="#8B5CF6" style={{ marginBottom: 24 }} />
+      <Text style={{ color: '#fff', fontSize: 26, fontWeight: '700', textAlign: 'center', marginBottom: 12 }}>
+        Manutenzione in corso
+      </Text>
+      <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 16, textAlign: 'center', lineHeight: 24 }}>
+        Stiamo migliorando Drape per offrirti un'esperienza ancora migliore.{'\n\n'}Torneremo online il{' '}
+        <Text style={{ color: '#A78BFA', fontWeight: '600' }}>9 Aprile 2026</Text>.
+      </Text>
+      <View style={{ marginTop: 40, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 16, backgroundColor: 'rgba(139, 92, 246, 0.12)', borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.25)' }}>
+        <Text style={{ color: '#A78BFA', fontSize: 14, fontWeight: '600', textAlign: 'center' }}>
+          Grazie per la pazienza 💜
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export default function App() {
+  if (MAINTENANCE_MODE) {
+    return (
+      <SafeAreaProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <MaintenanceScreen />
+        </GestureHandlerRootView>
+      </SafeAreaProvider>
+    );
+  }
+
   const [currentScreen, _setCurrentScreen] = useState<Screen>('splash');
   const setCurrentScreen = (screen: Screen | ((prev: Screen) => Screen)) => {
     _setCurrentScreen(prev => {

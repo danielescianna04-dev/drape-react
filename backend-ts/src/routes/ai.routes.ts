@@ -307,7 +307,7 @@ Return ONLY valid JSON array:
 [{"questionId":"core_flows","question":"...","multiSelect":true,"options":[{"optionId":"discover","label":"..."},...]},...]`;
 
     let response = '';
-    const models = ['gemini-3-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
+    const models = ['gemini-3.1-flash-lite', 'gemini-2.5-flash'];
     for (const model of models) {
       try {
         response = '';

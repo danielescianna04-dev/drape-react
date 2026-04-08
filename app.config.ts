@@ -24,6 +24,8 @@ const config: ExpoConfig = {
       NSPhotoLibraryUsageDescription: "L'app necessita di accedere alla tua galleria per caricare immagini nella chat.",
       NSPhotoLibraryAddUsageDescription: "L'app necessita di salvare immagini nella tua galleria.",
       NSCameraUsageDescription: "L'app necessita di accedere alla fotocamera per scattare foto da inviare nella chat.",
+      NSMicrophoneUsageDescription: "L'app utilizza il microfono per dettare la descrizione del progetto.",
+      NSSpeechRecognitionUsageDescription: "L'app utilizza il riconoscimento vocale per convertire la voce in testo.",
       ITSAppUsesNonExemptEncryption: false,
       UIBackgroundModes: ['remote-notification'],
       NSAppTransportSecurity: {
@@ -84,6 +86,13 @@ const config: ExpoConfig = {
       },
     ],
     'expo-media-library',
+    [
+      'expo-speech-recognition',
+      {
+        microphonePermission: "L'app utilizza il microfono per dettare la descrizione del progetto.",
+        speechRecognitionPermission: "L'app utilizza il riconoscimento vocale per convertire la voce in testo.",
+      },
+    ],
     [
       'expo-build-properties',
       {

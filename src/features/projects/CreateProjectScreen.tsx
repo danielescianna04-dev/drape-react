@@ -29,6 +29,8 @@ import { useUIStore } from '../../core/terminal/uiStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 // DescriptionInput no longer used — step 1 uses inline textarea
 import { liveActivityService } from '../../core/services/liveActivityService';
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
+import * as Haptics from 'expo-haptics';
 import { tracciaProgettoCreato, tracciaErrore, tracciaSchermata, tracciaOnboardingIdeaChip, tracciaErroreCreazioneProgetto, tracciaNavigazioneIndietro, tracciaContinuaPremuto, tracciaLinguaggioSelezionato, tracciaNomeProgetto, tracciaGenerazioneAvviata, tracciaEntrataNelProgetto, tracciaTemplateCancellato, tracciaCloudMode, tracciaDescrizionePersonalizzata } from '../../core/services/analyticsService';
 import { useAgentStream, AgentMode } from '../../core/ai/useAgentStream';
 import { useAgentStore } from '../../core/ai/agentStore';
@@ -117,6 +119,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const [projectName, setProjectName] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('');
   const [description, setDescription] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const micPulse = useRef(new Animated.Value(1)).current;
   const [isCreating, setIsCreating] = useState(false);
   const [creationTask, setCreationTask] = useState<{ status: string; progress: number; message: string; step?: string } | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
@@ -126,6 +130,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const activeTaskIdRef = useRef<string | null>(null);
   const activeChipRef = useRef<{ id: string; prompt: string } | null>(null);
+  const agentProjectIdRef = useRef<string | null>(null);
   const hasTrackedCustomDesc = useRef(false);
 
   // Agent system state
@@ -133,7 +138,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const [agentMode, setAgentMode] = useState<AgentMode | null>(null);
   // DISABLED: React Native doesn't support fetch streaming (response.body.getReader())
   // TODO: Implement EventSource polyfill for SSE support
-  const [useAgentSystem, setUseAgentSystem] = useState(false); // Flag to enable/disable agent system
+  const [useAgentSystem, setUseAgentSystem] = useState(true); // Agent system with OpenCode tool use
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showPostCreationPaywall, setShowPostCreationPaywall] = useState(false);
   const [pendingWorkstation, setPendingWorkstation] = useState<any>(null);
@@ -468,95 +473,66 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   }, [isCreating, projectName, onCreate]);
 
   // Agent completion callback
-  async function handleAgentComplete(result: any) {
+  async function handleAgentComplete(_result: any) {
+    const pid = agentProjectIdRef.current || _result?.projectId || Date.now().toString();
+    const pName = projectName.trim();
 
     // End Live Activity with success + notification
-    const pName = result.projectName || projectName.trim();
     if (liveActivityService.isActivityActive()) {
-      liveActivityService.endWithSuccess(pName, t('alerts.projectCreated')).catch((err) => console.warn('[Project] Failed to end live activity:', err?.message || err));
+      liveActivityService.endWithSuccess(pName, t('alerts.projectCreated')).catch(() => {});
     }
     liveActivityService.sendNotification(
       t('alerts.projectCreated'),
       t('alerts.projectReady', { name: pName }),
-      { type: 'project_created', projectId: result.projectId || '' }
-    ).catch((err) => console.warn('[Project] Failed to send notification:', err?.message || err));
+      { type: 'project_created', projectId: pid }
+    ).catch(() => {});
 
+    // Create workstation object using component state (not result, which may be empty)
+    const workstation = {
+      id: pid,
+      projectId: pid,
+      name: pName,
+      language: selectedLanguage,
+      technology: selectedLanguage,
+      templateDescription: description.trim(),
+      status: 'ready' as const,
+      createdAt: new Date(),
+      files: [],
+      folderId: null,
+    };
+
+    // Save agent context (fire and forget)
     try {
       const userId = useAuthStore.getState().user?.uid;
-      if (!userId) {
-        throw new Error('No user ID');
+      if (userId) {
+        const apiUrl = config.apiUrl;
+        const authHeaders = await getAuthHeaders();
+        fetch(`${apiUrl}/agent/save-context`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ projectId: pid, userId, context: { events: agentEvents, mode: agentMode, timestamp: Date.now() } }),
+        }).catch(() => {});
       }
+    } catch {}
 
-      // Save agent context to backend
-      const apiUrl = config.apiUrl;
-      const authHeaders = await getAuthHeaders();
-      await fetch(`${apiUrl}/agent/save-context`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({
-          projectId: result.projectId,
-          userId,
-          context: {
-            events: agentEvents,
-            mode: agentMode,
-            timestamp: Date.now(),
-          },
-        }),
-      });
-
-      // Create workstation object
-      const workstation = {
-        id: result.projectId,
-        projectId: result.projectId,
-        name: result.projectName || projectName.trim(),
-        language: result.technology || selectedLanguage,
-        technology: result.technology || selectedLanguage,
-        templateDescription: result.templateDescription || description.trim(),
-        status: 'ready' as const,
-        createdAt: new Date(),
-        files: result.files || [],
-        folderId: null,
-      };
-
-      // Short delay to show completion
-      setTimeout(async () => {
-        setIsCreating(false);
-        resetStream();
-        // Show post-creation paywall for free users (once)
+    setTimeout(async () => {
+      setIsCreating(false);
+      resetStream();
+      agentProjectIdRef.current = null;
+      // Show post-creation paywall for free users (once)
+      try {
         const userPlan = useAuthStore.getState().user?.plan || 'free';
         const seenPaywall = await AsyncStorage.getItem('hasSeenPostCreationPaywall');
         if (userPlan === 'free' && !seenPaywall) {
           setPendingWorkstation(workstation);
           setShowPostCreationPaywall(true);
           await AsyncStorage.setItem('hasSeenPostCreationPaywall', 'true');
-        } else {
-          tracciaEntrataNelProgetto(workstation.name);
-          onCreate(workstation);
+          return;
         }
-      }, 800);
-    } catch (error) {
-      console.error('[CreateProject] Failed to save context:', error);
-      // Still proceed with creation even if context save fails
-      const workstation = {
-        id: result.projectId || Date.now().toString(),
-        projectId: result.projectId || Date.now().toString(),
-        name: result.projectName || projectName.trim(),
-        language: result.technology || selectedLanguage,
-        technology: result.technology || selectedLanguage,
-        templateDescription: result.templateDescription || description.trim(),
-        status: 'ready' as const,
-        createdAt: new Date(),
-        files: result.files || [],
-        folderId: null,
-      };
-
-      setTimeout(() => {
-        setIsCreating(false);
-        resetStream();
-        tracciaEntrataNelProgetto(workstation.name);
-        onCreate(workstation);
-      }, 800);
-    }
+      } catch {}
+      tracciaEntrataNelProgetto(workstation.name);
+      onCreate(workstation);
+    }, 800);
   }
 
   // Agent error callback
@@ -940,10 +916,28 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       }
 
       const projectId = result.taskId || result.projectId;
+      agentProjectIdRef.current = projectId;
 
-      // Build prompt for agent
-      const cloudSuffix = cloudEnabled ? '\n\nIMPORTANT: Enable Cloud mode. You MUST create a full-stack app with:\n1. A SQLite database using better-sqlite3 (create a .db file with proper schema tables)\n2. API routes (Next.js API routes or Express endpoints) that read/write to the SQLite database\n3. User authentication or session management stored in the database\n4. All data must persist in the SQLite .db file — never use in-memory or mock data\n5. Initialize the database with schema and seed data on first run' : '';
-      const prompt = `Create a ${selectedLanguage} project named "${projectName.trim()}". Description: ${description.trim()}${cloudSuffix}`;
+      // Fetch optimized prompt from backend (includes system prompt, stack instructions, template files list)
+      let prompt: string;
+      try {
+        const promptRes = await fetch(`${apiUrl}/workstation/agent-prompt`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...modeAuthHeaders },
+          body: JSON.stringify({
+            projectId,
+            technology: selectedLanguage,
+            projectName: projectName.trim(),
+            description: getEnrichedDescription(),
+            cloudEnabled,
+            structuredAnswers: getStructuredAnswers(),
+          }),
+        });
+        const promptData = await promptRes.json();
+        prompt = promptData.prompt || `Create a ${selectedLanguage} project named "${projectName.trim()}". Description: ${description.trim()}`;
+      } catch {
+        prompt = `Create a ${selectedLanguage} project named "${projectName.trim()}". Description: ${getEnrichedDescription()}`;
+      }
 
       // Start agent stream
       await startStream(projectId, mode, prompt);
@@ -1075,6 +1069,75 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     }
   };
 
+  // ── Speech-to-text ────────────────────────────────────
+  useSpeechRecognitionEvent('result', (event) => {
+    const transcript = event.results[0]?.transcript || '';
+    if (transcript) {
+      setDescription((prev) => {
+        const separator = prev && !prev.endsWith(' ') ? ' ' : '';
+        return prev + separator + transcript;
+      });
+    }
+  });
+
+  const simulatorFailRef = useRef(false);
+
+  useSpeechRecognitionEvent('end', () => {
+    if (simulatorFailRef.current) { simulatorFailRef.current = false; return; }
+    setIsListening(false);
+    stopMicAnimation();
+  });
+  useSpeechRecognitionEvent('error', (e: any) => {
+    if (e?.error === 'audio-capture') {
+      simulatorFailRef.current = true;
+      return;
+    }
+    setIsListening(false);
+    stopMicAnimation();
+  });
+
+  const startMicAnimation = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(micPulse, { toValue: 1.18, duration: 600, useNativeDriver: true }),
+        Animated.timing(micPulse, { toValue: 1, duration: 600, useNativeDriver: true }),
+      ]),
+    ).start();
+  };
+
+  const stopMicAnimation = () => {
+    micPulse.stopAnimation();
+    Animated.timing(micPulse, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+  };
+
+  const toggleSpeechRecognition = async () => {
+    if (isListening) {
+      try { ExpoSpeechRecognitionModule.stop(); } catch {}
+      setIsListening(false);
+      stopMicAnimation();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+    try {
+      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!result.granted) {
+        Alert.alert('Permesso necessario', 'Consenti l\'accesso al microfono per dettare la descrizione.');
+        return;
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setIsListening(true);
+      startMicAnimation();
+      ExpoSpeechRecognitionModule.start({ lang: 'it-IT', interimResults: false });
+    } catch (err: any) {
+      // Fallback: keep animation running even if speech fails (e.g. simulator)
+      if (!isListening) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        setIsListening(true);
+        startMicAnimation();
+      }
+    }
+  };
+
   const handleDescriptionChange = (text: string) => {
     if (text.length > 500) return;
     // If user had a template selected and now cleared/changed it
@@ -1168,8 +1231,14 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                   <Ionicons name="information-circle-outline" size={20} color="rgba(255,255,255,0.4)" />
                 </Pressable>
               </View>
-              <TouchableOpacity style={styles.toolbarIconBtn} activeOpacity={0.7}>
-                <Ionicons name="mic-outline" size={22} color="rgba(255,255,255,0.5)" />
+              <TouchableOpacity activeOpacity={0.7} onPress={toggleSpeechRecognition}>
+                <Animated.View style={[
+                  styles.toolbarIconBtn,
+                  { transform: [{ scale: micPulse }] },
+                  isListening ? { backgroundColor: 'rgba(139, 92, 246, 0.25)', shadowColor: '#8B5CF6', shadowOpacity: 0.6, shadowRadius: 12, shadowOffset: { width: 0, height: 0 } } : null,
+                ]}>
+                  <Ionicons name={isListening ? 'mic' : 'mic-outline'} size={22} color={isListening ? '#A78BFA' : 'rgba(255,255,255,0.5)'} />
+                </Animated.View>
               </TouchableOpacity>
             </View>
           </LiquidGlassView>
@@ -1201,8 +1270,14 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                   <Ionicons name="information-circle-outline" size={20} color="rgba(255,255,255,0.4)" />
                 </Pressable>
               </View>
-              <TouchableOpacity style={styles.toolbarIconBtn} activeOpacity={0.7}>
-                <Ionicons name="mic-outline" size={22} color="rgba(255,255,255,0.5)" />
+              <TouchableOpacity activeOpacity={0.7} onPress={toggleSpeechRecognition}>
+                <Animated.View style={[
+                  styles.toolbarIconBtn,
+                  { transform: [{ scale: micPulse }] },
+                  isListening && { backgroundColor: 'rgba(139, 92, 246, 0.25)', shadowColor: '#8B5CF6', shadowOpacity: 0.6, shadowRadius: 12, shadowOffset: { width: 0, height: 0 } },
+                ]}>
+                  <Ionicons name={isListening ? 'mic' : 'mic-outline'} size={22} color={isListening ? '#A78BFA' : 'rgba(255,255,255,0.5)'} />
+                </Animated.View>
               </TouchableOpacity>
             </View>
           </View>
@@ -1793,9 +1868,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       {/* Creation Progress */}
       <CreationProgressModal
         visible={isCreating}
-        progress={creationTask?.progress || 0}
-        status={creationTask?.message || 'Preparing...'}
-        step={creationTask?.step}
+        progress={creationTask?.progress || (isStreaming ? Math.min(agentEvents.length * 5, 90) : 0)}
+        status={creationTask?.message || (agentCurrentTool ? `${agentCurrentTool}...` : (isStreaming ? 'Generating code...' : 'Preparing...'))}
+        step={creationTask?.step || (agentStatus === 'running' ? 'AI Agent' : undefined)}
+        agentEvents={useAgentSystem ? agentEvents : undefined}
       />
       {/* Upgrade Overlay (absolute positioned, no native Modal) */}
       {showUpgradeModal && (
