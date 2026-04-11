@@ -433,6 +433,7 @@ export async function vercelChatSimple(
 
   const coreMessages = convertMessages(messages);
 
+  if (!googleProvider) throw new Error('Google API key not configured');
   const result = await generateText({
     model: googleProvider('gemini-3.1-flash-lite-preview'),
     system: systemPrompt,
@@ -454,7 +455,7 @@ export async function vercelGenerateObject<T>(
   messages: ChatMessage[],
   systemPrompt?: string,
 ): Promise<T> {
-  if (!anthropicProvider) throw new Error('Anthropic API key not configured');
+  if (!googleProvider) throw new Error('Google API key not configured');
   const coreMessages = convertMessages(messages);
   const result = await generateObject({
     model: googleProvider('gemini-3.1-flash-lite-preview'),

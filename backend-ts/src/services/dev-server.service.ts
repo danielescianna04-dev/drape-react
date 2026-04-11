@@ -46,6 +46,21 @@ class DevServerService {
 
     log.info(`[DevServer] Starting: ${info.startCommand}`);
 
+    // Next.js: clear stale .next cache before dev start — prevents ENOENT middleware-manifest.json.
+    // .next is a bind mount (host: /data/cache/next-build/<project>), so we can't remove the
+    // directory itself — only its contents. `find -mindepth 1 -delete` handles this correctly.
+    if (info.type === 'nextjs') {
+      try {
+        await axios.post(`${agentUrl}/exec`, {
+          command: 'find /home/coder/project/.next -mindepth 1 -delete 2>/dev/null || true',
+          cwd: '/home/coder/project',
+        }, { timeout: 10000, headers: { 'Content-Type': 'application/json' } });
+        log.info(`[DevServer] Cleared .next cache contents for ${session.projectId}`);
+      } catch {
+        // ignore — might not exist
+      }
+    }
+
     // Use the agent's /setup endpoint for streaming output
     try {
       await axios.post(`${agentUrl}/setup`, {
@@ -59,11 +74,10 @@ class DevServerService {
       // /setup might not return immediately — that's fine
     }
 
-    // Build-then-serve stacks (Flutter, Next.js production) need generous timeouts.
-    // crashDelay must be longer than build time so a still-running build isn't mistaken for a crash.
+    // Flutter still needs generous timeouts (build step).
+    // Next.js now uses dev mode (fast startup, no build), so standard timeouts suffice.
     const isFlutter = info.type === 'flutter';
-    const isNextjs = info.type === 'nextjs';
-    const needsBuild = isFlutter || isNextjs;
+    const needsBuild = isFlutter;
     const readyTimeout = needsBuild ? 120000 : 60000;
     const crashDelay = needsBuild ? 90000 : 8000;
 
@@ -91,10 +105,14 @@ class DevServerService {
       return true;
     }
 
-    // If crash is a stale .next cache chunk (e.g. "./828.js"), clear cache and retry once
-    if (result.error && /Modulo non trovato: \.\/\d+\.js/.test(result.error)) {
-      log.warn(`[DevServer] Stale .next cache detected for ${session.projectId}, clearing and retrying...`);
-      await dockerService.exec(session.agentUrl, 'rm -rf .next', '/home/coder/project', 30000).catch(() => {});
+    // If crash is a Next.js cache corruption (stale chunks, missing manifest, pack.gz ENOENT),
+    // clear .next contents and retry once. Matches English and Italian error messages.
+    const nextCacheCorruption = /Modulo non trovato: \.\/\d+\.js|Cannot find module '\.\/\d+\.js'|routes-manifest\.json|middleware-manifest\.json|webpack\/[^']+\.pack\.gz|MODULE_NOT_FOUND.*next\/dist\/server/;
+    if (result.error && nextCacheCorruption.test(result.error)) {
+      log.warn(`[DevServer] Next.js cache corruption detected for ${session.projectId}, clearing and retrying...`);
+      await dockerService.exec(session.agentUrl, 'find .next -mindepth 1 -delete 2>/dev/null || true', '/home/coder/project', 30000).catch(() => {});
+      // Wait a moment for filesystem to settle after mass delete
+      await new Promise(r => setTimeout(r, 500));
       await this.startDetached(session, info.startCommand);
       const retryResult = await this.waitForReady(agentUrl, readyTimeout, crashDelay);
       if (retryResult.ready) {

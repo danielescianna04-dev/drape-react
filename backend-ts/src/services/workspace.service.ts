@@ -167,9 +167,11 @@ class WorkspaceService {
         }
 
         // Fix Tailwind CSS version mismatch + ensure CSS plumbing before build
-        if (projectInfo.type === 'nextjs') {
+        if (projectInfo.type === 'nextjs' || projectInfo.type === 'vite') {
           await this.fixTailwindV4Css(projectId);
-          await this.ensureCSSPipeline(projectId);
+          if (projectInfo.type === 'nextjs') {
+            await this.ensureCSSPipeline(projectId);
+          }
         }
 
         // Install dependencies (skip for console projects without deps and static/unknown)
@@ -177,6 +179,37 @@ class WorkspaceService {
           || (projectInfo.hasWebUI === false && !projectInfo.installCommand);
         if (!skipInstall) {
           await dependencyService.install(projectId, session, projectInfo);
+
+          // Sanity check: verify the framework runtime is actually in node_modules.
+          // If install reported success but key deps are missing (partial extract,
+          // bun cache corruption, pre-install wipe), force a clean reinstall.
+          const runtimePkg = this.getRuntimeCheckPackage(projectInfo.type);
+          if (runtimePkg) {
+            try {
+              const check = await dockerService.exec(
+                session.agentUrl,
+                `test -d node_modules/${runtimePkg} && test -f node_modules/${runtimePkg}/package.json && echo OK || echo MISSING`,
+                '/home/coder/project',
+                5000,
+                true,
+              );
+              if ((check.stdout || '').trim() === 'MISSING') {
+                log.warn(`[Workspace] ${runtimePkg} missing from node_modules after install — forcing clean reinstall for ${projectId}`);
+                await dockerService.exec(
+                  session.agentUrl,
+                  'rm -rf node_modules bun.lock bun.lockb package-lock.json yarn.lock pnpm-lock.yaml',
+                  '/home/coder/project',
+                  30000,
+                  true,
+                );
+                // Invalidate hash so install doesn't skip
+                try { await fileService.writeFile(projectId, '.package-json-hash', ''); } catch {}
+                await dependencyService.install(projectId, session, projectInfo);
+              }
+            } catch (e: any) {
+              log.warn(`[Workspace] Runtime sanity check failed for ${projectId}: ${e.message}`);
+            }
+          }
         }
 
         // Start dev server (or run console program)
@@ -197,6 +230,25 @@ class WorkspaceService {
   }
 
   /**
+   * Returns the package name to verify in node_modules as a sanity check
+   * after install. If this package is missing, install is considered broken.
+   */
+  private getRuntimeCheckPackage(type: string | undefined): string | null {
+    switch (type) {
+      case 'nextjs': return 'next';
+      case 'vite': return 'vite';
+      case 'svelte': return 'svelte';
+      case 'nuxt': return 'nuxt';
+      case 'astro': return 'astro';
+      case 'remix': return '@remix-run/react';
+      case 'solid': return 'solid-js';
+      case 'angular': return '@angular/core';
+      case 'expo': return 'expo';
+      default: return null;
+    }
+  }
+
+  /**
    * Fix Tailwind CSS version mismatch between globals.css and installed package.
    * If v3 installed but v4 syntax in CSS → convert to v3.
    * If v4 installed but v3 syntax in CSS → convert to v4.
@@ -209,13 +261,38 @@ class WorkspaceService {
       if (!pkgContent) return;
       const twVersion = parseInt(JSON.parse(pkgContent).version || '3');
 
-      const cssPath = 'app/globals.css';
-      const cssResult = await fileService.readFile(projectId, cssPath);
-      const css = cssResult.success ? cssResult.data?.content : null;
+      // Try Next.js path first, fall back to Vite/React path
+      const candidatePaths = ['app/globals.css', 'src/index.css', 'src/app.css', 'src/main.css'];
+      let cssPath = '';
+      let css: string | null = null;
+      for (const p of candidatePaths) {
+        const r = await fileService.readFile(projectId, p);
+        if (r.success && r.data?.content) {
+          cssPath = p;
+          css = r.data.content;
+          break;
+        }
+      }
       if (!css) return;
 
       const hasV4Syntax = css.includes('@import "tailwindcss"') || css.includes("@import 'tailwindcss'") || css.includes('@theme');
       const hasV3Syntax = css.includes('@tailwind base') || css.includes('@tailwind components');
+
+      // Detect RGB-triplet-as-HSL bug: AI wrote "--background: 10 10 10" (RGB intent)
+      // but shadcn uses hsl(var(--background)) which treats it as HSL → invisible content.
+      // HSL values have a "%" on the second and third number: "0 0% 100%". RGB triplets don't.
+      // If ANY of background/foreground/primary look like RGB triplets, rewrite the theme block.
+      const rgbTripletInVars = /--(?:background|foreground|primary|card|popover|muted|accent|border|ring)\s*:\s*\d+\s+\d+\s+\d+\s*;/i.test(css);
+      if (twVersion < 4 && rgbTripletInVars) {
+        log.warn(`[Workspace] Detected RGB triplets in shadcn HSL variables for ${projectId} — rewriting :root block with valid HSL defaults`);
+        // Replace ALL :root blocks with a single valid shadcn dark-theme block.
+        // This is a fallback — the AI's intent was dark mode (numbers like 10 10 10 near black),
+        // so we use the default shadcn dark values which produce a legible UI.
+        const darkShadcnRoot = `:root {\n  --background: 0 0% 4%;\n  --foreground: 0 0% 98%;\n  --card: 0 0% 7%;\n  --card-foreground: 0 0% 98%;\n  --popover: 0 0% 7%;\n  --popover-foreground: 0 0% 98%;\n  --primary: 43 74% 52%;\n  --primary-foreground: 0 0% 4%;\n  --secondary: 0 0% 12%;\n  --secondary-foreground: 0 0% 98%;\n  --muted: 0 0% 12%;\n  --muted-foreground: 0 0% 64%;\n  --accent: 0 0% 15%;\n  --accent-foreground: 0 0% 98%;\n  --destructive: 0 84% 60%;\n  --destructive-foreground: 0 0% 98%;\n  --border: 0 0% 15%;\n  --input: 0 0% 15%;\n  --ring: 43 74% 52%;\n  --radius: 0.5rem;\n}`;
+        const fixedCss = css.replace(/:root\s*\{[^}]*\}/g, darkShadcnRoot);
+        await fileService.writeFile(projectId, cssPath, fixedCss);
+        log.info(`[Workspace] Rewrote ${cssPath} with valid HSL variables`);
+      }
 
       if (twVersion >= 4 && hasV3Syntax) {
         // v4 installed but v3 CSS → convert to v4
@@ -380,11 +457,11 @@ class WorkspaceService {
           const appError = await devServerService.checkResponseForErrors(existingSession.agentUrl);
           if (appError) {
             log.warn(`[Workspace] Fast path: app broken for ${projectId}: ${appError.substring(0, 100)}`);
-            // Stale .next cache chunk (e.g. "./828.js") — clear cache and fall through to slow path
-            if (/Modulo non trovato: \.\/\d+\.js/.test(appError)) {
-              log.warn(`[Workspace] Stale .next cache detected, clearing and restarting for ${projectId}`);
+            // Next.js cache corruption — clear contents and fall through to slow path
+            if (/Modulo non trovato: \.\/\d+\.js|Cannot find module '\.\/\d+\.js'|routes-manifest\.json|middleware-manifest\.json|webpack\/[^']+\.pack\.gz|MODULE_NOT_FOUND.*next\/dist\/server/.test(appError)) {
+              log.warn(`[Workspace] Next.js cache corruption detected, clearing and restarting for ${projectId}`);
               await devServerService.stop(existingSession).catch(() => {});
-              await dockerService.exec(existingSession.agentUrl, 'rm -rf .next', '/home/coder/project', 30000, true).catch(() => {});
+              await dockerService.exec(existingSession.agentUrl, 'find .next -mindepth 1 -delete 2>/dev/null || true', '/home/coder/project', 30000, true).catch(() => {});
               existingSession.projectInfo = freshInfo;
               // Fall through to slow path
             } else {

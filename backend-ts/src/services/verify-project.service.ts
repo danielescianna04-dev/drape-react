@@ -245,7 +245,7 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
   //    Check server.log for "Ready" / "Listening" signals, or build failure signals.
   let httpCode = '000';
   let htmlBody = '';
-  const maxWaitMs = 180000; // 3 min absolute max
+  const maxWaitMs = 30000; // 30s max — server should already be warm from warmProject()
   const startTime = Date.now();
 
   for (let wait = 0; (Date.now() - startTime) < maxWaitMs; wait++) {
@@ -329,15 +329,16 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
   if (httpCode !== '000') {
     try {
       // Use qa-agent.js (functional + vision + self-healing) if available, fallback to e2e-check.js
+      // qa-agent.js = functional + visual AI analysis; e2e-check.js = functional only (fallback)
       const qaAgentExists = await workspaceService.exec(projectId, userId,
         'test -f /usr/local/bin/qa-agent.js && echo "yes" || echo "no"'
       ).then(r => (r.stdout || '').trim() === 'yes').catch(() => false);
 
       const verifyScript = qaAgentExists
-        ? 'NODE_PATH=/usr/local/lib/node_modules timeout 180 node /usr/local/bin/qa-agent.js 2>/tmp/qa-stderr.txt'
-        : 'NODE_PATH=/usr/local/lib/node_modules timeout 240 node /usr/local/bin/e2e-check.js 2>/tmp/e2e-stderr.txt';
+        ? 'NODE_PATH=/usr/local/lib/node_modules timeout 90 node /usr/local/bin/qa-agent.js 2>/tmp/qa-stderr.txt'
+        : 'NODE_PATH=/usr/local/lib/node_modules timeout 60 node /usr/local/bin/e2e-check.js 2>/tmp/e2e-stderr.txt';
 
-      if (qaAgentExists) log.info(`[Verify] Using qa-agent.js for verification`);
+      if (qaAgentExists) log.info(`[Verify] Using qa-agent.js (90s timeout)`);
 
       let e2eResult: any = { stdout: '', exitCode: -1 };
       let usedQaAgent = qaAgentExists;
@@ -359,7 +360,7 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
         usedQaAgent = false;
         try {
           e2eResult = await workspaceService.exec(projectId, userId,
-            'NODE_PATH=/usr/local/lib/node_modules timeout 240 node /usr/local/bin/e2e-check.js 2>/tmp/e2e-stderr.txt'
+            'NODE_PATH=/usr/local/lib/node_modules timeout 60 node /usr/local/bin/e2e-check.js 2>/tmp/e2e-stderr.txt'
           );
         } catch (fallbackErr: any) {
           log.warn(`[Verify] e2e-check.js fallback also failed: ${fallbackErr.message?.substring(0, 80)}`);
@@ -597,13 +598,14 @@ async function autoFix(
       }
     }
 
-    // For navigation errors: read pages involved + state/store/context files
+    // For navigation errors OR dead interactive elements: read all pages + state
     const hasNavErrors = result.errors.some(e => e.includes('[nav]'));
-    if (hasNavErrors) {
-      // Read all page files to understand navigation flow
+    const hasDeadClicks = result.errors.some(e => e.includes('Dead interactive element'));
+    if (hasNavErrors || hasDeadClicks) {
+      // Read all page/component files to understand navigation flow + wiring
       try {
         const findResult = await workspaceService.exec(projectId, userId,
-          'find /home/coder/project/app \( -name "page.tsx" -o -name "page.jsx" \) 2>/dev/null | head -15'
+          'find /home/coder/project \( -path "*/node_modules" -o -path "*/.next" \) -prune -o \( -name "page.tsx" -o -name "page.jsx" -o -name "App.tsx" \) -print 2>/dev/null | head -20; find /home/coder/project/src/pages /home/coder/project/src/components 2>/dev/null -name "*.tsx" | head -20'
         );
         for (const pagePath of (findResult.stdout || '').trim().split('\n').filter(Boolean)) {
           const relPath = pagePath.replace('/home/coder/project/', '');
@@ -670,7 +672,14 @@ Rules:
 - For blank page: ensure components return visible JSX with Tailwind classes
 - Use lucide-react for icons (it's installed in the template)
 - All data must be hardcoded const arrays — NEVER use fetch() for mock data
-- For "broken click handler" / "nothing happened" errors: the button's onClick doesn't work. Check the state management (store/context) — the state change may not trigger a re-render or navigation. Common fixes: use router.push() after state change, use localStorage/sessionStorage to persist state, ensure setState triggers re-render
+- For "Dead interactive element" / "nothing happened" errors: the button/link has no working handler. RULE: every visible clickable element MUST do something visible when tapped. Fixes:
+  • Empty or missing onClick → add a real handler: useState toggle, router.push(), open modal via state, show toast, filter/sort state update
+  • Link to nonexistent route → EITHER create the destination page file OR change the link to a real route
+  • Card/div with cursor-pointer → add onClick that navigates or opens details
+  • Icon button (heart/star/share/bell) → toggle local state, show toast, or open a panel
+  • Tab/nav item → use router.push() or setActiveTab state
+  NEVER leave onClick={() => {}} or onClick={()=>console.log()} — if you can't wire it, REMOVE the element from JSX entirely
+- The error message format is: "Dead interactive element: <type> \"<text>\" on page <path> — ..." — read that page file and FIX the specific element by its text label
 - For redirect loops (page X redirects to page Y): the guard/redirect logic doesn't persist state. Fix by using localStorage or cookies to persist auth/profile state across navigations, not just React state
 - For pages that redirect to a selection screen: ensure the selection state persists in localStorage so the guard check passes after page reload
 - Return valid JSON only`;
@@ -697,16 +706,36 @@ Rules:
     );
     let fixText = '';
     for await (const chunk of fixStream) {
-      fixText += typeof chunk === 'string' ? chunk : JSON.stringify(chunk);
+      if (typeof chunk === 'string') fixText += chunk;
+      else if (chunk.type === 'text' && chunk.text) fixText += chunk.text;
     }
 
-    const fixMatch = fixText.match(/\[[\s\S]*\]/);
+    // Strip markdown fences if present
+    let cleanJson = fixText.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    const fixMatch = cleanJson.match(/\[[\s\S]*\]/);
     if (!fixMatch) {
-      log.warn(`[Verify] AI returned no valid JSON`);
+      log.warn(`[Verify] AI returned no valid JSON (${fixText.length} chars): ${fixText.substring(0, 200)}`);
       return { applied: false, filesModified: [], duration: Date.now() - fixStartTime };
     }
 
-    const fixes: { path: string; content: string }[] = JSON.parse(fixMatch[0]);
+    let fixes: { path: string; content: string }[];
+    try {
+      fixes = JSON.parse(fixMatch[0]);
+    } catch (parseErr: any) {
+      // AI sometimes returns JSON with unescaped control characters in file content
+      // Try to recover by escaping literal newlines/tabs inside string values
+      log.warn(`[Verify] JSON parse failed, attempting recovery: ${parseErr.message}`);
+      try {
+        // Replace literal control chars inside JSON strings (but not the structural ones)
+        const recovered = fixMatch[0]
+          .replace(/(?<=:\s*"(?:[^"\\]|\\.)*)(\r?\n)(?=(?:[^"\\]|\\.)*")/g, '\\n')
+          .replace(/(?<=:\s*"(?:[^"\\]|\\.)*)(\t)/g, '\\t');
+        fixes = JSON.parse(recovered);
+      } catch {
+        log.warn(`[Verify] JSON recovery also failed`);
+        return { applied: false, filesModified: [], duration: Date.now() - fixStartTime };
+      }
+    }
     const filesModified: string[] = [];
     for (const fix of fixes) {
       if (!fix.path || !fix.content?.trim()) continue;
@@ -793,13 +822,10 @@ async function repairCSSPipeline(projectId: string, userId: string, technology: 
 
 async function restartDevServer(projectId: string, userId: string): Promise<void> {
   try {
-    // Kill existing server/build processes
+    // Kill existing server processes — next dev picks up changes via HMR,
+    // but a full restart ensures clean state after fix attempts
     await workspaceService.exec(projectId, userId,
       'pkill -f "next\\|vite\\|astro\\|expo" 2>/dev/null; sleep 2'
-    );
-    // Clear .next build cache so next build starts fresh with fixed files
-    await workspaceService.exec(projectId, userId,
-      'rm -rf /home/coder/project/.next 2>/dev/null'
     );
     const warmTimeout = new Promise<void>((_, reject) =>
       setTimeout(() => reject(new Error('restart timeout')), 120000)

@@ -127,19 +127,21 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
       /\b(NEXT_PUBLIC_|REACT_APP_|VITE_|NUXT_)\w+/.test(msg);
   };
 
-  // Safety-net retry for transient proxy errors that slip past checkServerStatus
-  const proxyRetryCountRef = React.useRef(0);
-  const MAX_PROXY_RETRIES = 5;
   const readyFallbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Guard against infinite rewrite loops in onShouldStartLoadWithRequest
   const rewriteCountRef = React.useRef(0);
   const MAX_REWRITES = 3;
 
-  // Reset retry counters when URL or server status changes
+  // Block same-URL reload at native level — Vite HMR must never cause a full page reload
+  const initialLoadDoneRef = React.useRef(false);
+  const lastLoadedUrlRef = React.useRef<string>('');
+
+  // Reset counters when URL or server status changes
   React.useEffect(() => {
-    proxyRetryCountRef.current = 0;
     rewriteCountRef.current = 0;
+    initialLoadDoneRef.current = false;
+    lastLoadedUrlRef.current = '';
   }, [currentPreviewUrl, serverStatus]);
 
   // Switch viewport at runtime when user toggles desktop/mobile
@@ -241,6 +243,18 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
                   else document.addEventListener('DOMContentLoaded', function() { document.head.appendChild(meta); });
                 }
 
+                // Block ALL forms of page reload — prevents any flash in WebView
+                // Vite client uses location.reload() or history.go(0) when deps change;
+                // we block everything — the page is already loaded correctly
+                location.reload = function() {
+                  console.log('[Drape] Blocked location.reload');
+                };
+                var origHistoryGo = history.go;
+                history.go = function(delta) {
+                  if (!delta || delta === 0) { console.log('[Drape] Blocked history.go(0)'); return; }
+                  origHistoryGo.call(history, delta);
+                };
+
                 // White background (most generated apps use white)
                 if (document.head) {
                   var style = document.createElement('style');
@@ -303,6 +317,12 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
                 const finalUrl = nativeEvent.url;
                 console.log('WebView load end:', finalUrl);
 
+                // Track current URL for reload blocking; mark initial load as done
+                lastLoadedUrlRef.current = finalUrl;
+                if (!initialLoadDoneRef.current) {
+                  initialLoadDoneRef.current = true;
+                }
+
                 // Lightweight error detection + content check (single injection, no polling)
                 webViewRef.current?.injectJavaScript(`
                (function() {
@@ -360,22 +380,23 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
                 if (!webViewReady || !navState.loading) {
                   setIsLoading(navState.loading);
                 }
-                // Sync URL for back/forward navigation (which bypasses onShouldStartLoadWithRequest)
-                if (navState.url && !navState.loading) {
-                  try {
-                    const navUrl = new URL(navState.url);
-                    const isSubdomainPreview = navUrl.hostname.endsWith('.drape.info') && !['www.drape.info', 'dev.drape.info', 'api.drape.info'].includes(navUrl.hostname);
-                    const isPathPreview = (navUrl.hostname === 'drape.info' || navUrl.hostname === 'dev.drape.info') && navUrl.pathname.startsWith('/preview/');
-                    if (isSubdomainPreview || isPathPreview) {
-                      setCurrentPreviewUrl(navState.url);
-                    }
-                  } catch { /* ignore */ }
-                }
+                // DO NOT sync navState.url back to currentPreviewUrl — it causes double navigation:
+                // SPA navigates to /page → we add ?pt= → source.uri changes → WebView reloads → flash.
+                // The WebView handles SPA routing internally; we only track the URL via lastLoadedUrlRef.
               }}
               onShouldStartLoadWithRequest={(request) => {
                 const url = request.url;
                 let urlHost = '';
                 try { urlHost = new URL(url).hostname; } catch {}
+
+                // Block same-URL reload at native level — Vite HMR triggers location.reload / history.go(0)
+                // which our JS block can't always intercept. After initial load, reject same-URL navigations.
+                const stripQuery = (u: string) => { try { const p = new URL(u); p.search = ''; return p.toString(); } catch { return u; } };
+                const isSameUrl = stripQuery(url) === stripQuery(lastLoadedUrlRef.current);
+                if (initialLoadDoneRef.current && isSameUrl) {
+                  console.log('[Preview] Blocked same-URL reload (Vite HMR)');
+                  return false;
+                }
 
                 // Subdomain preview (project-xxx.drape.info) — no rewriting needed,
                 // all navigations stay on the same subdomain naturally
@@ -425,7 +446,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
                       console.warn('[Preview] Proxy error during verification (ignored, checkServerStatus polling):', rawMsg);
                       return;
                     }
-                    // Server was 'running' but proxy error appeared — try a few retries first
+                    // Transient proxy errors — log and ignore, don't reload (causes flash loop)
                     const isTransient =
                       rawMsg.includes('No active session') ||
                       rawMsg.includes('ECONNREFUSED') ||
@@ -433,20 +454,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
                       rawMsg.includes('Endpoint not found') ||
                       rawMsg.includes('429');
                     if (isTransient) {
-                      if (proxyRetryCountRef.current < MAX_PROXY_RETRIES) {
-                        proxyRetryCountRef.current++;
-                        console.warn(`[Preview] Transient proxy error (retry ${proxyRetryCountRef.current}/${MAX_PROXY_RETRIES}):`, rawMsg);
-                        // Exponential backoff: 2s, 4s, 6s...
-                        setTimeout(() => {
-                          webViewRef.current?.reload();
-                        }, Math.min(2000 * proxyRetryCountRef.current, 8000));
-                        return;
-                      }
-                      // Transient errors exhausted retries — keep preview visible, just reset and keep trying
-                      // Do NOT set serverStatus='stopped' for transient errors
-                      console.warn('[Preview] Transient error retries exhausted — resetting counter, keeping preview visible');
-                      proxyRetryCountRef.current = 0;
-                      setTimeout(() => { webViewRef.current?.reload(); }, 5000);
+                      console.warn('[Preview] Transient proxy error (ignored, no reload):', rawMsg);
                       return;
                     }
                     // Non-transient error — check for env error first

@@ -578,8 +578,8 @@ class DependencyService {
       const extraCleanup = parts.length > 0 ? '; ' + parts.join('; ') : '';
       await dockerService.exec(
         agentUrl,
-        // Kill any install processes, then remove node_modules and corrupted bun lockfile
-        `pkill -f 'npm install' 2>/dev/null; pkill -f 'yarn install' 2>/dev/null; pkill -f 'pnpm install' 2>/dev/null; pkill -f 'bun install' 2>/dev/null; sleep 1; rm -rf node_modules bun.lockb${extraCleanup}`,
+        // Kill any install processes, then remove node_modules and corrupted bun lockfiles (both binary and text)
+        `pkill -f 'npm install' 2>/dev/null; pkill -f 'yarn install' 2>/dev/null; pkill -f 'pnpm install' 2>/dev/null; pkill -f 'bun install' 2>/dev/null; sleep 1; rm -rf node_modules bun.lockb bun.lock${extraCleanup}`,
         '/home/coder/project',
         30000,
         true,

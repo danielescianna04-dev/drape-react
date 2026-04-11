@@ -124,8 +124,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   React.useEffect(() => {
     if (openPreviewRequested) {
       useUIStore.getState().setOpenPreviewRequested(false);
-      const pid = currentWorkstation?.projectId || currentWorkstation?.id;
-      if (pid && useUIStore.getState().isPreviewBlocked(pid)) return;
       openPreviewTab();
       setActivePanel(null);
     }
@@ -148,29 +146,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   }, [openEnvVarsRequested]);
 
   const openPreviewTab = useCallback(() => {
-    // Preview gate: block if verification failed
-    const projectId = currentWorkstation?.projectId || currentWorkstation?.id;
-    if (projectId && useUIStore.getState().isPreviewBlocked(projectId)) {
-      Alert.alert(
-        'Preview Unavailable',
-        'Verification failed — the preview may have issues. Check Project History for details.',
-        [
-          { text: 'Open History', onPress: () => {
-            const histTab = tabs.find(t => t.id === 'buildReport');
-            if (histTab) { setActiveTab('buildReport'); }
-            else { addTab({ id: 'buildReport', type: 'buildReport', title: 'History', data: {} }); }
-          }},
-          { text: 'Open Preview Anyway', style: 'destructive', onPress: () => {
-            const existing = tabs.find(t => t.id === 'preview');
-            if (existing) { setActiveTab('preview'); }
-            else { addTab({ id: 'preview', type: 'preview', title: 'Preview', data: {} }); }
-          }},
-          { text: 'Cancel' },
-        ]
-      );
-      return;
-    }
-
     const existing = tabs.find(t => t.id === 'preview');
     if (existing) {
       setActiveTab('preview');
@@ -182,36 +157,9 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         data: {},
       });
     }
-  }, [tabs, setActiveTab, addTab, currentWorkstation]);
+  }, [tabs, setActiveTab, addTab]);
 
-  // ============ REHYDRATE PREVIEW GATE from backend data ============
-  useEffect(() => {
-    const projectId = currentWorkstation?.projectId || currentWorkstation?.id;
-    if (!projectId) return;
-    // Skip if we already have a definitive answer from the create flow
-    const already = useUIStore.getState().previewBlockedProjects[projectId];
-    if (already !== undefined) return;
-
-    // Fetch from backend — derive previewBlocked from build-report or verification-report
-    getAuthHeaders().then(headers => {
-      fetch(`${config.apiUrl}/workstation/${projectId}/project-history`, { headers })
-        .then(r => r.json())
-        .then(data => {
-          if (!data.success || !data.history) return;
-          const br = data.history.buildReport;
-          const vr = data.history.verificationReport;
-          // Source of truth: build-report.previewBlocked, fallback to verification status
-          let blocked = false;
-          if (br && typeof br.previewBlocked === 'boolean') {
-            blocked = br.previewBlocked;
-          } else if (vr && vr.status === 'failed') {
-            blocked = true;
-          }
-          useUIStore.getState().setPreviewBlocked(projectId, blocked);
-        })
-        .catch(() => {});
-    }).catch(() => {});
-  }, [currentWorkstation?.id]);
+  // Preview gate removed — preview is always accessible. Issues show in the WebView.
 
   // ============ HEARTBEAT: Keep container alive while user is in project ============
   useEffect(() => {

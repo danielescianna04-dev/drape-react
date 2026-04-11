@@ -155,6 +155,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const [contractSummary, setContractSummary] = useState<{ coreFlows: string[]; interactions: string[]; excluded: string[]; assumptions: string[] } | null>(null);
   const [contractLoading, setContractLoading] = useState(false);
   const [questionsLoading, setQuestionsLoading] = useState(false);
+  const [questionsError, setQuestionsError] = useState(false);
   const [cloudEnabled, setCloudEnabled] = useState(false);
   const [showCloudInfo, setShowCloudInfo] = useState(false);
   const [cloudInfoVisible, setCloudInfoVisible] = useState(false);
@@ -425,10 +426,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                     folderId: null,
                   };
 
-                  // Set preview gate — blocked if verification failed
-                  const { setPreviewBlocked } = useUIStore.getState();
-                  setPreviewBlocked(workstation.projectId, verifyFailed);
-
                   const pName = task.result?.projectName || projectName.trim();
                   if (liveActivityService.isActivityActive()) {
                     if (verifyFailed) {
@@ -612,10 +609,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
               folderId: null,
             };
 
-            // Set preview gate
-            const { setPreviewBlocked } = useUIStore.getState();
-            setPreviewBlocked(workstation.projectId, verifyFailed);
-
             const pName = task.result?.projectName || projectName.trim();
             if (liveActivityService.isActivityActive()) {
               if (verifyFailed) {
@@ -704,6 +697,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
   const fetchAiQuestions = async () => {
     setQuestionsLoading(true);
+    setQuestionsError(false);
     try {
       const headers = await getAuthHeaders();
       const res = await fetch(`${config.apiUrl}/ai/project-questions`, {
@@ -727,16 +721,13 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         normalized.forEach((q: any) => { initial[q.questionId] = { selectedIds: [], custom: '' }; });
         setAiAnswers(initial);
       } else {
-        // No questions — skip interview, go straight to tech
-        console.warn('[AI] No questions returned, skipping interview');
-        analyzeRequirements();
-        animateStepTransition(3, 'forward');
+        // No questions — mark error so useEffect can skip when step 2 is active
+        console.warn('[AI] No questions returned');
+        setQuestionsError(true);
       }
     } catch (err: any) {
       console.warn('[AI] Failed to fetch questions:', err.message);
-      // Skip interview on error — go straight to tech
-      analyzeRequirements();
-      animateStepTransition(3, 'forward');
+      setQuestionsError(true);
     } finally {
       setQuestionsLoading(false);
     }
@@ -766,6 +757,15 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       LayoutAnimation.configureNext(LayoutAnimation.create(400, 'easeInEaseOut', 'opacity'));
     }
   }, [aiAnalyzing, questionsLoading]);
+
+  // Skip interview step when questions fail to load — only trigger once step 2 is active
+  // to avoid race conditions with the step transition animation
+  useEffect(() => {
+    if (step === 2 && questionsError && !questionsLoading && aiQuestions.length === 0) {
+      analyzeRequirements();
+      animateStepTransition(3, 'forward');
+    }
+  }, [step, questionsError, questionsLoading]);
 
   const analyzeRequirements = async () => {
     let isMounted = true;
@@ -885,6 +885,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           structuredAnswers: getStructuredAnswers(),
           cloudEnabled,
           userId,
+          agentMode: true,
         }),
       });
 
@@ -992,6 +993,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           structuredAnswers: getStructuredAnswers(),
           cloudEnabled,
           userId,
+          agentMode: true,
         }),
       });
 
@@ -1503,49 +1505,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       {renderSummaryRow('document-text-outline', '#fff', t('create.description'), description, 'description')}
       <View style={styles.summaryDivider} />
       {renderSummaryRow(selectedLang?.icon || 'code-outline', selectedLang?.color || '#fff', t('create.technology'), selectedLang?.name || '', 'tech')}
-
-      {/* Product Contract Summary */}
-      {contractSummary && (
-        <>
-          <View style={styles.summaryDivider} />
-          <View style={{ paddingVertical: 10, gap: 8 }}>
-            <Text style={{ color: '#8B5CF6', fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>V1 Plan</Text>
-
-            {contractSummary.coreFlows.length > 0 && (
-              <View style={{ gap: 2 }}>
-                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: '600' }}>Core Flows</Text>
-                <Text style={{ color: '#fff', fontSize: 13 }}>{contractSummary.coreFlows.join(' · ')}</Text>
-              </View>
-            )}
-
-            {contractSummary.interactions.length > 0 && (
-              <View style={{ gap: 2 }}>
-                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: '600' }}>Interactions</Text>
-                <Text style={{ color: '#fff', fontSize: 13 }}>{contractSummary.interactions.join(' · ')}</Text>
-              </View>
-            )}
-
-            {contractSummary.excluded.length > 0 && (
-              <View style={{ gap: 2 }}>
-                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: '600' }}>Excluded from V1</Text>
-                <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{contractSummary.excluded.join(', ')}</Text>
-              </View>
-            )}
-
-            {contractSummary.assumptions.length > 0 && (
-              <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, fontStyle: 'italic' }}>{contractSummary.assumptions.join(' · ')}</Text>
-            )}
-          </View>
-        </>
-      )}
-      {contractLoading && (
-        <>
-          <View style={styles.summaryDivider} />
-          <View style={{ paddingVertical: 10, alignItems: 'center' }}>
-            <ActivityIndicator size="small" color="#8B5CF6" />
-          </View>
-        </>
-      )}
     </>
   );
 
@@ -1868,7 +1827,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       {/* Creation Progress */}
       <CreationProgressModal
         visible={isCreating}
-        progress={creationTask?.progress || (isStreaming ? Math.min(agentEvents.length * 5, 90) : 0)}
+        progress={creationTask?.progress || (isStreaming ? Math.min(agentEvents.filter(e => e.type === 'tool_complete').length * 3, 90) : 0)}
         status={creationTask?.message || (agentCurrentTool ? `${agentCurrentTool}...` : (isStreaming ? 'Generating code...' : 'Preparing...'))}
         step={creationTask?.step || (agentStatus === 'running' ? 'AI Agent' : undefined)}
         agentEvents={useAgentSystem ? agentEvents : undefined}
@@ -1892,48 +1851,73 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
               </View>
               <Text style={styles.upgradeTitle}>{t('limit.reached')}</Text>
               <Text style={styles.upgradeSubtitle}>
-                {t('limit.maxProjects', { count: projectLimit })}{'\n'}
-                {t('limit.upgradeTo', { plan: 'Go' })} {t('limit.upgradeToCreate')}
+                {(() => {
+                  const plan = useAuthStore.getState().user?.plan || 'free';
+                  const planLabel = plan === 'pro' ? 'Pro' : plan === 'go' ? 'Go' : 'Free';
+                  const nextPlan = plan === 'free' ? 'Go' : plan === 'go' ? 'Pro' : null;
+                  return nextPlan
+                    ? `${t('limit.maxProjects', { count: projectLimit })} con il piano ${planLabel}.\n${t('limit.upgradeTo', { plan: nextPlan })} ${t('limit.upgradeToCreate')}`
+                    : `${t('limit.maxProjects', { count: projectLimit })} con il piano ${planLabel}.\nElimina un progetto per crearne uno nuovo.`;
+                })()}
               </Text>
-              <View style={styles.upgradeFeatures}>
-                {[
-                  { icon: 'folder-open', text: t('limit.features.projects') },
-                  { icon: 'eye', text: t('limit.features.previews') },
-                  { icon: 'sparkles', text: t('limit.features.budget') },
-                ].map((f, i) => (
-                  <View key={i} style={styles.upgradeFeatureRow}>
+              {(() => {
+                const plan = useAuthStore.getState().user?.plan || 'free';
+                const nextPlan = plan === 'free' ? 'Go' : plan === 'go' ? 'Pro' : null;
+                return nextPlan ? (
+                  <>
+                    <View style={styles.upgradeFeatures}>
+                      {[
+                        { icon: 'folder-open', text: t('limit.features.projects') },
+                        { icon: 'eye', text: t('limit.features.previews') },
+                        { icon: 'sparkles', text: t('limit.features.budget') },
+                      ].map((f, i) => (
+                        <View key={i} style={styles.upgradeFeatureRow}>
+                          <LinearGradient
+                            colors={[AppColors.primary, '#9333EA']}
+                            style={styles.upgradeFeatureIcon}
+                          >
+                            <Ionicons name={f.icon as any} size={14} color="#fff" />
+                          </LinearGradient>
+                          <Text style={styles.upgradeFeatureText}>{f.text}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <TouchableOpacity
+                      style={styles.upgradeCta}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        setShowUpgradeModal(false);
+                        if (onOpenPlans) onOpenPlans(); else onBack();
+                      }}
+                    >
+                      <LinearGradient
+                        colors={[AppColors.primary, '#9333EA']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.upgradeCtaGradient}
+                      >
+                        <Ionicons name="arrow-up-circle" size={20} color="#fff" />
+                        <Text style={styles.upgradeCtaText}>{t('limit.upgradeTo', { plan: nextPlan })}</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.upgradeCta}
+                    activeOpacity={0.85}
+                    onPress={() => setShowUpgradeModal(false)}
+                  >
                     <LinearGradient
                       colors={[AppColors.primary, '#9333EA']}
-                      style={styles.upgradeFeatureIcon}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.upgradeCtaGradient}
                     >
-                      <Ionicons name={f.icon as any} size={14} color="#fff" />
+                      <Text style={styles.upgradeCtaText}>Ho capito</Text>
                     </LinearGradient>
-                    <Text style={styles.upgradeFeatureText}>{f.text}</Text>
-                  </View>
-                ))}
-              </View>
-              <TouchableOpacity
-                style={styles.upgradeCta}
-                activeOpacity={0.85}
-                onPress={() => {
-                  setShowUpgradeModal(false);
-                  if (onOpenPlans) {
-                    onOpenPlans();
-                  } else {
-                    onBack();
-                  }
-                }}
-              >
-                <LinearGradient
-                  colors={[AppColors.primary, '#9333EA']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.upgradeCtaGradient}
-                >
-                  <Ionicons name="arrow-up-circle" size={20} color="#fff" />
-                  <Text style={styles.upgradeCtaText}>{t('limit.upgradeTo', { plan: 'Go' })}</Text>
-                </LinearGradient>
-              </TouchableOpacity>
+                  </TouchableOpacity>
+                );
+              })()}
               <TouchableOpacity
                 style={styles.upgradeDismiss}
                 onPress={() => setShowUpgradeModal(false)}

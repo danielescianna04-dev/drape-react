@@ -365,7 +365,9 @@ class ProjectDetectorService {
     const scripts = pkg?.scripts || {};
     const deps = { ...pkg?.dependencies, ...pkg?.devDependencies };
     const nextVersion = parseInt((deps?.next || '0').replace(/[^\d]/g, '').substring(0, 2));
-    const useTurbopack = nextVersion >= 15;
+    // Turbopack crashes on some generated code patterns (app-build-manifest.json ENOENT).
+    // Use stable webpack instead — slower but reliable.
+    const useTurbopack = false;
 
     const installCmd = pm === 'pnpm' ? 'pnpm install --frozen-lockfile' :
       pm === 'yarn' ? 'yarn install --frozen-lockfile' :
@@ -383,9 +385,10 @@ class ProjectDetectorService {
     if (!hasPort) flags.push('--port 3000');
     if (!hasHost) flags.push('--hostname 0.0.0.0');
 
-    // Production mode only. Always build before starting.
-    // Build is fast if .next cache exists, full rebuild only on first run.
-    const startCommand = `./node_modules/.bin/next build 2>&1 && ./node_modules/.bin/next start ${flags.join(' ')}`;
+    // Dev mode: faster startup (~3-5s vs 60-90s build),
+    // per-page compilation errors instead of blocking the entire server.
+    if (useTurbopack) flags.push('--turbopack');
+    const startCommand = `./node_modules/.bin/next dev ${flags.join(' ')}`;
 
     return {
       type: 'nextjs',

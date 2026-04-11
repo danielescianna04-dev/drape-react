@@ -130,7 +130,7 @@
   },
   "limit": {
     "reached": "Limit reached",
-    "maxProjects": "You've reached the maximum of {{count}} projects with the Free plan.",
+    "maxProjects": "You've reached the maximum of {{count}} projects",
     "upgradeTo": "Upgrade to {{plan}}",
     "upgradeToCreate": "to create up to 5",
     "features": {

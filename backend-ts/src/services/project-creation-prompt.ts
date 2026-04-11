@@ -52,10 +52,13 @@ const STACK_INSTRUCTIONS: Record<string, string> = {
 REACT (VITE) SPECIFIC:
 - Stack: Vite + React 19 + Tailwind CSS + react-router-dom v7 + shadcn-style UI
 - Layout: App.tsx is MINIMAL (just router). YOU generate all pages and components.
-- CRITICAL: main.tsx already wraps App with <BrowserRouter>. Do NOT add BrowserRouter in App.tsx — just use <Routes> and <Route> directly.
+- CRITICAL: main.tsx is minimal (just renders App). You MUST wrap your routes with <BrowserRouter> in App.tsx. NEVER use useRoutes() hook — use JSX <Routes>/<Route> instead.
+- APP.TSX STRUCTURE: App.tsx must ONLY contain <Routes> with <Route> elements pointing to page components. NEVER put page content directly in App.tsx. Example:
+  import Home from './pages/Home'; import Profile from './pages/Profile';
+  export default function App() { return (<Routes><Route path="/" element={<Home />} /><Route path="/profile" element={<Profile />} /></Routes>); }
 - PRE-INSTALLED UI: Button, Card, Input, Badge, Dialog, Avatar, Tabs, Skeleton in src/components/ui/. cn() in src/lib/utils.ts. USE THEM — don't recreate.
-- Pages in src/pages/, register in App.tsx routes
-- Components in src/components/
+- EVERY page goes in src/pages/ as a separate file. MINIMUM 3 pages with real content.
+- Reusable components go in src/components/
 - State: useState for local, useContext + createContext for shared state
 - Routing: <Link to="/path">, useNavigate(), useParams()
 - Images: <img> tag directly
@@ -70,7 +73,8 @@ NEXT.JS (APP ROUTER) SPECIFIC:
 - Pages: app/{route}/page.tsx — server components by default
 - 'use client': ONLY for files using useState, useEffect, onClick, or any hook
 - Tailwind CSS: Use v3 syntax ONLY (@tailwind base/components/utilities, CSS variables in :root). NEVER use v4 syntax (@import "tailwindcss", @theme inline)
-- Middleware: NEVER import better-auth or jose in middleware.ts — Edge Runtime doesn't support Node.js APIs. Check cookies directly: request.cookies.get("better-auth.session_token")
+- CSS variables MUST be in HSL format (hue sat% light%), NEVER RGB triplets. Shadcn uses hsl(var(--name)) so the value must be valid HSL. CORRECT: --background: 0 0% 100%; --primary: 222.2 47.4% 11.2%; WRONG: --background: 10 10 10; --primary: 212 175 55;. If you want near-black use 0 0% 4% (HSL) NOT 10 10 10 (RGB). If you want gold use 43 74% 52% NOT 212 175 55. Converting RGB to HSL wrongly makes text invisible (white on white) because hsl(212 175 55) clamps to white. If unsure, use ONLY these safe HSL values: white=0 0% 100%, black=0 0% 4%, gold=43 74% 52%, red=0 84% 60%, blue=222 84% 55%, green=142 71% 45%
+- Middleware: Do NOT create middleware.ts unless absolutely necessary for auth. If you must, NEVER import better-auth, jose, pg, drizzle, or any Node.js-only package — Edge Runtime doesn't support them. Only use: NextRequest, NextResponse, and request.cookies
 - Components: app/components/
 - API routes: app/api/{name}/route.ts with GET/POST/PUT/DELETE
 - Metadata: export const metadata = { title, description } per page
@@ -164,6 +168,8 @@ All code will directly be built and rendered, therefore you should NEVER:
 - Refer to non-existing files. All imports MUST exist in the codebase.
 - Create placeholder or "coming soon" content
 - Use Lorem ipsum text
+- Create buttons or links that do nothing when tapped
+- Link to routes without creating the corresponding page file
 
 If many features are requested, you do not have to implement them all — but the ones you DO implement must be FULLY FUNCTIONAL.
 
@@ -190,7 +196,7 @@ MOBILE-FIRST RULES:
 - Images: w-full on mobile, constrained on desktop.
 - Modals: full screen on mobile (fixed inset-0), centered on desktop (max-w-lg).
 - Forms: stacked labels on mobile, inline on desktop.
-- Navigation: hamburger menu on mobile, full nav on desktop.
+- Navigation: ALWAYS use a bottom tab bar or hamburger menu on mobile. NEVER use a horizontal nav bar with text links — they WILL overlap on 430px screens. Use hidden sm:flex for desktop nav, flex sm:hidden for mobile hamburger/bottom bar.
 - No horizontal scrolling — ever. Use flex-wrap, overflow-hidden, or truncate.
 - Padding: px-4 on mobile, px-6 sm:px-8 on desktop. Never less than px-4 on mobile.
 - Font sizes: text-2xl sm:text-4xl for headings, text-sm sm:text-base for body.
@@ -358,6 +364,17 @@ Generate REALISTIC data — real names, real prices, real descriptions. Never "L
 NEVER use redirect() in the home page. It MUST render actual visible content directly.
 Every route you link to MUST have a corresponding page file.
 
+=== EVERY BUTTON AND LINK MUST WORK ===
+CRITICAL: Every interactive element MUST do something real when tapped.
+- Navigation links/tabs → MUST use <Link to="/route"> and the target route MUST exist as a page file
+- Action buttons (Like, Add to Cart, Follow, Send) → MUST update local state visually (toggle icon color, increment counter, show toast, add item to list)
+- Forms → MUST handle onSubmit, validate, and show feedback (toast or state change)
+- Cards/list items → MUST navigate to a detail page OR open a modal with more info
+- Bottom tab bar → EVERY tab MUST link to a real page that exists
+
+NEVER create a button that does nothing. NEVER link to a route without creating its page file.
+If you have a bottom nav with 4 tabs, you MUST create 4 page files + routes in App.tsx.
+
 === OUTPUT FORMAT ===
 Return ONLY valid JSON: { "files": [{ "path": "relative/path.ext", "content": "full file content" }] }
 No markdown fences, no explanation — ONLY the JSON object.`;
@@ -480,12 +497,15 @@ export function getProjectCreationUserPrompt(
 
   prompt += `\n\nThis is the first version of this project. The codebase is a template that hasn't been edited yet.
 
-PRODUCT PHILOSOPHY — FOCUSED V1:
-Build a focused, opinionated V1 — not a broad feature showcase.
-- Identify 2-3 core user flows and make them PERFECT
-- Better 3 polished, working screens than 8 half-broken ones
-- The user should navigate the entire app without hitting a dead end
-- Every visible element must be real — no fake UI, no placeholder screens
+PRODUCT PHILOSOPHY — COMPLETE, POLISHED APP:
+Build a COMPLETE app that feels like a real product, not a demo. Take the time to implement ALL the screens and features the user would expect from this type of app.
+
+COMPLETENESS IS THE #1 PRIORITY:
+- Implement ALL the pages a real user would expect (home, detail, list, profile, settings, cart, search, etc.)
+- Every user journey must be complete end-to-end: browse → view detail → take action → see result
+- Navigation must connect ALL pages — the user should be able to reach every screen
+- Implement 5-8+ pages for a typical app, not just 2-3
+- Quality AND quantity — every page must be polished AND there must be enough pages to feel like a real app
 
 DO NOT CREATE:
 - Dead buttons or placeholder CTAs that don't do anything when clicked
@@ -505,7 +525,45 @@ Here's what you need to do:
 ${cloudMode
   ? `7. ALL data comes from API routes that query the database — NO hardcoded/mock data. Create API routes in app/api/ and fetch from client-side pages. Seed data goes in db/schema.sql INSERT statements.`
   : `7. Use realistic hardcoded data (const arrays) — never fetch() for mock data.`}
-8. Use Unsplash images relevant to the app theme.
+8. Use picsum.photos for images (see rules above) — NEVER Unsplash URLs.
+
+=== MULTI-PAGE ROUTING (MANDATORY) ===
+You MUST create at LEAST 3 separate page files with proper routing between them.
+Example for an e-commerce app:
+- Home page (product grid)
+- Product detail page (full product info, add to cart)
+- Cart page (items, quantities, total)
+Example for a social app:
+- Feed page (posts list)
+- Profile page (user info, posts)
+- Create/compose page
+
+EVERY page must be reachable via a link/button from another page. NO orphan pages.
+EVERY navigation element (tabs, navbar items, card clicks) MUST link to a real page.
+
+=== GLOBAL STATE (MANDATORY FOR INTERACTIVE APPS) ===
+If the app has a cart, wishlist, favorites, or any cross-page state:
+- Create a context/provider (e.g., CartContext, AppContext)
+- Wrap the app layout with the provider
+- Import and use the context in every page that needs it
+- State changes (add to cart, toggle favorite) must be visible immediately
+Example:
+\`\`\`tsx
+// src/context/AppContext.tsx
+const AppContext = createContext<{cart: Item[], addToCart: (item: Item) => void, ...}>(...);
+export const useApp = () => useContext(AppContext);
+\`\`\`
+
+=== ZERO DEAD UI — EVERY VISIBLE ELEMENT MUST BE FUNCTIONAL ===
+An AI QA agent with a headless browser will click EVERY button, link, icon, card, tab, and form on every page.
+
+THE RULE IS SIMPLE: If the user can see it and it LOOKS interactive, it MUST DO something when tapped.
+- Any element that looks clickable (button, icon button, card, link, badge, chip, nav item, tab, toggle, switch, dropdown) MUST have a working handler.
+- "Working" means a VISIBLE result: navigate to a page, toggle a state, open a modal/drawer, filter content, add/remove from a list, show a toast, expand/collapse, etc.
+- NEVER create an onClick that does nothing, calls console.log(), or shows alert('TODO').
+- If you cannot make it functional, DO NOT render it. Hidden is better than broken.
+
+This applies to everything: hearts, stars, share buttons, edit buttons, delete buttons, sort buttons, filter chips, avatar clicks, notification bells, settings icons, close buttons, quantity controls, search bars, category tabs — EVERYTHING.
 
 QUALITY REQUIREMENTS (an AI QA agent will verify ALL of these):
 - Every button MUST have a working onClick handler that does something visible (navigation, modal, state change).
@@ -611,8 +669,8 @@ DO NOT consider your work done until Phase 3 is complete. The verification step 
 
 CRITICAL RULES:
 - NEVER overwrite main.tsx, index.html, vite.config.ts, or any config file
-- main.tsx already has BrowserRouter — just use <Routes>/<Route> in App.tsx
-- App.tsx should ONLY contain Routes + Toaster — no BrowserRouter wrapper
+- main.tsx is minimal — App.tsx must include <BrowserRouter>, <Routes>, <Route>, and <Toaster>
+- NEVER use useRoutes() hook
 - Every import must point to a file you created or that exists in the template
 
 === EVERY BUTTON MUST WORK — #1 PRIORITY ===
@@ -635,12 +693,23 @@ ACTION MAP — every element type MUST have one of these:
 - Menu/hamburger → useState sidebar toggle
 - Close/X → set modal/sidebar state to false
 
-CREATE MULTIPLE PAGES. A typical app should have 3-5 pages minimum:
-- Home/feed page (main content)
-- Detail page (when you tap an item)
-- Profile/settings page
-- Search/explore page (if applicable)
-- Create/add page (if applicable)
+CREATE MANY PAGES. A production-quality app has 5-8 pages MINIMUM:
+- Home/feed page (main content with rich UI, cards, lists)
+- Detail page (when you tap an item — full detail view with actions)
+- Profile page (with avatar, stats, settings, edit capability)
+- Search/explore page (with filters, results grid)
+- Create/add page (form with validation, preview)
+- Settings/preferences page
+- About/info page or secondary flow page
+
+EACH PAGE MUST BE SUBSTANTIAL — 80-150 lines minimum. Include:
+- Rich seed data (10+ items with realistic names, descriptions, images)
+- Multiple interactive elements (buttons, toggles, modals, forms)
+- Proper layout sections (header, content areas, CTAs)
+- Loading states, empty states, error handling
+- Micro-animations (hover effects, transitions, smooth state changes)
+
+DO NOT create stub pages. Every page must feel COMPLETE and POLISHED like a real production app.
 
 Each page is a separate file. Register ALL routes in App.tsx.
 If a button would navigate somewhere, that "somewhere" MUST exist as a page file.
@@ -655,7 +724,25 @@ Build "${projectName}" — a ${techDesc} app.
 
 What the user wants: ${description}${answersContext}
 
-This is the first version. The codebase is a fresh template. Create a focused, beautiful V1 with 2-3 core user flows that work perfectly end-to-end. Every button, link, and form must be functional. Mobile-first (430px).
+This is the first version. The codebase is a fresh template. You must create a PRODUCTION-QUALITY app that looks like it was built by a professional team. Think Lovable/Bolt quality — not a demo, not a prototype, a REAL app.
 
-Start by reading the existing files, plan your pages and routes, then create the project. After writing all files, you MUST run the verification phase: grep for handlers, check routes match pages, and run a build to catch errors. Fix anything broken before finishing.`;
+QUALITY BAR:
+- 5-8 pages minimum, each 80-150 lines with rich content
+- 15-25 total files (pages + components + utilities)
+- 1500-2500 total lines of code (not counting template files)
+- Every page has seed data — NEVER empty states on first load
+- Professional visual design with consistent color palette and typography
+- Smooth transitions, hover effects, active states on all interactive elements
+- Bottom navigation bar or hamburger menu that works on mobile
+- At least one modal/dialog, one form with validation, one list with detail view
+
+Start by reading the existing files, then plan your pages and routes. After planning, create ALL files. Then you MUST complete Phase 3 verification — this is NOT optional:
+
+1. Run: npx tsc --noEmit 2>&1 | head -30 (for TypeScript projects) — fix ANY compile errors
+2. Run: grep -rn "onClick={() => {}" src/ --include="*.tsx" — find and fix empty handlers
+3. Read App.tsx and count routes — verify each route has a real page file
+4. Count your total files — if less than 15, you need to add more pages or components
+5. If any check fails, fix it BEFORE finishing
+
+The system will automatically verify your work after you finish. Any compile errors or empty handlers will be sent back to you for fixing. Get it right the first time.`;
 }

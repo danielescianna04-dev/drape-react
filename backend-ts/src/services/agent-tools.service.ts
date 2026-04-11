@@ -215,6 +215,15 @@ class AgentToolsService {
   /**
    * Write a file to the project
    */
+  // Template config files that AI must NEVER overwrite
+  private static readonly PROTECTED_FILES = new Set([
+    'vite.config.ts', 'tsconfig.json', 'next.config.ts', 'next.config.mjs',
+    'postcss.config.mjs', 'postcss.config.js', 'tailwind.config.ts', 'tailwind.config.js',
+    'astro.config.mjs', 'index.html', 'src/main.tsx', 'src/main.ts',
+    'src/index.css', 'src/style.css', 'app/globals.css', 'app/layout.tsx',
+    'src/lib/utils.ts', 'app/lib/utils.ts',
+  ]);
+
   private async writeFile(
     projectId: string,
     input: { file_path: string; content: string; description: string },
@@ -224,6 +233,44 @@ class AgentToolsService {
 
     if (!file_path || content === undefined) {
       return { success: false, error: 'file_path and content are required' };
+    }
+
+    // Block overwriting protected template files
+    const normalized = file_path.replace(/^\/+/, '');
+    if (AgentToolsService.PROTECTED_FILES.has(normalized)) {
+      log.warn(`[AgentTools] Blocked write to protected file: ${file_path}`);
+      return {
+        success: true,
+        content: `SKIPPED: ${file_path} is a protected template file. It already has the correct configuration. Use edit_file if you need to modify it, or write your code in other files.`,
+      };
+    }
+
+    // Smart merge for package.json — preserve template deps, add new ones
+    if (normalized === 'package.json') {
+      try {
+        const existing = await fileService.readFile(projectId, 'package.json');
+        if (existing.success && existing.data?.content) {
+          const oldPkg = JSON.parse(existing.data.content);
+          const newPkg = JSON.parse(content);
+          // Merge: keep template deps, add new ones from AI
+          const merged = { ...oldPkg };
+          if (newPkg.dependencies) {
+            merged.dependencies = { ...(oldPkg.dependencies || {}), ...(newPkg.dependencies || {}) };
+          }
+          if (newPkg.devDependencies) {
+            merged.devDependencies = { ...(oldPkg.devDependencies || {}), ...(newPkg.devDependencies || {}) };
+          }
+          if (newPkg.scripts) {
+            merged.scripts = { ...(oldPkg.scripts || {}), ...(newPkg.scripts || {}) };
+          }
+          const mergedResult = await fileService.writeFile(projectId, 'package.json', JSON.stringify(merged, null, 2));
+          if (mergedResult.success) {
+            return { success: true, content: `package.json merged successfully (preserved template deps, added new ones)` };
+          }
+        }
+      } catch {
+        // Fall through to normal write
+      }
     }
 
     const result = await fileService.writeFile(projectId, file_path, content);

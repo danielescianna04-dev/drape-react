@@ -274,7 +274,11 @@ REGOLE:
       (es as any).addEventListener('error', (err: any) => {
         console.warn('[AutoFix] EventSource error:', err);
         closeStream();
-        // Retry after delay
+        if (fixAttempt >= MAX_AUTO_FIX_ATTEMPTS) {
+          console.warn('[AutoFix] Max attempts reached after stream error — stopping');
+          setState('exhausted');
+          return;
+        }
         setTimeout(() => {
           if (isMountedRef.current) {
             setState('rechecking');
@@ -284,7 +288,10 @@ REGOLE:
 
     } catch (err) {
       console.error('[AutoFix] Failed to start fix stream:', err);
-      // Retry after delay
+      if (fixAttempt >= MAX_AUTO_FIX_ATTEMPTS) {
+        setState('exhausted');
+        return;
+      }
       setTimeout(() => {
         if (isMountedRef.current) {
           setState('rechecking');

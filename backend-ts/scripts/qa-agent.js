@@ -163,13 +163,31 @@ async function getClickableElements(page) {
 
     function addEl(el, type, href) {
       const rect = el.getBoundingClientRect();
-      if (rect.width < 10 || rect.height < 10) return;
+      if (rect.width < 5 || rect.height < 5) return;
       if (rect.top > window.innerHeight || rect.bottom < 0) return;
 
-      const text = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().substring(0, 50);
-      if (!text) return;
+      // Get text from multiple sources — icon buttons often have no innerText
+      let text = (el.innerText || '').trim().substring(0, 50);
+      if (!text) text = el.getAttribute('aria-label') || '';
+      if (!text) text = el.getAttribute('title') || '';
+      if (!text) {
+        // Icon button fallback: use SVG class, child icon class, or tag+position
+        const svg = el.querySelector('svg');
+        const icon = el.querySelector('[class*="icon"], [class*="Icon"], [data-icon]');
+        if (svg) {
+          text = svg.getAttribute('aria-label') || svg.getAttribute('class') || 'icon-button';
+        } else if (icon) {
+          text = icon.getAttribute('class') || 'icon-button';
+        } else if (el.className && typeof el.className === 'string') {
+          // Use meaningful class name fragments
+          const cls = el.className.split(/\s+/).find(c => /btn|button|action|nav|icon|close|menu|toggle|heart|like|star|cart|search|share|edit|delete/i.test(c));
+          if (cls) text = cls;
+        }
+      }
+      // Last resort: use tag + coordinates as identifier
+      if (!text) text = `${el.tagName.toLowerCase()}@${Math.round(rect.x)},${Math.round(rect.y)}`;
 
-      const key = `${type}:${text}`;
+      const key = `${type}:${text}:${Math.round(rect.x)}`;
       if (seen.has(key)) return;
       seen.add(key);
 
@@ -180,6 +198,7 @@ async function getClickableElements(page) {
 
       results.push({
         type, href: href || null, text, selector,
+        tag: el.tagName.toLowerCase(),
         x: Math.round(rect.x + rect.width / 2),
         y: Math.round(rect.y + rect.height / 2),
       });
@@ -197,8 +216,14 @@ async function getClickableElements(page) {
     for (const nav of document.querySelectorAll('nav a, nav button, [role="tab"], [role="menuitem"]')) {
       addEl(nav, 'nav', nav.getAttribute('href') || null);
     }
+    // Detect icon buttons and interactive elements that aren't <button> or <a>
+    // These are common in modern React apps (div with onClick, svg buttons, etc.)
+    for (const el of document.querySelectorAll('[onclick], [role="button"], [tabindex="0"], [class*="cursor-pointer"]')) {
+      if (el.tagName === 'A' || el.tagName === 'BUTTON') continue; // Already handled
+      addEl(el, 'interactive', null);
+    }
 
-    return results.slice(0, 30); // Cap clickables per page
+    return results.slice(0, 40); // Cap clickables per page
   });
 }
 
@@ -309,11 +334,12 @@ async function functionalTest(browser) {
         const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: NAV_TIMEOUT });
         pageResult.status = response ? response.status() : 0;
 
-        // Hydration wait
-        for (let w = 0; w < 8; w++) {
+        // Hydration wait — Vite dev compiles on-demand on first request,
+        // so the initial page may be empty for several seconds
+        for (let w = 0; w < 15; w++) {
           const textLen = await page.evaluate(() => (document.body?.innerText?.trim() || '').length);
           if (textLen > 30) break;
-          await new Promise(r => setTimeout(r, 500));
+          await new Promise(r => setTimeout(r, 1000));
         }
 
         if (pageResult.status === 200) {
@@ -851,11 +877,21 @@ async function main() {
 
   // Backward-compatible stdout output (same shape as e2e-check.js)
   const lastAttempt = report.attempts[report.attempts.length - 1];
+  const pageErrors = (lastAttempt?.pages || []).flatMap(p => p.errors || []);
+  // Surface dead/broken button clicks as errors so autoFix can see them.
+  // Exclude 'low' severity (same-page links are expected to do nothing).
+  const deadClickErrors = (lastAttempt?.clicks || [])
+    .filter(c => c.error && c.result !== 'unknown')
+    .map(c => {
+      const elDesc = c.element ? `${c.element.type || 'element'} "${c.element.text || ''}"`.trim() : 'element';
+      const pageDesc = c.fromPage ? ` on page ${c.fromPage}` : '';
+      return `Dead interactive element: ${elDesc}${pageDesc} — ${c.error}`;
+    });
   const backcompat = {
     passed: report.status === 'verified',
     pages: lastAttempt?.pages || [],
     navigation: lastAttempt?.clicks || [],
-    errors: (lastAttempt?.pages || []).flatMap(p => p.errors || []),
+    errors: [...pageErrors, ...deadClickErrors],
     qaReport: {
       status: report.status,
       qualityScore: report.qualityScore,

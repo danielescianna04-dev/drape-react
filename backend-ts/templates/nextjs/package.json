@@ -68,17 +68,15 @@
     "@types/node": "^24.10.0",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
-    "tailwindcss": "^3.4.0",
-    "typescript": "^5.9.3",
-    "@eslint/js": "^9.39.1",
-    "@vitejs/plugin-react-swc": "^4.2.0",
-    "autoprefixer": "^10.4.0",
-    "eslint": "^9.39.1",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.5.0",
-    "globals": "^17.0.0",
-    "postcss": "^8.5.0",
-    "typescript-eslint": "^8.46.3",
-    "vite": "^7.1.12"
+    "tailwindcss": "3.4.17",
+    "autoprefixer": "10.4.20",
+    "postcss": "8.4.49",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "tailwindcss": "3.4.17"
+  },
+  "resolutions": {
+    "tailwindcss": "3.4.17"
   }
 }

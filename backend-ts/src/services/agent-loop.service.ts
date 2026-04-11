@@ -97,7 +97,7 @@ export class AgentLoop {
   private static readonly PLAN_BUDGETS: Record<string, number> = {
     free: 1.00,
     go: 7.50,
-    pro: 50.00,
+    pro: 500.00,
     team: 200.00,
   };
 
@@ -454,8 +454,8 @@ export class AgentLoop {
           // Phase 1 (waiting for first content): 180s — Claude TTFT can be 60-120s for large code gen
           // Phase 2 (streaming content): 30s — detect mid-stream stalls
           const FIRST_TOKEN_TIMEOUT_MS = 180000;
-          const STREAM_TIMEOUT_MS = 30000;
-          const MAX_STALL_RETRIES = 1;
+          const STREAM_TIMEOUT_MS = 90000; // 90s — Claude needs time for large code generation tool calls
+          const MAX_STALL_RETRIES = 2;
           const STALL_MARKER = '__MODEL_STALL_TIMEOUT__';
 
           let retryAttempt = 0;
@@ -856,6 +856,11 @@ export class AgentLoop {
           // Build a signature that includes key input params to avoid false positives
           // Include file_path for file operations - operating on different files is NOT a loop
           // For edit_file, include old_string hash to distinguish different edits to same file
+          // Skip loop detection for tools that are expected to be called repeatedly
+          const LOOP_EXEMPT_TOOLS = new Set(['todo_write', 'todo_read', 'signal_completion', 'ask_user_question']);
+          if (LOOP_EXEMPT_TOOLS.has(currentToolName)) {
+            consecutiveSameToolCount = 0;
+          }
           let toolSignature = currentToolName;
           if (currentToolName === 'read_file' && currentTool.input?.file_path) {
             toolSignature = `${currentToolName}:${currentTool.input.file_path}`;
@@ -958,6 +963,19 @@ export class AgentLoop {
                 }
 
                 if ((result as any)._completion) {
+                  // Block premature completion — require minimum 5 files for project creation
+                  // (Gemini Flash tends to call signal_completion after 1-2 files)
+                  if (this.filesCreated.length < 5 && this.iterationCount < 20) {
+                    log.warn(`[AgentLoop] Blocked premature signal_completion: only ${this.filesCreated.length} files created, need at least 5`);
+                    // Override the result to tell the model to keep going
+                    toolResults.push({
+                      type: 'tool_result' as const,
+                      tool_use_id: toolCall.id,
+                      content: `NOT DONE YET. You have only created ${this.filesCreated.length} files. A complete app needs at least 5-8 files (design tokens, pages, components, App.tsx with routes). Keep creating files. Do NOT call signal_completion until all pages and components are created.`,
+                    });
+                    continue;
+                  }
+
                   // Auto-save conversation on completion
                   saveConversation(
                     this.projectId, this.userId || 'anonymous', this.model,
@@ -1083,10 +1101,21 @@ export class AgentLoop {
             }
           }
 
-          // No tool calls - agent is done.
-          // Do not force a follow-up pass just because some todos remain pending:
-          // the model may have intentionally stopped after giving a plan or partial result,
-          // and nudging here can turn a completed response into a stall timeout.
+          // No tool calls — but if this is a creation task and not enough files were created,
+          // nudge the model to keep building instead of completing prematurely.
+          if (this.filesCreated.length < 5 && this.iterationCount < 20) {
+            log.warn(`[AgentLoop] No tool calls but only ${this.filesCreated.length} files created in create mode — nudging to continue`);
+            this.pushMessage({
+              role: 'user',
+              content: [{
+                type: 'text',
+                text: `You stopped without using tools, but you've only created ${this.filesCreated.length} files. A complete app needs at least 5-8 files (pages, components, App.tsx with routes). You MUST continue creating files using write_file. Do NOT stop until the app is complete.`,
+              }],
+            });
+            shouldContinue = true;
+            continue;
+          }
+
           shouldContinue = false;
 
           // Generate summary if model didn't provide final text

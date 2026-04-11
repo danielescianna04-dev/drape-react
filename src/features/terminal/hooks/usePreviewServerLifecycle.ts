@@ -108,6 +108,9 @@ export function usePreviewServerLifecycle({
   const checkInterval = useRef<NodeJS.Timeout | null>(null);
 
   const setServerStatus = (status: ServerStatus) => {
+    // Skip if status hasn't changed — prevents unnecessary re-renders
+    // that can cause WebView reload loops during periodic health checks
+    if (serverStatusRef.current === status) return;
     setServerStatusLocal(status);
     setPreviewServerStatus(status);
     serverStatusRef.current = status;
@@ -539,11 +542,10 @@ export function usePreviewServerLifecycle({
           logOutput(`Server is running at ${urlToCheck}`, 'preview', 0);
         }
         setServerStatus('running');
-        startup.clearLogs();
-        startup.setIsStarting(false);
-        // Only reset readiness on transition to running.
-        // During periodic health checks while already running, keep current UI state.
+        // Only reset UI state on transition to running — NOT during periodic health checks
         if (!wasRunning) {
+          startup.clearLogs();
+          startup.setIsStarting(false);
           // Keep loading mask visible for web projects until the WebView reports
           // first meaningful content via WEBVIEW_READY/PAGE_INFO.
           if (!hasWebUI) {
@@ -1412,62 +1414,15 @@ export function usePreviewServerLifecycle({
     return () => { isMounted = false; };
   }, [serverStatus, webViewReady, isLoading]);
 
-  // ── Auto-Fix Preflight: check preview after WebView loads ──
-  // When webViewReady becomes true, wait a moment for JS errors to accumulate,
-  // then capture screenshot + errors and run the preflight check.
+  // ── Auto-Fix Preflight: mark as verified when WebView loads ──
+  // Backend already runs Puppeteer verification + auto-fix during creation.
+  // Frontend auto-fix caused infinite reload loops — disabled.
+  // Just mark as verified when WebView loads successfully.
   useEffect(() => {
-    if (!webViewReady || preflightDoneRef.current || autoFix.state === 'verified') return;
-    if (autoFix.state === 'fixing') return; // Don't re-trigger while fixing
-
-    const timer = setTimeout(async () => {
-      let screenshotBase64: string | null = null;
-      try {
-        if (webViewContainerRef.current) {
-          screenshotBase64 = await captureRef(webViewContainerRef.current, {
-            format: 'png',
-            quality: 0.5,
-            result: 'base64',
-          });
-        }
-      } catch (e) {
-        console.warn('[AutoFix] Screenshot capture failed:', e);
-      }
-
-      const errors = [...jsErrorsRef.current];
-      // PAGE_INFO rootChildren comes from the WebView's onMessage —
-      // if webViewReady is true, rootChildren > 0. But check jsErrors.
-      const rootChildren = webViewReady ? 1 : 0;
-
-      if (errors.length === 0 && rootChildren > 0) {
-        // Looks good — mark as verified
-        autoFix.reportCheckResult({ rootChildren, jsErrors: errors, screenshotBase64: null });
-        preflightDoneRef.current = true;
-      } else {
-        // Has errors — trigger fix
-        autoFix.reportCheckResult({ rootChildren, jsErrors: errors, screenshotBase64 });
-      }
-    }, 2500); // Wait 2.5s for JS errors to accumulate after load
-
-    return () => clearTimeout(timer);
-  }, [webViewReady, autoFix.state]);
-
-  // When auto-fix transitions to 'rechecking', restart the server/reload the WebView
-  useEffect(() => {
-    if (autoFix.state === 'rechecking') {
-      jsErrorsRef.current = [];
-      setWebViewReady(false);
-      if (serverStatus === 'stopped' || startup.previewError) {
-        // Server was stopped due to error — restart it
-        console.log('[PreviewAutoFix] Restarting server after fix...');
-        startup.setPreviewError(null);
-        errorDetectedRef.current = false;
-        handleRetryPreview();
-      } else {
-        // Server is running, just reload WebView
-        webViewRef.current?.reload();
-      }
-    }
-  }, [autoFix.state]);
+    if (!webViewReady || preflightDoneRef.current) return;
+    preflightDoneRef.current = true;
+    autoFix.reportCheckResult({ rootChildren: 1, jsErrors: [], screenshotBase64: null });
+  }, [webViewReady]);
 
   // Reset preflight when project changes
   useEffect(() => {

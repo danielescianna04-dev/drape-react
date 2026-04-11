@@ -48,16 +48,29 @@ async function applyBoilerplateTemplate(projectId: string, technology: string, c
 
       execSync(`cp -a ${cloudDir}/. ${projectDir}/`, { timeout: 10000 });
 
-      // Merge cloud package.json deps INTO base (base has all config deps, cloud adds DB/auth)
+      // Merge cloud package.json deps INTO base (base has all config deps, cloud adds DB/auth).
+      // Strip tailwindcss/@tailwindcss/* from cloud overrides — cloud should never override
+      // the base Tailwind version (v3 pinned). Preserve base's overrides/resolutions so
+      // the v3 pin survives the overlay.
       if (basePkg) {
         try {
           const cloudPkgPath = path.join(projectDir, 'package.json');
           const cloudPkg = JSON.parse(fs.readFileSync(cloudPkgPath, 'utf-8'));
+          const stripTailwind = (obj: any): any => {
+            if (!obj) return obj;
+            const out = { ...obj };
+            for (const k of Object.keys(out)) {
+              if (k === 'tailwindcss' || k.startsWith('@tailwindcss/')) delete out[k];
+            }
+            return out;
+          };
           const merged = {
             ...basePkg,
-            dependencies: { ...basePkg.dependencies, ...cloudPkg.dependencies },
-            devDependencies: { ...basePkg.devDependencies, ...cloudPkg.devDependencies },
+            dependencies: { ...basePkg.dependencies, ...stripTailwind(cloudPkg.dependencies) },
+            devDependencies: { ...basePkg.devDependencies, ...stripTailwind(cloudPkg.devDependencies) },
             scripts: { ...basePkg.scripts, ...cloudPkg.scripts },
+            overrides: { ...cloudPkg.overrides, ...basePkg.overrides },
+            resolutions: { ...cloudPkg.resolutions, ...basePkg.resolutions },
           };
           fs.writeFileSync(cloudPkgPath, JSON.stringify(merged, null, 2));
           log.info(`[Template] Merged package.json: base (${Object.keys(basePkg.dependencies || {}).length} deps) + cloud (${Object.keys(cloudPkg.dependencies || {}).length} deps)`);
@@ -65,6 +78,11 @@ async function applyBoilerplateTemplate(projectId: string, technology: string, c
           log.warn(`[Template] package.json merge failed: ${e.message}`);
         }
       }
+      // After cloud overlay, remove any stale lockfiles so the package manager
+      // re-resolves deps against the MERGED package.json (base + cloud).
+      try {
+        execSync(`rm -f ${projectDir}/bun.lock ${projectDir}/bun.lockb ${projectDir}/package-lock.json ${projectDir}/yarn.lock ${projectDir}/pnpm-lock.yaml`, { timeout: 5000 });
+      } catch {}
       log.info(`[Template] Applied cloud overlay for ${technology} to ${projectId}`);
     }
 
@@ -74,7 +92,12 @@ async function applyBoilerplateTemplate(projectId: string, technology: string, c
     if (fs.existsSync(preinstalledDir) && !fs.existsSync(projectNodeModules)) {
       try {
         execSync(`cp -a ${preinstalledDir} ${projectNodeModules}`, { timeout: 30000 });
-        log.info(`[Template] Copied pre-installed node_modules for ${technology} (~${Math.round(fs.readdirSync(preinstalledDir).length)} top-level packages)`);
+        // Remove tailwindcss from cache — it may be v4 but we pin v3 in package.json.
+        // This forces npm install to install the exact version from package.json.
+        try {
+          execSync(`rm -rf ${projectNodeModules}/tailwindcss ${projectNodeModules}/@tailwindcss ${projectNodeModules}/.package-lock.json ${projectDir}/package-lock.json`, { timeout: 5000 });
+        } catch {}
+        log.info(`[Template] Copied pre-installed node_modules for ${technology} (tailwindcss removed from cache to force v3 pin)`);
       } catch (e: any) {
         log.warn(`[Template] Pre-installed copy failed (will install normally): ${e.message}`);
       }
@@ -1200,6 +1223,49 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
       task.message = 'Generation failed';
     });
   } else {
+    // Agent mode: if cloud enabled, create Neon database now (agent-prompt will read credentials from .env)
+    if (cloudEnabled) {
+      try {
+        if (neonManagementService.isConfigured) {
+          log.info(`[CreateProject] Agent mode + cloud: creating Neon database for ${id}`);
+          const neonCreds = await neonManagementService.createProject(projectName, userId);
+          const authSecret = (await import('crypto')).randomBytes(32).toString('hex');
+          const appUrlKey = (technology === 'nextjs') ? 'NEXT_PUBLIC_APP_URL'
+            : (technology === 'html' ? 'APP_URL' : 'VITE_APP_URL');
+          const envContent = [
+            `DATABASE_URL=${neonCreds.connectionUri}`,
+            `DATABASE_URL_POOLED=${neonCreds.connectionUriPooled}`,
+            `PGHOST=${neonCreds.host}`,
+            `PGDATABASE=${neonCreds.database}`,
+            `PGUSER=${neonCreds.role}`,
+            `PGPASSWORD=${neonCreds.password}`,
+            `BETTER_AUTH_SECRET=${authSecret}`,
+            `${appUrlKey}=http://localhost:3000`,
+          ].join('\n');
+          await fileService.writeFile(id, '.env.local', envContent);
+          await fileService.writeFile(id, '.env', envContent);
+          // Store credentials in task so agent-prompt can read them
+          (task as any).neonCredentials = neonCreds;
+          log.info(`[CreateProject] Neon database ready for ${id}: ${neonCreds.host}`);
+
+          // Run auth schema
+          try {
+            const techCloudDir = path.resolve(__dirname, `../../templates/${technology}-cloud/db/auth-schema.sql`);
+            const fallbackDir = path.resolve(__dirname, '../../templates/nextjs-cloud/db/auth-schema.sql');
+            const authSchemaPath = fs.existsSync(techCloudDir) ? techCloudDir : fallbackDir;
+            if (fs.existsSync(authSchemaPath)) {
+              const authSchemaSql = fs.readFileSync(authSchemaPath, 'utf-8');
+              await neonManagementService.runSQL(neonCreds.projectId, authSchemaSql, neonCreds.endpointId);
+              log.info(`[CreateProject] Auth tables created in Neon for ${id}`);
+            }
+          } catch (schemaErr: any) {
+            log.warn(`[CreateProject] Auth schema failed for ${id}: ${schemaErr.message}`);
+          }
+        }
+      } catch (err: any) {
+        log.warn(`[CreateProject] Cloud DB creation failed for agent mode: ${err.message}`);
+      }
+    }
     task.message = 'Agent mode — generation handled by /agent/stream';
     task.step = 'AgentMode';
     log.info(`[CreateProject] Agent mode enabled for ${id}, skipping Gemini generation`);
@@ -1213,12 +1279,21 @@ workstationRouter.post('/agent-prompt', asyncHandler(async (req, res) => {
   const { projectId, technology, projectName, description, cloudEnabled, structuredAnswers } = req.body;
   if (!projectId) throw new ValidationError('projectId required');
 
+  // Retrieve Neon credentials from creation task if cloud mode was used
+  let neonCreds: NeonCredentials | null = null;
+  const task = creationTasks.get(projectId);
+  if (task && (task as any).neonCredentials) {
+    neonCreds = (task as any).neonCredentials;
+  }
+
   const prompt = getAgentCreationPrompt(
     technology || 'nextjs',
     projectName || 'My App',
     description || '',
     cloudEnabled === true,
     structuredAnswers,
+    null, // supabase — not used
+    neonCreds,
   );
 
   res.json({ success: true, prompt });
@@ -2079,12 +2154,20 @@ Return ONLY the JSON, no markdown, no explanation.`;
 
     // Log QA results to build report
     if (verifyResult.qaReport) {
-      report.completeAction(qaActionId, {
+      const qaMetadata = {
         qaStatus: verifyResult.qaReport.status,
         qualityScore: verifyResult.qaReport.qualityScore,
         attempts: verifyResult.qaReport.attempts?.length || 0,
         totalIssues: verifyResult.qaReport.totalIssues || 0,
-      });
+      };
+      if (verifyResult.passed) {
+        report.completeAction(qaActionId, qaMetadata);
+      } else {
+        // Mark QA action as failed so the badge shows red, not green
+        report.failAction(qaActionId, `${qaMetadata.totalIssues} issues found, score: ${qaMetadata.qualityScore}/10`);
+        const action = report.getReport().actions.find(a => a.id === qaActionId);
+        if (action) action.metadata = { ...action.metadata, ...qaMetadata };
+      }
       report.updateQaSummary(verifyResult.qaReport);
     } else {
       report.completeAction(qaActionId);

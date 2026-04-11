@@ -140,9 +140,9 @@ async function neonSQL(agentUrl: string, sql: string): Promise<any[]> {
     'const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});',
     `p.query(${JSON.stringify(sql)}).then(r=>{console.log(JSON.stringify(r.rows));p.end()}).catch(e=>{console.error(e.message);process.exit(1)});`,
   ].join('');
-  await dockerService.exec(agentUrl, `cat > /home/coder/project/.nq.js << 'NQEOF'\n${scriptContent}\nNQEOF`, '/home/coder/project', 3000, true);
+  await dockerService.exec(agentUrl, `cat > /home/coder/project/.nq.cjs << 'NQEOF'\n${scriptContent}\nNQEOF`, '/home/coder/project', 3000, true);
   const result = await dockerService.exec(agentUrl,
-    `bash -c 'cd /home/coder/project && set -a && source .env.local 2>/dev/null; source .env 2>/dev/null && set +a && node .nq.js'`,
+    `bash -c 'cd /home/coder/project && set -a && source .env.local 2>/dev/null; source .env 2>/dev/null && set +a && node .nq.cjs'`,
     '/home/coder/project', 15000, true
   );
   const stdout = result.stdout?.trim();
@@ -163,9 +163,9 @@ async function neonMultiQuery(agentUrl: string, queries: string[]): Promise<any[
     `const queries=${queryArray};`,
     '(async()=>{const results=[];for(const q of queries){const r=await p.query(q);results.push(r.rows)}console.log(JSON.stringify(results));await p.end()})().catch(e=>{console.error(e.message);process.exit(1)});',
   ].join('');
-  await dockerService.exec(agentUrl, `cat > /home/coder/project/.nq.js << 'NQEOF'\n${scriptContent}\nNQEOF`, '/home/coder/project', 3000, true);
+  await dockerService.exec(agentUrl, `cat > /home/coder/project/.nq.cjs << 'NQEOF'\n${scriptContent}\nNQEOF`, '/home/coder/project', 3000, true);
   const result = await dockerService.exec(agentUrl,
-    `bash -c 'cd /home/coder/project && set -a && source .env.local 2>/dev/null; source .env 2>/dev/null && set +a && node .nq.js'`,
+    `bash -c 'cd /home/coder/project && set -a && source .env.local 2>/dev/null; source .env 2>/dev/null && set +a && node .nq.cjs'`,
     '/home/coder/project', 15000, true
   );
   const stdout = result.stdout?.trim();

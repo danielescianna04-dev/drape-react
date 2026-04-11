@@ -271,40 +271,46 @@ aiRouter.post('/project-questions', asyncHandler(async (req: Request, res: Respo
     const lang = language?.startsWith('it') ? 'Italian' : 'English';
     const prompt = `The user wants to create a ${techLabel} project: "${description}"
 
-Generate exactly 4 product-oriented questions with stable IDs. These help define the V1 scope.
+Generate exactly 4 questions to customize the app. Each question must be highly specific to this exact app idea — NOT generic.
 
 REQUIRED QUESTIONS (use these exact questionIds):
 
-1. questionId: "core_flows"
-   Purpose: Which core experiences should the V1 include?
-   Generate 4-5 options specific to "${description}", each with a short stable optionId (lowercase, underscores).
+1. questionId: "pages"
+   Purpose: Which screens/pages should the app have?
+   Generate exactly 4 options, each representing a specific screen the user would expect from "${description}".
+   Each option label must start with an emoji that represents that screen.
+   Examples for a food delivery app: "🏠 Home ristoranti", "🍔 Dettaglio piatto", "🛒 Carrello", "👤 Profilo"
    multiSelect: true
 
-2. questionId: "key_interaction"
-   Purpose: What's the most important interaction?
-   Generate 3-4 options specific to the app type, each with a stable optionId.
-   multiSelect: false
+2. questionId: "main_feature"
+   Purpose: What is the ONE feature that should be the star of the app?
+   Generate exactly 3 options, each describing a specific standout feature unique to this type of app.
+   Each option label must start with an emoji.
+   Examples for a music app: "🎵 Player con visualizer", "📱 Playlist drag & drop", "🔍 Ricerca avanzata"
+   multiSelect: true
 
-3. questionId: "data_mode"
-   Purpose: How should data and accounts work?
-   Use these EXACT options:
-   - optionId: "mock_no_login", label: "Mock data, no login"
-   - optionId: "mock_with_login", label: "Mock data with login"
-   - optionId: "real_db_auth", label: "Real database + auth"
-   multiSelect: false
+3. questionId: "visual_style"
+   Purpose: What look and feel?
+   Generate exactly 4 options with emoji, each representing a distinct visual direction specific to this app type.
+   Examples: "🌑 Dark & minimal", "🎨 Colorful & playful", "✨ Glass & gradients", "📰 Clean & editorial"
+   multiSelect: true
 
-4. questionId: "visual_style"
-   Purpose: What visual style fits?
-   Generate 3-4 style options specific to the app type, each with a stable optionId.
-   multiSelect: false
+4. questionId: "extra_touch"
+   Purpose: What extra detail would make this app special?
+   Generate exactly 3 options with emoji — small details that would delight the user. These should be specific to the app type.
+   Examples for e-commerce: "💫 Animazioni carrello", "🏷️ Badge sconto", "❤️ Wishlist con swipe"
+   multiSelect: true
 
 Rules:
-- Write question text and option labels in ${lang}
+- MAXIMUM 4 options per question. Never more.
+- Write question text and ALL option labels in ${lang}
 - optionIds must be in English, lowercase, with underscores (e.g. "swipe_gesture", "dark_bold")
-- Keep labels short (max 5 words)
+- Option labels: emoji + short text (max 4 words after emoji)
+- Questions must feel fun and easy to answer, not technical
+- NEVER use words like "mock", "database", "API", "auth" — these are internal implementation details
 
 Return ONLY valid JSON array:
-[{"questionId":"core_flows","question":"...","multiSelect":true,"options":[{"optionId":"discover","label":"..."},...]},...]`;
+[{"questionId":"pages","question":"...","multiSelect":true,"options":[{"optionId":"home_feed","label":"🏠 Home feed"},...]},...]`;
 
     let response = '';
     const models = ['gemini-3.1-flash-lite', 'gemini-2.5-flash'];
@@ -332,6 +338,13 @@ Return ONLY valid JSON array:
 
     if (!Array.isArray(questions) || questions.length === 0) {
       throw new Error('Invalid questions format');
+    }
+
+    // Enforce max 4 options per question
+    for (const q of questions) {
+      if (Array.isArray(q.options) && q.options.length > 4) {
+        q.options = q.options.slice(0, 4);
+      }
     }
 
     log.info(`[AI] Generated ${questions.length} project questions for "${description}"`);
