@@ -23,6 +23,12 @@ const TEMPLATE_FILES: Record<string, string[]> = {
     'src/components/ui/button.tsx', 'src/components/ui/card.tsx', 'src/components/ui/input.tsx',
     'src/components/ui/badge.tsx', 'src/components/ui/dialog.tsx', 'src/components/ui/avatar.tsx',
     'src/components/ui/tabs.tsx', 'src/components/ui/skeleton.tsx',
+    'src/context/AppProvider.tsx',
+    'src/components/blocks/LikeButton.tsx', 'src/components/blocks/AddToCartButton.tsx',
+    'src/components/blocks/ShareButton.tsx', 'src/components/blocks/QuantitySelector.tsx',
+    'src/components/blocks/DeleteButton.tsx', 'src/components/blocks/RatingStars.tsx',
+    'src/components/blocks/SearchBar.tsx', 'src/components/blocks/FilterChips.tsx',
+    'src/components/blocks/ToggleSwitch.tsx',
   ],
   nextjs: [
     'package.json', 'next.config.ts', 'tsconfig.json', 'postcss.config.mjs',
@@ -30,6 +36,12 @@ const TEMPLATE_FILES: Record<string, string[]> = {
     'app/components/ui/button.tsx', 'app/components/ui/card.tsx', 'app/components/ui/input.tsx',
     'app/components/ui/badge.tsx', 'app/components/ui/dialog.tsx', 'app/components/ui/avatar.tsx',
     'app/components/ui/tabs.tsx', 'app/components/ui/skeleton.tsx',
+    'app/context/AppProvider.tsx',
+    'app/components/blocks/LikeButton.tsx', 'app/components/blocks/AddToCartButton.tsx',
+    'app/components/blocks/ShareButton.tsx', 'app/components/blocks/QuantitySelector.tsx',
+    'app/components/blocks/DeleteButton.tsx', 'app/components/blocks/RatingStars.tsx',
+    'app/components/blocks/SearchBar.tsx', 'app/components/blocks/FilterChips.tsx',
+    'app/components/blocks/ToggleSwitch.tsx',
   ],
   vue: [
     'package.json', 'vite.config.ts', 'tsconfig.json', 'index.html',
@@ -37,13 +49,31 @@ const TEMPLATE_FILES: Record<string, string[]> = {
     'src/components/ui/Button.vue', 'src/components/ui/Card.vue', 'src/components/ui/Input.vue',
     'src/components/ui/Badge.vue', 'src/components/ui/Dialog.vue', 'src/components/ui/Avatar.vue',
     'src/components/ui/Tabs.vue', 'src/components/ui/Skeleton.vue',
+    'src/composables/useAppStore.ts',
+    'src/components/blocks/LikeButton.vue', 'src/components/blocks/AddToCartButton.vue',
+    'src/components/blocks/ShareButton.vue', 'src/components/blocks/QuantitySelector.vue',
+    'src/components/blocks/DeleteButton.vue', 'src/components/blocks/RatingStars.vue',
+    'src/components/blocks/SearchBar.vue', 'src/components/blocks/FilterChips.vue',
+    'src/components/blocks/ToggleSwitch.vue',
   ],
   astro: [
     'package.json', 'astro.config.mjs', 'tsconfig.json',
     'src/styles/global.css', 'src/layouts/Layout.astro',
+    'src/components/blocks/LikeButton.tsx', 'src/components/blocks/ShareButton.tsx',
+    'src/components/blocks/QuantitySelector.tsx', 'src/components/blocks/RatingStars.tsx',
+    'src/components/blocks/SearchBar.tsx', 'src/components/blocks/FilterChips.tsx',
+    'src/components/blocks/ToggleSwitch.tsx',
   ],
-  html: ['style.css', 'script.js', 'index.html'],
-  expo: ['package.json', 'app.json', 'tsconfig.json', 'constants/Colors.ts', 'app/_layout.tsx', 'app/(tabs)/_layout.tsx'],
+  html: ['style.css', 'script.js', 'index.html', 'blocks.js'],
+  expo: [
+    'package.json', 'app.json', 'tsconfig.json', 'constants/Colors.ts', 'app/_layout.tsx', 'app/(tabs)/_layout.tsx',
+    'components/AppProvider.tsx',
+    'components/blocks/LikeButton.tsx', 'components/blocks/AddToCartButton.tsx',
+    'components/blocks/ShareButton.tsx', 'components/blocks/QuantitySelector.tsx',
+    'components/blocks/DeleteButton.tsx', 'components/blocks/RatingStars.tsx',
+    'components/blocks/SearchBar.tsx', 'components/blocks/FilterChips.tsx',
+    'components/blocks/ToggleSwitch.tsx',
+  ],
 };
 
 /** Stack-specific coding instructions */
@@ -58,9 +88,11 @@ REACT (VITE) SPECIFIC:
   export default function App() { return (<Routes><Route path="/" element={<Home />} /><Route path="/profile" element={<Profile />} /></Routes>); }
 - PRE-INSTALLED UI: Button, Card, Input, Badge, Dialog, Avatar, Tabs, Skeleton, SafeButton, SafeLink in src/components/ui/. cn() in src/lib/utils.ts. USE THEM — don't recreate.
 - MANDATORY: Use SafeButton instead of Button for ALL interactive buttons. SafeButton warns when onClick is missing. Use SafeLink instead of Link for ALL navigation. SafeLink warns when "to" is empty. Import: import { SafeButton } from '@/components/ui/safe-button'; import { SafeLink } from '@/components/ui/safe-link';
+- PRE-BUILT FEATURE BLOCKS in src/components/blocks/: LikeButton, AddToCartButton, ShareButton, QuantitySelector, DeleteButton, RatingStars, SearchBar, FilterChips, ToggleSwitch. USE THESE for common interactions — they are tested and produce visible toast feedback. PREFER blocks over custom buttons: <LikeButton itemId="1" /> not custom heart. <AddToCartButton item={product} /> not custom cart. <ShareButton /> not custom share.
+- AppProvider in src/context/AppProvider.tsx provides cart and favorites state. Wrap your app: in App.tsx add <AppProvider> around <BrowserRouter>. Use: const { addToCart, toggleFavorite, cart, cartCount } = useApp(); Import: import { AppProvider, useApp } from '@/context/AppProvider';
 - EVERY page goes in src/pages/ as a separate file. MINIMUM 3 pages with real content.
 - Reusable components go in src/components/
-- State: useState for local, useContext + createContext for shared state
+- State: useState for local, useApp() for shared cart/favorites state (from AppProvider)
 - Routing: <SafeLink to="/path">, useNavigate(), useParams()
 - Images: <img> tag directly
 - react-hot-toast is installed — use toast('message') for notifications
@@ -72,8 +104,10 @@ NEXT.JS (APP ROUTER) SPECIFIC:
 - Layout: app/layout.tsx is MINIMAL. YOU generate the full layout with your components.
 - PRE-INSTALLED UI: Button, Card, Input, Badge, Dialog, Avatar, Tabs, Skeleton, SafeButton, SafeLink in app/components/ui/. cn() in app/lib/utils.ts. USE THEM — don't recreate.
 - MANDATORY: Use SafeButton instead of Button for ALL interactive buttons. SafeButton warns when onClick is missing. Use SafeLink instead of next/link for ALL navigation links. SafeLink warns when href is empty. Import: import { SafeButton } from '@/components/ui/safe-button'; import { SafeLink } from '@/components/ui/safe-link';
+- PRE-BUILT FEATURE BLOCKS in app/components/blocks/: LikeButton, AddToCartButton, ShareButton, QuantitySelector, DeleteButton, RatingStars, SearchBar, FilterChips, ToggleSwitch. All 'use client'. USE THESE for common interactions. PREFER: import { LikeButton } from '@/components/blocks/LikeButton';
+- AppProvider in app/context/AppProvider.tsx provides cart and favorites. Wrap layout with <AppProvider> in layout.tsx. Use: const { addToCart, toggleFavorite, cart, cartCount } = useApp(); in any 'use client' component.
 - Pages: app/{route}/page.tsx — server components by default
-- 'use client': ONLY for files using useState, useEffect, onClick, or any hook
+- 'use client': ONLY for files using useState, useEffect, onClick, or any hook. Feature blocks are already 'use client'.
 - Tailwind CSS: Use v3 syntax ONLY (@tailwind base/components/utilities, CSS variables in :root). NEVER use v4 syntax (@import "tailwindcss", @theme inline)
 - CSS variables MUST be in HSL format (hue sat% light%), NEVER RGB triplets. Shadcn uses hsl(var(--name)) so the value must be valid HSL. CORRECT: --background: 0 0% 100%; --primary: 222.2 47.4% 11.2%; WRONG: --background: 10 10 10; --primary: 212 175 55;. If you want near-black use 0 0% 4% (HSL) NOT 10 10 10 (RGB). If you want gold use 43 74% 52% NOT 212 175 55. Converting RGB to HSL wrongly makes text invisible (white on white) because hsl(212 175 55) clamps to white. If unsure, use ONLY these safe HSL values: white=0 0% 100%, black=0 0% 4%, gold=43 74% 52%, red=0 84% 60%, blue=222 84% 55%, green=142 71% 45%
 - Middleware: Do NOT create middleware.ts unless absolutely necessary for auth. If you must, NEVER import better-auth, jose, pg, drizzle, or any Node.js-only package — Edge Runtime doesn't support them. Only use: NextRequest, NextResponse, and request.cookies
@@ -98,10 +132,12 @@ VUE 3 (COMPOSITION API) SPECIFIC:
 - Layout: App.vue is MINIMAL (just RouterView). YOU generate all pages.
 - PRE-INSTALLED UI: Button.vue, Card.vue, Input.vue, Badge.vue, Dialog.vue, Avatar.vue, Tabs.vue, Skeleton.vue, SafeButton.vue, SafeLink.vue in src/components/. cn() in src/lib/utils.ts.
 - MANDATORY: Use <SafeButton @click="handler"> instead of <button> for ALL interactive buttons. Use <SafeLink to="/path"> instead of <RouterLink>. They warn when handlers are missing.
+- PRE-BUILT FEATURE BLOCKS in src/components/blocks/: LikeButton.vue, AddToCartButton.vue, ShareButton.vue, QuantitySelector.vue, DeleteButton.vue, RatingStars.vue, SearchBar.vue, FilterChips.vue, ToggleSwitch.vue. USE THESE for common interactions. PREFER: <LikeButton item-id="1" /> not custom heart.
+- useAppStore composable in src/composables/useAppStore.ts provides cart and favorites state. Import: import { useAppStore } from '@/composables/useAppStore'; const { addToCart, toggleFavorite, cart, cartCount } = useAppStore();
 - Pages in src/views/, register in src/router/index.ts
 - ALWAYS use <script setup lang="ts">
 - State: ref(), computed(), watch(), onMounted()
-- Shared state: provide/inject or composables (src/composables/)
+- Shared state: useAppStore() composable for cart/favorites, provide/inject for custom state
 - Router: <SafeLink to="/path">, useRouter().push(), useRoute().params
 - Icons: import { Icon } from '@iconify/vue'; <Icon icon="mdi:home" />`,
 
@@ -113,8 +149,9 @@ ASTRO 5 SPECIFIC:
 - Static by default, zero JS shipped
 - Interactive islands: Add client:load to React/Svelte components
 - PRE-INSTALLED: SafeButton.tsx in src/components/ui/ — use for React island buttons with onClick check
+- PRE-BUILT FEATURE BLOCKS in src/components/blocks/: LikeButton.tsx, ShareButton.tsx, QuantitySelector.tsx, RatingStars.tsx, SearchBar.tsx, FilterChips.tsx, ToggleSwitch.tsx. Self-contained React islands with client:load. Usage: import { LikeButton } from '../components/blocks/LikeButton'; <LikeButton client:load itemId="1" />
 - Components: src/components/*.astro for static, *.tsx for interactive
-- MANDATORY: For interactive React island buttons, use SafeButton: import { SafeButton } from '../components/ui/SafeButton'; <SafeButton client:load onClick={handler}>Label</SafeButton>
+- MANDATORY: For interactive React island buttons, use SafeButton or a feature block. Feature blocks are preferred for common patterns (like, share, rating, etc.).
 - Dynamic routes: src/pages/[slug].astro with Astro.params.slug
 - For icons: use inline SVG`,
 
@@ -124,6 +161,7 @@ HTML/CSS/JS (VANILLA) SPECIFIC:
 - Each page is a separate .html file
 - style.css for all styles, script.js for all JS
 - drape-check.js is PRE-INSTALLED — it scans the DOM for buttons without onclick and links with href="#". Include it in every HTML page: <script src="drape-check.js"></script> before </body>
+- blocks.js is PRE-INSTALLED — feature blocks with built-in toast and event handlers. Include: <script src="blocks.js"></script>. Usage: document.getElementById('like-area').appendChild(Drape.likeButton({ id: 'product-1' })); Available: Drape.likeButton(), Drape.shareButton(), Drape.quantitySelector(), Drape.ratingStars(), Drape.deleteButton(), Drape.toggleSwitch(), Drape.searchBar(), Drape.filterChips(). PREFER these over custom onclick handlers.
 - MANDATORY: Every <button> MUST have an onclick attribute with a real function. Every <a> MUST have a real href (not "#" or ""). If you can't wire it, don't render it.
 - Use CSS Grid + Flexbox, CSS transitions
 - Use fetch() for API calls, DOM manipulation for dynamic content
@@ -142,6 +180,8 @@ REACT NATIVE (EXPO) SPECIFIC:
 - Navigation: router.push('/details/123') from expo-router
 - PRE-INSTALLED: SafePressable and SafeButton in components/SafePressable.tsx — use for ALL interactive elements
 - MANDATORY: Use <SafeButton title="Label" onPress={handler} /> instead of raw <Pressable> or <TouchableOpacity> for buttons. Use <SafePressable onPress={handler}> for custom pressable areas. They warn when onPress is missing. Import: import { SafeButton, SafePressable } from '../components/SafePressable';
+- PRE-BUILT FEATURE BLOCKS in components/blocks/: LikeButton, AddToCartButton, ShareButton, QuantitySelector, DeleteButton, RatingStars, SearchBar, FilterChips, ToggleSwitch. USE THESE instead of writing custom pressables. Import: import { LikeButton } from '../components/blocks/LikeButton';
+- AppProvider in components/AppProvider.tsx provides cart and favorites state. Wrap your app with <AppProvider> in app/_layout.tsx. Use: const { addToCart, toggleFavorite } = useApp(); Import: import { AppProvider, useApp } from '../components/AppProvider';
 - CRITICAL DEPENDENCY RULE: NEVER use \`npm install\` or \`bun add\` for expo-* packages. ALWAYS use \`npx expo install <package>\` — it auto-resolves the version compatible with the current SDK. Example: \`npx expo install expo-blur expo-haptics expo-image-picker\`. Using npm/bun installs the LATEST version which may be incompatible with the SDK and cause runtime crashes like "data.type is not an object".
 - This project uses Expo SDK 52. Do NOT install expo-* packages with version ^55 or ^54 — they are incompatible. Let \`npx expo install\` handle versioning.`,
 };
@@ -181,15 +221,13 @@ You follow these key principles:
 
 === CRITICAL RULES ===
 
-All code will directly be built and rendered, therefore you should NEVER:
-- Partially implement features
-- Refer to non-existing files. All imports MUST exist in the codebase.
-- Create placeholder or "coming soon" content
-- Use Lorem ipsum text
-- Create buttons or links that do nothing when tapped
+All code will directly be built and rendered. NEVER:
+- Partially implement features — if you start it, FINISH it
+- Refer to non-existing files — all imports MUST exist
+- Create placeholder, "coming soon", or Lorem ipsum content
 - Link to routes without creating the corresponding page file
 
-If many features are requested, you do not have to implement them all — but the ones you DO implement must be FULLY FUNCTIONAL.
+If many features are requested, implement FEWER features but make each one FULLY FUNCTIONAL with working buttons, real data, and complete navigation. See "ZERO DEAD UI" section for button rules.
 
 Prioritize creating small, focused files and components:
 - Create a new file for every new component or hook, no matter how small.
@@ -382,17 +420,6 @@ Generate REALISTIC data — real names, real prices, real descriptions. Never "L
 NEVER use redirect() in the home page. It MUST render actual visible content directly.
 Every route you link to MUST have a corresponding page file.
 
-=== EVERY BUTTON AND LINK MUST WORK ===
-CRITICAL: Every interactive element MUST do something real when tapped.
-- Navigation links/tabs → MUST use <Link to="/route"> and the target route MUST exist as a page file
-- Action buttons (Like, Add to Cart, Follow, Send) → MUST update local state visually (toggle icon color, increment counter, show toast, add item to list)
-- Forms → MUST handle onSubmit, validate, and show feedback (toast or state change)
-- Cards/list items → MUST navigate to a detail page OR open a modal with more info
-- Bottom tab bar → EVERY tab MUST link to a real page that exists
-
-NEVER create a button that does nothing. NEVER link to a route without creating its page file.
-If you have a bottom nav with 4 tabs, you MUST create 4 page files + routes in App.tsx.
-
 === OUTPUT FORMAT ===
 Return ONLY valid JSON: { "files": [{ "path": "relative/path.ext", "content": "full file content" }] }
 No markdown fences, no explanation — ONLY the JSON object.`;
@@ -518,12 +545,12 @@ export function getProjectCreationUserPrompt(
 PRODUCT PHILOSOPHY — COMPLETE, POLISHED APP:
 Build a COMPLETE app that feels like a real product, not a demo. Take the time to implement ALL the screens and features the user would expect from this type of app.
 
-COMPLETENESS IS THE #1 PRIORITY:
-- Implement ALL the pages a real user would expect (home, detail, list, profile, settings, cart, search, etc.)
-- Every user journey must be complete end-to-end: browse → view detail → take action → see result
-- Navigation must connect ALL pages — the user should be able to reach every screen
-- Implement 5-8+ pages for a typical app, not just 2-3
-- Quality AND quantity — every page must be polished AND there must be enough pages to feel like a real app
+QUALITY OVER QUANTITY — THIS IS THE #1 PRIORITY:
+- Build 3-5 pages maximum, each one FULLY polished with every button working
+- Every user journey must be complete end-to-end: browse → view detail → take action → see feedback
+- It is MUCH BETTER to have 3 perfect pages than 7 pages with broken buttons
+- Navigation must connect ALL pages — every link leads to a real page
+- Do NOT create pages you can't fully wire up — fewer pages = fewer dead buttons = happier users
 
 DO NOT CREATE:
 - Dead buttons or placeholder CTAs that don't do anything when clicked
@@ -534,57 +561,99 @@ DO NOT CREATE:
 If a feature isn't ready, HIDE IT — don't expose broken UI.
 
 Here's what you need to do:
-1. Think about the 2-3 core journeys the user expects from this app.
-2. Design and implement ONLY those journeys end-to-end.
+1. Identify the 2-3 CORE journeys the user expects. ONLY implement those.
+2. For each journey, trace the FULL chain: entry → action → feedback → result. If any link is missing, don't start that journey.
 3. Choose colors, gradients, animations, fonts and styles that fit the app's personality.
 4. Set up the design system FIRST (colors file), then build components on top.
 5. Create small, focused components — one file per component, aim for 50 lines or less.
-6. Every button, link, tab, form must be FULLY FUNCTIONAL — if you show it, it must work.
+6. Every button, link, tab, form must be FULLY FUNCTIONAL — if you show it, it must work. If you can't wire it, DON'T RENDER IT.
 ${cloudMode
   ? `7. ALL data comes from API routes that query the database — NO hardcoded/mock data. Create API routes in app/api/ and fetch from client-side pages. Seed data goes in db/schema.sql INSERT statements.`
   : `7. Use realistic hardcoded data (const arrays) — never fetch() for mock data.`}
 8. Use picsum.photos for images (see rules above) — NEVER Unsplash URLs.
 
-=== MULTI-PAGE ROUTING (MANDATORY) ===
-You MUST create at LEAST 3 separate page files with proper routing between them.
-Example for an e-commerce app:
-- Home page (product grid)
-- Product detail page (full product info, add to cart)
-- Cart page (items, quantities, total)
-Example for a social app:
-- Feed page (posts list)
-- Profile page (user info, posts)
-- Create/compose page
+=== FEWER PAGES, ZERO BROKEN BUTTONS ===
+Create EXACTLY 3-5 pages with proper routing. NOT more.
 
-EVERY page must be reachable via a link/button from another page. NO orphan pages.
-EVERY navigation element (tabs, navbar items, card clicks) MUST link to a real page.
+BEFORE creating a page, ask yourself: "Can I wire up EVERY button on this page?" If no → don't create it.
 
-=== GLOBAL STATE (MANDATORY FOR INTERACTIVE APPS) ===
-If the app has a cart, wishlist, favorites, or any cross-page state:
-- Create a context/provider (e.g., CartContext, AppContext)
-- Wrap the app layout with the provider
-- Import and use the context in every page that needs it
-- State changes (add to cart, toggle favorite) must be visible immediately
-Example:
+Example for an e-commerce app (4 pages):
+- Home page (product grid, each card clickable → detail)
+- Product detail page (info, AddToCart button → updates cart context + toast)
+- Cart page (items from context, quantity controls, remove button)
+- Checkout page (form with validation + submit feedback)
+
+Example for a social app (3 pages):
+- Feed page (posts list, like button toggles + toast, card → detail)
+- Post detail page (full content, comments, like/share with feedback)
+- Profile page (user info, user's posts, edit button → modal)
+
+RULES:
+- EVERY page must be reachable via a link/button from another page. NO orphan pages.
+- EVERY navigation element (tabs, navbar items, card clicks) MUST link to a real page.
+- NEVER create a nav item or tab for a page you haven't built. 3 tabs = 3 pages, not more.
+- If you have a bottom nav, the number of tabs MUST EQUAL the number of page files you created.
+
+=== GLOBAL STATE (MANDATORY — THIS IS WHERE DEAD BUTTONS COME FROM) ===
+If ANY button on ANY page modifies shared data (cart, favorites, likes, filters), you MUST use a context provider. Without it, the button "works" but the state resets when the user navigates — making it feel broken.
+
+RULE: If a button changes data that should be visible on ANOTHER page → it MUST use context, not local useState.
+
+Setup:
+1. Create a context file (e.g., src/context/AppContext.tsx)
+2. Wrap the ENTIRE app with the provider (in App.tsx or layout.tsx)
+3. Every page that reads or writes shared state imports useApp()
+4. State changes MUST produce IMMEDIATE visible feedback (toast + UI update)
+
 \`\`\`tsx
 // src/context/AppContext.tsx
-const AppContext = createContext<{cart: Item[], addToCart: (item: Item) => void, ...}>(...);
+const AppContext = createContext<{cart: Item[], addToCart: (item: Item) => void, removeFromCart: (id: string) => void, favorites: string[], toggleFavorite: (id: string) => void}>(...);
 export const useApp = () => useContext(AppContext);
+
+// In ProductDetail.tsx — CORRECT:
+const { addToCart } = useApp();
+<SafeButton onClick={() => { addToCart(product); toast('Added to cart'); }}>Add to Cart</SafeButton>
+
+// In ProductDetail.tsx — WRONG (state resets on navigation):
+const [cart, setCart] = useState([]); // ❌ local state = dead button
+<button onClick={() => setCart([...cart, product])}>Add to Cart</button>
 \`\`\`
 
 === ZERO DEAD UI — EVERY VISIBLE ELEMENT MUST BE FUNCTIONAL ===
-An AI QA agent with a headless browser will click EVERY button, link, icon, card, tab, and form on every page.
 
-THE RULE IS SIMPLE: If the user can see it and it LOOKS interactive, it MUST DO something when tapped.
-- Any element that looks clickable (button, icon button, card, link, badge, chip, nav item, tab, toggle, switch, dropdown) MUST have a working handler.
-- "Working" means a VISIBLE result: navigate to a page, toggle a state, open a modal/drawer, filter content, add/remove from a list, show a toast, expand/collapse, etc.
-- NEVER create an onClick that does nothing, calls console.log(), or shows alert('TODO').
-- If you cannot make it functional, DO NOT render it. Hidden is better than broken.
+THE SINGLE MOST IMPORTANT RULE: If you render something that LOOKS interactive, it MUST produce a VISIBLE change when tapped. If you cannot make it work, DO NOT render it.
 
-This applies to everything: hearts, stars, share buttons, edit buttons, delete buttons, sort buttons, filter chips, avatar clicks, notification bells, settings icons, close buttons, quantity controls, search bars, category tabs — EVERYTHING.
+DEAD BUTTON PATTERNS — NEVER DO THESE:
+❌ onClick={() => {}}                          → empty handler
+❌ onClick={() => console.log('clicked')}      → invisible to user
+❌ onClick={() => setData(data)}               → sets state to same value (no visible change)
+❌ onClick={() => navigate('/product/' + id)}   → but /product/[id] page doesn't exist
+❌ onClick={() => addToCart(item)}              → but cart page doesn't exist or doesn't read cart state
+❌ onClick={() => setFavorite(!favorite)}       → local state that resets on page change (not in context)
+❌ <button>Share</button>                      → no onClick at all
+❌ <a href="#">Settings</a>                    → href="#" goes nowhere
 
-QUALITY REQUIREMENTS (an AI QA agent will verify ALL of these):
-- Every button MUST have a working onClick handler that does something visible (navigation, modal, state change).
+WORKING BUTTON PATTERNS — DO THESE:
+✅ onClick={() => { setLiked(!liked); toast(liked ? 'Removed' : 'Added to favorites'); }}  → state change + visible feedback
+✅ onClick={() => navigate('/cart')}            → AND CartPage exists AND reads from CartContext
+✅ onClick={() => setShowModal(true)}           → AND the modal is rendered with content
+✅ onClick={() => { removeItem(id); toast('Deleted'); }}  → state change + toast
+✅ onClick={() => setActiveTab('reviews')}      → AND reviews content renders when tab is active
+✅ <SafeButton onClick={() => setFilter('new')}>New</SafeButton>  → SafeButton enforces handler
+
+THE FEEDBACK RULE: Every onClick MUST produce AT LEAST ONE of:
+1. NAVIGATE to an existing page (the page file must exist)
+2. TOGGLE visible state (icon color, counter, expanded section)
+3. OPEN a modal/drawer/dialog (the modal must be rendered)
+4. SHOW a toast notification (import toast from react-hot-toast)
+5. ADD/REMOVE from a visible list (cart badge count, favorites list)
+6. FILTER/SORT visible content (list items change)
+
+If you cannot achieve any of the 6, DO NOT render the element.
+
+SELF-CHECK: Before finishing EACH file, mentally click every interactive element in that file and ask: "What changes on screen?" If the answer is "nothing" or "console output" — fix it or remove it.
+
+QUALITY REQUIREMENTS:
 - Every link MUST navigate to an existing page — no broken hrefs.
 - Every form MUST have proper input handling and submit logic.
 - Do NOT create links to routes with [params] unless those routes have concrete instances reachable from the UI.
@@ -671,9 +740,9 @@ PHASE 1 — PLAN (do NOT write files yet):
 
 PHASE 2 — BUILD (create files one by one):
 4. Create the design system file first (colors, tokens)
-5. Create ALL page files (3-5 pages minimum). Each page = separate file with real content.
-6. Create shared components (Navbar, Footer, cards, etc.)
-7. Create App.tsx with ALL routes registered — every page must have a route
+5. Create ALL page files (3-5 pages, no more). Each page = separate file with real content and working buttons.
+6. Create shared components (Navbar, Footer, cards, etc.) — the nav MUST have exactly as many items as you have pages
+7. Create App.tsx with ALL routes registered — every page must have a route, every route must have a page
 8. If you need new deps, run: npm install <package>
 
 PHASE 3 — VERIFY AND FIX (critical — do NOT skip):
@@ -692,42 +761,45 @@ CRITICAL RULES:
 - Every import must point to a file you created or that exists in the template
 
 === EVERY BUTTON MUST WORK — #1 PRIORITY ===
-An app where buttons don't work is WORSE than an app with fewer features. Follow this strictly:
+An app where buttons don't work is WORSE than an app with more features. 3 perfect pages > 7 broken pages.
 
-STEP 1: Plan your routes FIRST. Every tab, nav item, or CTA must point to a real page you will create.
-STEP 2: Create ALL the pages/routes before creating components.
+STEP 1: Plan your routes FIRST. Decide EXACTLY which pages you will create (3-5 pages MAX).
+STEP 2: Create ALL page files before creating components.
 STEP 3: Wire every interactive element to a real action.
+STEP 4: VERIFY — mentally click every button in every file. If clicking produces no visible change, fix or remove it.
 
-ACTION MAP — every element type MUST have one of these:
-- Nav tabs / bottom bar → <Link to="/page"> or router.push() to a page you created
-- Cards / list items → <Link to="/detail/id"> to a detail page you created
-- Like/heart/bookmark → useState toggle (icon change + count +1/-1)
-- Settings/gear icon → <Link to="/settings"> page
-- Profile avatar → <Link to="/profile"> page
-- Search icon → <Link to="/search"> page or open search input with useState
-- Add/plus button → open modal with form (useState for modal visibility)
-- Form submit → validate + add to state array + toast("Saved!")
-- Share → toast("Link copied!")
-- Menu/hamburger → useState sidebar toggle
+IMPORTANT: Before writing a custom button, check if a PRE-BUILT BLOCK exists in components/blocks/.
+These blocks are ALREADY TESTED and produce visible feedback:
+- Heart/like/bookmark → <LikeButton itemId="..." /> (from components/blocks/LikeButton)
+- Add to cart → <AddToCartButton item={...} /> (from components/blocks/AddToCartButton)
+- Share → <ShareButton /> (from components/blocks/ShareButton)
+- +/- quantity → <QuantitySelector value={n} onChange={...} /> (from components/blocks/QuantitySelector)
+- Delete/remove → <DeleteButton onDelete={...} /> (from components/blocks/DeleteButton)
+- Star rating → <RatingStars onRate={...} /> (from components/blocks/RatingStars)
+- Search input → <SearchBar onSearch={...} /> (from components/blocks/SearchBar)
+- Filter tags → <FilterChips chips={[...]} selected={[...]} onChange={...} /> (from components/blocks/FilterChips)
+- On/off switch → <ToggleSwitch onChange={...} label="..." /> (from components/blocks/ToggleSwitch)
+Custom buttons are ONLY needed for app-specific actions not covered above.
+
+ACTION MAP — for elements NOT covered by blocks:
+- Nav tabs / bottom bar → <Link to="/page"> where page EXISTS as a file you created
+- Cards / list items → <Link to="/detail/id"> where detail page EXISTS
+- Form submit → validate + add to state + toast("Saved!") — MUST show feedback
+- Modal open → setShowModal(true) — modal MUST be rendered in the same file
 - Close/X → set modal/sidebar state to false
 
-CREATE MANY PAGES. A production-quality app has 5-8 pages MINIMUM:
-- Home/feed page (main content with rich UI, cards, lists)
-- Detail page (when you tap an item — full detail view with actions)
-- Profile page (with avatar, stats, settings, edit capability)
-- Search/explore page (with filters, results grid)
-- Create/add page (form with validation, preview)
-- Settings/preferences page
-- About/info page or secondary flow page
+BUILD 3-5 POLISHED PAGES (not more):
+Pick the core journey for this app and implement it end-to-end:
+- Home/feed page (main content, cards linking to detail)
+- Detail page (full info + action buttons that work)
+- 1-3 supporting pages (cart, profile, search — only what the core journey needs)
 
-EACH PAGE MUST BE SUBSTANTIAL — 80-150 lines minimum. Include:
+EACH PAGE should be 80-150 lines with:
 - Rich seed data (10+ items with realistic names, descriptions, images)
-- Multiple interactive elements (buttons, toggles, modals, forms)
-- Proper layout sections (header, content areas, CTAs)
-- Loading states, empty states, error handling
-- Micro-animations (hover effects, transitions, smooth state changes)
+- Interactive elements that ALL produce visible feedback
+- Proper layout sections (header, content, CTAs)
 
-DO NOT create stub pages. Every page must feel COMPLETE and POLISHED like a real production app.
+DO NOT create pages just to fill the nav bar. If you have 3 pages, use 3 tabs. NOT 5 tabs pointing to 3 pages + 2 stubs.
 
 Each page is a separate file. Register ALL routes in App.tsx.
 If a button would navigate somewhere, that "somewhere" MUST exist as a page file.
@@ -742,7 +814,7 @@ Build "${projectName}" — a ${techDesc} app.
 
 What the user wants: ${description}${answersContext}
 
-This is the first version. The codebase is a fresh template. You must create a PRODUCTION-QUALITY app that looks like it was built by a professional team. Think Lovable/Bolt quality — not a demo, not a prototype, a REAL app.
+This is the first version. The codebase is a fresh template. Build a POLISHED app with 3-5 perfect pages where EVERY button works. Quality over quantity — fewer features, zero broken UI. The user will tap every button. If it doesn't do something visible, they will complain.
 
 QUALITY BAR:
 - 5-8 pages minimum, each 80-150 lines with rich content

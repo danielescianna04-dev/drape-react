@@ -29,7 +29,16 @@ import { useUIStore } from '../../core/terminal/uiStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 // DescriptionInput no longer used — step 1 uses inline textarea
 import { liveActivityService } from '../../core/services/liveActivityService';
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
+// Safe import — native module may not be compiled in (e.g. simulator without rebuild)
+let ExpoSpeechRecognitionModule: any = null;
+let useSpeechRecognitionEvent: (event: string, cb: (e: any) => void) => void = () => {};
+try {
+  const mod = require('expo-speech-recognition');
+  ExpoSpeechRecognitionModule = mod.ExpoSpeechRecognitionModule;
+  useSpeechRecognitionEvent = mod.useSpeechRecognitionEvent;
+} catch {
+  // Native module not available — speech recognition disabled
+}
 import * as Haptics from 'expo-haptics';
 import { tracciaProgettoCreato, tracciaErrore, tracciaSchermata, tracciaOnboardingIdeaChip, tracciaErroreCreazioneProgetto, tracciaNavigazioneIndietro, tracciaContinuaPremuto, tracciaLinguaggioSelezionato, tracciaNomeProgetto, tracciaGenerazioneAvviata, tracciaEntrataNelProgetto, tracciaTemplateCancellato, tracciaCloudMode, tracciaDescrizionePersonalizzata } from '../../core/services/analyticsService';
 import { useAgentStream, AgentMode } from '../../core/ai/useAgentStream';

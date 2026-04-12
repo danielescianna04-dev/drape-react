@@ -301,43 +301,56 @@ class AgentToolsService {
       const issues: string[] = [];
       // Empty onClick handlers
       if (/onClick\s*=\s*\{\s*\(\s*\)\s*=>\s*\{\s*\}\s*\}/.test(content)) {
-        issues.push('Empty onClick handler: onClick={() => {}} — add a real action or remove the button');
+        issues.push('DEAD BUTTON: onClick={() => {}} — add a real action (toast, navigate, toggle state) or remove the element');
       }
       // onClick with only console.log
       if (/onClick\s*=\s*\{\s*\(\s*\)\s*=>\s*console\.log/.test(content)) {
-        issues.push('onClick only calls console.log — replace with a real action (state change, navigation, toast)');
+        issues.push('DEAD BUTTON: onClick only calls console.log — the user sees nothing. Replace with toast() or state change');
+      }
+      // onClick(() => alert(
+      if (/onClick\s*=\s*\{\s*\(\s*\)\s*=>\s*alert\(/.test(content)) {
+        issues.push('DEAD BUTTON: onClick shows alert() — replace with toast() or a real action');
       }
       // onClick={() => null/undefined}
       if (/onClick\s*=\s*\{\s*\(\s*\)\s*=>\s*(null|undefined)\s*\}/.test(content)) {
-        issues.push('onClick returns null/undefined — add a real action or remove the button');
+        issues.push('DEAD BUTTON: onClick returns null/undefined — add a real action or remove the element');
+      }
+      // onClick that navigates to a dynamic route (likely missing page)
+      const dynRouteMatch = content.match(/(?:navigate|push|router\.push)\s*\(\s*[`'"]\/[^`'"]*\$\{/g);
+      if (dynRouteMatch) {
+        issues.push(`RISKY: Dynamic route navigation found (${dynRouteMatch[0].slice(0, 40)}...) — verify the target page file exists`);
       }
       // href="#" or href=""
       if (/href\s*=\s*["'](#|)\s*["']/.test(content)) {
-        issues.push('Link has href="#" or href="" — use a real route path');
+        issues.push('DEAD LINK: href="#" or href="" — use a real route path');
       }
       // <button> without onClick/@click/onclick (but not type="submit" or disabled)
       const buttonMatches = content.match(/<button[^>]*>/gi) || [];
       for (const btn of buttonMatches) {
         if (!btn.includes('onClick') && !btn.includes('@click') && !btn.includes('onclick')
             && !btn.includes('type="submit"') && !btn.includes('type=\'submit\'') && !btn.includes('disabled')) {
-          issues.push('Found <button> without click handler — use SafeButton or add onClick/@click/onclick');
+          issues.push('DEAD BUTTON: <button> without any click handler — use SafeButton or add onClick');
         }
+      }
+      // onClick that only calls window.open with no URL or # URL
+      if (/onClick\s*=\s*\{\s*\(\s*\)\s*=>\s*window\.open\s*\(\s*['"]#?['"]\s*\)/.test(content)) {
+        issues.push('DEAD BUTTON: window.open with empty/# URL — use a real URL or remove');
       }
       // Vue: empty @click handler
       if (/@click\s*=\s*["']\s*["']/.test(content) || /@click\s*=\s*["']\(\)\s*=>?\s*\{\s*\}\s*["']/.test(content)) {
-        issues.push('Empty @click handler in Vue template — add a real handler');
+        issues.push('DEAD BUTTON: Empty @click handler in Vue template — add a real handler');
       }
       // Expo/RN: Pressable/TouchableOpacity without onPress
       if (/<(?:Pressable|TouchableOpacity)[^>]*>/.test(content) && !content.includes('onPress')) {
-        issues.push('Found Pressable/TouchableOpacity without onPress — use SafePressable or add onPress');
+        issues.push('DEAD BUTTON: Pressable/TouchableOpacity without onPress — use SafePressable or add onPress');
       }
       // JSON.parse without fallback on localStorage/sessionStorage
       if (/JSON\.parse\(\s*(localStorage|sessionStorage)\.getItem\([^)]+\)\s*\)/.test(content)) {
-        issues.push('JSON.parse(localStorage.getItem(...)) without fallback — add || \'[]\' or || \'null\' to prevent crash on empty key');
+        issues.push('CRASH RISK: JSON.parse(localStorage.getItem(...)) without fallback — add || \'[]\' or || \'null\'');
       }
       // HTML: onclick="" (empty)
       if (/onclick\s*=\s*["']\s*["']/.test(content)) {
-        issues.push('Empty onclick="" attribute — add a real JavaScript function call');
+        issues.push('DEAD BUTTON: Empty onclick="" attribute — add a real JavaScript function call');
       }
 
       if (issues.length > 0) {
