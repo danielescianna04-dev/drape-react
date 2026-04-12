@@ -230,6 +230,7 @@ class AgentToolsService {
     'postcss.config.mjs', 'postcss.config.js', 'tailwind.config.ts', 'tailwind.config.js',
     'astro.config.mjs', 'index.html', 'src/main.tsx', 'src/main.ts',
     'src/index.css', 'src/style.css', 'app/globals.css', 'app/layout.tsx',
+    'app/_layout.tsx',  // Expo root layout — contains web-mode navigation guard
     'src/lib/utils.ts', 'app/lib/utils.ts',
   ]);
 
