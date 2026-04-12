@@ -1623,8 +1623,8 @@ Return ONLY the JSON, no markdown, no explanation.`;
 
   // ═══ STEP 2: Full Code Generation with architecture context ═══
   update(17, 'Generating code...', 'AI Generating');
-  // Gemini 3 Flash for all generation steps
-  const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3-flash'];
+  // Gemini 2.5 Flash for all generation steps (switched from 3-flash due to rate limits)
+  const models = ['gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash'];
   const systemPrompt = getProjectCreationSystemPrompt(technology, isCloudMode, supabaseCredentials, neonCredentials);
   const userPrompt = templateApplied
     ? getProjectCreationUserPrompt(technology, projectName, description, isCloudMode, supabaseCredentials, neonCredentials)
