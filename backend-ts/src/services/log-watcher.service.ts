@@ -33,7 +33,7 @@ interface WatcherState {
 
 const RESTART_COOLDOWN_MS = 180_000;    // 3 min — recovery itself causes transient errors
 // Pattern that triggers a runtime cache-clear + restart
-const CACHE_CORRUPTION_REGEX = /__webpack_modules__\[[^\]]+\] is not a function|__webpack_require__\([^)]+\) is not a function|Cannot find module '\.\/\d+\.js'|Loading chunk \d+ failed|ENOENT.*routes-manifest\.json|ENOENT.*middleware-manifest\.json/;
+const CACHE_CORRUPTION_REGEX = /__webpack_modules__\[[^\]]+\] is not a function|__webpack_require__\([^)]+\) is not a function|Cannot find module '\.\/\d+\.js'|Loading chunk \d+ failed|ENOENT.*routes-manifest\.json|ENOENT.*middleware-manifest\.json|Cannot find module ['"]?.*vendor-chunks/;
 
 interface ErrorPattern {
   regex: RegExp;

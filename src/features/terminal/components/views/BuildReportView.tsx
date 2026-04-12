@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Alert } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Tab } from '../../../../core/tabs/tabStore';
@@ -353,37 +354,83 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         if (runtimeActions.length === 0) return null;
         const errorCount = runtimeActions.filter(a => a.status === 'failed').length;
         const fixedCount = runtimeActions.filter(a => a.status === 'fixed').length;
+        const warningCount = runtimeActions.filter(a => a.status === 'skipped').length;
         return (
           <SectionHeader
             icon="pulse-outline"
-            iconColor={errorCount > 0 ? '#EF4444' : '#F59E0B'}
+            iconColor={errorCount > 0 ? '#EF4444' : fixedCount > 0 ? '#22C55E' : '#F59E0B'}
             title={`Runtime & Errori (${runtimeActions.length})`}
-            time={errorCount > 0 ? `${errorCount} errore${errorCount > 1 ? 'i' : ''}, ${fixedCount} risolt${fixedCount > 1 ? 'i' : 'o'}` : `${fixedCount} warning`}
+            time={`${errorCount} non risolti, ${fixedCount} risolti${warningCount > 0 ? `, ${warningCount} warning` : ''}`}
           >
-            {runtimeActions.map(a => (
-              <View key={a.id} style={a.status === 'failed' ? st.errorItem : st.successItem}>
-                <Ionicons
-                  name={a.status === 'failed' ? 'warning-outline' : 'checkmark-circle'}
-                  size={14}
-                  color={a.status === 'failed' ? '#EF4444' : '#22C55E'}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={a.status === 'failed' ? st.errorItemText : st.successItemText}>
-                    [{a.step}] {a.title}
-                  </Text>
+            {/* Summary bar */}
+            <View style={st.errorSummaryBar}>
+              {errorCount > 0 && (
+                <View style={st.errorSummaryItem}>
+                  <View style={[st.errorSummaryDot, { backgroundColor: '#EF4444' }]} />
+                  <Text style={[st.errorSummaryText, { color: '#EF4444' }]}>{errorCount} non risolti</Text>
+                </View>
+              )}
+              {fixedCount > 0 && (
+                <View style={st.errorSummaryItem}>
+                  <View style={[st.errorSummaryDot, { backgroundColor: '#22C55E' }]} />
+                  <Text style={[st.errorSummaryText, { color: '#22C55E' }]}>{fixedCount} risolti</Text>
+                </View>
+              )}
+              {warningCount > 0 && (
+                <View style={st.errorSummaryItem}>
+                  <View style={[st.errorSummaryDot, { backgroundColor: '#F59E0B' }]} />
+                  <Text style={[st.errorSummaryText, { color: '#F59E0B' }]}>{warningCount} warning</Text>
+                </View>
+              )}
+            </View>
+
+            {runtimeActions.map(a => {
+              const isFailed = a.status === 'failed';
+              const isFixed = a.status === 'fixed';
+              const bgColor = isFailed ? '#EF444410' : isFixed ? '#22C55E10' : '#F59E0B10';
+              const iconName = isFailed ? 'close-circle' : isFixed ? 'checkmark-circle' : 'warning-outline';
+              const iconColor = isFailed ? '#EF4444' : isFixed ? '#22C55E' : '#F59E0B';
+              return (
+                <View key={a.id} style={[st.runtimeItem, { backgroundColor: bgColor }]}>
+                  <View style={st.runtimeItemHeader}>
+                    <Ionicons name={iconName as any} size={16} color={iconColor} />
+                    <Text style={[st.runtimeItemTitle, { color: iconColor }]}>
+                      [{a.step}] {a.title}
+                    </Text>
+                    <Text style={st.runtimeItemStatus}>
+                      {isFailed ? 'NON RISOLTO' : isFixed ? 'RISOLTO' : 'WARNING'}
+                    </Text>
+                  </View>
                   {a.error && (
-                    <Text style={[st.monoItem, { fontSize: 10, opacity: 0.7, marginTop: 2 }]} numberOfLines={3}>
-                      {a.error.substring(0, 200)}
+                    <Text style={st.runtimeItemError} numberOfLines={4}>
+                      {a.error.substring(0, 300)}
                     </Text>
                   )}
                   {a.fix && (
-                    <Text style={[st.monoItem, { fontSize: 10, color: '#22C55E', marginTop: 2 }]}>
-                      ✓ {a.fix}
+                    <View style={st.runtimeItemFix}>
+                      <Ionicons name="checkmark" size={12} color="#22C55E" />
+                      <Text style={st.runtimeItemFixText}>{a.fix}</Text>
+                    </View>
+                  )}
+                  {a.metadata?.filesModified && (
+                    <Text style={st.runtimeItemMeta}>
+                      File: {(a.metadata.filesModified as string[]).join(', ')}
                     </Text>
                   )}
                 </View>
+              );
+            })}
+
+            {/* Debug info */}
+            {report && (
+              <View style={st.debugInfo}>
+                <Text style={st.debugTitle}>Debug Info</Text>
+                <Text style={st.debugText}>Modello: {report.summary?.aiModel || 'gemini-3-flash'}</Text>
+                <Text style={st.debugText}>Token: {report.summary?.aiTokensUsed?.toLocaleString() ?? '?'}</Text>
+                <Text style={st.debugText}>File generati: {report.summary?.filesGenerated ?? 0}</Text>
+                <Text style={st.debugText}>Durata: {report.totalDurationMs ? (report.totalDurationMs / 1000).toFixed(1) + 's' : '?'}</Text>
               </View>
-            ))}
+            )}
           </SectionHeader>
         );
       })()}
@@ -439,11 +486,72 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         </SectionHeader>
       ))}
 
-      {/* Refresh */}
-      <TouchableOpacity style={st.refreshBtn} onPress={loadReport}>
-        <Ionicons name="refresh-outline" size={14} color="#8B5CF6" />
-        <Text style={st.refreshText}>Aggiorna</Text>
-      </TouchableOpacity>
+      {/* Actions */}
+      <View style={st.actionsRow}>
+        <TouchableOpacity style={st.refreshBtn} onPress={loadReport}>
+          <Ionicons name="refresh-outline" size={14} color="#8B5CF6" />
+          <Text style={st.refreshText}>Aggiorna</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={st.copyBtn} onPress={() => {
+          const lines: string[] = [];
+          lines.push(`=== PROJECT REPORT: ${report?.projectName || 'Unknown'} ===`);
+          lines.push(`Tech: ${report?.technology || '?'} | Cloud: ${report?.cloudMode ? 'yes' : 'no'} | Status: ${report?.status || '?'}`);
+          lines.push(`Created: ${report?.createdAt || '?'} | Duration: ${report?.totalDurationMs ? (report.totalDurationMs / 1000).toFixed(1) + 's' : '?'}`);
+          lines.push(`Files: ${report?.summary?.filesGenerated ?? 0} | Model: ${report?.summary?.aiModel || '?'} | Tokens: ${report?.summary?.aiTokensUsed ?? 0}`);
+          lines.push(`Issues found: ${report?.summary?.issuesFound ?? 0} | Fixed: ${report?.summary?.issuesFixed ?? 0}`);
+          lines.push('');
+
+          // Runtime actions
+          const runtimeActions = (report?.actions || []).filter(a =>
+            ['runtime', 'dev-server', 'compile', 'install', 'warming', 'verify', 'database'].includes(a.step || '')
+          );
+          if (runtimeActions.length > 0) {
+            lines.push('--- RUNTIME & ERRORS ---');
+            for (const a of runtimeActions) {
+              const icon = a.status === 'failed' ? '[FAIL]' : a.status === 'fixed' ? '[FIXED]' : '[OK]';
+              lines.push(`${icon} [${a.step}] ${a.title}`);
+              if (a.error) lines.push(`  Error: ${a.error}`);
+              if (a.fix) lines.push(`  Fix: ${a.fix}`);
+            }
+            lines.push('');
+          }
+
+          // Verification
+          if (verificationReport) {
+            lines.push('--- VERIFICATION ---');
+            lines.push(`Status: ${verificationReport.status || '?'}`);
+            const attempts = verificationReport.backendVerification?.attempts || [];
+            for (const att of attempts) {
+              lines.push(`  Attempt #${att.attemptNumber}: ${att.status}`);
+              for (const p of (att.pages || [])) {
+                const hasErr = (p.errors?.length ?? 0) > 0 || p.checks?.hasError;
+                lines.push(`    ${hasErr ? '[ERR]' : '[OK]'} ${p.path} (HTTP ${p.status ?? '?'})`);
+                for (const e of (p.errors || [])) lines.push(`      ${e}`);
+                for (const e of (p.checks?.jsErrors || [])) lines.push(`      JS: ${e}`);
+              }
+              for (const f of (att.fixes || [])) {
+                lines.push(`    Fix: ${(f.filesModified || []).join(', ')} (${f.model || '?'}, ${f.duration ? (f.duration / 1000).toFixed(1) + 's' : '?'})`);
+              }
+            }
+            lines.push('');
+          }
+
+          // Generated files
+          if (report?.summary?.generatedFiles?.length) {
+            lines.push('--- FILES GENERATED ---');
+            for (const f of report.summary.generatedFiles) lines.push(`  ${f}`);
+            lines.push('');
+          }
+
+          const text = lines.join('\n');
+          Clipboard.setStringAsync(text).then(() => {
+            Alert.alert('Copiato', 'Report copiato negli appunti');
+          });
+        }}>
+          <Ionicons name="copy-outline" size={14} color="#F59E0B" />
+          <Text style={st.copyText}>Copia tutto</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 };
@@ -501,6 +609,25 @@ const st = StyleSheet.create({
   successItem: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#22C55E10', padding: 8, borderRadius: 8, marginBottom: 4 },
   successItemText: { color: '#22C55E', fontSize: 11 },
 
+  // Runtime items (improved)
+  errorSummaryBar: { flexDirection: 'row', gap: 12, marginBottom: 8, paddingVertical: 6, paddingHorizontal: 8, backgroundColor: '#111', borderRadius: 8 },
+  errorSummaryItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  errorSummaryDot: { width: 8, height: 8, borderRadius: 4 },
+  errorSummaryText: { fontSize: 11, fontWeight: '600' },
+  runtimeItem: { padding: 10, borderRadius: 8, marginBottom: 6, borderWidth: 1, borderColor: '#1a1a1a' },
+  runtimeItemHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  runtimeItemTitle: { fontSize: 12, fontWeight: '600', flex: 1 },
+  runtimeItemStatus: { fontSize: 9, fontWeight: '700', color: '#555', letterSpacing: 0.5 },
+  runtimeItemError: { color: '#999', fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 6, lineHeight: 14 },
+  runtimeItemFix: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#1a1a1a' },
+  runtimeItemFixText: { color: '#22C55E', fontSize: 10, flex: 1 },
+  runtimeItemMeta: { color: '#555', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 4 },
+
+  // Debug info
+  debugInfo: { backgroundColor: '#0a0a0a', borderRadius: 8, padding: 10, marginTop: 8, borderWidth: 1, borderColor: '#1a1a1a' },
+  debugTitle: { color: '#555', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
+  debugText: { color: '#444', fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', paddingVertical: 1 },
+
   // Chat Messages
   messageItem: { backgroundColor: '#111', borderRadius: 8, padding: 8, marginBottom: 6 },
   messageHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
@@ -514,7 +641,10 @@ const st = StyleSheet.create({
   fileChangeIcon: { fontSize: 13, fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', width: 12 },
   fileChangePath: { color: '#666', fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', flex: 1 },
 
-  // Refresh
-  refreshBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 10, backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#1a1a1a' },
+  // Actions
+  actionsRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  refreshBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 10, backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#1a1a1a' },
   refreshText: { color: '#8B5CF6', fontSize: 12, fontWeight: '500' },
+  copyBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 10, backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#1a1a1a' },
+  copyText: { color: '#F59E0B', fontSize: 12, fontWeight: '500' },
 });

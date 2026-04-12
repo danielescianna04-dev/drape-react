@@ -132,6 +132,23 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
       break;
     }
 
+    // Cache corruption (vendor-chunks, stale webpack) — clear .next cache and restart instead of AI fix
+    const isCacheCorruption = lastResult.errors.some(e => /vendor-chunks|__webpack_modules__.*is not a function|Cannot find module '\.\/\d+\.js'|Loading chunk \d+ failed/.test(e));
+    if (isCacheCorruption) {
+      log.info(`[Verify] Cache corruption detected for ${projectId} — clearing .next and restarting`);
+      try {
+        // Use workspaceService.exec which safely runs inside the container
+        await workspaceService.exec(projectId, userId, 'find /home/coder/project/.next -mindepth 1 -delete 2>/dev/null || true');
+        await new Promise(r => setTimeout(r, 2000));
+      } catch {}
+      await appendRuntimeAction(projectId, 'verify', `Cache cleared + restart (attempt ${attempt + 1})`, {
+        status: 'fixed',
+        fix: 'Cleared .next cache and restarted dev server',
+      }).catch(() => {});
+      verificationReport.backendVerification.attempts.push(attemptRecord);
+      continue;
+    }
+
     onProgress?.(93 + attempt * 2, `Fixing ${lastResult.errors.length} error(s)...`, 'Auto-Fix');
     const fixResult = await autoFix(projectId, userId, technology, lastResult);
 
@@ -656,6 +673,7 @@ function extractLogErrors(serverLog: string): string[] {
     /ChunkLoadError[^\n]*/g,
     // Next.js specific
     /Cannot find module '\.\/\d+\.js'/g,
+    /Cannot find module ['"]?.*vendor-chunks[^\n]*/g,
     /ENOENT[^\n]*routes-manifest\.json/g,
     /ENOENT[^\n]*middleware-manifest\.json/g,
     /next\/dist\/compiled\/[^\s'"]+' not found/g,
