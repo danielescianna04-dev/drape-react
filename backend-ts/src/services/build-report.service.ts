@@ -54,6 +54,82 @@ export interface BuildReport {
 
 let actionCounter = 0;
 
+/**
+ * Append a runtime action to an existing build report, without needing a tracker instance.
+ * Used by dev-server.service.ts, verify-project.service.ts, and other post-generation services
+ * to log crashes, cache clears, auto-fixes, etc. to the same .drape/build-report.json
+ * that the user sees in the project history UI.
+ */
+export async function appendRuntimeAction(
+  projectId: string,
+  step: string,
+  title: string,
+  opts: {
+    status?: 'running' | 'completed' | 'failed' | 'fixed';
+    details?: string;
+    error?: string;
+    fix?: string;
+    metadata?: Record<string, any>;
+  } = {},
+): Promise<void> {
+  try {
+    let report: BuildReport | null = null;
+    try {
+      const read = await fileService.readFile(projectId, '.drape/build-report.json');
+      if (read.success && read.data?.content) {
+        report = JSON.parse(read.data.content) as BuildReport;
+      }
+    } catch { /* file missing — create minimal */ }
+
+    if (!report) {
+      report = {
+        projectId,
+        projectName: projectId,
+        technology: 'unknown',
+        cloudMode: false,
+        createdAt: new Date().toISOString(),
+        status: 'completed',
+        actions: [],
+        summary: {
+          filesGenerated: 0,
+          filesProtected: 0,
+          tablesCreated: [],
+          seedRecords: 0,
+          pagesVerified: 0,
+          issuesFound: 0,
+          issuesFixed: 0,
+          aiModel: '',
+          aiTokensUsed: 0,
+        },
+      };
+    }
+
+    const startedAt = new Date().toISOString();
+    const action: BuildAction = {
+      id: `runtime-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      step,
+      title,
+      status: opts.status || 'completed',
+      startedAt,
+      completedAt: startedAt,
+      durationMs: 0,
+      details: opts.details,
+      error: opts.error,
+      fix: opts.fix,
+      metadata: opts.metadata,
+    };
+    report.actions.push(action);
+    const writeResult = await fileService.writeFile(projectId, '.drape/build-report.json', JSON.stringify(report, null, 2));
+    if (writeResult.success) {
+      log.info(`[BuildReport] Appended "${title}" (${opts.status || 'completed'}) to ${projectId}`);
+    } else {
+      log.warn(`[BuildReport] appendRuntimeAction write failed for ${projectId}: ${writeResult.error}`);
+    }
+  } catch (err: any) {
+    log.warn(`[BuildReport] appendRuntimeAction failed for ${projectId}: ${err.message}`);
+  }
+}
+
 export class BuildReportTracker {
   private report: BuildReport;
   private projectId: string;

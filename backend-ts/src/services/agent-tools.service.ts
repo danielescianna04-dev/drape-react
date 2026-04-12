@@ -13,6 +13,15 @@ import path from 'path';
  */
 const DANGEROUS_PATTERNS = [
   /rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?\/(?!home\/coder\/project)/,  // rm outside project
+  // Protect critical dirs/files managed by the backend install flow — the AI
+  // must NEVER delete these during generation/verify. If deps are broken, fix
+  // package.json and let the backend re-run the install pipeline.
+  /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+(\.\/)?node_modules\b/,  // rm -rf node_modules
+  /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+(\.\/)?\.next\b/,        // rm -rf .next (bind mount)
+  /\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+(\.\/)?\.drape\b/,       // rm -rf .drape (build report etc.)
+  /\brm\s+.*\bpackage\.json\b/,                              // deleting package.json
+  /\brm\s+.*\bbun\.lock(b)?\b/,                              // deleting bun.lock
+  /\brm\s+.*\btsconfig\.json\b/,                             // deleting tsconfig
   /curl\s.*\|\s*(sh|bash)/,       // curl pipe to shell
   /wget\s.*\|\s*(sh|bash)/,       // wget pipe to shell
   />\s*\/etc\//,                    // writing to /etc
@@ -284,9 +293,60 @@ class AgentToolsService {
       await fileService.notifyAgent(session.agentUrl, file_path, content);
     }
 
+    // Static analysis: scan JSX/TSX/Vue/HTML files for dead interactive elements.
+    // Warnings are returned to the AI inline so it can fix them in the same turn.
+    let warnings = '';
+    if (/\.[tj]sx?$|\.vue$|\.html?$|\.astro$/.test(normalized)) {
+      const issues: string[] = [];
+      // Empty onClick handlers
+      if (/onClick\s*=\s*\{\s*\(\s*\)\s*=>\s*\{\s*\}\s*\}/.test(content)) {
+        issues.push('Empty onClick handler: onClick={() => {}} — add a real action or remove the button');
+      }
+      // onClick with only console.log
+      if (/onClick\s*=\s*\{\s*\(\s*\)\s*=>\s*console\.log/.test(content)) {
+        issues.push('onClick only calls console.log — replace with a real action (state change, navigation, toast)');
+      }
+      // onClick={() => null/undefined}
+      if (/onClick\s*=\s*\{\s*\(\s*\)\s*=>\s*(null|undefined)\s*\}/.test(content)) {
+        issues.push('onClick returns null/undefined — add a real action or remove the button');
+      }
+      // href="#" or href=""
+      if (/href\s*=\s*["'](#|)\s*["']/.test(content)) {
+        issues.push('Link has href="#" or href="" — use a real route path');
+      }
+      // <button> without onClick/@click/onclick (but not type="submit" or disabled)
+      const buttonMatches = content.match(/<button[^>]*>/gi) || [];
+      for (const btn of buttonMatches) {
+        if (!btn.includes('onClick') && !btn.includes('@click') && !btn.includes('onclick')
+            && !btn.includes('type="submit"') && !btn.includes('type=\'submit\'') && !btn.includes('disabled')) {
+          issues.push('Found <button> without click handler — use SafeButton or add onClick/@click/onclick');
+        }
+      }
+      // Vue: empty @click handler
+      if (/@click\s*=\s*["']\s*["']/.test(content) || /@click\s*=\s*["']\(\)\s*=>?\s*\{\s*\}\s*["']/.test(content)) {
+        issues.push('Empty @click handler in Vue template — add a real handler');
+      }
+      // Expo/RN: Pressable/TouchableOpacity without onPress
+      if (/<(?:Pressable|TouchableOpacity)[^>]*>/.test(content) && !content.includes('onPress')) {
+        issues.push('Found Pressable/TouchableOpacity without onPress — use SafePressable or add onPress');
+      }
+      // JSON.parse without fallback on localStorage/sessionStorage
+      if (/JSON\.parse\(\s*(localStorage|sessionStorage)\.getItem\([^)]+\)\s*\)/.test(content)) {
+        issues.push('JSON.parse(localStorage.getItem(...)) without fallback — add || \'[]\' or || \'null\' to prevent crash on empty key');
+      }
+      // HTML: onclick="" (empty)
+      if (/onclick\s*=\s*["']\s*["']/.test(content)) {
+        issues.push('Empty onclick="" attribute — add a real JavaScript function call');
+      }
+
+      if (issues.length > 0) {
+        warnings = `\n\n⚠️ STATIC ANALYSIS WARNINGS (fix these now):\n${issues.map((w, i) => `${i + 1}. ${w}`).join('\n')}`;
+      }
+    }
+
     return {
       success: true,
-      content: `File written successfully: ${file_path}\n${description || ''}`,
+      content: `File written successfully: ${file_path}\n${description || ''}${warnings}`,
     };
   }
 
@@ -454,6 +514,17 @@ class AgentToolsService {
       return { success: false, error: blocked };
     }
 
+    // Auto-redirect: npm/bun install of expo-* packages → npx expo install
+    // npm install grabs the LATEST version which may be incompatible with the SDK.
+    // npx expo install auto-resolves the correct compatible version.
+    let effectiveCommand = command;
+    const expoInstallMatch = command.match(/(?:npm\s+install|bun\s+(?:add|install))\s+((?:expo-[\w-]+\s*)+)/);
+    if (expoInstallMatch) {
+      const packages = expoInstallMatch[1].trim();
+      effectiveCommand = `npx expo install ${packages}`;
+      log.info(`[AgentTools] Redirected expo package install to: ${effectiveCommand}`);
+    }
+
     // Agent loop should always pass a user-scoped session to avoid cross-user container access.
     if (!session) {
       return {
@@ -467,13 +538,13 @@ class AgentToolsService {
       const id = `bg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const entry: BackgroundCommand = {
         startedAt: Date.now(),
-        command,
+        command: effectiveCommand,
         status: 'running',
       };
       backgroundCommands.set(id, entry);
 
       // Fire and forget — save result when done
-      dockerService.exec(session.agentUrl, command, '/home/coder/project', Math.min(timeout, 300000))
+      dockerService.exec(session.agentUrl, effectiveCommand, '/home/coder/project', Math.min(timeout, 300000))
         .then(result => {
           entry.status = 'completed';
           entry.result = result;
@@ -485,20 +556,20 @@ class AgentToolsService {
 
       return {
         success: true,
-        content: `Background command started. ID: ${id}\nCommand: ${command}\nUse command_output with this ID to check results.`,
+        content: `Background command started. ID: ${id}\nCommand: ${effectiveCommand}\nUse command_output with this ID to check results.`,
       };
     }
 
     try {
       const result = await dockerService.exec(
         session.agentUrl,
-        command,
+        effectiveCommand,
         '/home/coder/project',
         timeout
       );
 
       const output = [
-        `Command: ${command}`,
+        `Command: ${effectiveCommand}`,
         `Exit code: ${result.exitCode}`,
       ];
 

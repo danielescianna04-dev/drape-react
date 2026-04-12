@@ -30,10 +30,14 @@ const groqProvider = config.groqApiKey
   ? createOpenAI({ apiKey: config.groqApiKey, baseURL: 'https://api.groq.com/openai/v1' })
   : null;
 
+const openrouterProvider = config.openrouterApiKey
+  ? createOpenAI({ apiKey: config.openrouterApiKey, baseURL: 'https://openrouter.ai/api/v1' })
+  : null;
+
 // ── Model Registry ──────────────────────────────────────────────────────────
 
 interface ModelEntry {
-  provider: 'anthropic' | 'google' | 'openai' | 'groq';
+  provider: 'anthropic' | 'google' | 'openai' | 'groq' | 'openrouter';
   modelId: string;
   maxTokens: number;
   contextWindowTokens: number;
@@ -50,6 +54,7 @@ const MODEL_REGISTRY: Record<string, ModelEntry> = {
   'gemini-3.1-pro':     { provider: 'google', modelId: 'gemini-3.1-pro-preview', maxTokens: 65536, contextWindowTokens: 1000000 },
   'gpt-5-3':            { provider: 'openai', modelId: 'gpt-5.3', maxTokens: 16384, contextWindowTokens: 128000 },
   'llama-3.3-70b':      { provider: 'groq', modelId: 'llama-3.3-70b-versatile', maxTokens: 8192, contextWindowTokens: 128000 },
+  'glm-5.1':            { provider: 'openrouter', modelId: 'z-ai/glm-5.1', maxTokens: 12000, contextWindowTokens: 202752 },
 };
 
 // ── Provider Resolution ─────────────────────────────────────────────────────
@@ -71,6 +76,9 @@ function getVercelModel(modelName: string) {
     case 'groq':
       if (!groqProvider) throw new Error('Groq API key not configured');
       return groqProvider(entry.modelId);
+    case 'openrouter':
+      if (!openrouterProvider) throw new Error('OpenRouter API key not configured');
+      return openrouterProvider(entry.modelId);
     default:
       throw new Error(`Unsupported provider: ${entry.provider}`);
   }

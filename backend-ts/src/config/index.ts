@@ -52,6 +52,7 @@ export const config = {
   geminiApiKey: optional('GEMINI_API_KEY', ''),
   groqApiKey: optional('GROQ_API_KEY', ''),
   openaiApiKey: optional('OPENAI_API_KEY', ''),
+  openrouterApiKey: optional('OPENROUTER_API_KEY', ''),
 
   // GitHub
   githubClientId: optional('GITHUB_CLIENT_ID', ''),
@@ -71,7 +72,7 @@ export const config = {
   containerMemoryMb: optionalInt('CONTAINER_MEMORY_MB', 4096),
   containerCpus: optionalInt('CONTAINER_CPUS', 4),
   containerIdleTimeoutMs: optionalInt('CONTAINER_IDLE_TIMEOUT_MS', 15 * 60 * 1000),
-  nodeModulesCacheMaxMb: optionalInt('NODE_MODULES_CACHE_MAX_MB', 10240),
+  nodeModulesCacheMaxMb: optionalInt('NODE_MODULES_CACHE_MAX_MB', 70 * 1024),
   strictNativeBinaryIntegrityCheck: optionalBool('STRICT_NATIVE_BINARY_INTEGRITY_CHECK', false),
   maxActiveContainersPerUser: optionalInt('MAX_ACTIVE_CONTAINERS_PER_USER', 3),
 

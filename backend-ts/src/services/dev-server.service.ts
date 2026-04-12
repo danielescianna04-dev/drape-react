@@ -4,6 +4,7 @@ import { log } from '../utils/logger';
 import { dockerService } from './docker.service';
 import { shellEscape, sleep } from '../utils/helpers';
 import { DEV_SERVER_PORT } from '../utils/constants';
+import { appendRuntimeAction } from './build-report.service';
 
 class DevServerService {
   private startLocks = new Map<string, Promise<boolean>>();
@@ -105,11 +106,17 @@ class DevServerService {
       return true;
     }
 
-    // If crash is a Next.js cache corruption (stale chunks, missing manifest, pack.gz ENOENT),
-    // clear .next contents and retry once. Matches English and Italian error messages.
-    const nextCacheCorruption = /Modulo non trovato: \.\/\d+\.js|Cannot find module '\.\/\d+\.js'|routes-manifest\.json|middleware-manifest\.json|webpack\/[^']+\.pack\.gz|MODULE_NOT_FOUND.*next\/dist\/server/;
+    // If crash is a Next.js cache corruption (stale chunks, missing manifest, pack.gz ENOENT,
+    // webpack module registry out of sync), clear .next contents and retry once.
+    // Matches English and Italian error messages.
+    const nextCacheCorruption = /Modulo non trovato: \.\/\d+\.js|Cannot find module '\.\/\d+\.js'|routes-manifest\.json|middleware-manifest\.json|webpack\/[^']+\.pack\.gz|MODULE_NOT_FOUND.*next\/dist\/server|__webpack_modules__\[[^\]]+\] is not a function|__webpack_require__\([^)]+\) is not a function|Loading chunk \d+ failed/;
     if (result.error && nextCacheCorruption.test(result.error)) {
       log.warn(`[DevServer] Next.js cache corruption detected for ${session.projectId}, clearing and retrying...`);
+      await appendRuntimeAction(session.projectId, 'dev-server', 'Next.js cache corruption', {
+        status: 'fixed',
+        error: result.error.substring(0, 500),
+        fix: 'Cleared .next cache contents and restarted dev server',
+      });
       await dockerService.exec(session.agentUrl, 'find .next -mindepth 1 -delete 2>/dev/null || true', '/home/coder/project', 30000).catch(() => {});
       // Wait a moment for filesystem to settle after mass delete
       await new Promise(r => setTimeout(r, 500));
@@ -119,11 +126,57 @@ class DevServerService {
         log.info(`[DevServer] Ready after .next cache clear in ${Date.now() - startTime}ms for ${session.projectId}`);
         return true;
       }
+      await appendRuntimeAction(session.projectId, 'dev-server', 'Dev server failed to start after cache clear', {
+        status: 'failed',
+        error: (retryResult.error || 'unknown').substring(0, 500),
+      });
       throw new Error(retryResult.error || 'Il dev server non è riuscito ad avviarsi.');
     }
 
     log.warn(`[DevServer] Not ready after ${elapsed}ms for ${session.projectId}`);
+    await appendRuntimeAction(session.projectId, 'dev-server', 'Dev server failed to start', {
+      status: 'failed',
+      error: (result.error || 'timeout').substring(0, 500),
+      details: `Timeout after ${elapsed}ms`,
+    });
     throw new Error(result.error || 'Il dev server non è riuscito ad avviarsi.');
+  }
+
+  /**
+   * Clear the .next cache and restart the dev server. Used for runtime recovery
+   * when the log-watcher detects webpack cache corruption errors AFTER the
+   * server has been up and running. Rate-limited externally (log-watcher) to
+   * avoid restart loops.
+   */
+  async clearCacheAndRestart(session: Session, info: ProjectInfo): Promise<boolean> {
+    const { agentUrl } = session;
+    log.info(`[DevServer] Runtime cache clear + restart for ${session.projectId}`);
+    try {
+      // Kill the current dev process
+      await dockerService.exec(agentUrl,
+        `pkill -f 'next dev' 2>/dev/null; pkill -f 'vite' 2>/dev/null; sleep 0.5`,
+        '/home/coder/project', 10000, true,
+      ).catch(() => {});
+
+      // Clear .next cache contents (bind mount — can't rm the dir itself)
+      if (info.type === 'nextjs') {
+        await dockerService.exec(agentUrl,
+          'find /home/coder/project/.next -mindepth 1 -delete 2>/dev/null || true',
+          '/home/coder/project', 10000, true,
+        ).catch(() => {});
+      }
+
+      // Restart the dev server detached
+      await this.startDetached(session, info.startCommand);
+      await new Promise(r => setTimeout(r, 800));
+
+      // Wait briefly for readiness — don't block too long, this is a runtime recovery
+      const result = await this.waitForReady(agentUrl, 30000, 5000);
+      return result.ready;
+    } catch (err: any) {
+      log.warn(`[DevServer] Runtime cache clear + restart failed for ${session.projectId}: ${err.message}`);
+      return false;
+    }
   }
 
   private async startDetached(session: Session, command: string): Promise<void> {
@@ -266,6 +319,15 @@ class DevServerService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Public accessor for the log-watcher. Returns recent runtime logs via
+   * the workspace-agent SSE buffer (the true source of Next.js/Vite dev
+   * output, since their stdout is connected to the agent socket, not a file).
+   */
+  async fetchRecentLogs(agentUrl: string, lines = 100): Promise<string[]> {
+    return this.getRecentLogs(agentUrl, lines);
   }
 
   /**

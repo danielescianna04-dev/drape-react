@@ -3,6 +3,7 @@ import { workspaceService } from './workspace.service';
 import { fileService } from './file.service';
 import { aiProviderService } from './ai-provider.service';
 import { shellEscape } from '../utils/helpers';
+import { appendRuntimeAction } from './build-report.service';
 // sessionService and http removed — proxy CSS check replaced by SSR capture
 
 export interface VerifyResult {
@@ -61,7 +62,7 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
   // Flow: verify → auto-fix → reverify (2 outer attempts).
   // qa-agent.js does internal fix cycles too, but the outer auto-fix handles
   // e2e-check.js fallback cases where qa-agent timed out.
-  const MAX_ATTEMPTS = 2;
+  const MAX_ATTEMPTS = 3;
 
   // ── Verification report accumulator ────────────────────────────────────────
   const verificationReport: any = {
@@ -115,9 +116,19 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
 
     log.info(`[Verify] Project ${projectId} failed on attempt ${attempt + 1}: ${lastResult.errors.length} errors — ${lastResult.errors.slice(0, 3).join('; ')}`);
 
+    await appendRuntimeAction(projectId, 'verify', `Verification attempt ${attempt + 1} failed`, {
+      status: 'failed',
+      error: lastResult.errors.slice(0, 5).join('\n').substring(0, 500),
+      details: `${lastResult.errors.length} error(s) found`,
+    }).catch(() => {});
+
     if (attempt >= MAX_ATTEMPTS - 1) {
       log.warn(`[Verify] Project ${projectId} failed after ${MAX_ATTEMPTS} attempts`);
       verificationReport.backendVerification.attempts.push(attemptRecord);
+      await appendRuntimeAction(projectId, 'verify', 'Verification exhausted all attempts', {
+        status: 'failed',
+        error: `Failed after ${MAX_ATTEMPTS} attempts`,
+      }).catch(() => {});
       break;
     }
 
@@ -130,12 +141,21 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
         filesModified: fixResult.filesModified,
         duration: fixResult.duration,
       }];
+      await appendRuntimeAction(projectId, 'verify', `Auto-fix applied (attempt ${attempt + 1})`, {
+        status: 'fixed',
+        fix: `Modified ${fixResult.filesModified.length} file(s): ${fixResult.filesModified.slice(0, 3).join(', ')}${fixResult.filesModified.length > 3 ? '...' : ''}`,
+        metadata: { filesModified: fixResult.filesModified },
+      }).catch(() => {});
     }
 
     verificationReport.backendVerification.attempts.push(attemptRecord);
 
     if (!fixResult.applied) {
       log.warn(`[Verify] Auto-fix could not apply fixes for ${projectId} on attempt ${attempt + 1} — will retry`);
+      await appendRuntimeAction(projectId, 'verify', `Auto-fix could not apply (attempt ${attempt + 1})`, {
+        status: 'failed',
+        error: 'AI returned no valid fix — will retry',
+      }).catch(() => {});
       continue;
     }
 
@@ -496,11 +516,69 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
       { test: 'Application error', msg: 'Application error on page' },
       { test: 'Internal Server Error', msg: 'Internal server error' },
       { test: 'Unhandled Runtime Error', msg: 'Unhandled runtime error' },
+      // Next.js dev error overlay in HTML
+      { test: '__next_error__', msg: 'Next.js error overlay detected' },
+      { test: 'nextjs-portal', msg: 'Next.js error portal rendered' },
+      { test: '__webpack_modules__', msg: 'Webpack runtime error in page HTML' },
     ];
     for (const { test, msg } of bodyChecks) {
       if (htmlBody.includes(test) && !errors.some(e => e.includes(msg))) {
         errors.push(msg);
       }
+    }
+  }
+
+  // 5. Multi-route verification — force webpack to compile every generated
+  // route. Catches compile errors that only surface when a specific page is
+  // requested (not just the homepage).
+  if (httpCode === '200' || httpCode === '500') {
+    try {
+      const routes = await enumerateRoutes(projectId, userId);
+      if (routes.length > 1) {
+        log.info(`[Verify] Checking ${routes.length} routes: ${routes.slice(0, 10).join(', ')}`);
+        for (const route of routes) {
+          if (route === '/') continue; // already checked
+          try {
+            const r = await workspaceService.exec(projectId, userId,
+              `curl -s -w "\\n%{http_code}" "http://localhost:3000${route}" 2>/dev/null || echo "\\n000"`
+            );
+            const rLines = (r.stdout || '').split('\n');
+            const code = rLines[rLines.length - 1]?.trim() || '000';
+            const body = rLines.slice(0, -1).join('\n');
+
+            if (code === '500') {
+              const errMatch = body.match(/(?:Error|error)[:\s]([^\n<]{10,200})/);
+              errors.push(`[route ${route}] ${errMatch ? errMatch[0] : 'HTTP 500'}`);
+            } else if (code === '404') {
+              errors.push(`[route ${route}] HTTP 404 — route declared but page missing`);
+            } else if (code === '200') {
+              // Check for error overlay / empty root in this route's HTML
+              if (body.includes('__next_error__') || body.includes('nextjs-portal') || body.includes('__webpack_modules__')) {
+                errors.push(`[route ${route}] Error overlay rendered in HTML`);
+              }
+              if (body.includes('<div id="root"></div>') || body.includes('<div id="__next"></div>')) {
+                errors.push(`[route ${route}] Empty root div — no SSR content`);
+              }
+            }
+          } catch { /* skip unreachable routes */ }
+          // Small delay between fetches to avoid overwhelming dev server compile queue
+          await new Promise(r => setTimeout(r, 200));
+        }
+      }
+
+      // Settle wait — let async compilation errors land in the log buffer
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Re-read log buffer after all fetches to catch async errors
+      const settleLog = await workspaceService.exec(projectId, userId,
+        'cat /home/coder/server.log 2>/dev/null | tail -150'
+      );
+      const settleErrors = extractLogErrors(settleLog.stdout || '');
+      for (const e of settleErrors) {
+        if (!errors.some(ex => ex.includes(e.substring(0, 40)))) errors.push(e);
+      }
+    } catch (routeErr: any) {
+      log.warn(`[Verify] Multi-route check failed: ${routeErr.message}`);
     }
   }
 
@@ -517,6 +595,48 @@ async function verify(projectId: string, userId: string): Promise<VerifyResult> 
   return { passed, errors, screenshots, serverLog, pages, navigation, qaReport };
 }
 
+/**
+ * Enumerate all routes declared in the generated project.
+ * Next.js: scan app folder recursively for page.tsx files.
+ * React/Vite: parse App.tsx for Route path entries.
+ * Returns deduped list, always includes the root path.
+ */
+async function enumerateRoutes(projectId: string, userId: string): Promise<string[]> {
+  const routes = new Set<string>(['/']);
+  try {
+    // Next.js app router: find page files
+    const nextPages = await workspaceService.exec(projectId, userId,
+      `find /home/coder/project/app \\( -name 'page.tsx' -o -name 'page.jsx' -o -name 'page.ts' -o -name 'page.js' \\) 2>/dev/null | head -30`
+    );
+    for (const line of (nextPages.stdout || '').split('\n').filter(Boolean)) {
+      // Strip /home/coder/project/app prefix and /page.tsx suffix → route path
+      const route = line
+        .replace('/home/coder/project/app', '')
+        .replace(/\/page\.[tj]sx?$/, '')
+        .replace(/\([^)]+\)\//g, '')           // strip route groups (auth)/...
+        .replace(/\[([^\]]+)\]/g, '__PARAM__'); // placeholder for dynamic segments
+      // Skip routes with dynamic segments (can't fetch without real data)
+      if (route.includes('__PARAM__')) continue;
+      if (route === '') routes.add('/');
+      else routes.add(route);
+    }
+
+    // React/Vite: parse App.tsx for <Route path="...">
+    const appFiles = ['src/App.tsx', 'src/App.jsx', 'src/app.tsx'];
+    for (const f of appFiles) {
+      try {
+        const content = await workspaceService.exec(projectId, userId, `cat /home/coder/project/${f} 2>/dev/null`);
+        const routeMatches = (content.stdout || '').matchAll(/<Route\s+path=["']([^"']+)["']/g);
+        for (const m of routeMatches) {
+          const p = m[1];
+          if (p && !p.includes(':') && !p.includes('*')) routes.add(p.startsWith('/') ? p : `/${p}`);
+        }
+      } catch { /* skip */ }
+    }
+  } catch {}
+  return Array.from(routes).slice(0, 20); // cap to 20 routes
+}
+
 // ── Extract errors from server log ──────────────────────────────────────────
 
 function extractLogErrors(serverLog: string): string[] {
@@ -529,6 +649,22 @@ function extractLogErrors(serverLog: string): string[] {
     /Hydration failed[^\n]*/gi,
     /Invalid src prop[^\n]*/gi,
     /Module build failed[^\n]*/gi,
+    // Webpack runtime errors — usually caused by stale .next cache or HMR corruption
+    /__webpack_modules__\[[^\]]+\] is not a function/g,
+    /__webpack_require__\([^)]+\) is not a function/g,
+    /Loading chunk \d+ failed[^\n]*/g,
+    /ChunkLoadError[^\n]*/g,
+    // Next.js specific
+    /Cannot find module '\.\/\d+\.js'/g,
+    /ENOENT[^\n]*routes-manifest\.json/g,
+    /ENOENT[^\n]*middleware-manifest\.json/g,
+    /next\/dist\/compiled\/[^\s'"]+' not found/g,
+    // React runtime errors
+    /Warning:\s*(Each child[^\n]*|React has detected[^\n]*)/g,
+    /Objects are not valid as a React child[^\n]*/g,
+    // Async errors that bubble up via SSE
+    /Unhandled Runtime Error[^\n]*/g,
+    /unhandledRejection[^\n]*/g,
   ];
 
   for (const pattern of patterns) {
@@ -598,10 +734,85 @@ async function autoFix(
       }
     }
 
-    // For navigation errors OR dead interactive elements: read all pages + state
+    // For navigation errors, dead clicks, route failures, OR module resolution errors:
+    // read all pages + state. Module errors rarely have file paths in them, so we
+    // need to load everything to give the AI enough context.
     const hasNavErrors = result.errors.some(e => e.includes('[nav]'));
     const hasDeadClicks = result.errors.some(e => e.includes('Dead interactive element'));
-    if (hasNavErrors || hasDeadClicks) {
+    const hasRouteErrors = result.errors.some(e => e.match(/\[route \//));
+    const hasModuleErrors = result.errors.some(e =>
+      /Can't resolve|Cannot find module|Module not found|Module not resolved|next\/dist\/pages|next-flight-client-entry-loader/.test(e)
+    );
+    const hasRedirectErrors = result.errors.some(e => /redirect.*loop|redirect.*back to/i.test(e));
+
+    // For redirect loops: load middleware.ts (common auth guard source) + involved pages
+    if (hasRedirectErrors) {
+      for (const f of ['middleware.ts', 'middleware.js']) {
+        if (brokenFiles.some(bf => bf.path === f)) continue;
+        try {
+          const r = await workspaceService.exec(projectId, userId, `cat /home/coder/project/${f} 2>/dev/null`);
+          if (r.stdout) brokenFiles.push({ path: f, content: r.stdout });
+        } catch {}
+      }
+      // Extract page name from redirect error and load that page
+      for (const err of result.errors) {
+        const redirectMatch = err.match(/redirect.*(?:loop|back to).*\/([\w-]+)/i);
+        if (redirectMatch) {
+          const page = redirectMatch[1];
+          for (const p of [`app/${page}/page.tsx`, `app/${page}/page.jsx`, `app/(${page})/page.tsx`]) {
+            if (brokenFiles.some(f => f.path === p)) continue;
+            try {
+              const r = await workspaceService.exec(projectId, userId, `cat /home/coder/project/${p} 2>/dev/null`);
+              if (r.stdout) { brokenFiles.push({ path: p, content: r.stdout }); break; }
+            } catch {}
+          }
+        }
+      }
+    }
+
+    // Extract module specifiers from "Can't resolve 'X'" errors and grep-find
+    // which files are importing them — those files need the fix.
+    for (const err of result.errors) {
+      const specMatch = err.match(/Can't resolve ['"]([^'"]+)['"]|Cannot find module ['"]([^'"]+)['"]/);
+      const spec = specMatch?.[1] || specMatch?.[2];
+      if (!spec) continue;
+      try {
+        // Escape regex meta-chars in the spec for safe grep
+        const safeSpec = spec.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const grep = await workspaceService.exec(projectId, userId,
+          `grep -rln --include='*.tsx' --include='*.ts' --include='*.jsx' --include='*.js' ${shellEscape(safeSpec)} /home/coder/project/app /home/coder/project/src /home/coder/project/components 2>/dev/null | head -5`
+        );
+        for (const line of (grep.stdout || '').split('\n').filter(Boolean)) {
+          const relPath = line.replace('/home/coder/project/', '');
+          if (PROTECTED_FILES.has(relPath) || brokenFiles.some(f => f.path === relPath)) continue;
+          try {
+            const content = await workspaceService.exec(projectId, userId, `cat ${shellEscape(line)} 2>/dev/null`);
+            if (content.stdout) brokenFiles.push({ path: relPath, content: content.stdout });
+          } catch {}
+        }
+      } catch {}
+    }
+    // Also try to pull specific files referenced by [route /xxx] errors
+    for (const err of result.errors) {
+      const routeMatch = err.match(/\[route (\/[a-zA-Z0-9_/-]*)\]/);
+      if (routeMatch) {
+        const route = routeMatch[1];
+        const candidates = route === '/'
+          ? ['app/page.tsx', 'app/page.jsx', 'src/pages/Index.tsx', 'src/App.tsx']
+          : [`app${route}/page.tsx`, `app${route}/page.jsx`, `src/pages${route}.tsx`, `src/pages${route}/index.tsx`];
+        for (const cand of candidates) {
+          if (brokenFiles.some(f => f.path === cand)) continue;
+          try {
+            const content = await workspaceService.exec(projectId, userId, `cat ${shellEscape(`/home/coder/project/${cand}`)} 2>/dev/null`);
+            if (content.stdout) {
+              brokenFiles.push({ path: cand, content: content.stdout });
+              break;
+            }
+          } catch {}
+        }
+      }
+    }
+    if (hasNavErrors || hasDeadClicks || hasRouteErrors || hasModuleErrors) {
       // Read all page/component files to understand navigation flow + wiring
       try {
         const findResult = await workspaceService.exec(projectId, userId,
@@ -681,6 +892,13 @@ Rules:
   NEVER leave onClick={() => {}} or onClick={()=>console.log()} — if you can't wire it, REMOVE the element from JSX entirely
 - The error message format is: "Dead interactive element: <type> \"<text>\" on page <path> — ..." — read that page file and FIX the specific element by its text label
 - For redirect loops (page X redirects to page Y): the guard/redirect logic doesn't persist state. Fix by using localStorage or cookies to persist auth/profile state across navigations, not just React state
+- For "[route /xxx] HTTP 500" or "[route /xxx] Module not found": a sub-route page is broken. Common fix: the relative import path is wrong. If app/page.tsx uses './components/ui/button' (works from root), app/contatti/page.tsx needs '../components/ui/button' (go up one level) OR use the absolute alias '@/components/ui/button'. PREFER absolute imports with @/ for all pages — never mix relative paths across directory depths.
+- For "FiCalendar is not defined" or any icon ReferenceError: the JSX uses a react-icons component that isn't in the import statement. Add it to the import: import { FiArrowRight, FiCalendar, ... } from 'react-icons/fi'
+- For "Can't resolve '@/lib/store'" or similar missing user module: EITHER create the missing file (e.g., lib/store.ts with a proper zustand/context store) OR remove the import and inline the state with useState. Pick the simpler option.
+- For "Can't resolve 'next/dist/pages/_app'" or any 'next/dist/pages/*' import: this is PAGES ROUTER syntax in an APP ROUTER project. REMOVE the import entirely. App router has no _app.tsx — use app/layout.tsx instead. If user code imports App from next/dist/pages/_app, delete that line and replace it with whatever the code actually needs from app/layout.tsx.
+- For "Can't resolve 'next-flight-client-entry-loader'" or similar next.js internal loader errors: the project has a corrupt .next cache or invalid webpack config. The fix is NOT in user code — trust the backend to handle it via cache clear. DO NOT modify next.config.ts or webpack config. Instead, check if any user file imports from 'next/dist/build' or 'next/dist/compiled' — remove those imports.
+- For 'use client' errors or "React hook used in server component": add 'use client' at the top of the file (line 1, before all imports).
+- For JSON.parse SyntaxError "Unexpected end of JSON input": code is calling JSON.parse(localStorage.getItem('x')) without a fallback. The value is null or empty. Fix: JSON.parse(localStorage.getItem('x') || '[]') or JSON.parse(localStorage.getItem('x') || '{}'). Always provide a default for JSON.parse on localStorage/sessionStorage/fetch results.
 - For pages that redirect to a selection screen: ensure the selection state persists in localStorage so the guard check passes after page reload
 - Return valid JSON only`;
 

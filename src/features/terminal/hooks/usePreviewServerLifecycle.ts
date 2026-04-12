@@ -780,16 +780,30 @@ export function usePreviewServerLifecycle({
         let dataBuffer = '';
         let readyReceived = false;
         let errorReceived = false;
-        const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB safety limit
+        const MAX_RESPONSE_SIZE = 2 * 1024 * 1024; // 2MB — lower limit to prevent RangeError cascade
 
         const processResponse = () => {
-          // Safety: abort if response grows too large to prevent String length crash
-          if (xhr.responseText && xhr.responseText.length > MAX_RESPONSE_SIZE) {
-            console.warn('[Preview:SSE] Response too large, truncating');
-            lastIndex = xhr.responseText.length;
+          // Safety: abort connection if response grows too large.
+          // Must try-catch because xhr.responseText.length itself throws
+          // RangeError when the string exceeds V8's ~512MB limit.
+          try {
+            if (xhr.responseText && xhr.responseText.length > MAX_RESPONSE_SIZE) {
+              console.warn('[Preview:SSE] Response too large, aborting SSE connection');
+              try { xhr.abort(); } catch {}
+              return;
+            }
+          } catch (e) {
+            console.warn('[Preview:SSE] String limit exceeded, aborting');
+            try { xhr.abort(); } catch {}
             return;
           }
-          const newData = xhr.responseText.substring(lastIndex);
+          let newData: string;
+          try {
+            newData = xhr.responseText.substring(lastIndex);
+          } catch (e) {
+            try { xhr.abort(); } catch {}
+            return;
+          }
           if (!newData) return;
           lastIndex = xhr.responseText.length;
           dataBuffer += newData;
@@ -1496,18 +1510,30 @@ export function usePreviewServerLifecycle({
         xhr.setRequestHeader('Authorization', `Bearer ${logsAuthToken}`);
       }
 
-      const LOG_MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB safety limit
+      const LOG_MAX_RESPONSE_SIZE = 2 * 1024 * 1024; // 2MB — prevent RangeError cascade
 
       xhr.onprogress = () => {
-        // Safety: skip processing if response is too large to prevent String length crash
-        if (xhr.responseText && xhr.responseText.length > LOG_MAX_RESPONSE_SIZE) {
-          if (lastIndex < xhr.responseText.length) {
-            console.warn('[Preview:Logs] Response too large, skipping to end');
-            lastIndex = xhr.responseText.length;
+        // Safety: abort connection if response grows too large.
+        // try-catch because xhr.responseText.length itself throws RangeError
+        // when the string exceeds V8's limit.
+        try {
+          if (xhr.responseText && xhr.responseText.length > LOG_MAX_RESPONSE_SIZE) {
+            console.warn('[Preview:Logs] Response too large, aborting log stream');
+            try { xhr.abort(); } catch {}
+            return;
           }
+        } catch (e) {
+          console.warn('[Preview:Logs] String limit exceeded, aborting');
+          try { xhr.abort(); } catch {}
           return;
         }
-        const newData = xhr.responseText.substring(lastIndex);
+        let newData: string;
+        try {
+          newData = xhr.responseText.substring(lastIndex);
+        } catch (e) {
+          try { xhr.abort(); } catch {}
+          return;
+        }
         if (!newData) return;
         lastIndex = xhr.responseText.length;
         dataBuffer += newData;

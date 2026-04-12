@@ -38,6 +38,7 @@ const AI_PRICING: Record<string, { input: number; output: number; cachedInput: n
   'gpt-5-3':                 { input: 2.00,  output: 8.00,  cachedInput: 0.50 },
   'llama-3.3-70b':           { input: 0.59,  output: 0.79,  cachedInput: 0.15 },
   'llama-3.1-8b':            { input: 0.05,  output: 0.08,  cachedInput: 0.01 },
+  'glm-5.1':                 { input: 0.95,  output: 3.15,  cachedInput: 0.24 },
 };
 
 type PreviewContext = {

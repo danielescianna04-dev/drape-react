@@ -56,11 +56,12 @@ REACT (VITE) SPECIFIC:
 - APP.TSX STRUCTURE: App.tsx must ONLY contain <Routes> with <Route> elements pointing to page components. NEVER put page content directly in App.tsx. Example:
   import Home from './pages/Home'; import Profile from './pages/Profile';
   export default function App() { return (<Routes><Route path="/" element={<Home />} /><Route path="/profile" element={<Profile />} /></Routes>); }
-- PRE-INSTALLED UI: Button, Card, Input, Badge, Dialog, Avatar, Tabs, Skeleton in src/components/ui/. cn() in src/lib/utils.ts. USE THEM — don't recreate.
+- PRE-INSTALLED UI: Button, Card, Input, Badge, Dialog, Avatar, Tabs, Skeleton, SafeButton, SafeLink in src/components/ui/. cn() in src/lib/utils.ts. USE THEM — don't recreate.
+- MANDATORY: Use SafeButton instead of Button for ALL interactive buttons. SafeButton warns when onClick is missing. Use SafeLink instead of Link for ALL navigation. SafeLink warns when "to" is empty. Import: import { SafeButton } from '@/components/ui/safe-button'; import { SafeLink } from '@/components/ui/safe-link';
 - EVERY page goes in src/pages/ as a separate file. MINIMUM 3 pages with real content.
 - Reusable components go in src/components/
 - State: useState for local, useContext + createContext for shared state
-- Routing: <Link to="/path">, useNavigate(), useParams()
+- Routing: <SafeLink to="/path">, useNavigate(), useParams()
 - Images: <img> tag directly
 - react-hot-toast is installed — use toast('message') for notifications
 - react-icons is installed — import from 'react-icons/fi' (Feather icons)`,
@@ -69,7 +70,8 @@ REACT (VITE) SPECIFIC:
 NEXT.JS (APP ROUTER) SPECIFIC:
 - Stack: Next.js 15 App Router + React 19 + Tailwind CSS + shadcn-style UI
 - Layout: app/layout.tsx is MINIMAL. YOU generate the full layout with your components.
-- PRE-INSTALLED UI: Button, Card, Input, Badge, Dialog, Avatar, Tabs, Skeleton in app/components/ui/. cn() in app/lib/utils.ts. USE THEM — don't recreate.
+- PRE-INSTALLED UI: Button, Card, Input, Badge, Dialog, Avatar, Tabs, Skeleton, SafeButton, SafeLink in app/components/ui/. cn() in app/lib/utils.ts. USE THEM — don't recreate.
+- MANDATORY: Use SafeButton instead of Button for ALL interactive buttons. SafeButton warns when onClick is missing. Use SafeLink instead of next/link for ALL navigation links. SafeLink warns when href is empty. Import: import { SafeButton } from '@/components/ui/safe-button'; import { SafeLink } from '@/components/ui/safe-link';
 - Pages: app/{route}/page.tsx — server components by default
 - 'use client': ONLY for files using useState, useEffect, onClick, or any hook
 - Tailwind CSS: Use v3 syntax ONLY (@tailwind base/components/utilities, CSS variables in :root). NEVER use v4 syntax (@import "tailwindcss", @theme inline)
@@ -80,18 +82,27 @@ NEXT.JS (APP ROUTER) SPECIFIC:
 - Metadata: export const metadata = { title, description } per page
 - Images: ALWAYS use <img> tag, NEVER <Image> from next/image
 - Dynamic routes: app/[id]/page.tsx with params prop
-- react-icons installed — import from 'react-icons/fi'`,
+- react-icons installed — import from 'react-icons/fi'
+- IMPORT PATHS — USE ABSOLUTE ALIASES ALWAYS, NEVER RELATIVE ACROSS DIRECTORIES:
+  • USE: \`import { Button } from '@/components/ui/button'\` — works from any depth (root page, sub-pages, nested routes)
+  • NEVER: \`import { Button } from './components/ui/button'\` from a sub-route like app/contatti/page.tsx (resolves to app/contatti/components/ui/button which doesn't exist)
+  • The @/ alias is configured: @/components/* → app/components/*, @/lib/* → lib/*, @/hooks/* → app/hooks/*
+  • Mixing relative paths breaks sub-routes even if root works. Always prefer @/ for cross-file imports.
+- ICON IMPORTS — EVERY icon component used in JSX MUST be listed in the import statement. If you write \`<FiCalendar />\`, add \`FiCalendar\` to \`import { ... } from 'react-icons/fi'\`. Before finishing a file, scan its JSX for Fi/Lu/Md prefixed components and ensure all are imported.
+- NEVER use PAGES ROUTER imports. This project uses APP ROUTER exclusively. FORBIDDEN imports: \`next/dist/pages/_app\`, \`next/dist/pages/_document\`, \`next/app\`, \`next/document\`. There is NO _app.tsx or _document.tsx — layouts go in app/layout.tsx, metadata via \`export const metadata\`. Never import from next/dist/* (those are Next.js internals, not public API).
+- JSON.parse SAFETY — every \`JSON.parse(localStorage.getItem('x'))\`, \`JSON.parse(sessionStorage.getItem('x'))\`, or \`JSON.parse(cookieValue)\` MUST have a fallback to prevent "Unexpected end of JSON input" when the key is empty. USE: \`JSON.parse(localStorage.getItem('cart') || '[]')\` for arrays, \`JSON.parse(localStorage.getItem('user') || 'null')\` for nullable objects, \`JSON.parse(localStorage.getItem('settings') || '{}')\` for objects.`,
 
   vue: `
 VUE 3 (COMPOSITION API) SPECIFIC:
 - Stack: Vue 3.5 + Vite + Tailwind CSS + Vue Router + shadcn-style UI
 - Layout: App.vue is MINIMAL (just RouterView). YOU generate all pages.
-- PRE-INSTALLED UI: Button.vue, Card.vue, Input.vue, Badge.vue, Dialog.vue, Avatar.vue, Tabs.vue, Skeleton.vue in src/components/ui/. cn() in src/lib/utils.ts.
+- PRE-INSTALLED UI: Button.vue, Card.vue, Input.vue, Badge.vue, Dialog.vue, Avatar.vue, Tabs.vue, Skeleton.vue, SafeButton.vue, SafeLink.vue in src/components/. cn() in src/lib/utils.ts.
+- MANDATORY: Use <SafeButton @click="handler"> instead of <button> for ALL interactive buttons. Use <SafeLink to="/path"> instead of <RouterLink>. They warn when handlers are missing.
 - Pages in src/views/, register in src/router/index.ts
 - ALWAYS use <script setup lang="ts">
 - State: ref(), computed(), watch(), onMounted()
 - Shared state: provide/inject or composables (src/composables/)
-- Router: <RouterLink to="/path">, useRouter().push(), useRoute().params
+- Router: <SafeLink to="/path">, useRouter().push(), useRoute().params
 - Icons: import { Icon } from '@iconify/vue'; <Icon icon="mdi:home" />`,
 
   astro: `
@@ -101,7 +112,9 @@ ASTRO 5 SPECIFIC:
 - Pages: src/pages/*.astro — frontmatter between --- fences
 - Static by default, zero JS shipped
 - Interactive islands: Add client:load to React/Svelte components
+- PRE-INSTALLED: SafeButton.tsx in src/components/ui/ — use for React island buttons with onClick check
 - Components: src/components/*.astro for static, *.tsx for interactive
+- MANDATORY: For interactive React island buttons, use SafeButton: import { SafeButton } from '../components/ui/SafeButton'; <SafeButton client:load onClick={handler}>Label</SafeButton>
 - Dynamic routes: src/pages/[slug].astro with Astro.params.slug
 - For icons: use inline SVG`,
 
@@ -110,6 +123,8 @@ HTML/CSS/JS (VANILLA) SPECIFIC:
 - NO framework, NO build tools — pure HTML + CSS + JS
 - Each page is a separate .html file
 - style.css for all styles, script.js for all JS
+- drape-check.js is PRE-INSTALLED — it scans the DOM for buttons without onclick and links with href="#". Include it in every HTML page: <script src="drape-check.js"></script> before </body>
+- MANDATORY: Every <button> MUST have an onclick attribute with a real function. Every <a> MUST have a real href (not "#" or ""). If you can't wire it, don't render it.
 - Use CSS Grid + Flexbox, CSS transitions
 - Use fetch() for API calls, DOM manipulation for dynamic content
 - For icons: use inline SVG`,
@@ -125,7 +140,10 @@ REACT NATIVE (EXPO) SPECIFIC:
 - Layout: SafeAreaView root, ScrollView/FlatList for content
 - Lists: FlatList (not ScrollView + map)
 - Navigation: router.push('/details/123') from expo-router
-- Pressable preferred over TouchableOpacity`,
+- PRE-INSTALLED: SafePressable and SafeButton in components/SafePressable.tsx — use for ALL interactive elements
+- MANDATORY: Use <SafeButton title="Label" onPress={handler} /> instead of raw <Pressable> or <TouchableOpacity> for buttons. Use <SafePressable onPress={handler}> for custom pressable areas. They warn when onPress is missing. Import: import { SafeButton, SafePressable } from '../components/SafePressable';
+- CRITICAL DEPENDENCY RULE: NEVER use \`npm install\` or \`bun add\` for expo-* packages. ALWAYS use \`npx expo install <package>\` — it auto-resolves the version compatible with the current SDK. Example: \`npx expo install expo-blur expo-haptics expo-image-picker\`. Using npm/bun installs the LATEST version which may be incompatible with the SDK and cause runtime crashes like "data.type is not an object".
+- This project uses Expo SDK 52. Do NOT install expo-* packages with version ^55 or ^54 — they are incompatible. Let \`npx expo install\` handle versioning.`,
 };
 
 /** Build the system prompt for project creation AI */

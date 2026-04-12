@@ -6,6 +6,7 @@ import { log } from '../utils/logger';
 import { Session, ProjectInfo, ExecResult } from '../types';
 import { dockerService } from './docker.service';
 import { shellEscape } from '../utils/helpers';
+import { appendRuntimeAction } from './build-report.service';
 
 const NODE_MODULES_CACHE_DIR = '/data/cache/node-modules';
 const HASH_FILE = '.package-json-hash';
@@ -151,7 +152,16 @@ class DependencyService {
     onProgress?.(`Cleaning up and running ${info.packageManager || 'npm'} install...`);
     await this.cleanupBeforeRetry(agentUrl);
     const installCmd = info.installCommand || 'npm install';
-    await this.runInstallWithRetry(agentUrl, installCmd, onProgress, onLog);
+    try {
+      await this.runInstallWithRetry(agentUrl, installCmd, onProgress, onLog);
+    } catch (err: any) {
+      await appendRuntimeAction(projectId, 'install', 'Dependency install failed', {
+        status: 'failed',
+        error: (err?.message || 'unknown').substring(0, 500),
+        details: `Install command: ${installCmd}`,
+      }).catch(() => {});
+      throw err;
+    }
 
     log.info(`[Deps] Install completed in ${Date.now() - startTime}ms`);
     onProgress?.('Dependency install completed');

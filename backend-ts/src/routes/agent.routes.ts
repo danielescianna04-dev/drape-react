@@ -433,6 +433,35 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
         }
       }
 
+      // 2b. Full verify + autoFix (multi-route compile check, autoFix loop).
+      // This runs AFTER the simple curl check above because the curl check handles
+      // the obvious "blank page" case. The full verify catches subtle errors like
+      // syntax errors, failed imports, wrong relative paths — things the AI's own
+      // self-check missed.
+      if (previewOk && !clientDisconnected && !res.writableEnded) {
+        writeSseEvent('status', { type: 'status', message: 'Verifying all routes...', phase: 'verify' });
+        try {
+          const vr = await verifyAndFixProject({
+            projectId,
+            userId,
+            technology: (session?.projectInfo?.type as string) || 'nextjs',
+            onProgress: (_pct, msg) => {
+              if (!clientDisconnected && !res.writableEnded) {
+                writeSseEvent('status', { type: 'status', message: msg, phase: 'verify' });
+              }
+            },
+          });
+          if (!vr.passed) {
+            log.warn(`[Agent] Verify found ${vr.errors.length} issues post-gen: ${vr.errors.slice(0, 3).join('; ')}`);
+            previewOk = false; // demote to failed so buildReport reflects it
+          } else {
+            log.info(`[Agent] Full verify passed for ${projectId}`);
+          }
+        } catch (verifyErr: any) {
+          log.warn(`[Agent] Full verify threw: ${verifyErr.message}`);
+        }
+      }
+
       // 3. Finalize build report
       const now = new Date().toISOString();
       let existingReport: any = null;

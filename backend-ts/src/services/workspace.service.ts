@@ -8,6 +8,8 @@ import { projectDetectorService } from './project-detector.service';
 import { dependencyService } from './dependency.service';
 import { devServerService } from './dev-server.service';
 import { containerLifecycleService } from './container-lifecycle.service';
+import { logWatcherService } from './log-watcher.service';
+import { appendRuntimeAction } from './build-report.service';
 import { caseSensitivityService } from './case-sensitivity.service';
 import { execShell, shellEscape } from '../utils/helpers';
 import { config } from '../config';
@@ -59,6 +61,7 @@ class WorkspaceService {
         for (const evict of toEvict) {
           log.info(`[Workspace] Evicting LRU container for ${userId}: ${evict.projectId}`);
           fileWatcherService.stopWatching(evict.projectId);
+          logWatcherService.stop(evict.projectId);
           await devServerService.stop(evict).catch(() => {});
           await containerLifecycleService.destroy(evict.projectId, userId).catch(e =>
             log.warn(`[Workspace] Failed to evict ${evict.projectId}: ${e.message}`)
@@ -217,9 +220,18 @@ class WorkspaceService {
         session.preparedAt = Date.now();
         await sessionService.set(projectId, userId, session);
 
+        // Begin tailing the container's server.log for runtime errors.
+        // Errors will be appended to .drape/build-report.json and surfaced
+        // in the project history UI.
+        logWatcherService.start(projectId, session.agentUrl);
+
         log.info(`[Workspace] Warming complete for ${projectId}`);
       } catch (e: any) {
         log.error(`[Workspace] Background warming failed for ${projectId}: ${e.message}`);
+        await appendRuntimeAction(projectId, 'warming', 'Warming failed', {
+          status: 'failed',
+          error: (e.message || 'unknown').substring(0, 500),
+        }).catch(() => {});
       }
     });
 
@@ -458,7 +470,7 @@ class WorkspaceService {
           if (appError) {
             log.warn(`[Workspace] Fast path: app broken for ${projectId}: ${appError.substring(0, 100)}`);
             // Next.js cache corruption — clear contents and fall through to slow path
-            if (/Modulo non trovato: \.\/\d+\.js|Cannot find module '\.\/\d+\.js'|routes-manifest\.json|middleware-manifest\.json|webpack\/[^']+\.pack\.gz|MODULE_NOT_FOUND.*next\/dist\/server/.test(appError)) {
+            if (/Modulo non trovato: \.\/\d+\.js|Cannot find module '\.\/\d+\.js'|routes-manifest\.json|middleware-manifest\.json|webpack\/[^']+\.pack\.gz|MODULE_NOT_FOUND.*next\/dist\/server|__webpack_modules__\[[^\]]+\] is not a function|__webpack_require__\([^)]+\) is not a function|Loading chunk \d+ failed/.test(appError)) {
               log.warn(`[Workspace] Next.js cache corruption detected, clearing and restarting for ${projectId}`);
               await devServerService.stop(existingSession).catch(() => {});
               await dockerService.exec(existingSession.agentUrl, 'find .next -mindepth 1 -delete 2>/dev/null || true', '/home/coder/project', 30000, true).catch(() => {});
@@ -567,6 +579,7 @@ class WorkspaceService {
    */
   async release(projectId: string, userId: string): Promise<void> {
     fileWatcherService.stopWatching(projectId);
+    logWatcherService.stop(projectId);
     // Kill dev server before destroying container
     const session = await sessionService.get(projectId, userId);
     if (session) {

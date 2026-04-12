@@ -344,6 +344,50 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         </SectionHeader>
       )}
 
+      {/* ═══ RUNTIME & ERRORI ═══ */}
+      {(() => {
+        const runtimeActions = (report?.actions || []).filter(a =>
+          ['runtime', 'dev-server', 'compile', 'install', 'warming', 'verify', 'database'].includes(a.step || '')
+          && a.status !== 'completed'
+        );
+        if (runtimeActions.length === 0) return null;
+        const errorCount = runtimeActions.filter(a => a.status === 'failed').length;
+        const fixedCount = runtimeActions.filter(a => a.status === 'fixed').length;
+        return (
+          <SectionHeader
+            icon="pulse-outline"
+            iconColor={errorCount > 0 ? '#EF4444' : '#F59E0B'}
+            title={`Runtime & Errori (${runtimeActions.length})`}
+            time={errorCount > 0 ? `${errorCount} errore${errorCount > 1 ? 'i' : ''}, ${fixedCount} risolt${fixedCount > 1 ? 'i' : 'o'}` : `${fixedCount} warning`}
+          >
+            {runtimeActions.map(a => (
+              <View key={a.id} style={a.status === 'failed' ? st.errorItem : st.successItem}>
+                <Ionicons
+                  name={a.status === 'failed' ? 'warning-outline' : 'checkmark-circle'}
+                  size={14}
+                  color={a.status === 'failed' ? '#EF4444' : '#22C55E'}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={a.status === 'failed' ? st.errorItemText : st.successItemText}>
+                    [{a.step}] {a.title}
+                  </Text>
+                  {a.error && (
+                    <Text style={[st.monoItem, { fontSize: 10, opacity: 0.7, marginTop: 2 }]} numberOfLines={3}>
+                      {a.error.substring(0, 200)}
+                    </Text>
+                  )}
+                  {a.fix && (
+                    <Text style={[st.monoItem, { fontSize: 10, color: '#22C55E', marginTop: 2 }]}>
+                      ✓ {a.fix}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            ))}
+          </SectionHeader>
+        );
+      })()}
+
       {/* ═══ CHAT SESSIONS ═══ */}
       {report?.chatSessions?.map(chat => (
         <SectionHeader
