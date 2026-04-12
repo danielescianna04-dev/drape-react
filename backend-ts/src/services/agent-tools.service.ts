@@ -352,6 +352,20 @@ class AgentToolsService {
       if (/onclick\s*=\s*["']\s*["']/.test(content)) {
         issues.push('DEAD BUTTON: Empty onclick="" attribute — add a real JavaScript function call');
       }
+      // alert() used as action — should use toast instead
+      if (/\balert\s*\(/.test(content) && !/Alert\.alert/.test(content)) {
+        issues.push('DEAD BUTTON: Using alert() for feedback — replace with toast() or toast.success(). alert() blocks the UI and feels broken.');
+      }
+      // Invalid Feather icons (Fi* not in safe list)
+      const SAFE_FI_ICONS = new Set(['FiHome','FiSearch','FiHeart','FiSettings','FiUser','FiMenu','FiX','FiPlus','FiMinus','FiCheck','FiChevronDown','FiChevronUp','FiChevronLeft','FiChevronRight','FiArrowLeft','FiArrowRight','FiEdit','FiTrash2','FiStar','FiShoppingCart','FiShoppingBag','FiFilter','FiCalendar','FiClock','FiMapPin','FiMail','FiPhone','FiGlobe','FiCamera','FiImage','FiPlay','FiDownload','FiShare2','FiCopy','FiSave','FiRefreshCw','FiExternalLink','FiLink','FiBookmark','FiTag','FiFolder','FiFile','FiMessageCircle','FiSend','FiBell','FiAlertCircle','FiInfo','FiEye','FiEyeOff','FiLock','FiLogIn','FiLogOut','FiUserPlus','FiUsers','FiAward','FiTrendingUp','FiBarChart2','FiActivity','FiZap','FiSun','FiMoon','FiCoffee','FiGift','FiDollarSign','FiCreditCard','FiTarget','FiLayers','FiGrid','FiList','FiMoreHorizontal','FiSliders','FiWifi','FiSmartphone','FiCode','FiDatabase','FiGithub','FiMoreVertical','FiPaperclip','FiInbox','FiArchive','FiHash','FiType','FiAlignLeft','FiAlignCenter','FiAlignRight','FiBold','FiItalic','FiUnderline','FiMaximize','FiMinimize','FiVolume','FiVolume2','FiPause','FiSkipBack','FiSkipForward','FiRepeat','FiShuffle','FiUpload','FiPower','FiTerminal','FiPackage','FiFeather','FiDroplet','FiMap','FiNavigation','FiCompass','FiAnchor','FiCrosshair','FiWind','FiSunrise','FiSunset','FiCloudRain','FiUmbrella','FiThermometer']);
+      const fiImportMatch = content.match(/import\s*\{([^}]+)\}\s*from\s*['"]react-icons\/fi['"]/);
+      if (fiImportMatch) {
+        const imported = fiImportMatch[1].split(',').map(s => s.trim()).filter(Boolean);
+        const invalid = imported.filter(name => !SAFE_FI_ICONS.has(name));
+        if (invalid.length > 0) {
+          issues.push(`CRASH: Invalid icon imports: ${invalid.join(', ')} — these DO NOT EXIST in react-icons/fi. Use ONLY icons from the safe list. Replace with: FiCheck, FiMoreHorizontal, FiStar, etc.`);
+        }
+      }
 
       if (issues.length > 0) {
         warnings = `\n\n⚠️ STATIC ANALYSIS WARNINGS (fix these now):\n${issues.map((w, i) => `${i + 1}. ${w}`).join('\n')}`;
