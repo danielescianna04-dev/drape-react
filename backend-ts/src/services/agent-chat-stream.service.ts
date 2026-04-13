@@ -1,6 +1,9 @@
 import Docker from 'dockerode';
 import { metricsService } from './metrics.service';
 import { streamOpenCodeFromContainer } from './opencode-adapter.service';
+import { opencodeContextService } from './opencode-context.service';
+import { loadConversation, saveConversation } from './conversation-store';
+import type { ChatMessage } from './ai-provider.service';
 import { log } from '../utils/logger';
 
 interface PreviewContext {
@@ -39,17 +42,66 @@ export async function runAgentChatStream({
   isClientConnected,
   writeSseEvent,
 }: RunAgentChatStreamParams) {
-  const fullPrompt = buildAgentPromptWithPreviewContext(prompt, previewContext);
+  const startedAt = Date.now();
   const usedModel = model || 'gemini-3-flash';
-  const sessionId = `project-${projectId}`;
+  const preparedRun = await opencodeContextService.prepareRun({
+    projectId,
+    userId,
+    prompt,
+    previewContext,
+  });
+  const fullPrompt = preparedRun.prompt;
+  const sessionId = preparedRun.sessionId;
+  const promptForState = buildAgentPromptWithPreviewContext(prompt, previewContext);
+  let finalAssistantText = '';
+  let lastInputTokens = 0;
+  let lastOutputTokens = 0;
+  let lastCostEur = 0;
+  const toolTranscript: string[] = [];
+  const toolDigests: Array<{ tool: string; content: string }> = [];
 
   const streamToClient = (event: any) => {
     if (!isClientConnected()) return;
     const eventType = event.type || 'message';
     writeSseEvent(eventType, event.data || event);
 
+    if (event.type === 'text_delta') {
+      const textChunk = typeof event.data?.text === 'string'
+        ? event.data.text
+        : typeof event.text === 'string'
+          ? event.text
+          : '';
+      if (textChunk) {
+        finalAssistantText += textChunk;
+      }
+    }
+
+    if (event.type === 'tool_complete') {
+      const toolName = event.data?.tool || event.tool || 'tool';
+      const rawResult = typeof event.data?.result === 'string'
+        ? event.data.result
+        : typeof event.result === 'string'
+          ? event.result
+          : '';
+      const compactResult = rawResult.length > 1200
+        ? `${rawResult.slice(0, 1200)}\n...[truncated]`
+        : rawResult;
+      toolTranscript.push(`[Tool ${toolName}]\n${compactResult}`.trim());
+      toolDigests.push({ tool: String(toolName), content: rawResult || compactResult });
+    }
+
+    if (event.type === 'tool_error') {
+      const toolName = event.data?.tool || event.tool || 'tool';
+      const errorText = event.data?.error || event.error || 'Tool execution failed';
+      toolTranscript.push(`[Tool ${toolName} error]\n${String(errorText)}`);
+      toolDigests.push({ tool: String(toolName), content: `Error: ${String(errorText)}` });
+    }
+
     if (event.type === 'usage' && event.data) {
       const { costEur, tokensUsed } = event.data;
+      lastInputTokens = tokensUsed?.input || 0;
+      lastOutputTokens = tokensUsed?.output || 0;
+      lastCostEur = costEur || 0;
       metricsService.trackAIUsage({
         userId,
         model: usedModel,
@@ -69,4 +121,71 @@ export async function runAgentChatStream({
     streamToClient,
     () => {},
   );
+
+  await opencodeContextService.finalizeRun({
+    projectId,
+    userId,
+    sessionId,
+    prompt: promptForState,
+    assistantText: [finalAssistantText.trim(), ...toolTranscript].filter(Boolean).join('\n\n'),
+    toolEvents: toolDigests,
+    inputTokens: lastInputTokens,
+  });
+
+  const existingConversation = await loadConversation(projectId, userId);
+  const previousMessages = existingConversation?.messages || [];
+  const appendedMessages: ChatMessage[] = [
+    ...previousMessages,
+    { role: 'user', content: promptForState },
+    {
+      role: 'assistant',
+      content: [finalAssistantText.trim(), ...toolTranscript].filter(Boolean).join('\n\n') || '(no response)',
+    },
+  ];
+
+  await saveConversation(
+    projectId,
+    userId,
+    usedModel,
+    appendedMessages.slice(-60),
+    {
+      input: (existingConversation?.totalTokens.input || 0) + lastInputTokens,
+      output: (existingConversation?.totalTokens.output || 0) + lastOutputTokens,
+    },
+    (existingConversation?.totalCostEur || 0) + lastCostEur,
+  );
+
+  metricsService.trackOperation({
+    operation: 'opencode_context_run',
+    durationMs: Date.now() - startedAt,
+    success: true,
+    metadata: {
+      projectId,
+      model: usedModel,
+      rotatedSession: preparedRun.rotatedSession,
+      usedSummary: preparedRun.usedSummary,
+      historicalContextTokens: preparedRun.historicalContextTokens,
+      injectedMemoryTokens: preparedRun.injectedMemoryTokens,
+      sessionId,
+      inputTokens: lastInputTokens,
+      outputTokens: lastOutputTokens,
+      toolEvents: toolTranscript.length,
+      transcriptChars: finalAssistantText.length,
+    },
+  });
+
+  metricsService.trackOpenCodeOptimization({
+    userId,
+    projectId,
+    model: usedModel,
+    sessionId,
+    rotatedSession: preparedRun.rotatedSession,
+    usedSummary: preparedRun.usedSummary,
+    historicalContextTokens: preparedRun.historicalContextTokens,
+    injectedMemoryTokens: preparedRun.injectedMemoryTokens,
+    actualInputTokens: lastInputTokens,
+    actualOutputTokens: lastOutputTokens,
+    toolEvents: toolTranscript.length,
+    transcriptChars: finalAssistantText.length,
+  });
 }

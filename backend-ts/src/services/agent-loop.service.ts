@@ -14,6 +14,7 @@ import { config } from '../config';
 import { runPreHooks, runPostHooks } from './hooks.service';
 import { saveConversation } from './conversation-store';
 import { initMcpServers, getAllMcpTools, callMcpTool, disconnectAllMcp } from './mcp-client';
+import { conversationOptimizerService } from './conversation-optimizer.service';
 
 // Load the universal system prompt from file
 const SYSTEM_PROMPT_PATH = path.join(__dirname, 'claude-code-system-prompt.txt');
@@ -432,6 +433,45 @@ export class AgentLoop {
 
         log.info(`[AgentLoop] Model: ${this.model}, thinkingLevel: ${this.thinkingLevel || 'disabled'}`);
 
+        let modelConversationHistory = this.conversationHistory;
+        const optimizerStartedAt = Date.now();
+
+        try {
+          const optimized = await conversationOptimizerService.optimizeForModel({
+            projectId: this.projectId,
+            history: this.conversationHistory,
+            model: this.model,
+            systemPrompt,
+          });
+
+          modelConversationHistory = optimized.optimizedHistory;
+
+          if (optimized.canonicalHistory) {
+            this.conversationHistory = optimized.canonicalHistory;
+            this.cachedTokenEstimate = conversationOptimizerService.estimateTokenCount(this.conversationHistory, systemPrompt);
+          }
+
+          metricsService.trackOperation({
+            operation: 'conversation_optimizer_run',
+            durationMs: Date.now() - optimizerStartedAt,
+            success: true,
+            metadata: {
+              userId: this.userId || 'anonymous',
+              projectId: this.projectId,
+              model: this.model,
+              originalEstimatedTokens: optimized.report.originalEstimatedTokens,
+              optimizedEstimatedTokens: optimized.report.optimizedEstimatedTokens,
+              savedTokens: optimized.report.savedTokens,
+              digestedToolResults: optimized.report.digestedToolResults,
+              digestedTextBlocks: optimized.report.digestedTextBlocks,
+              summaryUsed: optimized.report.summaryUsed,
+              summaryUpdated: optimized.report.summaryUpdated,
+            },
+          });
+        } catch (optimizerError: any) {
+          log.warn(`[AgentLoop] Conversation optimizer failed: ${optimizerError.message}`);
+        }
+
         // Auto-compact conversation if approaching context window limit
         try {
           const needsCompaction = this.shouldCompact(systemPrompt);
@@ -471,7 +511,7 @@ export class AgentLoop {
             try {
               const stream = vercelChatStream(
                 this.model,
-                this.conversationHistory,
+                modelConversationHistory,
                 tools,
                 systemPrompt,
                 {

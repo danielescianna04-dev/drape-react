@@ -13,6 +13,22 @@ interface AIUsageEntry {
   timestamp: number;
 }
 
+interface OpenCodeOptimizationEntry {
+  userId: string;
+  projectId: string;
+  model: string;
+  sessionId: string;
+  rotatedSession: boolean;
+  usedSummary: boolean;
+  historicalContextTokens: number;
+  injectedMemoryTokens: number;
+  actualInputTokens: number;
+  actualOutputTokens: number;
+  toolEvents: number;
+  transcriptChars: number;
+  timestamp: number;
+}
+
 interface OperationMetric {
   operation: string;
   durationMs: number;
@@ -45,6 +61,7 @@ interface OperationStats {
 
 class MetricsService {
   private aiUsage: AIUsageEntry[] = [];
+  private opencodeOptimization: OpenCodeOptimizationEntry[] = [];
   private operations: OperationMetric[] = [];
   private readonly maxEntries = 10000;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
@@ -120,6 +137,23 @@ class MetricsService {
     );
 
     this.saveToDisk();
+  }
+
+  trackOpenCodeOptimization(entry: Omit<OpenCodeOptimizationEntry, 'timestamp'>): void {
+    const fullEntry: OpenCodeOptimizationEntry = {
+      ...entry,
+      timestamp: Date.now(),
+    };
+
+    this.opencodeOptimization.push(fullEntry);
+
+    if (this.opencodeOptimization.length > this.maxEntries) {
+      this.opencodeOptimization = this.opencodeOptimization.slice(-Math.floor(this.maxEntries / 2));
+    }
+
+    log.info(
+      `[Metrics] OpenCode: model=${entry.model} rotated=${entry.rotatedSession} summary=${entry.usedSummary} historical=${entry.historicalContextTokens} injected=${entry.injectedMemoryTokens} in=${entry.actualInputTokens} out=${entry.actualOutputTokens}`
+    );
   }
 
   /**
@@ -272,6 +306,51 @@ class MetricsService {
     return entries.slice(-limit);
   }
 
+  getOpenCodeOptimizationEntries(userId?: string, limit = 1000): OpenCodeOptimizationEntry[] {
+    let entries = this.opencodeOptimization;
+
+    if (userId) {
+      entries = entries.filter((entry) => entry.userId === userId);
+    }
+
+    return entries.slice(-limit);
+  }
+
+  getOpenCodeOptimizationSummary(userId?: string, since?: number) {
+    let entries = this.opencodeOptimization;
+
+    if (userId) {
+      entries = entries.filter((entry) => entry.userId === userId);
+    }
+
+    if (since) {
+      entries = entries.filter((entry) => entry.timestamp >= since);
+    }
+
+    const totalRuns = entries.length;
+    const rotatedRuns = entries.filter((entry) => entry.rotatedSession).length;
+    const summaryRuns = entries.filter((entry) => entry.usedSummary).length;
+    const totalHistoricalContextTokens = entries.reduce((sum, entry) => sum + entry.historicalContextTokens, 0);
+    const totalInjectedMemoryTokens = entries.reduce((sum, entry) => sum + entry.injectedMemoryTokens, 0);
+    const totalActualInputTokens = entries.reduce((sum, entry) => sum + entry.actualInputTokens, 0);
+    const totalActualOutputTokens = entries.reduce((sum, entry) => sum + entry.actualOutputTokens, 0);
+    const estimatedSavedInputTokens = Math.max(0, totalHistoricalContextTokens - totalInjectedMemoryTokens);
+
+    return {
+      totalRuns,
+      rotatedRuns,
+      summaryRuns,
+      totalHistoricalContextTokens,
+      totalInjectedMemoryTokens,
+      totalActualInputTokens,
+      totalActualOutputTokens,
+      estimatedSavedInputTokens,
+      averageHistoricalContextTokens: totalRuns > 0 ? Math.round(totalHistoricalContextTokens / totalRuns) : 0,
+      averageInjectedMemoryTokens: totalRuns > 0 ? Math.round(totalInjectedMemoryTokens / totalRuns) : 0,
+      averageEstimatedSavedInputTokens: totalRuns > 0 ? Math.round(estimatedSavedInputTokens / totalRuns) : 0,
+    };
+  }
+
   /**
    * Get raw operation entries
    */
@@ -329,17 +408,20 @@ class MetricsService {
 
     const cutoff = Date.now() - 86400000; // 24 hours for operations
     const beforeAI = this.aiUsage.length;
+    const beforeOpenCode = this.opencodeOptimization.length;
     const beforeOps = this.operations.length;
 
     this.aiUsage = this.aiUsage.filter(e => e.timestamp > cutoffAI);
+    this.opencodeOptimization = this.opencodeOptimization.filter(e => e.timestamp > cutoffAI);
     this.operations = this.operations.filter(e => e.timestamp > cutoff);
 
     const removedAI = beforeAI - this.aiUsage.length;
+    const removedOpenCode = beforeOpenCode - this.opencodeOptimization.length;
     const removedOps = beforeOps - this.operations.length;
 
-    if (removedAI > 0 || removedOps > 0) {
-      log.info(`[Metrics] Cleanup: removed ${removedAI} AI entries, ${removedOps} operation entries`);
-      if (removedAI > 0) this.saveToDisk();
+    if (removedAI > 0 || removedOps > 0 || removedOpenCode > 0) {
+      log.info(`[Metrics] Cleanup: removed ${removedAI} AI entries, ${removedOpenCode} OpenCode entries, ${removedOps} operation entries`);
+      if (removedAI > 0 || removedOpenCode > 0) this.saveToDisk();
     }
   }
 

@@ -212,6 +212,67 @@ healthRouter.get('/ai/budget/:userId', optionalAuth, asyncHandler(async (req, re
   }
 }));
 
+// GET /stats/opencode-optimizer — OpenCode context optimization metrics
+healthRouter.get('/stats/opencode-optimizer', requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const userId = req.userId!;
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const summary = metricsService.getOpenCodeOptimizationSummary(userId, monthStart.getTime());
+    const entries = metricsService.getOpenCodeOptimizationEntries(userId, 200)
+      .filter((entry) => entry.timestamp >= monthStart.getTime());
+
+    res.json({
+      success: true,
+      optimizer: summary,
+      recentRuns: entries.slice(-30),
+    });
+  } catch (error: any) {
+    log.error('[Stats] opencode-optimizer error:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve OpenCode optimizer stats' });
+  }
+}));
+
+// GET /stats/conversation-optimizer — AgentLoop context optimizer metrics
+healthRouter.get('/stats/conversation-optimizer', requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const userId = req.userId!;
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const entries = metricsService.getOperationEntries('conversation_optimizer_run', 5000)
+      .filter((entry) => entry.timestamp >= monthStart.getTime())
+      .filter((entry) => !entry.metadata?.userId || entry.metadata.userId === userId);
+
+    const totalRuns = entries.length;
+    const totalSavedTokens = entries.reduce((sum, entry) => sum + Number(entry.metadata?.savedTokens || 0), 0);
+    const totalOriginalTokens = entries.reduce((sum, entry) => sum + Number(entry.metadata?.originalEstimatedTokens || 0), 0);
+    const totalOptimizedTokens = entries.reduce((sum, entry) => sum + Number(entry.metadata?.optimizedEstimatedTokens || 0), 0);
+    const totalDigestedToolResults = entries.reduce((sum, entry) => sum + Number(entry.metadata?.digestedToolResults || 0), 0);
+    const summaryRuns = entries.filter((entry) => Boolean(entry.metadata?.summaryUsed)).length;
+
+    res.json({
+      success: true,
+      optimizer: {
+        totalRuns,
+        totalSavedTokens,
+        totalOriginalTokens,
+        totalOptimizedTokens,
+        totalDigestedToolResults,
+        summaryRuns,
+        averageSavedTokens: totalRuns > 0 ? Math.round(totalSavedTokens / totalRuns) : 0,
+      },
+      recentRuns: entries.slice(-30),
+    });
+  } catch (error: any) {
+    log.error('[Stats] conversation-optimizer error:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve conversation optimizer stats' });
+  }
+}));
+
 // POST /ai/budgets — Batch AI budget status (for admin dashboard)
 healthRouter.post('/ai/budgets', optionalAuth, asyncHandler(async (req, res) => {
   try {
