@@ -84,6 +84,7 @@ export interface ChatInputBarProps {
 
   // Glass
   inputBarGlassId: string;
+  glassApplied?: boolean;
   onLayout?: (e: any) => void;
 
   // Animations
@@ -126,6 +127,7 @@ export const ChatInputBar = React.memo(({
   onBudgetPress,
   onToolsPress,
   inputBarGlassId,
+  glassApplied,
   onLayout,
   aiModeAnimatedStyle,
   dropdownAnimatedStyle,
@@ -157,10 +159,12 @@ export const ChatInputBar = React.memo(({
         style={[styles.container, hasImages && styles.containerWithImages]}
         onLayout={onLayout}
       >
-        <LinearGradient
-          colors={[`${AppColors.dark.surface}F9`, `${AppColors.dark.surface}EB`]}
-          style={StyleSheet.absoluteFill}
-        />
+        {!glassApplied && (
+          <LinearGradient
+            colors={[`${AppColors.dark.surface}F9`, `${AppColors.dark.surface}EB`]}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
 
         {/* ── Top Controls ── */}
         <View style={styles.topControls}>

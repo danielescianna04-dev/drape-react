@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated as RNAnimated, ActivityIndicator, RefreshControl, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated as RNAnimated, ActivityIndicator, RefreshControl } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
-import { Button } from '../../../../shared/components/atoms/Button';
-import { Input } from '../../../../shared/components/atoms/Input';
 import { AppColors } from '../../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../../../core/git/gitAccountService';
@@ -14,44 +12,30 @@ import { workstationService } from '../../../../core/workstation/workstationServ
 import { config } from '../../../../config/config';
 import { getAuthHeaders } from '../../../../core/api/getAuthToken';
 import { AddGitAccountModal } from '../../../settings/components/AddGitAccountModal';
-import { githubService, GitHubCommit } from '../../../../core/github/githubService';
+import { githubService } from '../../../../core/github/githubService';
 import { tracciaAzioneGit, tracciaCommitCreato, tracciaCambioBranch, tracciaTabGitCambiato, tracciaCronologiaCommit, tracciaAccountGitCollegato, tracciaAccountGitScollegato, tracciaAccountGitRimosso, tracciaErrore, tracciaPullEffettuato, tracciaErrorePull, tracciaErrorePush, tracciaErroreCommit } from '../../../../core/services/analyticsService';
+import {
+  getDefaultGitBranches,
+  getRepoInfoFromUrl,
+  mapBackendCommit,
+  mapGitHubCommit,
+  type GitBranch,
+  type GitCommit,
+  type GitStatus,
+} from './gitHubViewUtils';
+import {
+  GitAccountPickerModal,
+  GitBranchesSection,
+  GitChangesSection,
+  GitCommitsSection,
+  GitHeaderSection,
+} from './gitHubViewSections';
 
 // Tab bar height constant
 const TAB_BAR_HEIGHT = 44;
 
 interface Props {
   tab: any;
-}
-
-interface GitCommit {
-  hash: string;
-  shortHash: string;
-  message: string;
-  author: string;
-  authorEmail: string;
-  authorAvatar?: string;
-  authorLogin?: string;
-  date: Date;
-  isHead: boolean;
-  branch?: string;
-  url?: string;
-}
-
-interface GitBranch {
-  name: string;
-  isCurrent: boolean;
-  isRemote: boolean;
-  tracking?: string;
-  ahead?: number;
-  behind?: number;
-}
-
-interface GitStatus {
-  staged: string[];
-  modified: string[];
-  untracked: string[];
-  deleted: string[];
 }
 
 export const GitHubView = ({ tab }: Props) => {
@@ -116,7 +100,7 @@ export const GitHubView = ({ tab }: Props) => {
           // Try to auto-detect from token service
           const tokenResult = await gitAccountService.getTokenForRepo(userId, repoUrl);
           if (tokenResult) {
-            const linked = accounts.find(a => a.username === tokenResult.username);
+            const linked = accounts.find(a => a.username === tokenResult.account.username);
             if (linked) {
               setLinkedAccount(linked);
               checkAccountPermissions(linked, repoUrl);
@@ -143,9 +127,15 @@ export const GitHubView = ({ tab }: Props) => {
       const owner = match[1];
       const repo = match[2].replace('.git', '');
 
+      const token = await gitAccountService.getToken(account, userId);
+      if (!token) {
+        setPermissionStatus('none');
+        return;
+      }
+
       const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
         headers: {
-          Authorization: `Bearer ${account.accessToken}`,
+          Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github.v3+json',
         },
       });
@@ -235,20 +225,7 @@ export const GitHubView = ({ tab }: Props) => {
 
         // Set local commits (backend now returns full format)
         if (data.commits && data.commits.length > 0) {
-          // Transform backend commits to ensure all fields exist
-          const localCommits: GitCommit[] = data.commits.map((c: any) => ({
-            hash: c.hash,
-            shortHash: c.shortHash || c.hash?.substring(0, 7),
-            message: c.message,
-            author: c.author || 'Unknown',
-            authorEmail: c.authorEmail || '',
-            authorAvatar: c.authorAvatar,
-            authorLogin: c.authorLogin,
-            date: c.date ? new Date(c.date) : new Date(),
-            isHead: c.isHead || false,
-            branch: c.branch,
-            url: c.url,
-          }));
+          const localCommits: GitCommit[] = data.commits.map((commit: any) => mapBackendCommit(commit));
           setCommits(localCommits);
         }
 
@@ -266,19 +243,9 @@ export const GitHubView = ({ tab }: Props) => {
               const githubCommits = await githubService.fetchCommits(repoUrl, token, 1, 30);
 
               // Transform and update commits with GitHub data (avatars, URLs)
-              const transformedCommits: GitCommit[] = githubCommits.map((c, index) => ({
-                hash: c.sha,
-                shortHash: c.sha.substring(0, 7),
-                message: c.message,
-                author: c.author.name,
-                authorEmail: c.author.email,
-                authorAvatar: c.author.avatar_url,
-                authorLogin: c.author.login,
-                date: c.author.date,
-                isHead: index === 0,
-                branch: index === 0 ? data.currentBranch || 'main' : undefined,
-                url: c.url,
-              }));
+              const transformedCommits: GitCommit[] = githubCommits.map((commit, index) =>
+                mapGitHubCommit(commit, index, data.currentBranch || 'main')
+              );
 
               setCommits(transformedCommits);
             } catch (githubError) {
@@ -293,7 +260,7 @@ export const GitHubView = ({ tab }: Props) => {
       console.error('[GitHubView] Error loading git data:', error);
       setIsGitRepo(true);
       setCommits([]);
-      setBranches([{ name: 'main', isCurrent: true, isRemote: false, ahead: 0, behind: 0 }]);
+      setBranches(getDefaultGitBranches());
       setGitLoading(false);
     }
   };
@@ -434,242 +401,7 @@ export const GitHubView = ({ tab }: Props) => {
 
   const projectName = currentWorkstation?.name || t('common:project');
   const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
-
-  // Get repo info from URL
-  const getRepoInfo = () => {
-    if (!repoUrl) return null;
-    const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-    if (match) {
-      return { owner: match[1], repo: match[2].replace('.git', '') };
-    }
-    return null;
-  };
-
-  const repoInfo = getRepoInfo();
-
-  // Compact header with account selector
-  const renderHeader = () => {
-    const headerContent = (
-      <View style={styles.headerInner}>
-        <View style={styles.headerRow}>
-          <View style={styles.repoInfo}>
-            <Ionicons name="git-branch" size={18} color={AppColors.primary} />
-            <View style={styles.repoTextContainer}>
-              <Text style={styles.repoName} numberOfLines={1}>{projectName}</Text>
-              {repoInfo && (
-                <Text style={styles.repoPath} numberOfLines={1}>{repoInfo.owner}/{repoInfo.repo}</Text>
-              )}
-            </View>
-          </View>
-
-          {/* Account Selector */}
-          <TouchableOpacity
-            style={styles.accountSelector}
-            onPress={() => setShowAccountPicker(true)}
-          >
-            {linkedAccount ? (
-              <>
-                {linkedAccount.avatarUrl ? (
-                  <Image source={{ uri: linkedAccount.avatarUrl }} style={styles.accountAvatar} />
-                ) : (
-                  <View style={[styles.accountAvatar, styles.accountAvatarPlaceholder]}>
-                    <Ionicons name="person" size={12} color="#fff" />
-                  </View>
-                )}
-                <Text style={styles.accountName} numberOfLines={1}>{linkedAccount.username}</Text>
-                {permissionStatus === 'checking' ? (
-                  <ActivityIndicator size="small" color={AppColors.primary} style={{ marginLeft: 4 }} />
-                ) : permissionStatus === 'write' ? (
-                  <View style={styles.permBadgeWrite}>
-                    <Ionicons name="checkmark" size={10} color="#00D084" />
-                  </View>
-                ) : permissionStatus === 'read' ? (
-                  <View style={styles.permBadgeRead}>
-                    <Ionicons name="eye" size={10} color="#f59e0b" />
-                  </View>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <Ionicons name="person-add-outline" size={14} color="rgba(255,255,255,0.5)" />
-                <Text style={styles.accountPlaceholder}>{t('terminal:git.linkAccount')}</Text>
-              </>
-            )}
-            <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.4)" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Branch and Actions Row */}
-        <View style={styles.actionsRow}>
-          <View style={styles.branchPill}>
-            <Ionicons name="git-branch" size={12} color={AppColors.primary} />
-            <Text style={styles.branchText}>{currentBranch}</Text>
-          </View>
-
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={[styles.actionBtn, actionLoading === 'fetch' && styles.actionBtnLoading]}
-              onPress={() => handleGitAction('fetch')}
-              disabled={!!actionLoading || !linkedAccount}
-            >
-              {actionLoading === 'fetch' ? (
-                <ActivityIndicator size="small" color={AppColors.primary} />
-              ) : (
-                <Ionicons name="cloud-download-outline" size={14} color={linkedAccount ? '#fff' : 'rgba(255,255,255,0.3)'} />
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionBtn, actionLoading === 'pull' && styles.actionBtnLoading]}
-              onPress={() => handleGitAction('pull')}
-              disabled={!!actionLoading || !linkedAccount}
-            >
-              {actionLoading === 'pull' ? (
-                <ActivityIndicator size="small" color={AppColors.primary} />
-              ) : (
-                <Ionicons name="arrow-down" size={14} color={linkedAccount ? '#fff' : 'rgba(255,255,255,0.3)'} />
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.pushBtn, actionLoading === 'push' && styles.actionBtnLoading]}
-              onPress={() => handleGitAction('push')}
-              disabled={!!actionLoading || !linkedAccount || permissionStatus !== 'write'}
-            >
-              {actionLoading === 'push' ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Ionicons name="arrow-up" size={14} color={linkedAccount && permissionStatus === 'write' ? '#fff' : 'rgba(255,255,255,0.3)'} />
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Tabs - inline */}
-        <View style={styles.tabsRow}>
-          {[
-            { key: 'commits', label: t('common:commits') },
-            { key: 'branches', label: t('terminal:git.branch') },
-            { key: 'changes', label: t('terminal:git.changes') },
-          ].map((item) => (
-            <TouchableOpacity
-              key={item.key}
-              style={[styles.tabItem, activeSection === item.key && styles.tabItemActive]}
-              onPress={() => { setActiveSection(item.key as any); tracciaTabGitCambiato(item.key); }}
-            >
-              <Text style={[styles.tabText, activeSection === item.key && styles.tabTextActive]}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-    );
-
-    return (
-      <View style={styles.compactHeader}>
-        {isLiquidGlassSupported ? (
-          <LiquidGlassView
-            style={{ backgroundColor: 'transparent' }}
-            interactive={true}
-            effect="clear"
-            colorScheme="dark"
-          >
-            {headerContent}
-          </LiquidGlassView>
-        ) : (
-          headerContent
-        )}
-      </View>
-    );
-  };
-
-  // Account picker modal
-  const renderAccountPicker = () => {
-    const pickerContent = (
-      <View style={styles.pickerInner}>
-        <View style={styles.pickerHeader}>
-          <Text style={styles.pickerTitle}>{t('terminal:git.selectAccount')}</Text>
-          <TouchableOpacity onPress={() => setShowAccountPicker(false)}>
-            <Ionicons name="close" size={20} color="rgba(255,255,255,0.5)" />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView style={styles.pickerList}>
-          {linkedAccount && (
-            <TouchableOpacity
-              style={styles.pickerItem}
-              onPress={handleUnlinkAccount}
-            >
-              <View style={[styles.pickerItemAvatar, { backgroundColor: 'rgba(255,77,77,0.1)' }]}>
-                <Ionicons name="unlink" size={16} color="#ff4d4d" />
-              </View>
-              <Text style={[styles.pickerItemText, { color: '#ff4d4d' }]}>{t('terminal:git.removeAccount')}</Text>
-            </TouchableOpacity>
-          )}
-
-          {gitAccounts.map((account) => {
-            const providerConfig = getProviderConfig(account.provider);
-            const isLinked = linkedAccount?.id === account.id;
-            return (
-              <TouchableOpacity
-                key={account.id}
-                style={[styles.pickerItem, isLinked && styles.pickerItemSelected]}
-                onPress={() => handleLinkAccount(account)}
-              >
-                {account.avatarUrl ? (
-                  <Image source={{ uri: account.avatarUrl }} style={styles.pickerItemAvatar} />
-                ) : (
-                  <View style={[styles.pickerItemAvatar, { backgroundColor: providerConfig?.color || '#333' }]}>
-                    <Ionicons name={providerConfig?.icon as any || 'person'} size={16} color="#fff" />
-                  </View>
-                )}
-                <View style={styles.pickerItemInfo}>
-                  <Text style={styles.pickerItemText}>{account.username}</Text>
-                  <Text style={styles.pickerItemProvider}>{providerConfig?.name || account.provider}</Text>
-                </View>
-                {isLinked && (
-                  <Ionicons name="checkmark-circle" size={18} color={AppColors.primary} />
-                )}
-              </TouchableOpacity>
-            );
-          })}
-
-          <TouchableOpacity
-            style={styles.pickerItem}
-            onPress={() => {
-              setShowAccountPicker(false);
-              setShowAddAccountModal(true);
-              tracciaAccountGitCollegato('picker');
-            }}
-          >
-            <View style={[styles.pickerItemAvatar, { backgroundColor: `${AppColors.primary}20` }]}>
-              <Ionicons name="add" size={16} color={AppColors.primary} />
-            </View>
-            <Text style={[styles.pickerItemText, { color: AppColors.primary }]}>{t('terminal:git.addAccount')}</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </View>
-    );
-
-    return (
-      <View style={styles.pickerOverlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowAccountPicker(false)} />
-        {isLiquidGlassSupported ? (
-          <LiquidGlassView
-            style={[styles.pickerCard, { backgroundColor: 'transparent', overflow: 'hidden' }]}
-            interactive={true}
-            effect="clear"
-            colorScheme="dark"
-          >
-            {pickerContent}
-          </LiquidGlassView>
-        ) : (
-          <View style={styles.pickerCard}>
-            {pickerContent}
-          </View>
-        )}
-      </View>
-    );
-  };
+  const repoInfo = getRepoInfoFromUrl(repoUrl);
 
   // Handle opening commit in browser
   const handleOpenCommit = (url?: string) => {
@@ -679,411 +411,31 @@ export const GitHubView = ({ tab }: Props) => {
     }
   };
 
-  // Commits list (Fork-style with avatars)
-  const renderCommits = () => (
-    <View style={styles.section}>
-      {gitLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={AppColors.primary} />
-          <Text style={styles.loadingText}>{t('terminal:git.loadingCommits')}</Text>
-        </View>
-      ) : commits.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="git-commit" size={48} color="rgba(255,255,255,0.2)" />
-          <Text style={styles.emptyText}>{t('terminal:git.noCommitsFound')}</Text>
-        </View>
-      ) : (
-        <>
-          <Text style={styles.sectionTitle}>{t('terminal:git.recentCommits', { count: commits.length })}</Text>
-          {commits.map((commit, index) => {
-            const commitContent = (
-              <View style={styles.commitRowInner}>
-                {/* Graph line */}
-                <View style={styles.graphColumn}>
-                  <View style={[styles.graphLine, index === 0 && styles.graphLineFirst]} />
-                  <View style={[styles.graphDot, commit.isHead && styles.graphDotHead]} />
-                  {index < commits.length - 1 && <View style={styles.graphLine} />}
-                </View>
-
-                {/* Avatar */}
-                {commit.authorAvatar ? (
-                  <Image source={{ uri: commit.authorAvatar }} style={styles.commitAvatar} />
-                ) : (
-                  <View style={[styles.commitAvatar, styles.commitAvatarPlaceholder]}>
-                    <Text style={styles.commitAvatarText}>
-                      {commit.author.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                )}
-
-                {/* Commit info */}
-                <View style={styles.commitInfo}>
-                  <View style={styles.commitHeader}>
-                    <Text style={styles.commitMessage} numberOfLines={2}>{commit.message.split('\n')[0]}</Text>
-                  </View>
-                  <View style={styles.commitMeta}>
-                    <Text style={styles.commitHash}>{commit.shortHash}</Text>
-                    <Text style={styles.commitAuthor}>{commit.authorLogin || commit.author}</Text>
-                    <Text style={styles.commitDate}>{formatDate(commit.date)}</Text>
-                  </View>
-                  {/* Badges row */}
-                  <View style={styles.commitBadges}>
-                    {commit.isHead && (
-                      <View style={styles.headBadge}>
-                        <Text style={styles.headBadgeText}>HEAD</Text>
-                      </View>
-                    )}
-                    {commit.branch && (
-                      <View style={styles.branchBadge}>
-                        <Ionicons name="git-branch" size={10} color={AppColors.primary} />
-                        <Text style={styles.branchBadgeText}>{commit.branch}</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-
-                {/* Open icon */}
-                {commit.url && (
-                  <Ionicons name="open-outline" size={14} color="rgba(255,255,255,0.2)" style={{ marginLeft: 8 }} />
-                )}
-              </View>
-            );
-
-            return (
-              <TouchableOpacity
-                key={commit.hash}
-                style={styles.commitRow}
-                activeOpacity={0.7}
-                onPress={() => handleOpenCommit(commit.url)}
-              >
-                {isLiquidGlassSupported ? (
-                  <LiquidGlassView
-                    style={{ backgroundColor: 'transparent', borderRadius: 10, overflow: 'hidden' }}
-                    interactive={true}
-                    effect="clear"
-                    colorScheme="dark"
-                  >
-                    {commitContent}
-                  </LiquidGlassView>
-                ) : (
-                  commitContent
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </>
-      )}
-    </View>
-  );
-
-  // Branches list
-  const renderBranches = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{t('terminal:git.branch')} Local</Text>
-      {branches.filter(b => !b.isRemote).map((branch) => {
-        const branchContent = (
-          <View style={styles.branchRowInner}>
-            <View style={styles.branchRowLeft}>
-              <Ionicons
-                name={branch.isCurrent ? 'radio-button-on' : 'radio-button-off'}
-                size={16}
-                color={branch.isCurrent ? AppColors.primary : 'rgba(255,255,255,0.4)'}
-              />
-              <Text style={[styles.branchRowName, branch.isCurrent && styles.branchRowNameActive]}>
-                {branch.name}
-              </Text>
-            </View>
-            {(branch.ahead !== undefined || branch.behind !== undefined) && (
-              <View style={styles.branchRowStats}>
-                {branch.ahead !== undefined && branch.ahead > 0 && (
-                  <View style={styles.statBadge}>
-                    <Ionicons name="arrow-up" size={10} color="#00D084" />
-                    <Text style={styles.statBadgeTextGreen}>{branch.ahead}</Text>
-                  </View>
-                )}
-                {branch.behind !== undefined && branch.behind > 0 && (
-                  <View style={styles.statBadge}>
-                    <Ionicons name="arrow-down" size={10} color="#FF6B6B" />
-                    <Text style={styles.statBadgeTextRed}>{branch.behind}</Text>
-                  </View>
-                )}
-              </View>
-            )}
-          </View>
-        );
-
-        return (
-          <TouchableOpacity key={branch.name} style={styles.branchRow}>
-            {isLiquidGlassSupported ? (
-              <LiquidGlassView
-                style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
-                interactive={true}
-                effect="clear"
-                colorScheme="dark"
-              >
-                {branchContent}
-              </LiquidGlassView>
-            ) : (
-              branchContent
-            )}
-          </TouchableOpacity>
-        );
-      })}
-
-      {branches.some(b => b.isRemote) && (
-        <>
-          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>{t('terminal:git.branch')} Remote</Text>
-          {branches.filter(b => b.isRemote).map((branch) => {
-            const remoteContent = (
-              <View style={styles.branchRowInner}>
-                <View style={styles.branchRowLeft}>
-                  <Ionicons name="cloud-outline" size={16} color="rgba(255,255,255,0.4)" />
-                  <Text style={styles.branchRowName}>{branch.name}</Text>
-                </View>
-              </View>
-            );
-
-            return (
-              <TouchableOpacity key={branch.name} style={styles.branchRow}>
-                {isLiquidGlassSupported ? (
-                  <LiquidGlassView
-                    style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
-                    interactive={true}
-                    effect="clear"
-                    colorScheme="dark"
-                  >
-                    {remoteContent}
-                  </LiquidGlassView>
-                ) : (
-                  remoteContent
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </>
-      )}
-    </View>
-  );
-
-  // Changes (staged/unstaged)
-  const hasChanges = gitStatus && ((gitStatus.staged?.length || 0) > 0 || (gitStatus.modified?.length || 0) > 0 || (gitStatus.untracked?.length || 0) > 0);
-
-  const renderChanges = () => (
-    <View style={styles.section}>
-      {/* Commit Section - show when there are changes */}
-      {hasChanges && (
-        <View style={styles.commitSection}>
-          <Text style={styles.sectionTitle}>{t('terminal:git.createCommit')}</Text>
-          <View style={styles.commitInputContainer}>
-            <Input
-              value={commitMessage}
-              onChangeText={setCommitMessage}
-              placeholder={t('terminal:git.commitMessagePlaceholder')}
-              multiline
-              numberOfLines={2}
-              style={{ marginBottom: 10 }}
-            />
-            <Button
-              label={actionLoading === 'commit' ? '' : t('terminal:git.commit')}
-              onPress={handleCommit}
-              disabled={!commitMessage.trim() || actionLoading === 'commit'}
-              variant="primary"
-            />
-          </View>
-        </View>
-      )}
-
-      {gitStatus ? (
-        <>
-          {(gitStatus.staged?.length || 0) > 0 && (
-            <>
-              <Text style={styles.sectionTitle}>{t('terminal:git.staged')} ({gitStatus.staged!.length})</Text>
-              {gitStatus.staged!.map((file) => {
-                const fileContent = (
-                  <View style={styles.fileRowInner}>
-                    <View style={styles.fileStatusBadge}>
-                      <Text style={styles.fileStatusText}>S</Text>
-                    </View>
-                    <Text style={styles.fileName} numberOfLines={1}>{file}</Text>
-                  </View>
-                );
-                return (
-                  <View key={file} style={styles.fileRow}>
-                    {isLiquidGlassSupported ? (
-                      <LiquidGlassView
-                        style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
-                        interactive={true}
-                        effect="clear"
-                        colorScheme="dark"
-                      >
-                        {fileContent}
-                      </LiquidGlassView>
-                    ) : (
-                      fileContent
-                    )}
-                  </View>
-                );
-              })}
-            </>
-          )}
-
-          {(gitStatus.modified?.length || 0) > 0 && (
-            <>
-              <Text style={[styles.sectionTitle, (gitStatus.staged?.length || 0) > 0 && { marginTop: 20 }]}>
-                {t('terminal:git.modified')} ({gitStatus.modified!.length})
-              </Text>
-              {gitStatus.modified!.map((file) => {
-                const fileContent = (
-                  <View style={styles.fileRowInner}>
-                    <View style={[styles.fileStatusBadge, styles.fileStatusModified]}>
-                      <Text style={styles.fileStatusText}>M</Text>
-                    </View>
-                    <Text style={styles.fileName} numberOfLines={1}>{file}</Text>
-                  </View>
-                );
-                return (
-                  <View key={file} style={styles.fileRow}>
-                    {isLiquidGlassSupported ? (
-                      <LiquidGlassView
-                        style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
-                        interactive={true}
-                        effect="clear"
-                        colorScheme="dark"
-                      >
-                        {fileContent}
-                      </LiquidGlassView>
-                    ) : (
-                      fileContent
-                    )}
-                  </View>
-                );
-              })}
-            </>
-          )}
-
-          {(gitStatus.untracked?.length || 0) > 0 && (
-            <>
-              <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
-                {t('terminal:git.untracked')} ({gitStatus.untracked!.length})
-              </Text>
-              {gitStatus.untracked!.map((file) => {
-                const fileContent = (
-                  <View style={styles.fileRowInner}>
-                    <View style={[styles.fileStatusBadge, styles.fileStatusUntracked]}>
-                      <Text style={styles.fileStatusText}>?</Text>
-                    </View>
-                    <Text style={styles.fileName} numberOfLines={1}>{file}</Text>
-                  </View>
-                );
-                return (
-                  <View key={file} style={styles.fileRow}>
-                    {isLiquidGlassSupported ? (
-                      <LiquidGlassView
-                        style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
-                        interactive={true}
-                        effect="clear"
-                        colorScheme="dark"
-                      >
-                        {fileContent}
-                      </LiquidGlassView>
-                    ) : (
-                      fileContent
-                    )}
-                  </View>
-                );
-              })}
-            </>
-          )}
-
-          {!gitStatus.staged?.length && !gitStatus.modified?.length && !gitStatus.untracked?.length && (
-            <View style={styles.emptyState}>
-              <Ionicons name="checkmark-circle" size={48} color="#00D084" />
-              <Text style={styles.emptyText}>{t('terminal:git.noChanges')}</Text>
-              <Text style={styles.emptySubtext}>{t('terminal:git.status')}</Text>
-            </View>
-          )}
-        </>
-      ) : (
-        <View style={styles.emptyState}>
-          <Ionicons name="document-text-outline" size={48} color="rgba(255,255,255,0.2)" />
-          <Text style={styles.emptyText}>{t('common:noData', { defaultValue: 'No data available' })}</Text>
-        </View>
-      )}
-    </View>
-  );
-
-  // Account section - Global accounts (multi-provider like Fork)
-  const renderAccount = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{t('terminal:git.accountsTitle')}</Text>
-
-      <View style={styles.accountsList}>
-        {gitAccounts.length === 0 ? (
-          <View style={styles.noAccountCard}>
-            <Ionicons name="git-network-outline" size={40} color="rgba(255,255,255,0.2)" />
-            <Text style={styles.noAccountText}>{t('terminal:git.noConnectedAccounts')}</Text>
-            <Text style={styles.noAccountSubtext}>
-              {t('terminal:git.addAccountToAccessPrivate')}
-            </Text>
-          </View>
-        ) : (
-          gitAccounts.map((account) => {
-            const providerConfig = getProviderConfig(account.provider);
-            return (
-              <View key={account.id} style={styles.accountCard}>
-                <View style={styles.accountCardInner}>
-                  {account.avatarUrl ? (
-                    <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
-                  ) : (
-                    <View style={[styles.avatar, styles.avatarPlaceholder, { backgroundColor: providerConfig?.color || '#333' }]}>
-                      <Ionicons name={providerConfig?.icon as any || 'person'} size={20} color="#fff" />
-                    </View>
-                  )}
-                  <View style={styles.accountInfo}>
-                    <View style={styles.accountNameRow}>
-                      <Text style={styles.accountName}>{account.username}</Text>
-                      <View style={[styles.providerBadge, { backgroundColor: `${providerConfig?.color}20` }]}>
-                        <Ionicons
-                          name={providerConfig?.icon as any || 'git-branch'}
-                          size={10}
-                          color={providerConfig?.color || '#fff'}
-                        />
-                        <Text style={[styles.providerBadgeText, { color: providerConfig?.color }]}>
-                          {providerConfig?.name || account.provider}
-                        </Text>
-                      </View>
-                    </View>
-                    {account.email && (
-                      <Text style={styles.accountEmail}>{account.email}</Text>
-                    )}
-                  </View>
-                  <TouchableOpacity style={styles.unlinkBtn} onPress={() => handleDeleteAccount(account)}>
-                    <Ionicons name="trash-outline" size={18} color="#ff4d4d" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            );
-          })
-        )}
-
-        {/* Add Account Button */}
-        <TouchableOpacity
-          style={styles.addAccountBtn}
-          onPress={() => { setShowAddAccountModal(true); tracciaAccountGitCollegato('settings'); }}
-        >
-          <Ionicons name="add-circle-outline" size={20} color={AppColors.primary} />
-          <Text style={styles.addAccountBtnText}>{t('terminal:git.addAccount')}</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
   return (
     <View style={[styles.container, { paddingTop: insets.top + TAB_BAR_HEIGHT }]}>
-      {/* Compact Header */}
-      {renderHeader()}
+      <GitHeaderSection
+        projectName={projectName}
+        repoInfo={repoInfo}
+        linkedAccount={linkedAccount}
+        permissionStatus={permissionStatus}
+        currentBranch={currentBranch}
+        actionLoading={actionLoading}
+        activeSection={activeSection}
+        styles={styles}
+        labels={{
+          commits: t('common:commits'),
+          branches: t('terminal:git.branch'),
+          changes: t('terminal:git.changes'),
+          linkAccount: t('terminal:git.linkAccount'),
+        }}
+        onOpenAccountPicker={() => setShowAccountPicker(true)}
+        onAction={handleGitAction}
+        onChangeSection={(section) => {
+          setActiveSection(section);
+          tracciaTabGitCambiato(section);
+        }}
+      />
 
-      {/* Content */}
       <ScrollView
         style={styles.content}
         showsVerticalScrollIndicator={false}
@@ -1096,13 +448,68 @@ export const GitHubView = ({ tab }: Props) => {
           />
         }
       >
-        {activeSection === 'commits' && renderCommits()}
-        {activeSection === 'branches' && renderBranches()}
-        {activeSection === 'changes' && renderChanges()}
+        {activeSection === 'commits' && (
+          <GitCommitsSection
+            styles={styles}
+            commits={commits}
+            gitLoading={gitLoading}
+            loadingLabel={t('terminal:git.loadingCommits')}
+            emptyLabel={t('terminal:git.noCommitsFound')}
+            sectionTitle={t('terminal:git.recentCommits', { count: commits.length })}
+            formatDate={formatDate}
+            onOpenCommit={handleOpenCommit}
+          />
+        )}
+        {activeSection === 'branches' && (
+          <GitBranchesSection
+            styles={styles}
+            branches={branches}
+            localLabel={`${t('terminal:git.branch')} Local`}
+            remoteLabel={`${t('terminal:git.branch')} Remote`}
+          />
+        )}
+        {activeSection === 'changes' && (
+          <GitChangesSection
+            styles={styles}
+            gitStatus={gitStatus}
+            commitMessage={commitMessage}
+            actionLoading={actionLoading}
+            labels={{
+              createCommit: t('terminal:git.createCommit'),
+              placeholder: t('terminal:git.commitMessagePlaceholder'),
+              commit: t('terminal:git.commit'),
+              staged: t('terminal:git.staged'),
+              modified: t('terminal:git.modified'),
+              untracked: t('terminal:git.untracked'),
+              noChanges: t('terminal:git.noChanges'),
+              status: t('terminal:git.status'),
+              noData: t('common:noData', { defaultValue: 'No data available' }),
+            }}
+            onCommitMessageChange={setCommitMessage}
+            onCommit={handleCommit}
+          />
+        )}
       </ScrollView>
 
-      {/* Account Picker Modal */}
-      {showAccountPicker && renderAccountPicker()}
+      {showAccountPicker && (
+        <GitAccountPickerModal
+          styles={styles}
+          title={t('terminal:git.selectAccount')}
+          addAccountLabel={t('terminal:git.addAccount')}
+          removeAccountLabel={t('terminal:git.removeAccount')}
+          linkedAccount={linkedAccount}
+          gitAccounts={gitAccounts}
+          getProviderConfig={getProviderConfig as any}
+          onClose={() => setShowAccountPicker(false)}
+          onUnlink={handleUnlinkAccount}
+          onLinkAccount={handleLinkAccount}
+          onAddAccount={() => {
+            setShowAccountPicker(false);
+            setShowAddAccountModal(true);
+            tracciaAccountGitCollegato('picker');
+          }}
+        />
+      )}
 
       <AddGitAccountModal
         visible={showAddAccountModal}
@@ -1636,7 +1043,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 2,
   },
-  accountName: {
+  accountCardName: {
     fontSize: 15,
     fontWeight: '600',
     color: '#fff',

@@ -5,6 +5,32 @@
     "noImplicitAny": false,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "esModuleInterop": true
-  }
+    "esModuleInterop": true,
+    "baseUrl": ".",
+    "types": ["vitest/globals", "node"],
+    "paths": {
+      "@/*": ["src/*"],
+      "@core/*": ["src/core/*"],
+      "@features/*": ["src/features/*"],
+      "@shared/*": ["src/shared/*"]
+    }
+  },
+  "include": [
+    "App.tsx",
+    "index.ts",
+    "app.config.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "plugins/**/*.ts",
+    "plugins/**/*.tsx",
+    "plugins/**/*.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "backend-ts",
+    "video",
+    "dist",
+    "ios",
+    ".expo"
+  ]
 }

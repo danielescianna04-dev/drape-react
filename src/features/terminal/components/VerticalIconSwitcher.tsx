@@ -56,7 +56,7 @@ const AnimatedIcon = ({ icon, index, translateY, iconSize }: AnimatedIconProps) 
         { scale },
       ],
       opacity,
-    };
+    } as any;
   });
 
   return (

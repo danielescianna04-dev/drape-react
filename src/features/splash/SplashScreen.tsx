@@ -119,11 +119,11 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
       opacity: exitOpacity,
       transform: [{ scale: exitScale }],
     }]}>
-      {/* Deep gradient background */}
+      {/* Deep gradient background — matches onboarding */}
       <LinearGradient
-        colors={['#0D0816', '#110A1F', '#0A0612', '#0D0816']}
-        start={{ x: 0.2, y: 0 }}
-        end={{ x: 0.8, y: 1 }}
+        colors={['#0C0816', '#1a0a2e', '#2d0845', '#0C0816']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
 
@@ -207,7 +207,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0D0816',
+    backgroundColor: '#0C0816',
   },
   ambientGlow: {
     position: 'absolute',

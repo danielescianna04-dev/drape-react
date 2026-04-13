@@ -6,6 +6,8 @@ const readline = require('readline');
 
 console.log('🔧 Setting up Drape Backend...\n');
 
+const BACKEND_DIR = 'backend-ts';
+
 function exec(command) {
   try {
     return execSync(command, { encoding: 'utf8', stdio: 'pipe' });
@@ -66,7 +68,7 @@ async function setup() {
 
   // Create key
   console.log('🔑 Creating service account key...');
-  const keyPath = 'backend/service-account-key.json';
+  const keyPath = `${BACKEND_DIR}/service-account-key.json`;
   
   if (fs.existsSync(keyPath)) {
     const answer = await askQuestion('Service account key already exists. Overwrite?', 'n');
@@ -81,11 +83,11 @@ async function setup() {
   // Update backend .env
   console.log('📝 Updating backend .env...');
   const envContent = `GOOGLE_CLOUD_PROJECT=${projectId}\nPORT=3000\n`;
-  fs.writeFileSync('backend/.env', envContent);
+  fs.writeFileSync(`${BACKEND_DIR}/.env`, envContent);
 
   console.log('\n✅ Backend setup complete!\n');
   console.log('To start backend:');
-  console.log('  cd backend');
+  console.log(`  cd ${BACKEND_DIR}`);
   
   if (process.platform === 'win32') {
     console.log('  set GOOGLE_APPLICATION_CREDENTIALS=.\\service-account-key.json');

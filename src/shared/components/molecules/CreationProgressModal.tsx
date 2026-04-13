@@ -14,6 +14,47 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle, Line } from 'react-native-svg';
 import { useTranslation } from 'react-i18next';
 
+interface ToolEvent {
+    id?: string;
+    type:
+      | 'start'
+      | 'status'
+      | 'processing'
+      | 'heartbeat'
+      | 'tool_start'
+      | 'tool_input'
+      | 'tool_complete'
+      | 'tool_error'
+      | 'iteration_start'
+      | 'budget_exceeded'
+      | 'budget_warning'
+      | 'todo_update'
+      | 'thinking_start'
+      | 'thinking'
+      | 'thinking_end'
+      | 'message'
+      | 'text_delta'
+      | 'plan_ready'
+      | 'ask_user_question'
+      | 'usage'
+      | 'context_compacting'
+      | 'context_compacted'
+      | 'complete'
+      | 'error'
+      | 'fatal_error'
+      | 'done'
+      | 'sub_agent_start'
+      | 'sub_agent_complete';
+    tool?: string;
+    input?: any;
+    success?: boolean;
+    error?: string;
+    message?: string;
+    content?: string;
+    timestamp?: number | string | Date;
+    iteration?: number;
+}
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Container is bigger than the sphere so it can expand without clipping
 const CONTAINER_SIZE = Math.min(SCREEN_WIDTH * 0.9, 400);
@@ -66,18 +107,6 @@ function generateSphereParticles(count: number, radius: number) {
         });
     }
     return particles;
-}
-
-interface ToolEvent {
-    type: 'tool_start' | 'tool_complete' | 'tool_error' | 'status' | 'complete' | 'message' | 'thinking' | 'iteration_start';
-    tool?: string;
-    input?: any;
-    success?: boolean;
-    error?: string;
-    message?: string;
-    content?: string;
-    timestamp?: number;
-    iteration?: number;
 }
 
 interface Props {

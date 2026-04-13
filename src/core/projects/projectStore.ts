@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import { workstationService, UserProject } from '../workstation/workstationService-firebase';
 import { getAuthHeaders } from '../api/getAuthToken';
+import { auth } from '../../config/firebase';
+
+const getEffectiveUserId = (storedUserId: string): string | null => {
+  return auth.currentUser?.uid || (storedUserId && storedUserId !== 'default-user' ? storedUserId : null);
+};
 
 interface ProjectState {
   projects: UserProject[];
@@ -23,14 +28,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   currentProject: null,
   currentWorkstationId: null,
   isLoading: false,
-  userId: 'default-user', // TODO: Get from auth
+  userId: '',
 
   loadUserProjects: async () => {
     const { userId } = get();
+    const effectiveUserId = getEffectiveUserId(userId);
+    if (!effectiveUserId) {
+      set({ projects: [], currentProject: null, currentWorkstationId: null, isLoading: false });
+      return;
+    }
+
     set({ isLoading: true });
 
     try {
-      const projects = await workstationService.getUserProjects(userId);
+      const projects = await workstationService.getUserProjects(effectiveUserId);
 
       set({ projects, isLoading: false });
     } catch (error) {
@@ -41,6 +52,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   createGitProject: async (repositoryUrl: string, githubToken?: string) => {
     const { userId, loadUserProjects } = get();
+    const effectiveUserId = getEffectiveUserId(userId);
+    if (!effectiveUserId) {
+      throw new Error('User not authenticated');
+    }
+
     set({ isLoading: true });
 
     try {
@@ -65,7 +81,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }
 
       // Save to Firebase
-      const project = await workstationService.saveGitProject(repositoryUrl, userId);
+      const project = await workstationService.saveGitProject(repositoryUrl, effectiveUserId);
 
       // Create workstation
       const workstation = await workstationService.createWorkstationForProject(project, githubToken);
@@ -88,12 +104,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   createPersonalProject: async (name: string) => {
     const { userId, loadUserProjects } = get();
+    const effectiveUserId = getEffectiveUserId(userId);
+    if (!effectiveUserId) {
+      throw new Error('User not authenticated');
+    }
+
     set({ isLoading: true });
 
     try {
 
       // Save to Firebase
-      const project = await workstationService.savePersonalProject(name, userId);
+      const project = await workstationService.savePersonalProject(name, effectiveUserId);
 
       // Create workstation
       const workstation = await workstationService.createWorkstationForProject(project);

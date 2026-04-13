@@ -40,7 +40,7 @@ export const WelcomeScreen = ({ keyboardHeight, onSuggestionPress }: WelcomeScre
         {ITEMS.map((it, i) => (
           <TouchableOpacity key={i} activeOpacity={0.7} style={styles.chip} onPress={() => onSuggestionPress(t(it.key))}>
             {isLiquidGlassSupported ? (
-              <LiquidGlassView style={styles.chipGlass} interactive={true} effect="clear" colorScheme="dark">
+              <LiquidGlassView style={styles.chipGlass} interactive={true} effect="regular" colorScheme="dark">
                 <View style={styles.chipInner}>
                   <Ionicons name={it.icon} size={15} color="rgba(255,255,255,0.45)" />
                   <Text style={styles.chipText} numberOfLines={1}>{t(it.key)}</Text>

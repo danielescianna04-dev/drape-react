@@ -10,7 +10,7 @@ export enum TerminalItemType {
   PLAN_APPROVAL = 'plan_approval', // Plan waiting for user approval
 }
 
-export type TerminalSource = 'preview' | 'chat' | 'terminal' | 'ai' | 'system';
+export type TerminalSource = 'preview' | 'chat' | 'terminal' | 'ai' | 'system' | 'backend';
 
 export interface TerminalItem {
   id?: string;

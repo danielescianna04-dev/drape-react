@@ -19,7 +19,6 @@ import { PreviewPanel } from './PreviewPanel';
 import { GitPanel } from './GitPanel';
 import { GitSheet } from './GitSheet';
 import { VerticalIconSwitcher } from './VerticalIconSwitcher';
-import { IntegrationsFAB } from './IntegrationsFAB';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
@@ -47,7 +46,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
   const [forceHideToggle, setForceHideToggle] = useState(false);
   const [isGitSheetVisible, setIsGitSheetVisible] = useState(false);
-  const [isIntegrationsFABVisible, setIsIntegrationsFABVisible] = useState(false);
   const { tabs, setActiveTab, addTab, activeTabId } = useTabStore();
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
@@ -358,10 +356,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     setIsGitSheetVisible(true);
   }, []);
 
-  const handleIntegrationsClick = useCallback(() => {
-    setIsIntegrationsFABVisible(prev => !prev);
-  }, []);
-
   const handleEnvVarsClick = useCallback(() => {
     Keyboard.dismiss();
     tracciaPannelloAperto('envVars');
@@ -442,38 +436,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         type: 'database' as any,
         title: 'Database',
         data: {},
-      });
-    }
-  }, [tabs, setActiveTab, addTab]);
-
-  const handleSupabasePress = useCallback(() => {
-    Keyboard.dismiss();
-    // Open as tab instead of panel (keep FAB visible)
-    const supabaseTab = tabs.find(t => t.id === 'integration-supabase');
-    if (supabaseTab) {
-      setActiveTab('integration-supabase');
-    } else {
-      addTab({
-        id: 'integration-supabase',
-        type: 'integration',
-        title: 'Supabase',
-        data: { integration: 'supabase' },
-      });
-    }
-  }, [tabs, setActiveTab, addTab]);
-
-  const handleFigmaPress = useCallback(() => {
-    Keyboard.dismiss();
-    // Open as tab instead of panel (keep FAB visible)
-    const figmaTab = tabs.find(t => t.id === 'integration-figma');
-    if (figmaTab) {
-      setActiveTab('integration-figma');
-    } else {
-      addTab({
-        id: 'integration-figma',
-        type: 'integration',
-        title: 'Figma',
-        data: { integration: 'figma' },
       });
     }
   }, [tabs, setActiveTab, addTab]);

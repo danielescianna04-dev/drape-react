@@ -43,7 +43,7 @@ export const SubscriptionSection: React.FC<SubscriptionSectionProps> = ({
             icon="card-outline"
             iconColor="#60A5FA"
             title={t('subscription.currentPlan')}
-            subtitle={currentPlan === 'free' ? 'Free' : currentPlan === 'go' ? 'Go' : currentPlan === 'pro' ? 'Pro' : currentPlan === 'team' ? 'Team' : currentPlan.toUpperCase()}
+            subtitle={currentPlan === 'free' ? 'Free' : currentPlan === 'go' ? 'Go' : currentPlan === 'pro' ? 'Pro' : 'Team'}
             onPress={onPlanPress}
           />
           <SettingItem

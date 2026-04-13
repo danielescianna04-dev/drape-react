@@ -76,9 +76,11 @@ class APIService {
 
   private handleError(error: AxiosError): APIError {
     if (error.response) {
+      const responseData = error.response.data as { message?: string } | undefined;
+
       // Server responded with error status
       return {
-        message: error.response.data?.message || error.message,
+        message: responseData?.message || error.message,
         status: error.response.status,
         code: error.code,
         data: error.response.data,

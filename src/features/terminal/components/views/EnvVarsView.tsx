@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -302,16 +303,21 @@ export const EnvVarsView = ({ tab }: Props) => {
   }, [updateTab, tab.id, missingVars, missingValues]);
 
   return (
-    <View style={[styles.container, { paddingTop: topPadding, paddingLeft: sidebarPadding }]}>
-      {/* Header */}
+    <View style={[styles.container, { paddingTop: topPadding }]}>
+      <LinearGradient
+        colors={AppColors.gradient.dark}
+        locations={[0, 0.3, 0.7, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      {/* Header — full width so border goes edge to edge */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
+        <View style={[styles.headerLeft, { paddingLeft: sidebarPadding }]}>
           <Ionicons name="key" size={24} color={AppColors.primary} />
           <Text style={styles.headerTitle}>{t('common:envVariables')}</Text>
         </View>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={[styles.content, { paddingLeft: sidebarPadding + 20 }]} showsVerticalScrollIndicator={false}>
         {isLoading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator color={AppColors.primary} />
@@ -529,16 +535,17 @@ export const EnvVarsView = ({ tab }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: AppColors.dark.background,
+    backgroundColor: '#07070B',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    paddingRight: 20,
+    paddingTop: 14,
+    paddingBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.2)',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -552,7 +559,6 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingLeft: 20,
     paddingRight: 24,
   },
   loadingContainer: {

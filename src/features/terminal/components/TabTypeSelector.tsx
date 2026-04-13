@@ -8,7 +8,7 @@ import { AppColors } from '../../../shared/theme/colors';
 
 const { width, height } = Dimensions.get('window');
 
-export type TabType = 'chat' | 'terminal' | 'github' | 'browser' | 'file' | 'preview';
+export type TabType = 'chat' | 'terminal' | 'github' | 'browser' | 'file' | 'preview' | 'envVars' | 'buildReport';
 
 interface TabTypeOption {
   type: TabType;

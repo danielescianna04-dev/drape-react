@@ -109,7 +109,7 @@ export const TasksView = ({ tab }: Props) => {
                                 <View style={[styles.stepIndicator, { backgroundColor: getStatusColor(step.status) }]} />
                                 <View style={styles.stepContent}>
                                     <Text style={[styles.stepTitle, step.status === 'completed' && styles.stepCompleted]}>
-                                        {step.title}
+                                        {step.title || step.description}
                                     </Text>
                                     {step.description && (
                                         <Text style={styles.stepDescription} numberOfLines={2}>

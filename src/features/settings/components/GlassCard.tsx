@@ -32,8 +32,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   sectionCardDark: {
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(255,255,255,0.07)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.12)',
   },
 });

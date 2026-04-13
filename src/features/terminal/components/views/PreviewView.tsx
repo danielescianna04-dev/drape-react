@@ -49,7 +49,7 @@ export const PreviewView = React.memo(({ tab }: Props) => {
         { scale },
         { translateY },
       ],
-    };
+    } as any;
   });
 
   // Animated style for chat area
@@ -60,7 +60,7 @@ export const PreviewView = React.memo(({ tab }: Props) => {
     return {
       transform: [{ translateY }],
       opacity,
-    };
+    } as any;
   });
 
   const enterDesignMode = useCallback(() => {

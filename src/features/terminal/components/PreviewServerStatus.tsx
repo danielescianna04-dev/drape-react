@@ -10,8 +10,14 @@ import { PreviewLog } from '../../../hooks/api/usePreviewLogs';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import { tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
 import { WorkstationAPI } from '../../../services/api/workstationAPI';
+import {
+  PreviewErrorScreenView,
+  PreviewLoadingScreenView,
+  PreviewSessionExpiredScreenView,
+  PreviewStartScreenView,
+} from './previewStatusScreens';
 
-const techIconMap: Record<string, string> = {
+const techIconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
   react: 'logo-react',
   vue: 'logo-vue',
   nextjs: 'server-outline',
@@ -86,7 +92,7 @@ const techNameMap: Record<string, string> = {
   java: 'Java',
 };
 
-function getTechIcon(tech?: string): string {
+function getTechIcon(tech?: string): keyof typeof Ionicons.glyphMap {
   return (tech && techIconMap[tech]) || 'logo-html5';
 }
 
@@ -215,251 +221,14 @@ export const PreviewStartScreen: React.FC<{
   startTransitionAnim: Animated.Value;
   onStartWithTransition: () => void;
   t: any;
-}> = ({ currentWorkstation, isStartTransitioning, startTransitionAnim, onStartWithTransition, t }) => {
-  const { width: screenW, height: screenH } = Dimensions.get('window');
-  const winW = Math.min(screenW * 0.85, 340);
-  const winH = 420; // approximate window height
-  const maxX = (screenW - winW) / 2;
-  const maxY = (screenH - winH) / 2;
-
-  // Drag state
-  const translateX = useSharedValue(0);
-  const translateY = useSharedValue(0);
-  const offsetX = useSharedValue(0);
-  const offsetY = useSharedValue(0);
-
-  const clamp = (val: number, min: number, max: number) => {
-    'worklet';
-    return Math.min(Math.max(val, min), max);
-  };
-
-  const panGesture = Gesture.Pan()
-    .onStart(() => {
-      offsetX.value = translateX.value;
-      offsetY.value = translateY.value;
-    })
-    .onUpdate((e) => {
-      translateX.value = clamp(offsetX.value + e.translationX, -maxX, maxX);
-      translateY.value = clamp(offsetY.value + e.translationY, -maxY, maxY);
-    })
-    .onEnd(() => {
-      // snap back if near center
-      if (Math.abs(translateX.value) < 20 && Math.abs(translateY.value) < 20) {
-        translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
-        translateY.value = withSpring(0, { damping: 20, stiffness: 200 });
-      }
-    });
-
-  const dragStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-    ],
-  }));
-
-  return (
-    <View style={styles.startScreen}>
-      {/* Same purple desktop background as loading screen */}
-      <LinearGradient
-        colors={AppColors.gradient.dark as unknown as string[]}
-        locations={[0, 0.3, 0.7, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-
-      {/* Terminal-style window with project info — draggable */}
-      <Reanimated.View style={[dragStyle, { width: '85%', maxWidth: 340, alignSelf: 'center' }]}>
-        <Animated.View style={[
-          styles.devTerminalWindow,
-          {
-            opacity: startTransitionAnim.interpolate({
-              inputRange: [0, 0.6, 1],
-              outputRange: [1, 0.5, 0],
-            }),
-            transform: [{
-              scale: startTransitionAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1, 0.85],
-              }),
-            }, {
-              translateY: startTransitionAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, 30],
-              }),
-            }],
-          }
-        ]}>
-          {/* Window title bar — drag handle */}
-          <GestureDetector gesture={panGesture}>
-            <Reanimated.View style={styles.devWindowTitleBar}>
-              <View style={styles.devWindowDots}>
-                <View style={[styles.devWindowDot, { backgroundColor: '#FF5F57' }]} />
-                <View style={[styles.devWindowDot, { backgroundColor: '#FEBC2E' }]} />
-                <View style={[styles.devWindowDot, { backgroundColor: '#28C840' }]} />
-              </View>
-              <Text style={styles.devWindowTitle}>
-                {currentWorkstation?.name || t('terminal:preview.project')} — preview
-              </Text>
-              <View style={{ width: 44 }} />
-            </Reanimated.View>
-          </GestureDetector>
-
-        {/* Window content */}
-        <View style={styles.devWindowContent}>
-          {/* Project Identity */}
-          <View style={styles.devProjectHeader}>
-            <View style={styles.devProjectIcon}>
-              <Ionicons
-                name={getTechIcon(currentWorkstation?.technology || currentWorkstation?.language)}
-                size={24}
-                color={getTechColor(currentWorkstation?.technology || currentWorkstation?.language)}
-              />
-            </View>
-            <Text style={styles.devProjectName} numberOfLines={1}>
-              {currentWorkstation?.name || t('terminal:preview.project')}
-            </Text>
-            <View style={styles.devStatusRow}>
-              <View style={styles.devTechBadge}>
-                <Text style={styles.devTechBadgeText}>
-                  {currentWorkstation?.technology || currentWorkstation?.language || 'web'}
-                </Text>
-              </View>
-              <View style={styles.devDot} />
-              <View style={styles.devStatusBadge}>
-                <View style={[styles.devStatusDot, isStartTransitioning && { backgroundColor: '#FBBF24' }]} />
-                <Text style={styles.devStatusText}>{isStartTransitioning ? t('terminal:preview.starting') : t('terminal:preview.readyShort')}</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Info Card */}
-          <View style={styles.devInfoCard}>
-            <View style={styles.devInfoRow}>
-              <Text style={styles.devInfoLabel}>{t('terminal:preview.technology')}</Text>
-              <Text style={styles.devInfoValue}>
-                {getTechDisplayName(currentWorkstation?.technology)}
-              </Text>
-            </View>
-            <View style={styles.devInfoDivider} />
-            <View style={styles.devInfoRow}>
-              <Text style={styles.devInfoLabel}>{t('terminal:preview.environment')}</Text>
-              <View style={styles.devEnvBadge}>
-                <Text style={styles.devEnvBadgeText}>{t('terminal:preview.dock.development')}</Text>
-              </View>
-            </View>
-            <View style={styles.devInfoDivider} />
-            <CustomStartCommand projectId={currentWorkstation?.id} t={t} />
-          </View>
-
-          {/* Start Button */}
-          <TouchableOpacity
-            style={styles.devStartBtn}
-            onPress={onStartWithTransition}
-            activeOpacity={0.85}
-            disabled={isStartTransitioning}
-          >
-            <LinearGradient
-              colors={isStartTransitioning ? ['#4C1D95', '#4C1D95'] : [AppColors.primary, '#7C3AED']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.devStartBtnGradient}
-            >
-              {isStartTransitioning ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="play" size={18} color="#fff" style={{ marginLeft: 2 }} />
-                  <Text style={styles.devStartBtnText}>{t('terminal:preview.startPreview')}</Text>
-                </>
-              )}
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </Animated.View>
-      </Reanimated.View>
-
-      {/* macOS Dock */}
-      <MacDock t={t} />
-    </View>
-  );
-};
+}> = (props) => <PreviewStartScreenView {...props} styles={styles} />;
 
 // ============ SESSION EXPIRED SCREEN ============
 export const PreviewSessionExpiredScreen: React.FC<{
   sessionExpiredMessage: string;
   onStartServer: () => void;
   t: any;
-}> = ({ sessionExpiredMessage, onStartServer, t }) => {
-  const message = sessionExpiredMessage || t('terminal:preview.sessionExpired');
-
-  return (
-    <Reanimated.View style={styles.startScreen} entering={FadeIn.duration(300)}>
-      <LinearGradient
-        colors={['#13052A', '#090518', '#06050F', '#080719', '#13052A']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={styles.sessionBgOrbA} />
-      <View style={styles.sessionBgOrbB} />
-      <View style={styles.sessionBgOrbC} />
-
-      <View style={styles.sessionCard}>
-        <View style={styles.sessionCardGlow} />
-
-        <View style={styles.sessionHeader}>
-          <View style={styles.sessionBadge}>
-            <Ionicons name="time-outline" size={14} color="#FDBA74" />
-            <Text style={styles.sessionBadgeText}>{t('terminal:preview.sessionBadge')}</Text>
-          </View>
-        </View>
-
-        <View style={styles.sessionIconOuter}>
-          <View style={styles.sessionIconRing} />
-          <LinearGradient
-            colors={['#F59E0B', '#EA580C']}
-            start={{ x: 0.2, y: 0 }}
-            end={{ x: 0.9, y: 1 }}
-            style={styles.sessionIconInner}
-          >
-            <Ionicons name="hourglass-outline" size={32} color="#FFFFFF" />
-          </LinearGradient>
-        </View>
-
-        <Text style={styles.sessionTitle}>{t('terminal:preview.sessionExpiredTitle')}</Text>
-        <Text style={styles.sessionMessage}>{message}</Text>
-
-        <View style={styles.sessionInfoRow}>
-          <View style={styles.sessionInfoChip}>
-            <Ionicons name="save-outline" size={14} color={AppColors.primaryTint} />
-            <Text style={styles.sessionInfoText}>{t('terminal:preview.sessionStatePreserved')}</Text>
-          </View>
-          <View style={styles.sessionInfoChip}>
-            <Ionicons name="flash-outline" size={14} color={AppColors.primaryTint} />
-            <Text style={styles.sessionInfoText}>{t('terminal:preview.sessionFastRestart')}</Text>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={styles.sessionCta}
-          onPress={onStartServer}
-          activeOpacity={0.9}
-        >
-          <LinearGradient
-            colors={['#9B8AFF', '#7C3AED']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.sessionCtaGradient}
-          >
-            <Ionicons name="refresh" size={18} color="#FFFFFF" />
-            <Text style={styles.sessionCtaText}>{t('terminal:preview.sessionRestartCta')}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-
-        <Text style={styles.sessionHint}>{t('terminal:preview.tapToRestart')}</Text>
-      </View>
-    </Reanimated.View>
-  );
-};
+}> = (props) => <PreviewSessionExpiredScreenView {...props} styles={styles} />;
 
 // ============ ERROR SCREEN ============
 export const PreviewErrorScreen: React.FC<{
@@ -470,35 +239,7 @@ export const PreviewErrorScreen: React.FC<{
   onSendErrorReport: () => void;
   topInset: number;
   t: any;
-}> = ({ previewError, terminalOutput, onClose, onRetryPreview, onSendErrorReport, topInset, t }) => {
-  return (
-    <View style={styles.startScreen}>
-      <LinearGradient
-        colors={AppColors.gradient.dark as unknown as string[]}
-        locations={[0, 0.3, 0.7, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-
-      <TouchableOpacity
-        onPress={onClose}
-        style={[styles.startCloseButton, { top: topInset + 8, right: 16 }]}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
-      </TouchableOpacity>
-
-      <View style={styles.fullScreenContent}>
-        <ErrorContent
-          previewError={previewError}
-          terminalOutput={terminalOutput}
-          onRetryPreview={onRetryPreview}
-          onSendErrorReport={onSendErrorReport}
-          t={t}
-        />
-      </View>
-    </View>
-  );
-};
+}> = (props) => <PreviewErrorScreenView {...props} styles={styles} />;
 
 // ============ LOADING SCREEN (Server Boot Progress) ============
 export const PreviewLoadingScreen: React.FC<{
@@ -516,118 +257,10 @@ export const PreviewLoadingScreen: React.FC<{
   topInset: number;
   t: any;
 }> = ({
-  previewError,
-  previewLogs,
-  terminalOutput,
-  displayedMessage,
-  startingMessage,
-  smoothProgress,
-  elapsedSeconds,
-  pulseAnim,
-  onClose,
-  onRetryPreview,
-  onSendErrorReport,
-  topInset,
-  t,
-}) => {
-  const terminalLines = React.useMemo(() => {
-    if (terminalOutput && terminalOutput.length > 0) return terminalOutput;
-    if (previewLogs.length > 0) return previewLogs.map((entry) => entry.message);
-    return [];
-  }, [terminalOutput, previewLogs]);
-
-  return (
-    <View style={styles.startScreen}>
-      <LinearGradient
-        colors={AppColors.gradient.dark as unknown as string[]}
-        locations={[0, 0.3, 0.7, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-
-      {/* Content - Error or Terminal (full screen) */}
-      <View style={styles.fullScreenContent}>
-        {previewError ? (
-          /* ERROR UI */
-          <ErrorContent
-            previewError={previewError}
-            terminalOutput={terminalOutput}
-            onRetryPreview={onRetryPreview}
-            onSendErrorReport={onSendErrorReport}
-            t={t}
-          />
-        ) : (
-          /* LOADING UI - Mac Terminal Style */
-          <View style={styles.terminalContainer}>
-            {/* Mac Terminal Header */}
-            <View style={styles.terminalHeader}>
-              <View style={styles.terminalTrafficLights}>
-                <View style={[styles.terminalLight, styles.terminalLightRed]} />
-                <View style={[styles.terminalLight, styles.terminalLightYellow]} />
-                <View style={[styles.terminalLight, styles.terminalLightGreen]} />
-              </View>
-              <Text style={styles.terminalTitle}>{t('terminal:preview.dock.terminalWindowTitle')}</Text>
-            </View>
-
-            {/* Terminal Body with Logs */}
-            <ScrollView
-              style={styles.terminalBody}
-              contentContainerStyle={styles.terminalContent}
-              showsVerticalScrollIndicator={false}
-              ref={(ref) => {
-                if (ref && terminalLines.length > 0) {
-                  setTimeout(() => ref.scrollToEnd({ animated: true }), 100);
-                }
-              }}
-            >
-              {/* Real container terminal output */}
-              {terminalLines.length > 0 ? (
-                terminalLines.map((line, index) => (
-                  <Text key={`out-${index}`} style={[styles.terminalLogText, { color: line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') ? '#f87171' : '#e0e0e0' }]}>
-                    {line}
-                  </Text>
-                ))
-              ) : (
-                <Text style={styles.terminalLogText}>
-                  {displayedMessage || t('terminal:preview.initializingEnv')}
-                </Text>
-              )}
-              {/* Blinking cursor */}
-              <Animated.View style={[styles.terminalCursor, {
-                opacity: pulseAnim.interpolate({
-                  inputRange: [0.6, 1],
-                  outputRange: [0, 1]
-                })
-              }]} />
-            </ScrollView>
-
-            {/* Progress bar at bottom */}
-            <View style={styles.terminalFooter}>
-              <View style={styles.terminalProgressBar}>
-                <View style={[
-                  styles.terminalProgressFill,
-                  { width: `${smoothProgress}%` }
-                ]} />
-              </View>
-              <Text style={styles.terminalProgressText} numberOfLines={1}>
-                {startingMessage || t('terminal:preview.loading')}
-              </Text>
-              {elapsedSeconds > 0 && (
-                <Text style={styles.terminalRemainingText}>
-                  {elapsedSeconds < 60
-                    ? `${elapsedSeconds}s`
-                    : `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, '0')}`}
-                </Text>
-              )}
-            </View>
-          </View>
-        )}
-      </View>
-
-      {/* macOS Dock */}
-      <MacDock t={t} />
-    </View>
-  );
-};
+  onClose: _onClose,
+  topInset: _topInset,
+  ...props
+}) => <PreviewLoadingScreenView {...props} styles={styles} />;
 
 // ============ SHARED: Error Content ============
 const ErrorContent: React.FC<{

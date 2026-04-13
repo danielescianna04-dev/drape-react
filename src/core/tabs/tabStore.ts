@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type TabType = 'terminal' | 'file' | 'chat' | 'settings' | 'github' | 'browser' | 'preview' | 'tasks' | 'shell' | 'database' | 'pty';
+export type TabType = 'terminal' | 'file' | 'chat' | 'settings' | 'github' | 'browser' | 'preview' | 'tasks' | 'shell' | 'database' | 'pty' | 'envVars' | 'buildReport';
 
 export interface Tab {
   id: string;

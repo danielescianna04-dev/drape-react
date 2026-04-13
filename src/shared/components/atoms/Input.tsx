@@ -16,11 +16,13 @@ interface InputProps {
   /** Whether to auto-focus */
   autoFocus?: boolean;
   /** Keyboard type */
-  keyboardType?: 'default' | 'email-address' | 'numeric' | 'phone-pad';
+  keyboardType?: 'default' | 'email-address' | 'numeric' | 'phone-pad' | 'url';
   /** Auto-capitalize behavior */
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   /** Auto-correct behavior */
   autoCorrect?: boolean;
+  /** Whether to mask the input */
+  secureTextEntry?: boolean;
   /** Additional style for container */
   style?: ViewStyle;
   /** Additional style for input */
@@ -49,6 +51,7 @@ export const Input: React.FC<InputProps> = ({
   keyboardType = 'default',
   autoCapitalize = 'none',
   autoCorrect = false,
+  secureTextEntry = false,
   style,
   inputStyle,
   label,
@@ -103,6 +106,7 @@ export const Input: React.FC<InputProps> = ({
             keyboardType={keyboardType}
             autoCapitalize={autoCapitalize}
             autoCorrect={autoCorrect}
+            secureTextEntry={secureTextEntry}
           />
         </LiquidGlassView>
       );
@@ -121,6 +125,7 @@ export const Input: React.FC<InputProps> = ({
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         autoCorrect={autoCorrect}
+        secureTextEntry={secureTextEntry}
       />
     );
   };

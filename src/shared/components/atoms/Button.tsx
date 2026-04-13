@@ -72,7 +72,7 @@ export const Button: React.FC<ButtonProps> = ({
   // If Liquid Glass is supported and not disabled
   if (isLiquidGlassSupported && !noGlass && variant !== 'ghost') {
     // Flatten styles to extract border radius if present, otherwise default to 12
-    const flattenedStyle = StyleSheet.flatten(buttonStyle);
+    const flattenedStyle = StyleSheet.flatten(buttonStyle) as ViewStyle;
     const borderRadius = (flattenedStyle.borderRadius as number) || 12;
     
     // For glass effect, we want the container to be the glass view

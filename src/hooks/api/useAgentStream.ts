@@ -69,11 +69,16 @@ export interface AgentPlan {
 
 export interface AgentAgentPlanStep {
   id: string;
+  title?: string;
   description: string;
   tool?: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
   order: number;
 }
+
+export type ToolEvent = AgentToolEvent;
+export type Plan = AgentPlan;
+export type PlanStep = AgentAgentPlanStep;
 
 // Hook Options
 interface UseAgentStreamOptions {

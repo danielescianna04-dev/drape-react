@@ -217,7 +217,7 @@ class IAPService {
     try {
       console.log('[IAP] Requesting purchase:', productId);
       tracciaAcquistoAvviato(productId);
-      await iap.requestPurchase({ request: { apple: { sku: productId } } });
+      await iap.requestPurchase({ request: { apple: { sku: productId } }, type: 'subs' });
     } catch (err: any) {
       console.error('[IAP] requestPurchase catch:', err);
       if (err.code === 'user-cancelled' || err.code === 'E_USER_CANCELLED') {

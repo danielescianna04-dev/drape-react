@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeIn, FadeOut, Layout, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, Layout, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
 import { useChatStore } from '../../../core/terminal/chatStore';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
@@ -102,7 +102,7 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
 
   // ── Navigation section toggle ────────────────────────────────────
   // Shared values for chevron rotation per section
-  const chevronRotations: Record<string, Animated.SharedValue<number>> = {};
+  const chevronRotations: Record<string, SharedValue<number>> = {};
   const useChevronRotation = (id: string, isExpanded: boolean) => {
     const rotation = useSharedValue(isExpanded ? 1 : 0);
     chevronRotations[id] = rotation;

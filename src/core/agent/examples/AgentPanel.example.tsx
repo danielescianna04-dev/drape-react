@@ -54,7 +54,7 @@ export function AgentPanelExample() {
 
   // Selectors
   const status = agentSelectors.getStatus();
-  const planProgress = agentSelectors.getPlanProgress();
+  const planProgress = agentSelectors.getAgentPlanProgress();
   const toolErrors = agentSelectors.getToolErrors();
 
   // Handlers

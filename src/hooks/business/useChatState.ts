@@ -21,7 +21,7 @@ export const useChatState = (isCardMode: boolean) => {
   // Refs for managing state across renders
   const isProcessingToolsRef = useRef(false);
   const tabInputsRef = useRef<Record<string, string>>({});
-  const previousTabIdRef = useRef<string | undefined>();
+  const previousTabIdRef = useRef<string | undefined>(undefined);
   const previousInputRef = useRef<string>('');
 
   // Animated values for smooth UI transitions

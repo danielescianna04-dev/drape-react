@@ -258,7 +258,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
   };
 
   const filteredProjects = projects.filter((ws) => {
-    const matchesSearch = ws.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = (ws.name || '').toLowerCase().includes(searchQuery.toLowerCase());
     if (!matchesSearch) return false;
 
     if (activeFilter === 'all') return true;

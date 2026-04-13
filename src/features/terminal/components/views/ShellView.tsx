@@ -440,7 +440,7 @@ export const ShellView = ({ tab }: Props) => {
 
   return (
     <LinearGradient
-      colors={AppColors.gradient.dark as unknown as string[]}
+      colors={AppColors.gradient.dark as unknown as [string, string, string, string]}
       style={[styles.container, { paddingTop: topPadding }]}
     >
       {/* Top bar */}

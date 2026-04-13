@@ -5,6 +5,7 @@ import { useAgentStream } from '../../../hooks/api/useAgentStream';
 import { useChatEngine, type ChatEngineMessage } from '../../../hooks/engine/useChatEngine';
 import { useChatStore } from '../../../core/terminal/chatStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
+import { TerminalItemType, type TerminalItem } from '../../../shared/types';
 import type { AIMessage } from '../components/PreviewAIChat';
 import i18next from 'i18next';
 import { tracciaMessaggioChat, tracciaNuovaChat, tracciaAnteprimaDaChat, tracciaModalitaIspettore, tracciaElementoSelezionato } from '../../../core/services/analyticsService';
@@ -307,10 +308,10 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
   // ── Save chat when agent completes ──────────────────────────────────────
   useEffect(() => {
     if (!agentStreaming && agentEvents.length > 0 && previewChatId && aiMessages.length > 0) {
-      const messagesToSave = aiMessages.map((msg, index) => ({
+      const messagesToSave: TerminalItem[] = aiMessages.map((msg, index) => ({
         id: `preview-msg-${index}`,
         content: msg.content || '',
-        type: msg.type === 'user' ? 'user_message' : 'output',
+        type: msg.type === 'user' ? TerminalItemType.USER_MESSAGE : TerminalItemType.OUTPUT,
         timestamp: new Date(),
         toolInfo: msg.tool ? {
           tool: msg.tool,
@@ -524,7 +525,8 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
       const currentRunMapped = engine.messages.map(mapEngineToAI);
       const historyBeforeResponse = [...history, ...currentRunMapped];
       const conversationHistory = buildConversationHistory(historyBeforeResponse);
-      setHistory(prev => [...prev, ...currentRunMapped, { type: 'user', content: responseMessage }].slice(-MAX_LOCAL_HISTORY_MESSAGES));
+      const answerMessage: AIMessage = { type: 'user', content: responseMessage };
+      setHistory(prev => [...prev, ...currentRunMapped, answerMessage].slice(-MAX_LOCAL_HISTORY_MESSAGES));
 
       engine.reset();
       resetAgent();

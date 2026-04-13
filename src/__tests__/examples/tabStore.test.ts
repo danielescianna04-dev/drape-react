@@ -3,7 +3,6 @@ import { useTabStore } from '@core/tabs/tabStore';
 
 describe('TabStore', () => {
   beforeEach(() => {
-    // Reset store before each test
     useTabStore.setState({
       tabs: [
         {
@@ -14,6 +13,7 @@ describe('TabStore', () => {
         }
       ],
       activeTabId: 'chat-main',
+      savedProjects: {},
     });
   });
 
@@ -58,7 +58,6 @@ describe('TabStore', () => {
     it('should remove tab and switch to previous tab', () => {
       const { result } = renderHook(() => useTabStore());
 
-      // Add second tab
       act(() => {
         result.current.addTab({
           id: 'terminal-1',
@@ -70,7 +69,6 @@ describe('TabStore', () => {
       expect(result.current.tabs).toHaveLength(2);
       expect(result.current.activeTabId).toBe('terminal-1');
 
-      // Remove active tab
       act(() => {
         result.current.removeTab('terminal-1');
       });
@@ -79,15 +77,13 @@ describe('TabStore', () => {
       expect(result.current.activeTabId).toBe('chat-main');
     });
 
-    it('should not allow removing last tab', () => {
+    it('should allow removing the last tab without crashing', () => {
       const { result } = renderHook(() => useTabStore());
 
-      // This should work but result in activeTabId being null
       act(() => {
         result.current.removeTab('chat-main');
       });
 
-      // Minimum 1 tab should always exist based on implementation
       expect(result.current.tabs.length).toBeGreaterThanOrEqual(0);
     });
   });
@@ -109,6 +105,37 @@ describe('TabStore', () => {
       });
 
       expect(result.current.activeTabId).toBe('chat-main');
+    });
+  });
+
+  describe('project-scoped tab cleanup', () => {
+    it('removes tabs linked to a workstation/project across supported keys', () => {
+      const { result } = renderHook(() => useTabStore());
+
+      act(() => {
+        result.current.addTab({ id: 'terminal-p1', type: 'terminal', title: 'Terminal', workstationId: 'ws-p1' });
+        result.current.addTab({ id: 'browser-p1', type: 'browser', title: 'Browser', data: { projectId: 'p1' } });
+        result.current.addTab({ id: 'chat-p2', type: 'chat', title: 'Other project', workstationId: 'p2' });
+      });
+
+      act(() => {
+        result.current.removeTabsByWorkstation('ws-p1');
+      });
+
+      expect(result.current.tabs.map((tab) => tab.id)).toEqual(['chat-main', 'chat-p2']);
+    });
+
+    it('keeps at least one chat tab when clearing non-chat tabs', () => {
+      const { result } = renderHook(() => useTabStore());
+
+      act(() => {
+        result.current.addTab({ id: 'terminal-1', type: 'terminal', title: 'Terminal' });
+        result.current.clearTabs();
+      });
+
+      expect(result.current.tabs).toHaveLength(1);
+      expect(result.current.tabs[0].type).toBe('chat');
+      expect(result.current.activeTabId).toBe(result.current.tabs[0].id);
     });
   });
 });

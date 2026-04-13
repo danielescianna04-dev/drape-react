@@ -54,9 +54,6 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
     }).start();
   }, [isCardMode]);
 
-  // Don't render if fully hidden
-  if (isCardMode && visibilityAnim._value === 0) return null;
-
   const handleTabPress = (tabId: string) => {
     Keyboard.dismiss();
     const tab = tabs.find(t => t.id === tabId);

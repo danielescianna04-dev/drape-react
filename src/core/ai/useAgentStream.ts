@@ -12,7 +12,23 @@ import { getAuthToken } from '../api/getAuthToken';
 export type AgentMode = 'fast' | 'planning';
 
 export interface ToolEvent {
-  type: 'tool_start' | 'tool_complete' | 'tool_error' | 'status' | 'complete' | 'message' | 'thinking' | 'iteration_start' | 'text_delta';
+  type:
+    | 'tool_start'
+    | 'tool_complete'
+    | 'tool_error'
+    | 'status'
+    | 'complete'
+    | 'message'
+    | 'thinking'
+    | 'iteration_start'
+    | 'text_delta'
+    | 'start'
+    | 'done'
+    | 'plan_ready'
+    | 'fatal_error'
+    | 'processing'
+    | 'heartbeat'
+    | 'error';
   tool?: string;
   input?: any;
   success?: boolean;
@@ -81,7 +97,7 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
         ];
 
         for (const eventType of eventTypes) {
-          es.addEventListener(eventType, (e: any) => {
+          es.addEventListener(eventType as any, (e: any) => {
             if (!e.data) return;
 
             try {

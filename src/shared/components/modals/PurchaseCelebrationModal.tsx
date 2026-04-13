@@ -37,7 +37,7 @@ export const PurchaseCelebrationModal: React.FC<PurchaseCelebrationModalProps> =
   const scaleAnim = useRef(new Animated.Value(0.5)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const confettiRef = useRef<ConfettiPiece[]>([]);
-  const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initialize confetti pieces
   if (confettiRef.current.length === 0) {

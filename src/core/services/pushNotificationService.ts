@@ -30,6 +30,8 @@ async function setupNotificationHandler() {
   N.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
     }),
@@ -263,11 +265,11 @@ class PushNotificationService {
     const N = await getNotifications();
     if (N) {
       if (this.responseListener) {
-        N.removeNotificationSubscription(this.responseListener);
+        this.responseListener.remove();
         this.responseListener = null;
       }
       if (this.receivedListener) {
-        N.removeNotificationSubscription(this.receivedListener);
+        this.receivedListener.remove();
         this.receivedListener = null;
       }
     }

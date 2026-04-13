@@ -15,7 +15,7 @@ npm run start:all
 
 # Or separately
 npm start            # Expo dev server
-npm run backend      # Backend (Express.js)
+npm run backend      # Backend TS (Express.js)
 
 # Run on platform
 npm run ios          # iOS (requires Xcode)
@@ -100,6 +100,8 @@ npm run web          # Web browser
 | WebSocket (ws) | Real-time file sync |
 | Resend | Transactional email |
 | Zod 4 | Schema validation |
+
+Backend sources live in `backend-ts/`.
 
 ### Infrastructure
 | Component | Technology |

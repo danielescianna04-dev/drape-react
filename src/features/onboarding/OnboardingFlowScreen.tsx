@@ -453,7 +453,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0F' },
+  container: { flex: 1, backgroundColor: '#0C0816' },
 
   // Header
   headerRow: {

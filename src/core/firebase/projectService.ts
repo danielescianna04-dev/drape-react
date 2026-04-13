@@ -1,18 +1,23 @@
 import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { auth } from '../../config/firebase';
 import type { WorkstationInfo, ProjectFolder } from '../../shared/types';
 
 const WORKSTATIONS_COLLECTION = 'workstations';
 const FOLDERS_COLLECTION = 'project_folders';
-const USER_ID = 'current-user'; // TODO: Replace with real user authentication
+
+const getCurrentUserId = (): string | null => auth.currentUser?.uid ?? null;
 
 export class ProjectService {
   // Workstations
   static async saveWorkstation(workstation: WorkstationInfo): Promise<string> {
+    const userId = getCurrentUserId();
+    if (!userId) throw new Error('User not authenticated');
+
     try {
       const docRef = await addDoc(collection(db, WORKSTATIONS_COLLECTION), {
         ...workstation,
-        userId: USER_ID,
+        userId,
         createdAt: new Date(),
         updatedAt: new Date()
       });
@@ -24,10 +29,13 @@ export class ProjectService {
   }
 
   static async loadWorkstations(): Promise<WorkstationInfo[]> {
+    const userId = getCurrentUserId();
+    if (!userId) return [];
+
     try {
       const q = query(
         collection(db, WORKSTATIONS_COLLECTION),
-        where('userId', '==', USER_ID)
+        where('userId', '==', userId)
       );
       const querySnapshot = await getDocs(q);
       
@@ -64,10 +72,13 @@ export class ProjectService {
 
   // Project Folders
   static async saveFolder(folder: ProjectFolder): Promise<string> {
+    const userId = getCurrentUserId();
+    if (!userId) throw new Error('User not authenticated');
+
     try {
       const docRef = await addDoc(collection(db, FOLDERS_COLLECTION), {
         ...folder,
-        userId: USER_ID,
+        userId,
         createdAt: new Date()
       });
       return docRef.id;
@@ -78,10 +89,13 @@ export class ProjectService {
   }
 
   static async loadFolders(): Promise<ProjectFolder[]> {
+    const userId = getCurrentUserId();
+    if (!userId) return [];
+
     try {
       const q = query(
         collection(db, FOLDERS_COLLECTION),
-        where('userId', '==', USER_ID)
+        where('userId', '==', userId)
       );
       const querySnapshot = await getDocs(q);
       

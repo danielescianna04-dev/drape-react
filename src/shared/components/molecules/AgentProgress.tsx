@@ -12,14 +12,43 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 interface ToolEvent {
-    type: 'tool_start' | 'tool_complete' | 'tool_error' | 'status' | 'complete' | 'message' | 'thinking' | 'iteration_start';
+    id?: string;
+    type:
+      | 'start'
+      | 'status'
+      | 'processing'
+      | 'heartbeat'
+      | 'tool_start'
+      | 'tool_input'
+      | 'tool_complete'
+      | 'tool_error'
+      | 'iteration_start'
+      | 'budget_exceeded'
+      | 'budget_warning'
+      | 'todo_update'
+      | 'thinking_start'
+      | 'thinking'
+      | 'thinking_end'
+      | 'message'
+      | 'text_delta'
+      | 'plan_ready'
+      | 'ask_user_question'
+      | 'usage'
+      | 'context_compacting'
+      | 'context_compacted'
+      | 'complete'
+      | 'error'
+      | 'fatal_error'
+      | 'done'
+      | 'sub_agent_start'
+      | 'sub_agent_complete';
     tool?: string;
     input?: any;
     success?: boolean;
     error?: string;
     message?: string;
     content?: string;
-    timestamp?: number;
+    timestamp?: number | string | Date;
     iteration?: number;
 }
 
