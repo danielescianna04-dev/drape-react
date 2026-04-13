@@ -154,7 +154,7 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
 
     if (fixResult.applied) {
       attemptRecord.fixes = [{
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-flash',
         filesModified: fixResult.filesModified,
         duration: fixResult.duration,
       }];
@@ -936,7 +936,7 @@ Rules:
       messages.push({ role: 'user', content: fixPrompt });
     }
 
-    const fixStream = aiProviderService.chatStream('gemini-2.5-flash',
+    const fixStream = aiProviderService.chatStream('gemini-3-flash',
       messages,
       undefined, 'Fix build errors. Return only valid JSON.', { temperature: 0.1, maxTokens: 30000 }
     );

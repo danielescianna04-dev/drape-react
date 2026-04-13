@@ -32,7 +32,7 @@ agentRouter.get('/status', asyncHandler(async (req, res) => {
       streaming: true,
       tools: true,
       multimodal: true,
-      models: ['gemini-2.5-flash', 'gemini-3.1-pro', 'gemini-3.1-flash-lite'],
+      models: ['gemini-3-flash', 'gemini-3.1-pro', 'gemini-3.1-flash-lite'],
     },
     version: '1.0.0',
   });
@@ -172,8 +172,8 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
   });
 
   try {
-    auditService.log({ userId, action: 'agent_stream_start', resource: projectId, details: `mode: ${mode}, model: ${model || 'gemini-2.5-flash'}`, ip: req.ip });
-    log.info(`[Agent] Starting OpenCode stream for project ${projectId}, model: ${model || 'gemini-2.5-flash'}`);
+    auditService.log({ userId, action: 'agent_stream_start', resource: projectId, details: `mode: ${mode}, model: ${model || 'gemini-3-flash'}`, ip: req.ip });
+    log.info(`[Agent] Starting OpenCode stream for project ${projectId}, model: ${model || 'gemini-3-flash'}`);
 
     // Send initial processing event immediately
     writeSseEvent('processing', {
@@ -207,7 +207,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     // Stream from OpenCode — intercept usage event for metrics tracking
     // Use Claude Sonnet 4.6 for project creation (better code quality), Gemini for chat
     // Project creation prompts are always >2000 chars (they include the full system prompt)
-    const usedModel = model || 'gemini-2.5-flash';
+    const usedModel = model || 'gemini-3-flash';
     const sessionId = `project-${projectId}`;
 
     // Track whether we're suppressing 'done'/'complete' events (during multi-phase generation)
@@ -249,7 +249,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
       const agentLoop = new AgentLoop({
         projectId,
         mode: 'fast',
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-flash',
         userId,
         userPlan: userPlan || 'free',
         conversationHistory: [],
@@ -287,7 +287,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
             const ev = event as any;
             metricsService.trackAIUsage({
               userId,
-              model: 'gemini-2.5-flash',
+              model: 'gemini-3-flash',
               inputTokens: ev.totalInputTokens || 0,
               outputTokens: ev.totalOutputTokens || 0,
               costEur: ev.totalCostEur || 0,
@@ -353,7 +353,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
           writeSseEvent('status', { type: 'status', message: `Fixing ${errorCount} compile errors...`, phase: 'fix' });
 
           const fixLoop = new AgentLoop({
-            projectId, mode: 'fast', model: 'gemini-2.5-flash',
+            projectId, mode: 'fast', model: 'gemini-3-flash',
             userId, userPlan: userPlan || 'free', conversationHistory: [],
           });
           fixLoop.maxIterations = 15;
@@ -413,7 +413,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
 
           if (errorContext) {
             const fixLoop = new AgentLoop({
-              projectId, mode: 'fast', model: 'gemini-2.5-flash',
+              projectId, mode: 'fast', model: 'gemini-3-flash',
               userId, userPlan: userPlan || 'free', conversationHistory: [],
             });
             fixLoop.maxIterations = 10;
