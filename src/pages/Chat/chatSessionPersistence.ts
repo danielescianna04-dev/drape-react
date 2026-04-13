@@ -103,17 +103,25 @@ export const persistChatSessionOnSend = ({
 };
 
 export const persistChatMessagesSnapshot = (currentTab?: Tab) => {
-  if (currentTab?.type !== 'chat' || !currentTab.data?.chatId) {
+  persistChatMessagesSnapshotByTabId(currentTab?.id);
+};
+
+export const persistChatMessagesSnapshotByTabId = (tabId?: string) => {
+  if (!tabId) {
     return;
   }
 
-  const chatId = currentTab.data.chatId;
+  const freshTab = useTabStoreSnapshot(tabId);
+  if (freshTab?.type !== 'chat' || !freshTab.data?.chatId) {
+    return;
+  }
+
+  const chatId = freshTab.data.chatId;
   const existingChat = useChatStore.getState().chatHistory.find((chat) => chat.id === chatId);
   if (!existingChat) {
     return;
   }
 
-  const freshTab = useTabStoreSnapshot(currentTab.id);
   const updatedMessages = freshTab?.terminalItems || [];
 
   useChatStore.getState().updateChat(chatId, {

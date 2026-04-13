@@ -64,9 +64,12 @@ export interface UIState {
   // Auto-retry preview after AI fix
   autoRetryPreview: boolean;
   openPreviewRequested: boolean;
+  openPreviewRequestId: number;
   openGitSheetRequested: boolean;
+  openGitSheetRequestId: number;
   openGitSheetTab: 'commits' | 'branches' | 'changes' | null;
   openEnvVarsRequested: boolean;
+  openEnvVarsRequestId: number;
   skipNextPreflight: boolean;
 
   // Preview gate: blocked per project until verification passes
@@ -111,6 +114,12 @@ export interface UIState {
   setOpenPreviewRequested: (value: boolean) => void;
   setOpenGitSheetRequested: (value: boolean) => void;
   setOpenEnvVarsRequested: (value: boolean) => void;
+  requestOpenPreview: () => void;
+  requestOpenGitSheet: (tab?: 'commits' | 'branches' | 'changes' | null) => void;
+  requestOpenEnvVars: () => void;
+  consumeOpenPreviewRequest: (lastHandledId: number) => number;
+  consumeOpenGitSheetRequest: (lastHandledId: number) => number;
+  consumeOpenEnvVarsRequest: (lastHandledId: number) => number;
   setSkipNextPreflight: (value: boolean) => void;
 }
 
@@ -152,9 +161,12 @@ export const useUIStore = create<UIState>((set, get) => ({
     pendingChatMessage: null,
     autoRetryPreview: false,
     openPreviewRequested: false,
+    openPreviewRequestId: 0,
     openGitSheetRequested: false,
+    openGitSheetRequestId: 0,
     openGitSheetTab: null,
     openEnvVarsRequested: false,
+    openEnvVarsRequestId: 0,
     skipNextPreflight: false,
     previewBlockedProjects: {},
     setPreviewBlocked: (projectId, blocked) => set(state => ({
@@ -282,5 +294,36 @@ export const useUIStore = create<UIState>((set, get) => ({
     setOpenPreviewRequested: (value) => set({ openPreviewRequested: value }),
     setOpenGitSheetRequested: (value) => set({ openGitSheetRequested: value }),
     setOpenEnvVarsRequested: (value) => set({ openEnvVarsRequested: value }),
+    requestOpenPreview: () => set((state) => ({
+      openPreviewRequested: true,
+      openPreviewRequestId: state.openPreviewRequestId + 1,
+    })),
+    requestOpenGitSheet: (tab = null) => set((state) => ({
+      openGitSheetRequested: true,
+      openGitSheetRequestId: state.openGitSheetRequestId + 1,
+      openGitSheetTab: tab,
+    })),
+    requestOpenEnvVars: () => set((state) => ({
+      openEnvVarsRequested: true,
+      openEnvVarsRequestId: state.openEnvVarsRequestId + 1,
+    })),
+    consumeOpenPreviewRequest: (lastHandledId) => {
+      const state = get();
+      if (state.openPreviewRequestId <= lastHandledId) return lastHandledId;
+      set({ openPreviewRequested: false });
+      return state.openPreviewRequestId;
+    },
+    consumeOpenGitSheetRequest: (lastHandledId) => {
+      const state = get();
+      if (state.openGitSheetRequestId <= lastHandledId) return lastHandledId;
+      set({ openGitSheetRequested: false });
+      return state.openGitSheetRequestId;
+    },
+    consumeOpenEnvVarsRequest: (lastHandledId) => {
+      const state = get();
+      if (state.openEnvVarsRequestId <= lastHandledId) return lastHandledId;
+      set({ openEnvVarsRequested: false });
+      return state.openEnvVarsRequestId;
+    },
     setSkipNextPreflight: (value) => set({ skipNextPreflight: value }),
 }));

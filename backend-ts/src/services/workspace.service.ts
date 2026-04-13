@@ -18,6 +18,98 @@ import path from 'path';
 const HEALTH_CHECK_TTL = 30_000; // 30 seconds
 
 class WorkspaceService {
+  private shouldSkipInstall(projectInfo: ProjectInfo): boolean {
+    return projectInfo.type === 'static'
+      || projectInfo.type === 'unknown'
+      || (projectInfo.hasWebUI === false && !projectInfo.installCommand);
+  }
+
+  private async copySupportScriptToContainer(
+    projectId: string,
+    scriptName: 'e2e-check.js' | 'qa-agent.js',
+    targetPath: string,
+  ): Promise<void> {
+    try {
+      const nodePath = await import('path');
+      const nodeFs = await import('fs');
+      const childProcess = await import('child_process');
+      const scriptSrc = nodePath.join(__dirname, `../../scripts/${scriptName}`);
+      const hostDrapeDir = nodePath.join(config.projectsRoot, projectId, '.drape');
+
+      if (!nodeFs.existsSync(scriptSrc)) return;
+
+      if (!nodeFs.existsSync(hostDrapeDir)) {
+        nodeFs.mkdirSync(hostDrapeDir, { recursive: true });
+      }
+
+      const hostDst = nodePath.join(hostDrapeDir, scriptName);
+      nodeFs.copyFileSync(scriptSrc, hostDst);
+
+      const containerList = await dockerService.listContainers();
+      const container = containerList.find((c: any) => c.projectId === projectId);
+      if (container) {
+        childProcess.execSync(`docker cp ${hostDst} ${container.id}:${targetPath}`);
+      }
+
+      const copiedSize = nodeFs.statSync(hostDst).size;
+      log.info(`[Workspace] Copied ${scriptName} to container (${copiedSize} bytes)`);
+    } catch (error: any) {
+      log.warn(`[Workspace] Failed to copy ${scriptName}: ${error.message}`);
+    }
+  }
+
+  private async copySupportScripts(projectId: string): Promise<void> {
+    await this.copySupportScriptToContainer(projectId, 'e2e-check.js', '/usr/local/bin/e2e-check.js');
+    await this.copySupportScriptToContainer(projectId, 'qa-agent.js', '/usr/local/bin/qa-agent.js');
+  }
+
+  private async prepareWebProjectFiles(projectId: string, projectInfo: ProjectInfo): Promise<void> {
+    if (projectInfo.type !== 'nextjs' && projectInfo.type !== 'vite') return;
+
+    await this.fixTailwindV4Css(projectId);
+    if (projectInfo.type === 'nextjs') {
+      await this.ensureCSSPipeline(projectId);
+    }
+  }
+
+  private async ensureRuntimeDependencyInstalled(
+    projectId: string,
+    session: Session,
+    projectInfo: ProjectInfo,
+  ): Promise<void> {
+    const runtimePkg = this.getRuntimeCheckPackage(projectInfo.type);
+    if (!runtimePkg) return;
+
+    try {
+      const check = await dockerService.exec(
+        session.agentUrl,
+        `test -d node_modules/${runtimePkg} && test -f node_modules/${runtimePkg}/package.json && echo OK || echo MISSING`,
+        '/home/coder/project',
+        5000,
+        true,
+      );
+
+      if ((check.stdout || '').trim() !== 'MISSING') return;
+
+      log.warn(`[Workspace] ${runtimePkg} missing from node_modules after install — forcing clean reinstall for ${projectId}`);
+      await dockerService.exec(
+        session.agentUrl,
+        'rm -rf node_modules bun.lock bun.lockb package-lock.json yarn.lock pnpm-lock.yaml',
+        '/home/coder/project',
+        30000,
+        true,
+      );
+
+      try {
+        await fileService.writeFile(projectId, '.package-json-hash', '');
+      } catch {}
+
+      await dependencyService.install(projectId, session, projectInfo);
+    } catch (error: any) {
+      log.warn(`[Workspace] Runtime sanity check failed for ${projectId}: ${error.message}`);
+    }
+  }
+
   /**
    * Get or create a container for a user+project.
    * This is the main entry point — all operations go through here.
@@ -123,96 +215,14 @@ class WorkspaceService {
     setImmediate(async () => {
       try {
         log.info(`[Workspace] Background warming ${projectId}...`);
-
-        // Copy latest e2e-check.js to container (image may be outdated)
-        // Write directly to bind-mount path on host, then cp inside container
-        try {
-          const e2eSrc = require('path').join(__dirname, '../../scripts/e2e-check.js');
-          const { config: appConfig } = require('../config');
-          const hostDrapeDir = require('path').join(appConfig.projectsRoot, projectId, '.drape');
-          const hostDst = require('path').join(hostDrapeDir, 'e2e-check.js');
-          if (require('fs').existsSync(e2eSrc)) {
-            if (!require('fs').existsSync(hostDrapeDir)) require('fs').mkdirSync(hostDrapeDir, { recursive: true });
-            require('fs').copyFileSync(e2eSrc, hostDst);
-            // Can't write to /usr/local/bin as coder user — use docker cp from host
-            const containerList = await dockerService.listContainers();
-            const container = containerList.find((c: any) => c.projectId === projectId);
-            if (container) {
-              require('child_process').execSync(
-                `docker cp ${hostDst} ${container.id}:/usr/local/bin/e2e-check.js`
-              );
-            }
-            const copiedSize = require('fs').statSync(hostDst).size;
-            log.info(`[Workspace] Copied e2e-check.js to container via bind mount (${copiedSize} bytes)`);
-          }
-        } catch (e2eErr: any) {
-          log.warn(`[Workspace] Failed to copy e2e-check.js: ${e2eErr.message}`);
-        }
-
-        // Copy qa-agent.js to container
-        try {
-          const qaSrc = require('path').join(__dirname, '../../scripts/qa-agent.js');
-          const { config: appConfig } = require('../config');
-          const hostDrapeDir = require('path').join(appConfig.projectsRoot, projectId, '.drape');
-          if (require('fs').existsSync(qaSrc)) {
-            if (!require('fs').existsSync(hostDrapeDir)) require('fs').mkdirSync(hostDrapeDir, { recursive: true });
-            const qaDst = require('path').join(hostDrapeDir, 'qa-agent.js');
-            require('fs').copyFileSync(qaSrc, qaDst);
-            const containerList = await dockerService.listContainers();
-            const cont = containerList.find((c: any) => c.projectId === projectId);
-            if (cont) {
-              require('child_process').execSync(`docker cp ${qaDst} ${cont.id}:/usr/local/bin/qa-agent.js`);
-            }
-            log.info(`[Workspace] Copied qa-agent.js to container (${require('fs').statSync(qaDst).size} bytes)`);
-          }
-        } catch (qaErr: any) {
-          log.warn(`[Workspace] Failed to copy qa-agent.js: ${qaErr.message}`);
-        }
-
-        // Fix Tailwind CSS version mismatch + ensure CSS plumbing before build
-        if (projectInfo.type === 'nextjs' || projectInfo.type === 'vite') {
-          await this.fixTailwindV4Css(projectId);
-          if (projectInfo.type === 'nextjs') {
-            await this.ensureCSSPipeline(projectId);
-          }
-        }
+        await this.copySupportScripts(projectId);
+        await this.prepareWebProjectFiles(projectId, projectInfo);
 
         // Install dependencies (skip for console projects without deps and static/unknown)
-        const skipInstall = projectInfo.type === 'static' || projectInfo.type === 'unknown'
-          || (projectInfo.hasWebUI === false && !projectInfo.installCommand);
+        const skipInstall = this.shouldSkipInstall(projectInfo);
         if (!skipInstall) {
           await dependencyService.install(projectId, session, projectInfo);
-
-          // Sanity check: verify the framework runtime is actually in node_modules.
-          // If install reported success but key deps are missing (partial extract,
-          // bun cache corruption, pre-install wipe), force a clean reinstall.
-          const runtimePkg = this.getRuntimeCheckPackage(projectInfo.type);
-          if (runtimePkg) {
-            try {
-              const check = await dockerService.exec(
-                session.agentUrl,
-                `test -d node_modules/${runtimePkg} && test -f node_modules/${runtimePkg}/package.json && echo OK || echo MISSING`,
-                '/home/coder/project',
-                5000,
-                true,
-              );
-              if ((check.stdout || '').trim() === 'MISSING') {
-                log.warn(`[Workspace] ${runtimePkg} missing from node_modules after install — forcing clean reinstall for ${projectId}`);
-                await dockerService.exec(
-                  session.agentUrl,
-                  'rm -rf node_modules bun.lock bun.lockb package-lock.json yarn.lock pnpm-lock.yaml',
-                  '/home/coder/project',
-                  30000,
-                  true,
-                );
-                // Invalidate hash so install doesn't skip
-                try { await fileService.writeFile(projectId, '.package-json-hash', ''); } catch {}
-                await dependencyService.install(projectId, session, projectInfo);
-              }
-            } catch (e: any) {
-              log.warn(`[Workspace] Runtime sanity check failed for ${projectId}: ${e.message}`);
-            }
-          }
+          await this.ensureRuntimeDependencyInstalled(projectId, session, projectInfo);
         }
 
         // Start dev server (or run console program)
@@ -523,8 +533,7 @@ class WorkspaceService {
     session.projectInfo = projectInfo;
 
     // Install deps (skip for console projects without installCommand and static/unknown)
-    const skipInstall = projectInfo.type === 'static' || projectInfo.type === 'unknown'
-      || (projectInfo.hasWebUI === false && !projectInfo.installCommand);
+    const skipInstall = this.shouldSkipInstall(projectInfo);
     if (!skipInstall) {
       onProgress?.('install', `Installing dependencies (${projectInfo.packageManager || 'bun'})...`);
       await dependencyService.install(projectId, session, projectInfo, (message) => {

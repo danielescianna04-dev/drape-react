@@ -16,6 +16,13 @@ import {
 } from '../gitSheetUtils';
 import type { GitBranch, GitCommit, GitStatus } from '../views/gitHubViewUtils';
 import type { WorkstationInfo } from '../../../../shared/types';
+import {
+  buildGithubCommitRefMap,
+  buildGithubCommits,
+  buildGitStatusFromBackend,
+  mergeLocalAndRemoteBranches,
+  parseGitHubRepoUrl,
+} from './gitSheetDataUtils';
 
 export function useGitSheetData(
   visible: boolean,
@@ -133,9 +140,7 @@ export function useGitSheetData(
               isRemote: false,
             }));
             setBranches(prev => {
-              const localNames = new Set(backendBranches.map((b: GitBranch) => b.name));
-              const remoteOnly = prev.filter(b => b.isRemote && !localNames.has(b.name));
-              const merged = [...backendBranches, ...remoteOnly];
+              const merged = mergeLocalAndRemoteBranches(backendBranches, prev);
 
               const cached = useGitCacheStore.getState().getGitData(currentWorkstation!.id);
               if (cached) {
@@ -166,12 +171,7 @@ export function useGitSheetData(
       if (localData?.isGitRepo) {
         const changes = localData.changes;
         if (changes) {
-          setGitStatus({
-            staged: changes.staged || [],
-            modified: changes.modified || [],
-            untracked: changes.untracked || [],
-            deleted: changes.deleted || [],
-          });
+          setGitStatus(buildGitStatusFromBackend(changes));
         }
 
         if (localData.branch) {
@@ -237,12 +237,7 @@ export function useGitSheetData(
         if (cached) {
           useGitCacheStore.getState().setGitData(currentWorkstation!.id, {
             ...cached,
-            status: changes ? {
-              staged: changes.staged || [],
-              modified: changes.modified || [],
-              untracked: changes.untracked || [],
-              deleted: changes.deleted || [],
-            } : null,
+            status: buildGitStatusFromBackend(changes),
           });
         }
       }
@@ -274,100 +269,59 @@ export function useGitSheetData(
     setBranchCommitsCache({});
 
     const repoUrl = overrideRepoUrl || currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
+    const repoInfo = parseGitHubRepoUrl(repoUrl);
     let localCurrentBranch = 'main';
 
     try {
-      if (repoUrl && repoUrl.includes('github.com')) {
-        const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (repoInfo) {
+        const { owner, repo } = repoInfo;
 
-        if (match) {
-          const [, owner, repo] = match;
-
-          try {
-            let token: string | null = null;
-            const accounts = passedAccounts || accountsRef.current;
-            const githubAccount = accounts.find(a => a.provider === 'github');
-            if (githubAccount) {
-              token = await gitAccountService.getToken(githubAccount, userId);
-            }
-
-            const [commitsData, branchesData, tagsData] = await Promise.all([
-              githubService.getCommits(owner, repo, token),
-              githubService.getBranches(owner, repo, token),
-              githubService.getTags(owner, repo, token),
-            ]);
-
-            if (commitsData && commitsData.length > 0) {
-              localCurrentBranch = branchesData?.find((b: { name: string }) => b.name === 'main' || b.name === 'master')?.name || 'main';
-
-              const refsMap: Record<string, { branches: string[]; tags: string[] }> = {};
-              if (branchesData) {
-                for (const b of branchesData) {
-                  const sha7 = b.commit?.sha?.substring(0, 7);
-                  if (sha7) {
-                    if (!refsMap[sha7]) refsMap[sha7] = { branches: [], tags: [] };
-                    refsMap[sha7].branches.push(b.name);
-                  }
-                }
-              }
-              if (tagsData) {
-                for (const tg of tagsData) {
-                  if (tg.sha) {
-                    const tagSha7 = tg.sha.substring(0, 7);
-                    if (!refsMap[tagSha7]) refsMap[tagSha7] = { branches: [], tags: [] };
-                    refsMap[tagSha7].tags.push(tg.name);
-                  }
-                }
-              }
-
-              const githubCommits: GitCommit[] = commitsData.map((c: GitHubCommit, index: number) => {
-                const sh = c.sha.substring(0, 7);
-                const refs = refsMap[sh];
-                return {
-                  hash: c.sha,
-                  shortHash: sh,
-                  message: c.message.split('\n')[0],
-                  author: c.author.name,
-                  authorEmail: c.author.email,
-                  authorAvatar: c.author.avatar_url,
-                  authorLogin: c.author.login,
-                  date: new Date(c.author.date),
-                  isHead: index === 0,
-                  branch: index === 0 ? localCurrentBranch : undefined,
-                  url: c.url,
-                  branches: refs?.branches,
-                  tags: refs?.tags,
-                };
-              });
-
-              setCommits(githubCommits);
-              setCurrentBranch(localCurrentBranch);
-              setIsGitRepo(true);
-
-              if (branchesData && branchesData.length > 0) {
-                const githubBranches: GitBranch[] = branchesData.map((b: { name: string }) => ({
-                  name: b.name,
-                  isCurrent: b.name === localCurrentBranch,
-                  isRemote: true,
-                }));
-                setBranches(githubBranches);
-              }
-
-              useGitCacheStore.getState().setGitData(currentWorkstation.id, {
-                commits: githubCommits.map(c => ({ ...c, date: c.date.toISOString() })),
-                branches: branchesData?.map((b: { name: string }) => ({ name: b.name, isCurrent: b.name === localCurrentBranch, isRemote: true })) || [],
-                status: null,
-                currentBranch: localCurrentBranch,
-                isGitRepo: true
-              });
-
-              setGitLoading(false);
-              fetchBackendStatus(localCurrentBranch);
-              return;
-            }
-          } catch (ghError: unknown) {
-            console.warn(`[GitSheet] GitHub API failed after ${Date.now() - totalStart}ms:`, ghError instanceof Error ? ghError.message : String(ghError));
+        try {
+          let token: string | null = null;
+          const accounts = passedAccounts || accountsRef.current;
+          const githubAccount = accounts.find(a => a.provider === 'github');
+          if (githubAccount) {
+            token = await gitAccountService.getToken(githubAccount, userId);
           }
+
+          const [commitsData, branchesData, tagsData] = await Promise.all([
+            githubService.getCommits(owner, repo, token),
+            githubService.getBranches(owner, repo, token),
+            githubService.getTags(owner, repo, token),
+          ]);
+
+          if (commitsData && commitsData.length > 0) {
+            localCurrentBranch = branchesData?.find((b: { name: string }) => b.name === 'main' || b.name === 'master')?.name || 'main';
+            const refsMap = buildGithubCommitRefMap(branchesData, tagsData);
+            const githubCommits: GitCommit[] = buildGithubCommits(commitsData, localCurrentBranch, refsMap);
+
+            setCommits(githubCommits);
+            setCurrentBranch(localCurrentBranch);
+            setIsGitRepo(true);
+
+            if (branchesData && branchesData.length > 0) {
+              const githubBranches: GitBranch[] = branchesData.map((b: { name: string }) => ({
+                name: b.name,
+                isCurrent: b.name === localCurrentBranch,
+                isRemote: true,
+              }));
+              setBranches(githubBranches);
+            }
+
+            useGitCacheStore.getState().setGitData(currentWorkstation.id, {
+              commits: githubCommits.map(c => ({ ...c, date: c.date.toISOString() })),
+              branches: branchesData?.map((b: { name: string }) => ({ name: b.name, isCurrent: b.name === localCurrentBranch, isRemote: true })) || [],
+              status: null,
+              currentBranch: localCurrentBranch,
+              isGitRepo: true
+            });
+
+            setGitLoading(false);
+            fetchBackendStatus(localCurrentBranch);
+            return;
+          }
+        } catch (ghError: unknown) {
+          console.warn(`[GitSheet] GitHub API failed after ${Date.now() - totalStart}ms:`, ghError instanceof Error ? ghError.message : String(ghError));
         }
       }
 
@@ -438,8 +392,10 @@ export function useGitSheetData(
       );
       const data = await res.json();
       setDiffContent(data.diff || '');
+      return data;
     } catch (e: unknown) {
       setDiffContent(`Error loading diff: ${e instanceof Error ? e.message : String(e)}`);
+      throw e;
     } finally {
       setDiffLoading(false);
     }
@@ -461,10 +417,9 @@ export function useGitSheetData(
     if (branchCommitsCache[branchName]) { setFilteredCommits(branchCommitsCache[branchName]); return; }
 
     const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
-    if (!repoUrl || !repoUrl.includes('github.com')) return;
-    const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-    if (!match) return;
-    const [, owner, repo] = match;
+    const repoInfo = parseGitHubRepoUrl(repoUrl);
+    if (!repoInfo) return;
+    const { owner, repo } = repoInfo;
 
     setBranchFilterLoading(true);
     try {

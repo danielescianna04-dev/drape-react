@@ -32,12 +32,14 @@ import { liveActivityService } from './src/core/services/liveActivityService';
 import { useBackendLogs } from './src/hooks/api/useBackendLogs';
 import { useFileSync } from './src/hooks/business/useFileSync';
 import { useNavigationStore } from './src/core/navigation/navigationStore';
+import type { Screen } from './src/core/navigation/navigationStore';
 import { tracciaSchermata } from './src/core/services/analyticsService';
 import * as Notifications from 'expo-notifications';
 import { useOTAUpdates } from './src/hooks/app/useOTAUpdates';
 import { useConsentStore } from './src/core/services/consentService';
 import { WorkspaceScreen } from './src/app/WorkspaceScreen';
 import { SettingsOverlay } from './src/app/SettingsOverlay';
+import { AppWorkspaceRoutes } from './src/app/AppWorkspaceRoutes';
 import { useFileCacheStore } from './src/core/cache/fileCacheStore';
 import {
   AuthRoute,
@@ -51,8 +53,11 @@ import {
 } from './src/app/AppPreWorkspaceRoutes';
 import { useAppProjectActions } from './src/app/useAppProjectActions';
 import { useAppRouting } from './src/app/useAppRouting';
-
-type Screen = 'splash' | 'auth' | 'consent' | 'onboarding' | 'onboardingFlow' | 'firstProjectChoice' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
+import { getTrackedAppScreenLabel } from './src/app/appScreenAnalytics';
+import { extractGitHubRepoUrlFromDeepLink } from './src/app/appDeepLinkUtils';
+import { resolveOverlayCloseScreen } from './src/app/appOverlayRouting';
+import { shouldShowAuthRoute, shouldShowNativeLoadingRoute } from './src/app/appRouteGuards';
+import { shouldShowHomeShell, shouldShowWorkspaceShell } from './src/app/appScreenVisibility';
 
 
 function ForceUpdateScreen({ storeUrl }: { storeUrl: string }) {
@@ -117,18 +122,9 @@ export default function App() {
     _setCurrentScreen(prev => {
       const next = typeof screen === 'function' ? screen(prev) : screen;
       if (next !== prev && next !== 'splash') {
-        // Map internal screen names to Italian labels for analytics
-        const screenLabels: Record<string, string> = {
-          auth: 'Login', home: 'Home',
-          allProjects: 'Tutti i Progetti',
-          settings: 'Impostazioni', plans: 'Piani',
-          firstProjectChoice: 'Scelta Primo Progetto',
-          // onboarding/onboardingFlow: tracked by OnboardingFlowScreen with specific step names
-          // create: tracked by CreateProjectScreen with specific step names (Idea/Linguaggio/Nome)
-        };
-        // Skip screens that self-track (onboarding steps track themselves)
-        if (!screenLabels[next]) return next;
-        tracciaSchermata(screenLabels[next] || next);
+        const label = getTrackedAppScreenLabel(next);
+        if (!label) return next;
+        tracciaSchermata(label);
       }
       return next;
     });
@@ -197,6 +193,7 @@ export default function App() {
     setPendingFirstProjectImportFromScreen,
     finalizeFirstProjectSetup,
   });
+  const previousScreen = useNavigationStore((state) => state.previousScreen);
 
   // Initialize auth listener on app start
   useEffect(() => {
@@ -219,14 +216,9 @@ export default function App() {
 
   // Deep link handling
   const handleDeepLink = (url: string) => {
-    const { path } = Linking.parse(url);
-    if (path) {
-      // Validate it's a proper GitHub URL
-      const githubMatch = path.match(/github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/);
-      if (githubMatch) {
-        const githubUrl = `https://github.com/${githubMatch[1]}/${githubMatch[2]}`;
-        handleImportRepo(githubUrl);
-      }
+    const githubUrl = extractGitHubRepoUrlFromDeepLink(url);
+    if (githubUrl) {
+      handleImportRepo(githubUrl);
     }
   };
 
@@ -279,7 +271,7 @@ export default function App() {
   }
 
   // Show seamless dark screen while auth is initializing (must be BEFORE auth check)
-  if (!isInitialized || !consentLoaded) {
+  if (shouldShowNativeLoadingRoute({ isInitialized, consentLoaded })) {
     return <NativeLoadingRoute />;
   }
 
@@ -293,7 +285,7 @@ export default function App() {
   }
 
   // Show auth screen only when initialized and no user
-  if (!user) {
+  if (shouldShowAuthRoute({ hasUser: !!user })) {
     return <AuthRoute i18n={i18n} />;
   }
 
@@ -386,6 +378,7 @@ export default function App() {
       <ConsentRoute
         i18n={i18n}
         onResolved={() => {
+          useAuthStore.getState().refreshConsentAwareServices().catch(() => {});
           const shouldResumeFirstCreate = user.onboardingCompleted === true && user.hasCreatedFirstProject === false;
           if (shouldResumeFirstCreate) {
             setIsFirstCreate(true);
@@ -411,131 +404,76 @@ export default function App() {
           <View style={{ flex: 1, backgroundColor: '#000' }}>
             <NetworkConfigProvider>
               <ErrorBoundary>
-              {(currentScreen === 'home' || (currentScreen === 'create' && !isFirstCreate) || (currentScreen === 'settings' && useNavigationStore.getState().previousScreen === 'home')) && (
-                <View
-                  key="home-screen"
-                  style={{ flex: 1 }}
-                >
-                  <NavigationContainer>
-                    <ProjectsHomeScreen
-                      onCreateProject={() => {
-                        setCreateKey(k => k + 1);
-                        setCurrentScreen('create');
-                      }}
-                      onImportProject={() => setShowImportModal(true)}
-                      onMyProjects={() => setCurrentScreen('allProjects')}
-                      onSettings={() => setCurrentScreen('settings')}
-                      onOpenPlans={() => setCurrentScreen('plans')}
-                      onOpenProject={(workstation) => handleOpenProject(workstation)}
-                    />
-                  </NavigationContainer>
-                </View>
-              )}
+              <AppWorkspaceRoutes
+                currentScreen={currentScreen}
+                previousScreen={previousScreen}
+                createKey={createKey}
+                isFirstCreate={isFirstCreate}
+                shouldShowHomeShell={shouldShowHomeShell(currentScreen, previousScreen, isFirstCreate)}
+                shouldShowWorkspaceShell={shouldShowWorkspaceShell(currentScreen, previousScreen)}
+                onCreateProject={() => {
+                  setCreateKey(k => k + 1);
+                  setCurrentScreen('create');
+                }}
+                onImportProject={() => setShowImportModal(true)}
+                onMyProjects={() => setCurrentScreen('allProjects')}
+                onSettings={() => setCurrentScreen('settings')}
+                onOpenPlans={() => setCurrentScreen('plans')}
+                onOpenProject={handleOpenProject}
+                onCreateBack={() => {
+                  if (isFirstCreate) {
+                    setCurrentScreen('firstProjectChoice');
+                  } else {
+                    setCurrentScreen('home');
+                  }
+                }}
+                onCreateOpenPlans={() => setCurrentScreen('plans')}
+                onCreateComplete={async (workstation) => {
+                  const userId = useAuthStore.getState().user?.uid;
+                  if (userId) {
+                    workstationService.saveProjectWithId(
+                      workstation.projectId || workstation.id,
+                      workstation.name,
+                      userId,
+                      workstation.technology || workstation.language,
+                    ).catch((e: any) => console.warn('[App] Failed to save project to Firebase:', e.message));
+                  }
 
-              {currentScreen === 'create' && (
-                <View
-                  key={`create-screen-${createKey}`}
-                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }}
-                >
-                  <CreateProjectScreen
-                    progressOffset={isFirstCreate ? 5 : 0}
-                    progressTotal={isFirstCreate ? 8 : 3}
-                    onBack={() => {
-                      if (isFirstCreate) {
-                        setCurrentScreen('firstProjectChoice');
-                      } else {
-                        setCurrentScreen('home');
-                      }
-                    }}
-                    onOpenPlans={() => setCurrentScreen('plans')}
-                    onCreate={async (workstation) => {
-                      // 0. Save to Firebase so it appears in home screen
-                      const userId = useAuthStore.getState().user?.uid;
-                      if (userId) {
-                        workstationService.saveProjectWithId(
-                          workstation.projectId || workstation.id,
-                          workstation.name,
-                          userId,
-                          workstation.technology || workstation.language,
-                        ).catch((e: any) => console.warn('[App] Failed to save project to Firebase:', e.message));
-                      }
+                  finalizeFirstProjectSetup();
+                  setWorkstation(workstation);
+                  useTabStore.getState().clearTabs();
 
-                      finalizeFirstProjectSetup();
-                      // 1. Set the new workstation
-                      setWorkstation(workstation);
+                  if (workstation.files && workstation.files.length > 0) {
+                    const filePaths = workstation.files.map((f: any) =>
+                      typeof f === 'string' ? f : f.path
+                    );
+                    useFileCacheStore.getState().setFiles(
+                      workstation.projectId || workstation.id,
+                      filePaths
+                    );
+                  }
+                  setCurrentScreen('terminal');
 
-                      // 2. Clear previous tabs to avoid "zombie" state
-                      useTabStore.getState().clearTabs();
+                  setTimeout(() => {
+                    const { activeTabId, tabs } = useTabStore.getState();
+                    const currentTab = tabs.find(t => t.id === activeTabId);
 
-                      // 3. SEED THE CACHE with the files returned by backend (instant loading!)
-                      if (workstation.files && workstation.files.length > 0) {
-                        const filePaths = workstation.files.map((f: any) =>
-                          typeof f === 'string' ? f : f.path
-                        );
-                        useFileCacheStore.getState().setFiles(
-                          workstation.projectId || workstation.id,
-                          filePaths
-                        );
-                      }
-                      setCurrentScreen('terminal');
-
-                      // Add welcome message to chat
-                      setTimeout(() => {
-                        const { activeTabId, tabs } = useTabStore.getState();
-                        const currentTab = tabs.find(t => t.id === activeTabId);
-
-                        if (currentTab) {
-                          clearTerminalItems(currentTab.id);
-                          addTerminalItemToStore(currentTab.id, {
-                            id: `welcome-${Date.now()}`,
-                            type: 'system',
-                            content: `__PROJECT_CREATED__${JSON.stringify({ name: workstation.name, language: workstation.language || 'html' })}`,
-                            timestamp: new Date(),
-                          });
-                        }
-                      }, 100);
-                    }}
-                  />
-                </View>
-              )}
-
-              {(currentScreen === 'terminal' || ((currentScreen === 'settings' || currentScreen === 'plans') && useNavigationStore.getState().previousScreen === 'terminal')) && (
-                <WorkspaceScreen onExit={() => setCurrentScreen('home')} />
-              )}
-
-              {currentScreen === 'allProjects' && (
-                <Animated.View
-                  key="all-projects-screen"
-                  entering={SlideInRight.duration(300)}
-                  exiting={FadeOut.duration(200)}
-                  style={{ flex: 1 }}
-                >
-                  <AllProjectsScreen
-                    onClose={() => setCurrentScreen('home')}
-                    onOpenProject={(workstation) => handleOpenProject(workstation, { fromAllProjects: true })}
-                  />
-                </Animated.View>
-              )}
-
-              {currentScreen === 'settings' && (
-                <SettingsOverlay
-                  onClose={() => {
-                    const prev = useNavigationStore.getState().previousScreen;
-                    setCurrentScreen(prev || 'home');
-                  }}
-                />
-              )}
-
-              {currentScreen === 'plans' && (
-                <SettingsOverlay
-                  onClose={() => {
-                    const prev = useNavigationStore.getState().previousScreen;
-                    setCurrentScreen(prev || 'home');
-                  }}
-                  initialShowPlans={true}
-                  initialPlanIndex={1}
-                />
-              )}
+                    if (currentTab) {
+                      clearTerminalItems(currentTab.id);
+                      addTerminalItemToStore(currentTab.id, {
+                        id: `welcome-${Date.now()}`,
+                        type: 'system',
+                        content: `__PROJECT_CREATED__${JSON.stringify({ name: workstation.name, language: workstation.language || 'html' })}`,
+                        timestamp: new Date(),
+                      });
+                    }
+                  }, 100);
+                }}
+                onExitWorkspace={() => setCurrentScreen('home')}
+                onCloseAllProjects={() => setCurrentScreen('home')}
+                onCloseSettings={() => setCurrentScreen(resolveOverlayCloseScreen<Screen>(previousScreen as Screen | null | undefined, 'home'))}
+                onClosePlans={() => setCurrentScreen(resolveOverlayCloseScreen<Screen>(previousScreen as Screen | null | undefined, 'home'))}
+              />
             </ErrorBoundary>
           </NetworkConfigProvider>
         </View>

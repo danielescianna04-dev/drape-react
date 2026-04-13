@@ -37,6 +37,26 @@ export function previewReducer(state: PreviewState, event: PreviewEvent): Previe
   // ── Global events (valid from any phase) ──────────────────
 
   switch (event.type) {
+    case 'SYNC_EXTERNAL_STATE':
+      return {
+        ...state,
+        phase: event.phase,
+        previewUrl: 'previewUrl' in event ? event.previewUrl ?? null : state.previewUrl,
+        envVarsRequired: 'envVarsRequired' in event ? event.envVarsRequired ?? null : state.envVarsRequired,
+        error: 'error' in event ? event.error ?? null : state.error,
+        sessionExpiredMessage: 'sessionExpiredMessage' in event ? event.sessionExpiredMessage ?? null : state.sessionExpiredMessage,
+        webViewReady: 'webViewReady' in event ? event.webViewReady ?? false : state.webViewReady,
+        canGoBack: 'canGoBack' in event ? event.canGoBack ?? false : state.canGoBack,
+        canGoForward: 'canGoForward' in event ? event.canGoForward ?? false : state.canGoForward,
+        viewportMode: 'viewportMode' in event ? event.viewportMode ?? state.viewportMode : state.viewportMode,
+        displayedMessage: 'displayedMessage' in event ? event.displayedMessage ?? '' : state.displayedMessage,
+        progress: 'progress' in event ? event.progress ?? 0 : state.progress,
+        hasWebUi: 'hasWebUi' in event ? event.hasWebUi ?? true : state.hasWebUi,
+        terminalOutput: 'terminalOutput' in event ? event.terminalOutput ?? [] : state.terminalOutput,
+        startupLogs: 'startupLogs' in event ? event.startupLogs ?? [] : state.startupLogs,
+        autoFix: event.autoFix ? { ...state.autoFix, ...event.autoFix } : state.autoFix,
+      };
+
     case 'RESET':
       return { ...INITIAL_PREVIEW_STATE };
 

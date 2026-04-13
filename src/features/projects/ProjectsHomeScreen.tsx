@@ -3,6 +3,7 @@ import { View, StyleSheet, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LoadingModal } from '../../shared/components/molecules/LoadingModal';
 import { ProjectLoadingOverlay } from '../../shared/components/molecules/ProjectLoadingOverlay';
+import type { WorkstationInfo } from '../../shared/types';
 import { tracciaImportGitAvviato, tracciaEsploraFile } from '../../core/services/analyticsService';
 import {
   ProjectCommitsOverlay,
@@ -20,7 +21,7 @@ interface Props {
   onCreateProject: () => void;
   onImportProject: () => void;
   onMyProjects: () => void;
-  onOpenProject: (workstation: any) => void;
+  onOpenProject: (workstation: WorkstationInfo) => void;
   onSettings?: () => void;
   onOpenPlans?: () => void;
 }

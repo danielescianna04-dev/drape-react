@@ -25,6 +25,7 @@ import {
   tracciaOnboardingIndietro,
 } from '../../core/services/analyticsService';
 import { pushNotificationService } from '../../core/services/pushNotificationService';
+import { useAuthStore } from '../../core/auth/authStore';
 import { ConsentBanner } from '../../core/components/ConsentBanner';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -171,8 +172,9 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
           console.error('[Onboarding] Save failed after retry:', e2);
         }
       }
-      // Request push notification permission right after onboarding
-      pushNotificationService.initialize(userId).catch(() => {});
+      // Consent has just been resolved in-flow, so now we can safely start
+      // consent-gated services like push permission and presence tracking.
+      await useAuthStore.getState().refreshConsentAwareServices().catch(() => {});
       onComplete();
     }
   };

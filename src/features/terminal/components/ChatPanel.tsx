@@ -317,7 +317,7 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
   const handleOpenPreview = useCallback(() => {
     Keyboard.dismiss();
     tracciaPannelloAperto('preview');
-    useUIStore.getState().setOpenPreviewRequested(true);
+    useUIStore.getState().requestOpenPreview();
     handleClose();
   }, []);
 
@@ -376,7 +376,7 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
     Keyboard.dismiss();
     tracciaPannelloAperto('git');
     handleClose();
-    useUIStore.setState({ openGitSheetTab: null, openGitSheetRequested: true });
+    useUIStore.getState().requestOpenGitSheet(null);
   }, [tabs, setActiveTab, addTab]);
 
   const handleOpenDatabase = useCallback(() => {

@@ -18,9 +18,9 @@ export interface UseChatEngineBridgeParams {
   preThinkingIdRef: MutableRefObject<string | null>;
   engineIdMapRef: MutableRefObject<Map<string, string>>;
   prevEngineMessagesRef: MutableRefObject<ChatEngineMessage[]>;
-  addTerminalItem: (item: any) => void;
+  addTerminalItem: (item: Partial<import('../../shared/types').TerminalItem> & { id: string; content: string }) => void;
   removeTerminalItemById: (tabId: string, itemId: string) => void;
-  updateTerminalItemById: (tabId: string, itemId: string, updates: any) => void;
+  updateTerminalItemById: (tabId: string, itemId: string, updates: Partial<import('../../shared/types').TerminalItem>) => void;
   unknownErrorLabel: string;
 }
 

@@ -11,14 +11,15 @@ import { SafeText } from '../../shared/components/SafeText';
 import { ThinkingIndicator } from '../../shared/components/atoms/ThinkingIndicator';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { AppColors } from '../../shared/theme/colors';
-import { TerminalItemType } from '../../shared/types';
+import { TerminalItemType, type TerminalItem } from '../../shared/types';
+import type { AgentToolEvent } from '../../hooks/api/useAgentStream';
 import { useUIStore } from '../../core/terminal/uiStore';
 
 export interface ProcessedChatItem {
-  item: any;
+  item: TerminalItem;
   isOutputAfterTerminalCommand: boolean;
   isNextItemAI: boolean;
-  outputItem?: any;
+  outputItem?: TerminalItem;
   shouldShowLoading: boolean;
 }
 
@@ -28,7 +29,7 @@ interface Props {
   scrollViewRef: React.RefObject<FlatList>;
   scrollPaddingBottom: number;
   isCardMode: boolean;
-  styles: any;
+  styles: ReturnType<typeof StyleSheet.create>;
   contentHeightRef: React.MutableRefObject<number>;
   layoutHeightRef: React.MutableRefObject<number>;
   isNearBottomRef: React.MutableRefObject<boolean>;
@@ -36,14 +37,14 @@ interface Props {
   isUserScrollActiveRef: React.MutableRefObject<boolean>;
   isLoading: boolean;
   agentStreaming: boolean;
-  agentEvents: any[];
+  agentEvents: AgentToolEvent[];
   agentCurrentTool: string | null;
   budgetInfo?: { spentEur?: number; budgetEur?: number } | null;
   keyboardHeight: SharedValue<number>;
   onSuggestionPress: (text: string) => void;
   onScrollToBottom: (animated?: boolean) => void;
   onSetNearBottomState: (nearBottom: boolean) => void;
-  onRetryTool: (tool: string, input: any) => void | Promise<void>;
+  onRetryTool: (tool: string, input: Record<string, unknown>) => void | Promise<void>;
   onOpenPlans: () => void;
 }
 
@@ -125,7 +126,7 @@ export const ChatMessageList: React.FC<Props> = ({
         if (item.content === '__PREVIEW_RETRY__') {
           return (
             <TouchableOpacity
-              onPress={() => { useUIStore.getState().setOpenPreviewRequested(true); }}
+              onPress={() => { useUIStore.getState().requestOpenPreview(); }}
               activeOpacity={0.85}
               style={{
                 marginHorizontal: 16,

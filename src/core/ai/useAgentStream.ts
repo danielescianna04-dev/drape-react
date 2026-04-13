@@ -81,6 +81,7 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
           body: JSON.stringify({
             projectId,
             mode,
+            projectCreation: true,
             prompt,
           }),
           pollingInterval: 0,

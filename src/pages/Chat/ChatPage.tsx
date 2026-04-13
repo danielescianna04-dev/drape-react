@@ -164,8 +164,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   }, []);
 
   const shimmerStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: shimmerX.value }, { skewX: '-20deg' }],
-  }) as any);
+    transform: [{ translateX: shimmerX.value }, { skewX: '-20deg' }] as { translateX: number }[],
+  }));
 
   const { budgetInfo } = useChatBudget(user?.uid, isPaidUser, agentStreaming);
 
@@ -1035,9 +1035,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 onRemoveImage={(index) => {
                   setSelectedInputImages((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
                 }}
-                onOpenGit={() => { useUIStore.setState({ openGitSheetTab: null, openGitSheetRequested: true }); }}
-                onOpenBranch={() => { useUIStore.setState({ openGitSheetTab: 'branches', openGitSheetRequested: true }); }}
-                onOpenEnvVars={() => useUIStore.getState().setOpenEnvVarsRequested(true)}
+                onOpenGit={() => { useUIStore.getState().requestOpenGitSheet(null); }}
+                onOpenBranch={() => { useUIStore.getState().requestOpenGitSheet('branches'); }}
+                onOpenEnvVars={() => useUIStore.getState().requestOpenEnvVars()}
                 labels={{ scrollToBottom: t('composer.scrollToBottom') }}
               />
             </Animated.View>

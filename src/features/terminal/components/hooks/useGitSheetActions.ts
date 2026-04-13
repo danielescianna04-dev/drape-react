@@ -6,6 +6,8 @@ import { useGitCacheStore } from '../../../../core/cache/gitCacheStore';
 import { useFileCacheStore } from '../../../../core/cache/fileCacheStore';
 import { config } from '../../../../config/config';
 import { getAuthHeaders } from '../../../../core/api/getAuthToken';
+import { getGitAuthorInfo, getGitExecutionContext, refreshGitWorkspaceState } from './gitSheetActionUtils';
+import { getGitActionBlockReason, isValidGitBranchName } from './gitSheetActionGuards';
 import {
   tracciaAzioneGit,
   tracciaCommitCreato,
@@ -118,16 +120,6 @@ export function useGitSheetActions({
 
   // ─── Utility functions ────────────────────────────────────────────────
 
-  const isValidBranchName = (name: string): boolean => {
-    if (!name) return false;
-    if (/[\s~^:?*\[\\]/.test(name)) return false;
-    if (name.includes('..')) return false;
-    if (name.startsWith('.') || name.startsWith('/') || name.endsWith('.') || name.endsWith('/') || name.endsWith('.lock')) return false;
-    if (name.includes('//')) return false;
-    if (name.startsWith('-')) return false;
-    return true;
-  };
-
   const formatDate = (date: Date | string) => {
     const dateObj = typeof date === 'string' ? new Date(date) : date;
     if (isNaN(dateObj.getTime())) return '';
@@ -168,42 +160,46 @@ export function useGitSheetActions({
 
   const handleGitAction = async (action: 'pull' | 'push' | 'fetch') => {
     tracciaAzioneGit(action);
-    if (!currentWorkstation?.id) {
+    const blockReason = getGitActionBlockReason({
+      action,
+      hasWorkstation: !!currentWorkstation?.id,
+      gitAccounts,
+      linkedAccount,
+      isDetachedHead,
+      isOwnRepo,
+    });
+    if (blockReason === 'no-workstation') {
       Alert.alert(t('common:error'), t('terminal:git.noActiveWorkspace'));
       return;
     }
-
-    if (gitAccounts.length === 0) {
+    if (blockReason === 'no-accounts') {
       Alert.alert(
         t('terminal:git.authRequired'),
         t('terminal:git.authRequiredForAction', { action }),
         [
           { text: t('common:cancel'), style: 'cancel' },
           { text: t('terminal:git.linkAccount'), onPress: () => setShowAddAccountModal(true) },
-        ]
+        ],
       );
       return;
     }
-
-    if (!linkedAccount) {
+    if (blockReason === 'no-linked-account') {
       Alert.alert(t('common:error'), t('terminal:git.selectAccount'));
       return;
     }
-
-    if ((action === 'push' || action === 'pull') && isDetachedHead) {
+    if (blockReason === 'detached-head') {
       Alert.alert(
         'Detached HEAD',
         'You are in detached HEAD state. Return to a branch before pushing or pulling.',
-        [{ text: 'OK' }]
+        [{ text: 'OK' }],
       );
       return;
     }
-
-    if (action === 'push' && !isOwnRepo) {
+    if (blockReason === 'not-own-repo') {
       Alert.alert(
         t('terminal:git.notYourRepo'),
         t('terminal:git.notYourRepoDesc', { owner: repoOwner, repo: repoName }) + '\n\n' + t('terminal:git.forkInstructions'),
-        [{ text: t('common:ok') }]
+        [{ text: t('common:ok') }],
       );
       return;
     }
@@ -233,12 +229,18 @@ export function useGitSheetActions({
   const executePush = async () => {
     setShowPushModal(false);
     setActionLoading('push');
+    const executionContext = getGitExecutionContext({ currentWorkstation, linkedAccount });
+    if (!executionContext?.linkedAccount) {
+      setActionLoading(null);
+      Alert.alert(t('common:error'), t('terminal:git.selectAccount'));
+      return;
+    }
     const branch = branches.find(b => b.isCurrent)?.name || currentBranch;
     const destBranch = pushDestBranch || branch;
     try {
-      const token = await gitAccountService.getToken(linkedAccount!, userId);
+      const token = await gitAccountService.getToken(executionContext.linkedAccount, userId);
       const authHeaders = await getAuthHeaders();
-      const response = await fetch(`${config.apiUrl}/git/push/${currentWorkstation!.id}`, {
+      const response = await fetch(`${config.apiUrl}/git/push/${executionContext.workstationId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -261,12 +263,14 @@ export function useGitSheetActions({
           ? `${destBranch}: already up-to-date`
           : `${branch} → origin/${destBranch}`;
         Alert.alert(t('common:success'), detail);
-        useGitCacheStore.getState().clearCache(currentWorkstation!.id);
-        skipAutoFilterRef.current = true;
-        setSelectedBranchFilter(null);
-        setActiveSection('commits');
-        isLoadingRef.current = false;
-        await loadGitData();
+        await refreshGitWorkspaceState({
+          workstationId: executionContext.workstationId,
+          loadGitData,
+          isLoadingRef,
+          skipAutoFilterRef,
+          setSelectedBranchFilter,
+          setActiveSection,
+        });
       } else {
         tracciaErrorePush(data.output || data.error || 'Push failed');
         Alert.alert(t('common:error'), data.output || data.error || 'Push failed');
@@ -283,10 +287,16 @@ export function useGitSheetActions({
   const executePull = async () => {
     setShowPullModal(false);
     setActionLoading('pull');
+    const executionContext = getGitExecutionContext({ currentWorkstation, linkedAccount });
+    if (!executionContext?.linkedAccount) {
+      setActionLoading(null);
+      Alert.alert(t('common:error'), t('terminal:git.selectAccount'));
+      return;
+    }
     try {
-      const token = await gitAccountService.getToken(linkedAccount!, userId);
+      const token = await gitAccountService.getToken(executionContext.linkedAccount, userId);
       const authHeaders = await getAuthHeaders();
-      const response = await fetch(`${config.apiUrl}/git/pull/${currentWorkstation!.id}`, {
+      const response = await fetch(`${config.apiUrl}/git/pull/${executionContext.workstationId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -305,13 +315,15 @@ export function useGitSheetActions({
       if (data.success) {
         tracciaPullEffettuato();
         Alert.alert(t('common:success'), 'Pull complete');
-        useGitCacheStore.getState().clearCache(currentWorkstation!.id);
-        useFileCacheStore.getState().clearCache(currentWorkstation!.id);
-        skipAutoFilterRef.current = true;
-        setSelectedBranchFilter(null);
-        setActiveSection('commits');
-        isLoadingRef.current = false;
-        await loadGitData();
+        await refreshGitWorkspaceState({
+          workstationId: executionContext.workstationId,
+          loadGitData,
+          isLoadingRef,
+          skipAutoFilterRef,
+          setSelectedBranchFilter,
+          setActiveSection,
+          clearFileCache: true,
+        });
       } else {
         tracciaErrorePull(data.output || data.error || 'Pull failed');
         Alert.alert(t('common:error'), data.output || data.error || 'Pull failed');
@@ -327,11 +339,17 @@ export function useGitSheetActions({
 
   const executeGitAction = async (action: 'pull' | 'push' | 'fetch') => {
     setActionLoading(action);
+    const executionContext = getGitExecutionContext({ currentWorkstation, linkedAccount });
+    if (!executionContext?.linkedAccount) {
+      setActionLoading(null);
+      Alert.alert(t('common:error'), t('terminal:git.selectAccount'));
+      return;
+    }
     try {
-      const token = await gitAccountService.getToken(linkedAccount!, userId);
+      const token = await gitAccountService.getToken(executionContext.linkedAccount, userId);
       const authHeaders = await getAuthHeaders();
 
-      const response = await fetch(`${config.apiUrl}/git/${action}/${currentWorkstation!.id}`, {
+      const response = await fetch(`${config.apiUrl}/git/${action}/${executionContext.workstationId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -344,8 +362,11 @@ export function useGitSheetActions({
       if (response.ok && data.success) {
         if (action === 'pull') tracciaPullEffettuato();
         Alert.alert(t('common:success'), t('terminal:git.actionCompleted', { action: action.charAt(0).toUpperCase() + action.slice(1) }));
-        isLoadingRef.current = false;
-        await loadGitData();
+        await refreshGitWorkspaceState({
+          workstationId: executionContext.workstationId,
+          loadGitData,
+          isLoadingRef,
+        });
       } else {
         const errMsg = data.error || data.output || data.message || t('terminal:git.actionError', { action });
         if (action === 'pull') tracciaErrorePull(errMsg);
@@ -393,11 +414,12 @@ export function useGitSheetActions({
           });
         }
         Alert.alert(t('common:success'), t('terminal:git.branchSwitched'));
-
-        useGitCacheStore.getState().clearCache(currentWorkstation.id);
-        useFileCacheStore.getState().clearCache(currentWorkstation.id);
-        isLoadingRef.current = false;
-        await loadGitData();
+        await refreshGitWorkspaceState({
+          workstationId: currentWorkstation.id,
+          loadGitData,
+          isLoadingRef,
+          clearFileCache: true,
+        });
       } else {
         if (didStash) {
           await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
@@ -429,7 +451,7 @@ export function useGitSheetActions({
     const name = newBranchName.trim();
     if (!name || !currentWorkstation?.id) return;
 
-    if (!isValidBranchName(name)) {
+    if (!isValidGitBranchName(name)) {
       Alert.alert(t('common:error'), 'Invalid branch name. Avoid spaces, special characters (~^:?*[\\), and sequences like "..".');
       return;
     }
@@ -448,9 +470,11 @@ export function useGitSheetActions({
         Alert.alert(t('common:success'), t('terminal:git.branchCreated'));
         setNewBranchName('');
         setShowCreateBranch(false);
-        useGitCacheStore.getState().clearCache(currentWorkstation.id);
-        isLoadingRef.current = false;
-        await loadGitData();
+        await refreshGitWorkspaceState({
+          workstationId: currentWorkstation.id,
+          loadGitData,
+          isLoadingRef,
+        });
       } else {
         const error = await response.json();
         Alert.alert(t('common:error'), error.message || t('terminal:git.actionError', { action: 'create branch' }));
@@ -497,8 +521,7 @@ export function useGitSheetActions({
           message: commitDescription.trim()
             ? `${commitMessage.trim()}\n\n${commitDescription.trim()}`
             : commitMessage.trim(),
-          authorName: linkedAccount.displayName || linkedAccount.username,
-          authorEmail: linkedAccount.email || `${linkedAccount.username}@users.noreply.github.com`,
+          ...getGitAuthorInfo(linkedAccount),
         }),
       });
 
@@ -508,8 +531,11 @@ export function useGitSheetActions({
         setCommitMessage('');
         setCommitDescription('');
         setSelectedFiles(new Set());
-        isLoadingRef.current = false;
-        await loadGitData();
+        await refreshGitWorkspaceState({
+          workstationId: currentWorkstation.id,
+          loadGitData,
+          isLoadingRef,
+        });
         return true;
       } else {
         Alert.alert(t('common:error'), result.error || result.output || t('terminal:git.commitError'));
@@ -542,8 +568,7 @@ export function useGitSheetActions({
             message: commitDescription.trim()
               ? `${commitMessage.trim()}\n\n${commitDescription.trim()}`
               : commitMessage.trim(),
-            authorName: linkedAccount.displayName || linkedAccount.username,
-            authorEmail: linkedAccount.email || `${linkedAccount.username}@users.noreply.github.com`,
+            ...getGitAuthorInfo(linkedAccount),
           }),
         });
         const result = await response.json();
@@ -580,15 +605,17 @@ export function useGitSheetActions({
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
           hash,
-          authorName: linkedAccount.displayName || linkedAccount.username,
-          authorEmail: linkedAccount.email || `${linkedAccount.username}@users.noreply.github.com`,
+          ...getGitAuthorInfo(linkedAccount),
         }),
       });
       const result = await response.json();
       if (result.success) {
         Alert.alert('Success', 'Commit reverted');
-        isLoadingRef.current = false;
-        await loadGitData();
+        await refreshGitWorkspaceState({
+          workstationId: currentWorkstation.id,
+          loadGitData,
+          isLoadingRef,
+        });
       } else {
         Alert.alert('Error', result.error || result.output || 'Revert failed');
       }
@@ -609,15 +636,17 @@ export function useGitSheetActions({
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
           hash,
-          authorName: linkedAccount.displayName || linkedAccount.username,
-          authorEmail: linkedAccount.email || `${linkedAccount.username}@users.noreply.github.com`,
+          ...getGitAuthorInfo(linkedAccount),
         }),
       });
       const result = await response.json();
       if (result.success) {
         Alert.alert('Success', 'Cherry-pick applied');
-        isLoadingRef.current = false;
-        await loadGitData();
+        await refreshGitWorkspaceState({
+          workstationId: currentWorkstation.id,
+          loadGitData,
+          isLoadingRef,
+        });
       } else {
         Alert.alert('Error', result.error || result.output || 'Cherry-pick failed');
       }
@@ -630,7 +659,7 @@ export function useGitSheetActions({
 
   const handleBranchFromCommit = async (hash: string, branchName: string) => {
     if (!currentWorkstation?.id) return;
-    if (!isValidBranchName(branchName)) {
+    if (!isValidGitBranchName(branchName)) {
       Alert.alert(t('common:error'), 'Invalid branch name. Avoid spaces, special characters (~^:?*[\\), and sequences like "..".');
       return;
     }
@@ -691,6 +720,8 @@ export function useGitSheetActions({
   };
 
   const handleDiscard = (files: string[]) => {
+    const executionContext = getGitExecutionContext({ currentWorkstation, linkedAccount });
+    if (!executionContext) return;
     const isMultiple = files.length > 1;
     const title = isMultiple
       ? t('terminal:git.discardSelected')
@@ -709,7 +740,7 @@ export function useGitSheetActions({
           try {
             const authHeaders = await getAuthHeaders();
             const res = await fetch(
-              `${config.apiUrl}/git/discard/${currentWorkstation!.id}`,
+              `${config.apiUrl}/git/discard/${executionContext.workstationId}`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...authHeaders },
@@ -857,7 +888,7 @@ export function useGitSheetActions({
     setActiveSection,
 
     // Utility functions
-    isValidBranchName,
+    isValidBranchName: isValidGitBranchName,
     formatDate,
     toggleFileSelection,
     toggleSelectAll,

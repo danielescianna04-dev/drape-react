@@ -12,25 +12,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuthStore } from '../../core/auth/authStore';
-import { tracciaLogout, tracciaEliminaAccount, tracciaErrore, tracciaPaginaPianiVista, tracciaDocumentoLegaleVisto, tracciaNotificheToggle, tracciaSchermata, tracciaImpostazioniAperte, tracciaImpostazioniChiuse, tracciaLinguaCambiata } from '../../core/services/analyticsService';
-import { AddGitAccountModal } from './components/AddGitAccountModal';
-import { ProfileSection } from './components/ProfileSection';
-import { GitAccountsSection } from './components/GitAccountsSection';
-import { SubscriptionSection } from './components/SubscriptionSection';
-import { AppearanceSection } from './components/AppearanceSection';
-import { NotificationSection } from './components/NotificationSection';
-import { InfoSection } from './components/InfoSection';
-import { DeviceSection } from './components/DeviceSection';
-import { AccountActionsSection } from './components/AccountActionsSection';
-import { EditNameModal } from './components/EditNameModal';
-import { ChangePasswordModal } from './components/ChangePasswordModal';
-import { SecuritySection } from './components/SecuritySection';
-import { DataExportSection } from './components/DataExportSection';
-import { ChangeEmailModal } from './components/ChangeEmailModal';
-import { LegalPage } from './components/LegalPage';
-import { PurchaseCelebrationModal } from '../../shared/components/modals/PurchaseCelebrationModal';
+import { tracciaPaginaPianiVista } from '../../core/services/analyticsService';
+import { SettingsMainContent } from './components/SettingsMainContent';
 import { SettingsPlanSelectionView, SettingsResourceUsageView } from './components/SettingsHeavyViews';
+import { getSettingsScreenMode } from './settingsScreenModes';
 import { useSettingsData } from './useSettingsData';
 import { styles } from './settingsScreenStyles';
 
@@ -105,6 +90,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
     handleDeleteAccount,
   } = useSettingsData(onClose, initialShowPlans, initialPlanIndex);
 
+  const currentMode = getSettingsScreenMode({ showPlanSelection, showResourceUsage });
+
   const renderPlanSelection = () => (
     <SettingsPlanSelectionView
       styles={styles}
@@ -147,8 +134,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
     />
   );
 
-  if (showPlanSelection) return renderPlanSelection();
-  if (showResourceUsage) return renderResourceUsage();
+  if (currentMode === 'plans') return renderPlanSelection();
+  if (currentMode === 'resource_usage') return renderResourceUsage();
 
   return (
     <Animated.View
@@ -197,194 +184,50 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.contentContainer}
-      >
-        {/* User Profile Section */}
-        <ProfileSection
-          user={user}
-          currentPlan={currentPlan}
-          onEditPress={() => { tracciaImpostazioniAperte('edit_name'); setShowEditName(true); }}
-          loading={loading}
-        />
-
-        {/* Git Accounts Section */}
-        <GitAccountsSection
-          accounts={accounts}
-          loading={loading}
-          shimmerAnim={shimmerAnim}
-          onAddAccount={() => setShowAddModal(true)}
-          onDeleteAccount={handleDeleteAccount}
-          t={t}
-        />
-
-        {/* Subscription & Usage Section */}
-        <SubscriptionSection
-          currentPlan={currentPlan}
-          budgetStatus={budgetStatus}
-          loading={loading}
-          onPlanPress={() => { tracciaPaginaPianiVista('settings'); setShowPlanSelection(true); }}
-          onBudgetPress={() => { tracciaSchermata('Utilizzo Risorse'); setShowResourceUsage(true); }}
-          t={t}
-        />
-
-        {/* Appearance Section */}
-        <AppearanceSection
-          language={language}
-          loading={loading}
-          onLanguageChange={(lang) => { tracciaLinguaCambiata(lang); setAppLanguage(lang); }}
-          t={t}
-        />
-
-        {/* Notifications Section */}
-        <NotificationSection
-          notifications={notifications}
-          notifOperations={notifOperations}
-          notifGithub={notifGithub}
-          notifReengagement={notifReengagement}
-          loading={loading}
-          onNotificationsChange={setNotifications}
-          onOperationsChange={(v) => { tracciaNotificheToggle('operations', String(v)); setNotifOperations(v); updateNotifPreference('operations', v); }}
-          onGithubChange={(v) => { tracciaNotificheToggle('github', String(v)); setNotifGithub(v); updateNotifPreference('github', v); }}
-          onReengagementChange={(v) => { tracciaNotificheToggle('reengagement', String(v)); setNotifReengagement(v); updateNotifPreference('reengagement', v); }}
-          t={t}
-        />
-
-        {/* Info Section */}
-        <InfoSection
-          loading={loading}
-          t={t}
-          onOpenTerms={() => { tracciaDocumentoLegaleVisto('terms'); setShowLegal('terms'); }}
-          onOpenPrivacy={() => { tracciaDocumentoLegaleVisto('privacy'); setShowLegal('privacy'); }}
-        />
-
-        {/* Device Section */}
-        <DeviceSection
-          deviceModelName={deviceModelName}
-          currentDeviceId={currentDeviceId}
-          loading={loading}
-          t={t}
-        />
-
-        {/* Security Section (email users only) */}
-        {isEmailUser && (
-          <SecuritySection
-            onChangePassword={() => { tracciaImpostazioniAperte('change_password'); setShowChangePassword(true); }}
-            onChangeEmail={() => { tracciaImpostazioniAperte('change_email'); setShowChangeEmail(true); }}
-            loading={loading}
-            t={t}
-          />
-        )}
-
-        {/* Data Export (GDPR Right to Portability) */}
-        <DataExportSection
-          loading={loading}
-          t={t}
-        />
-
-        {/* Account Actions (Logout) */}
-        <AccountActionsSection
-          userEmail={user?.email}
-          loading={loading}
-          onLogout={() => Alert.alert(t('logout.title'), t('logout.confirm'), [
-            { text: t('common:cancel'), style: 'cancel' },
-            {
-              text: t('logout.button'), style: 'destructive', onPress: async () => {
-                try {
-                  tracciaLogout();
-                  await logout();
-                  onClose();
-                } catch (error: any) {
-                  tracciaErrore(error?.message || 'Logout error', 'logout');
-                  Alert.alert(t('common:error'), t('logout.error'));
-                }
-              }
-            },
-          ])}
-          onDeleteAccount={() => Alert.alert(t('deleteAccount.title'), t('deleteAccount.confirm'), [
-            { text: t('common:cancel'), style: 'cancel' },
-            {
-              text: t('deleteAccount.button'), style: 'destructive', onPress: async () => {
-                const doDelete = async (password?: string) => {
-                  try {
-                    await tracciaEliminaAccount();
-                    await deleteAccount(password);
-                    Alert.alert('', t('deleteAccount.success'));
-                    onClose();
-                  } catch (error: any) {
-                    if (error.message === 'password-required') {
-                      Alert.prompt(
-                        t('deleteAccount.title'),
-                        t('deleteAccount.enterPassword'),
-                        [
-                          { text: t('common:cancel'), style: 'cancel' },
-                          { text: t('deleteAccount.button'), style: 'destructive', onPress: (pwd) => doDelete(pwd) },
-                        ],
-                        'secure-text'
-                      );
-                    } else if (error.message === 'wrong-password') {
-                      Alert.alert(t('common:error'), t('deleteAccount.wrongPassword'));
-                    } else if (error.message === 'google-reauth-required') {
-                      Alert.alert(t('common:error'), t('deleteAccount.reauth'));
-                    } else if (error.message === 'cancelled') {
-                      // User cancelled Apple re-auth, do nothing
-                    } else {
-                      tracciaErrore(error?.message || 'Delete account error', 'delete_account');
-                      Alert.alert(t('common:error'), t('deleteAccount.error') + (error?.message ? `\n\n${error.message}` : ''));
-                    }
-                  }
-                };
-                await doDelete();
-              }
-            },
-          ])}
-          t={t}
-        />
-
-        <View style={{ height: 40 }} />
-      </ScrollView>
-
-      <AddGitAccountModal
-        visible={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        onAccountAdded={() => {
-          setShowAddModal(false);
-          loadAccounts();
-        }}
-      />
-
-      <EditNameModal
-        visible={showEditName}
-        currentName={user?.displayName || ''}
-        onClose={() => { tracciaImpostazioniChiuse('edit_name'); setShowEditName(false); }}
-        onSave={(newName) => useAuthStore.getState().updateDisplayName(newName)}
+      <SettingsMainContent
+        styles={styles}
+        user={user}
+        currentPlan={currentPlan}
+        loading={loading}
         t={t}
+        onClose={onClose}
+        logout={logout}
+        deleteAccount={deleteAccount}
+        accounts={accounts}
+        shimmerAnim={shimmerAnim}
+        showAddModal={showAddModal}
+        setShowAddModal={setShowAddModal}
+        handleDeleteAccount={handleDeleteAccount}
+        budgetStatus={budgetStatus}
+        showEditName={showEditName}
+        setShowEditName={setShowEditName}
+        showChangePassword={showChangePassword}
+        setShowChangePassword={setShowChangePassword}
+        showChangeEmail={showChangeEmail}
+        setShowChangeEmail={setShowChangeEmail}
+        showLegal={showLegal}
+        setShowLegal={setShowLegal}
+        loadAccounts={loadAccounts}
+        notifications={notifications}
+        notifOperations={notifOperations}
+        notifGithub={notifGithub}
+        notifReengagement={notifReengagement}
+        setNotifications={setNotifications}
+        setNotifOperations={setNotifOperations}
+        setNotifGithub={setNotifGithub}
+        setNotifReengagement={setNotifReengagement}
+        updateNotifPreference={updateNotifPreference}
+        language={language}
+        setAppLanguage={setAppLanguage}
+        setShowPlanSelection={setShowPlanSelection}
+        setShowResourceUsage={setShowResourceUsage}
+        currentDeviceId={currentDeviceId}
+        deviceModelName={deviceModelName}
+        isEmailUser={isEmailUser}
+        showCelebration={showCelebration}
+        celebrationPlan={celebrationPlan}
+        closeCelebration={closeCelebration}
       />
-
-      <ChangePasswordModal
-        visible={showChangePassword}
-        onClose={() => { tracciaImpostazioniChiuse('change_password'); setShowChangePassword(false); }}
-        t={t}
-      />
-
-      <ChangeEmailModal
-        visible={showChangeEmail}
-        currentEmail={user?.email || ''}
-        onClose={() => { tracciaImpostazioniChiuse('change_email'); setShowChangeEmail(false); }}
-        t={t}
-      />
-
-      <PurchaseCelebrationModal
-        visible={showCelebration}
-        planName={celebrationPlan}
-        onClose={closeCelebration}
-      />
-
-      {showLegal && (
-        <LegalPage type={showLegal} onClose={() => setShowLegal(null)} />
-      )}
     </Animated.View>
   );
 };

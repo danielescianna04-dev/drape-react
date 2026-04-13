@@ -34,6 +34,7 @@ import { isConsentGranted } from '../services/consentService';
 import { Alert } from 'react-native';
 import i18n from '../../i18n';
 import { config } from '../../config/config';
+import { deriveIsNewAuthUser, normalizeAuthLifecycle } from './authLifecycle';
 
 async function parseApiError(response: Response): Promise<string> {
   try {
@@ -304,7 +305,7 @@ interface AuthState {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signInWithGoogle: (idToken: string) => Promise<void>;
-  signInWithApple: () => Promise<void>;
+  signInWithApple: (options?: { legalAcceptance?: { tosAcceptedAt: boolean; ageConfirmedAt: boolean } }) => Promise<void>;
   logout: () => Promise<void>;
   deleteAccount: (password?: string) => Promise<void>;
   resendVerificationEmail: (email: string, password: string) => Promise<void>;
@@ -313,6 +314,7 @@ interface AuthState {
   updateDisplayName: (name: string) => Promise<void>;
   clearError: () => void;
   checkDeviceAccess: () => Promise<boolean>;
+  refreshConsentAwareServices: () => Promise<void>;
 }
 
 const mapFirebaseUser = (firebaseUser: User): DrapeUser => ({
@@ -395,6 +397,10 @@ export const consumePendingNewUser = (): boolean => {
   if (_pendingNewUser) { _pendingNewUser = false; return true; }
   return false;
 };
+export const peekPendingNewUser = (): boolean => _pendingNewUser;
+export const clearPendingNewUser = (): void => {
+  _pendingNewUser = false;
+};
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -456,19 +462,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         const userDocSnap = await getDoc(userDocRef);
         const userData = userDocSnap.exists() ? userDocSnap.data() : null;
-        const userPlan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
-        drapeUser.plan = userPlan;
-        drapeUser.hasCreatedFirstProject = !!userData?.hasCreatedFirstProject;
-        drapeUser.onboardingCompleted = !!userData?.onboardingCompleted;
+        const normalizedLifecycle = normalizeAuthLifecycle({
+          plan: userData?.plan,
+          hasCreatedFirstProject: userData?.hasCreatedFirstProject,
+          onboardingCompleted: userData?.onboardingCompleted,
+        });
+        drapeUser.plan = normalizedLifecycle.plan;
+        drapeUser.hasCreatedFirstProject = normalizedLifecycle.hasCreatedFirstProject;
+        drapeUser.onboardingCompleted = normalizedLifecycle.onboardingCompleted;
 
         // Existing accounts created before this flag rollout must not be treated as "new"
         // just because legacy fields are missing. Only brand-new docs or an explicit
         // unfinished onboarding state should force the onboarding flow.
-        const needsOnboarding =
-          userDocSnap.exists() &&
-          userData?.onboardingCompleted === false &&
-          !userData?.hasCreatedFirstProject;
-        const isNew = !userDocSnap.exists() || _pendingNewUser || needsOnboarding;
+        const isNew = deriveIsNewAuthUser({
+          userDocExists: userDocSnap.exists(),
+          pendingNewUser: _pendingNewUser,
+          onboardingCompleted: userData?.onboardingCompleted,
+          hasCreatedFirstProject: userData?.hasCreatedFirstProject,
+        });
 
         // CRITICAL: never overwrite isNewUser=true set by signIn functions.
         // onAuthStateChanged can fire late (after isLoggingIn=false) and must not
@@ -565,21 +576,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDocSnap = await getDoc(userDocRef);
       const userData = userDocSnap.exists() ? userDocSnap.data() : null;
-      const isNewFromFirestore = !userDocSnap.exists();
-
-      // Layer 4: users who explicitly have onboardingCompleted=false must resume onboarding.
-      const needsOnboarding =
-        userDocSnap.exists() &&
-        userData?.onboardingCompleted === false &&
-        !userData?.hasCreatedFirstProject;
-
-      // Triple defense: any signal of "new" wins
-      const isNew = isNewFromAuth || isNewFromFirestore || needsOnboarding;
+      const isNew = deriveIsNewAuthUser({
+        isNewFromAuth,
+        userDocExists: userDocSnap.exists(),
+        onboardingCompleted: userData?.onboardingCompleted,
+        hasCreatedFirstProject: userData?.hasCreatedFirstProject,
+      });
       if (isNew) _pendingNewUser = true;
 
-      drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
-      drapeUser.hasCreatedFirstProject = !!userData?.hasCreatedFirstProject;
-      drapeUser.onboardingCompleted = !!userData?.onboardingCompleted;
+      const normalizedLifecycle = normalizeAuthLifecycle({
+        plan: userData?.plan,
+        hasCreatedFirstProject: userData?.hasCreatedFirstProject,
+        onboardingCompleted: userData?.onboardingCompleted,
+      });
+      drapeUser.plan = normalizedLifecycle.plan;
+      drapeUser.hasCreatedFirstProject = normalizedLifecycle.hasCreatedFirstProject;
+      drapeUser.onboardingCompleted = normalizedLifecycle.onboardingCompleted;
 
       // Now register device (may create doc via merge — but isNew already determined)
       await deviceService.registerAsActiveDevice(userCredential.user.uid);
@@ -1065,7 +1077,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (fallbackError: any) {
       console.error('❌ [AuthStore] Resend verification fallback failed:', fallbackError?.message || fallbackError);
       await signOut(auth).catch(() => {});
-      const errorMessage = i18n.t('auth:errors.errorSendingVerificationEmail');
+      let errorMessage = i18n.t('auth:errors.errorSendingVerificationEmail');
+      switch (fallbackError?.code) {
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential':
+        case 'auth/user-not-found':
+          errorMessage = i18n.t('auth:errors.invalidCredentials');
+          break;
+        case 'auth/too-many-requests':
+          errorMessage = i18n.t('auth:errors.tooManyRequests');
+          break;
+      }
       set({ isLoading: false, error: errorMessage });
       throw new Error(errorMessage);
     }
@@ -1136,10 +1158,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Layer 2+3: Check Firestore BEFORE any writes (registerAsActiveDevice creates doc via merge)
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDoc = await getDoc(userDocRef);
-      const isNewFromFirestore = !userDoc.exists();
+      const userData = userDoc.exists() ? userDoc.data() : null;
+      const isNew = deriveIsNewAuthUser({
+        isNewFromAuth,
+        userDocExists: userDoc.exists(),
+        onboardingCompleted: userData?.onboardingCompleted,
+        hasCreatedFirstProject: userData?.hasCreatedFirstProject,
+      });
 
-      // Triple defense: any signal of "new" wins
-      const isNew = isNewFromAuth || isNewFromFirestore;
       if (isNew) _pendingNewUser = true;
 
       // Now register device (may create doc via merge — but isNew already determined)
@@ -1161,14 +1187,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }),
       }, { merge: true });
 
-      const userData = isNew ? null : userDoc.data();
-
-      // Load plan from Firestore user document (existing users have plan field)
-      if (!isNew && userDoc.exists() && userData) {
-        drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
-        drapeUser.hasCreatedFirstProject = !!userData?.hasCreatedFirstProject;
-        drapeUser.onboardingCompleted = !!userData?.onboardingCompleted;
-      }
+      const normalizedLifecycle = normalizeAuthLifecycle({
+        plan: userData?.plan,
+        hasCreatedFirstProject: userData?.hasCreatedFirstProject,
+        onboardingCompleted: userData?.onboardingCompleted,
+      });
+      drapeUser.plan = normalizedLifecycle.plan;
+      drapeUser.hasCreatedFirstProject = normalizedLifecycle.hasCreatedFirstProject;
+      drapeUser.onboardingCompleted = normalizedLifecycle.onboardingCompleted;
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
 
@@ -1198,7 +1224,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  signInWithApple: async () => {
+  signInWithApple: async (options) => {
     set({ isLoading: true, error: null });
 
     try {
@@ -1254,10 +1280,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Layer 2+3: Check Firestore BEFORE any writes (registerAsActiveDevice creates the doc via merge)
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDoc = await getDoc(userDocRef);
-      const isNewFromFirestore = !userDoc.exists();
+      const userData = userDoc.exists() ? userDoc.data() : null;
+      const isNew = deriveIsNewAuthUser({
+        isNewFromAuth,
+        userDocExists: userDoc.exists(),
+        onboardingCompleted: userData?.onboardingCompleted,
+        hasCreatedFirstProject: userData?.hasCreatedFirstProject,
+      });
 
-      // Triple defense: any signal of "new" wins
-      const isNew = isNewFromAuth || isNewFromFirestore;
+      if (isNew && !options?.legalAcceptance) {
+        isLoggingIn = false;
+        await signOut(auth).catch(() => {});
+        const errorMessage = i18n.t('auth:errors.appleRegistrationRequired');
+        set({ error: errorMessage, isLoading: false });
+        throw new Error(errorMessage);
+      }
+
       if (isNew) _pendingNewUser = true;
 
       // Now register device (may create doc via merge — but isNew already determined)
@@ -1275,20 +1313,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         ...(isNew ? {
           hasCreatedFirstProject: false,
           onboardingCompleted: false,
+          ...(options?.legalAcceptance?.tosAcceptedAt ? { tosAcceptedAt: serverTimestamp() } : {}),
+          ...(options?.legalAcceptance?.ageConfirmedAt ? { ageConfirmedAt: serverTimestamp() } : {}),
           createdAt: serverTimestamp(),
         } : {
           lastLogin: serverTimestamp(),
         }),
       }, { merge: true });
 
-      const userData = isNew ? null : userDoc.data();
-
-      // Load plan from Firestore user document (existing users have plan field)
-      if (!isNew && userDoc.exists() && userData) {
-        drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
-        drapeUser.hasCreatedFirstProject = !!userData?.hasCreatedFirstProject;
-        drapeUser.onboardingCompleted = !!userData?.onboardingCompleted;
-      }
+      const normalizedLifecycle = normalizeAuthLifecycle({
+        plan: userData?.plan,
+        hasCreatedFirstProject: userData?.hasCreatedFirstProject,
+        onboardingCompleted: userData?.onboardingCompleted,
+      });
+      drapeUser.plan = normalizedLifecycle.plan;
+      drapeUser.hasCreatedFirstProject = normalizedLifecycle.hasCreatedFirstProject;
+      drapeUser.onboardingCompleted = normalizedLifecycle.onboardingCompleted;
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
 
@@ -1313,7 +1353,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isLoggingIn = false;
       console.error('❌ [AuthStore] Apple sign in error:', error);
 
-      let errorMessage = i18n.t('auth:errors.errorDuringAppleSignIn');
+      let errorMessage = typeof error?.message === 'string' && error.message.length > 0
+        ? error.message
+        : i18n.t('auth:errors.errorDuringAppleSignIn');
       if (error.code === 'ERR_CANCELED') {
         errorMessage = i18n.t('auth:errors.appleLoginCancelled');
       }
@@ -1324,6 +1366,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  refreshConsentAwareServices: async () => {
+    const { user } = get();
+    if (!user) return;
+
+    startAuthenticatedRealtimeServices(user.uid);
+    await pushNotificationService.initialize(user.uid).catch((err) =>
+      console.warn('[Auth] Failed to refresh consent-aware services:', err?.message || err)
+    );
+  },
 
   checkDeviceAccess: async () => {
     const { user } = get();

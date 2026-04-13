@@ -5,6 +5,7 @@ import { config } from '../../config/config';
 import { getAuthHeaders } from '../api/getAuthToken';
 import { useNavigationStore } from '../navigation/navigationStore';
 import { useTerminalStore } from '../terminal/terminalStore';
+import { isConsentGranted } from './consentService';
 
 // Lazy-load expo-notifications to avoid crash when native module isn't compiled
 let Notifications: typeof import('expo-notifications') | null = null;
@@ -53,6 +54,10 @@ class PushNotificationService {
    */
   async initialize(userId: string): Promise<void> {
     this.userId = userId;
+
+    if (!isConsentGranted('pushNotifications')) {
+      return;
+    }
 
     const N = await getNotifications();
     if (!N) return;
@@ -183,7 +188,7 @@ class PushNotificationService {
     if (action === 'openPreview') {
       const { useUIStore } = require('../terminal/uiStore');
       useNavigationStore.getState().navigateTo('home');
-      useUIStore.getState().setOpenPreviewRequested(true);
+      useUIStore.getState().requestOpenPreview();
       return;
     }
 

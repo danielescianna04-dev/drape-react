@@ -1,8 +1,9 @@
 import { useTabStore } from '../../core/tabs/tabStore';
+import type { TerminalItem } from '../../shared/types';
 
 export const mapTabTerminalItems = (
   tabId: string,
-  mapper: (item: any) => any,
+  mapper: (item: TerminalItem) => TerminalItem,
 ) => {
   useTabStore.setState((state) => ({
     tabs: state.tabs.map((tab) =>
@@ -19,7 +20,7 @@ export const mapTabTerminalItems = (
 export const updateTabTerminalItem = (
   tabId: string,
   itemId: string,
-  patch: Record<string, any>,
+  patch: Partial<TerminalItem>,
 ) => {
   mapTabTerminalItems(tabId, (item) =>
     item.id === itemId ? { ...item, ...patch } : item,
@@ -28,7 +29,7 @@ export const updateTabTerminalItem = (
 
 export const appendTabTerminalItems = (
   tabId: string,
-  items: any[],
+  items: TerminalItem[],
 ) => {
   useTabStore.setState((state) => ({
     tabs: state.tabs.map((tab) =>

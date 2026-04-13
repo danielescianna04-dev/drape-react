@@ -299,7 +299,7 @@ export const EnvVarsView = ({ tab }: Props) => {
     } else {
       updateTab(tab.id, { data: {} }); // clear banner
     }
-    useUIStore.getState().setOpenPreviewRequested(true);
+    useUIStore.getState().requestOpenPreview();
   }, [updateTab, tab.id, missingVars, missingValues]);
 
   return (

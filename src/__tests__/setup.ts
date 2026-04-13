@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
+import React from 'react';
 
 // @testing-library/react has automatic cleanup enabled by default
 
@@ -19,6 +20,40 @@ vi.mock('expo-secure-store', () => ({
   setItemAsync: vi.fn(),
   deleteItemAsync: vi.fn(),
 }));
+
+// Mock react-native enough for store/hook imports in web-based vitest runs
+vi.mock('react-native', () => {
+  const makeComponent = (tag: string) =>
+    React.forwardRef<any, any>((props, ref) =>
+      React.createElement(tag, { ...props, ref }, props.children)
+    );
+
+  return {
+    Alert: { alert: vi.fn() },
+    AppState: {
+      currentState: 'active',
+      addEventListener: vi.fn(() => ({ remove: vi.fn() })),
+    },
+    Platform: {
+      OS: 'ios',
+      select: (options: Record<string, any>) => options.ios ?? options.default,
+    },
+    Dimensions: {
+      get: vi.fn(() => ({ width: 390, height: 844 })),
+    },
+    View: makeComponent('div'),
+    Text: makeComponent('span'),
+    TouchableOpacity: makeComponent('button'),
+    TextInput: makeComponent('input'),
+    Modal: makeComponent('div'),
+    ScrollView: makeComponent('div'),
+    ActivityIndicator: makeComponent('div'),
+    StyleSheet: {
+      create: <T>(styles: T) => styles,
+      absoluteFillObject: {},
+    },
+  };
+});
 
 // Mock Firebase
 vi.mock('../../config/firebase', () => ({

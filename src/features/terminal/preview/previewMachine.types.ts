@@ -97,6 +97,24 @@ export interface PreviewState {
 // ── Events ──────────────────────────────────────────────────
 
 export type PreviewEvent =
+  | {
+      type: 'SYNC_EXTERNAL_STATE';
+      phase: PreviewPhase;
+      previewUrl?: string | null;
+      envVarsRequired?: PreviewState['envVarsRequired'];
+      error?: PreviewError | null;
+      sessionExpiredMessage?: string | null;
+      webViewReady?: boolean;
+      canGoBack?: boolean;
+      canGoForward?: boolean;
+      viewportMode?: 'mobile' | 'desktop';
+      displayedMessage?: string;
+      progress?: number;
+      hasWebUi?: boolean;
+      terminalOutput?: string[];
+      startupLogs?: PreviewLog[];
+      autoFix?: Partial<PreviewAutoFixState>;
+    }
   | { type: 'START_REQUESTED'; projectId: string }
   | { type: 'PREFLIGHT_ENV_MISSING'; vars: Array<{ key: string; defaultValue?: string; required: boolean; description?: string }> }
   | { type: 'PREFLIGHT_OK' }

@@ -5,8 +5,9 @@
  * Exposes the same external API that PreviewPanel.tsx expects.
  */
 import { useState, useEffect, useRef } from 'react';
-import { Animated, ScrollView } from 'react-native';
+import { Animated, ScrollView, View } from 'react-native';
 import { WebView } from 'react-native-webview';
+import type { WorkstationInfo } from '../../../shared/types';
 import { ProjectInfo } from '../../../core/preview/projectDetector';
 import { useUIStore } from '../../../core/terminal/uiStore';
 import { logOutput, logSystem } from '../../../core/terminal/terminalLogger';
@@ -33,14 +34,14 @@ interface UsePreviewServerLifecycleParams {
   apiUrl: string;
   wsUrl: string;
   insets: { top: number; bottom: number };
-  t: (key: string, opts?: any) => string;
-  currentWorkstation: any;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+  currentWorkstation: WorkstationInfo | null;
   globalServerUrl: string | null;
   setPreviewServerStatus: (status: string) => void;
   setPreviewServerUrl: (url: string | null, projectId?: string) => void;
   setPreviewCurrentUrl: (url: string) => void;
   setPreviewViewportMode: (mode: string) => void;
-  setPreviewHandlers: (handlers: any) => void;
+  setPreviewHandlers: (handlers: { reload?: () => void; goBack?: () => void; goForward?: () => void } | null) => void;
   globalFlyMachineId: string | null;
   setGlobalFlyMachineId: (id: string | null, projectId?: string) => void;
   setPreviewAccessToken: (token: string | null, projectId?: string) => void;
@@ -52,7 +53,7 @@ interface UsePreviewServerLifecycleParams {
   isVisible: boolean;
   fadeAnim: Animated.Value;
   webViewRef: React.RefObject<WebView>;
-  webViewContainerRef: React.RefObject<any>;
+  webViewContainerRef: React.RefObject<View>;
   jsErrorsRef: React.MutableRefObject<string[]>;
   terminalScrollRef: React.RefObject<ScrollView>;
   publishOpenPublishModal: () => void;
@@ -103,6 +104,8 @@ export function usePreviewServerLifecycle({
   const [hasWebUI, setHasWebUIState] = useState(true);
   const hasWebUIRef = useRef(true);
   const setHasWebUI = (val: boolean) => { hasWebUIRef.current = val; setHasWebUIState(val); };
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState('');
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [coderToken, setCoderToken] = useState<string | null>(null);
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
@@ -163,6 +166,8 @@ export function usePreviewServerLifecycle({
     setServerStatus('stopped');
     setWebViewReady(false);
     setIsLoading(true);
+    setSessionExpired(false);
+    setSessionExpiredMessage('');
     startup.setPreviewError(null);
     startup.setIsStarting(false);
   };
@@ -201,6 +206,8 @@ export function usePreviewServerLifecycle({
     startupSetPreviewError: startup.setPreviewError,
     startupSetIsStarting: startup.setIsStarting,
     startupClearLogs: startup.clearLogs,
+    setSessionExpired,
+    setSessionExpiredMessage,
     preflight: {
       applyMissingEnvVarsFromMessage: preflight.applyMissingEnvVarsFromMessage,
       extractStartupErrorFromBody: preflight.extractStartupErrorFromBody,
@@ -273,6 +280,12 @@ export function usePreviewServerLifecycle({
     terminalOutput: startupFlow.terminalOutput,
     setTerminalOutput: startupFlow.setTerminalOutput,
     resetToStartScreen,
+    sessionExpiredState: {
+      value: sessionExpired,
+      setValue: setSessionExpired,
+      message: sessionExpiredMessage,
+      setMessage: setSessionExpiredMessage,
+    },
   });
 
   // ── 7. Navigation ────────────────────────────────────────────
@@ -490,8 +503,8 @@ export function usePreviewServerLifecycle({
     requiredEnvVars: preflight.requiredEnvVars,
     envVarValues: preflight.envVarValues,
     isSavingEnv: preflight.isSavingEnv,
-    sessionExpired: recovery.sessionExpired,
-    sessionExpiredMessage: recovery.sessionExpiredMessage,
+    sessionExpired,
+    sessionExpiredMessage,
     showReloadBanner: navigation.showReloadBanner,
     projectInfo: startupFlow.projectInfo,
     terminalAuthToken: startupFlow.terminalAuthToken,

@@ -13,6 +13,12 @@ import { TerminalUserMessage } from './TerminalUserMessage';
 import { TerminalSystemItem } from './TerminalSystemItem';
 import { TerminalPlanItem } from './TerminalPlanItem';
 import {
+  TerminalBackendLogItem,
+  TerminalErrorItem,
+  TerminalLoadingItem,
+} from './terminalSpecialItems';
+import {
+  canRetryTerminalTool,
   getTerminalItemDotColor,
   isUserMessageItem,
   shouldRenderTerminalItem,
@@ -50,7 +56,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
 
   // Determine if we should show thinking state (either from parent isLoading or item.isThinking)
   const showThinking = isLoading || item?.isThinking;
-  const canRetryTool = false;
+  const canRetryTool = canRetryTerminalTool(item, typeof onRetryTool === 'function');
 
   // Determine if tool is executing (pulsing animation but with content visible)
   const isExecuting = item?.isExecuting;
@@ -149,18 +155,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
         )}
 
         {item.type === ItemType.ERROR && (
-          <View style={styles.messageBlock}>
-            <Text style={styles.errorName}>{t('common:error')}</Text>
-            <Text style={styles.errorMessage}>{(() => {
-              const raw = item.content || '';
-              if (typeof raw === 'object') return (raw as any).message || (raw as any).error || JSON.stringify(raw);
-              const s = String(raw);
-              if (s.startsWith('{')) {
-                try { const p = JSON.parse(s); return p.message || p.error || p.detail || s; } catch {}
-              }
-              return s;
-            })()}</Text>
-          </View>
+          <TerminalErrorItem item={item} styles={styles} t={t} />
         )}
 
         {item.type === ItemType.SYSTEM && (
@@ -168,33 +163,11 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
         )}
 
         {item.type === ItemType.LOADING && (
-          <View style={styles.loadingCard}>
-            <View style={styles.loadingHeader}>
-              <Text style={styles.loadingTitle}>{t('terminal:terminalItem.gitClone')}</Text>
-            </View>
-            <View style={styles.loadingBody}>
-              <View style={styles.loadingRow}>
-                <Text style={styles.loadingLabel}>{t('terminal:terminalItem.status')}</Text>
-                <Text style={styles.loadingStatus}>
-                  {item.content || ''}
-                  {'.'.repeat(dotCount)}
-                </Text>
-              </View>
-            </View>
-          </View>
+          <TerminalLoadingItem item={item} dotCount={dotCount} styles={styles} t={t} />
         )}
 
         {item.type === ItemType.BACKEND_LOG && (
-          <View style={styles.backendLogBlock}>
-            <View style={styles.backendLogHeader}>
-              <Ionicons name="server-outline" size={12} color="#8B949E" />
-              <Text style={styles.backendLogLabel}>{t('terminal:terminalItem.backend')}</Text>
-              <Text style={styles.backendLogTime}>
-                {item.timestamp ? new Date(item.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
-              </Text>
-            </View>
-            <Text style={styles.backendLogText}>{item.content || ''}</Text>
-          </View>
+          <TerminalBackendLogItem item={item} styles={styles} t={t} />
         )}
 
         {item.type === ItemType.PLAN_APPROVAL && item.planInfo && (

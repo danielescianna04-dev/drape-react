@@ -92,11 +92,14 @@ export function hasGivenConsent(): boolean {
   return useConsentStore.getState().hasGivenConsent();
 }
 
+export function requiresConsentResolutionSync(): boolean {
+  return !isConsentComplete(useConsentStore.getState().consent);
+}
+
 /** Check if a specific consent category is granted.
- *  When consent has not been set yet (no GDPR screen shown), default to true (opt-out model).
- *  Once the consent screen is available and the user makes a choice, their preference is respected. */
+ *  Consent defaults to false until the user explicitly accepts it. */
 export function isConsentGranted(category: keyof ConsentState): boolean {
   const consent = useConsentStore.getState().consent;
-  if (!consent) return true;
+  if (!consent) return false;
   return consent[category] === true;
 }

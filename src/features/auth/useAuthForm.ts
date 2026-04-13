@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../core/auth/authStore';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { tracciaLogin, tracciaRegistrazione, tracciaResetPassword, tracciaErrore, tracciaErroreLogin, tracciaErroreRegistrazione } from '../../core/services/analyticsService';
+import { validateRegistrationLegalRequirements as validateRegistrationLegalRequirementsRaw } from './authLegalValidation';
 
 export type AuthMode = 'initial' | 'login' | 'register' | 'forgot' | 'verify';
 
@@ -207,9 +208,8 @@ export const useAuthForm = () => {
             // If signIn fails for some reason, fall back to manual login
             if (!cancelled) {
               setIsAutoLogging(false);
-              setMode('login');
-              setEmail(verificationEmail);
-              setPassword(verificationPassword);
+              setLocalError(t('auth:emailVerification.autoLoginFailed'));
+              switchMode('login', { preserveEmail: verificationEmail, preservePassword: verificationPassword });
             }
           }
           return; // Stop polling
@@ -230,6 +230,17 @@ export const useAuthForm = () => {
       clearTimeout(pollTimer);
     };
   }, [mode, verificationEmail, verificationPassword]);
+
+  const validateRegistrationLegalRequirements = (): string | null => {
+    const result = validateRegistrationLegalRequirementsRaw({
+      tosAccepted,
+      dateOfBirth,
+    });
+    if (result.shouldShowParentalNotice) {
+      setShowParentalNotice(true);
+    }
+    return result.errorKey ? t(result.errorKey) : null;
+  };
 
   const handleSubmit = async () => {
     setLocalError(null);
@@ -265,39 +276,10 @@ export const useAuthForm = () => {
         setLocalError(t('auth:errors.weakPassword'));
         return;
       }
-      // GDPR Point 7: ToS acceptance required
-      if (!tosAccepted) {
-        setLocalError(t('auth:gdpr.tosRequired'));
+      const legalValidationError = validateRegistrationLegalRequirements();
+      if (legalValidationError) {
+        setLocalError(legalValidationError);
         return;
-      }
-      // GDPR Point 20: Age gate validation
-      if (!dateOfBirth.trim()) {
-        setLocalError(t('auth:gdpr.ageRequired'));
-        return;
-      }
-      const parsedDob = parseDateOfBirthValue(dateOfBirth);
-      if (!parsedDob) {
-        setLocalError(t('auth:gdpr.ageInvalidFormat'));
-        return;
-      }
-      const { day, month, year } = parsedDob;
-      if (isNaN(day) || isNaN(month) || isNaN(year) || day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > new Date().getFullYear()) {
-        setLocalError(t('auth:gdpr.ageInvalidFormat'));
-        return;
-      }
-      const birthDate = new Date(year, month - 1, day);
-      const now = new Date();
-      let age = now.getFullYear() - birthDate.getFullYear();
-      const monthDiff = now.getMonth() - birthDate.getMonth();
-      if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthDate.getDate())) {
-        age--;
-      }
-      if (age < 13) {
-        setLocalError(t('auth:gdpr.underAge'));
-        return;
-      }
-      if (age >= 13 && age < 16) {
-        setShowParentalNotice(true);
       }
     }
 
@@ -339,13 +321,16 @@ export const useAuthForm = () => {
     }
   };
 
-  const switchMode = (newMode: AuthMode) => {
+  const switchMode = (
+    newMode: AuthMode,
+    options?: { preserveEmail?: string; preservePassword?: string }
+  ) => {
     Keyboard.dismiss();
     setMode(newMode);
     setLocalError(null);
     clearError();
-    setEmail('');
-    setPassword('');
+    setEmail(options?.preserveEmail ?? '');
+    setPassword(options?.preservePassword ?? '');
     setConfirmPassword('');
     setDisplayName('');
     setTosAccepted(false);
@@ -381,7 +366,18 @@ export const useAuthForm = () => {
     try {
       setLocalError(null);
       clearError();
-      await signInWithApple();
+      if (mode === 'register') {
+        const legalValidationError = validateRegistrationLegalRequirements();
+        if (legalValidationError) {
+          setLocalError(legalValidationError);
+          return;
+        }
+      }
+      await signInWithApple(
+        mode === 'register'
+          ? { legalAcceptance: { tosAcceptedAt: true, ageConfirmedAt: true } }
+          : undefined
+      );
       tracciaLogin('apple');
     } catch (err: any) {
       if (err.message !== t('auth:errors.appleLoginCancelled')) {

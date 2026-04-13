@@ -21,7 +21,7 @@ export interface PreviewHealthParams {
   hasWebUIRef: React.MutableRefObject<boolean>;
   serverStatusRef: React.MutableRefObject<ServerStatus>;
   isVisible: boolean;
-  t: (key: string, opts?: any) => string;
+  t: (key: string, opts?: Record<string, unknown>) => string;
   currentWorkstationId: string | undefined;
   clearProjectPreviewSession: (projectId: string) => void;
   setServerStatus: (status: ServerStatus) => void;
@@ -33,6 +33,8 @@ export interface PreviewHealthParams {
   startupSetPreviewError: (err: { message: string; timestamp: Date } | null) => void;
   startupSetIsStarting: (v: boolean) => void;
   startupClearLogs: () => void;
+  setSessionExpired: (value: boolean) => void;
+  setSessionExpiredMessage: (message: string) => void;
   /** preflight helpers */
   preflight: Pick<PreviewPreflightReturn, 'applyMissingEnvVarsFromMessage' | 'extractStartupErrorFromBody'>;
   /** reset helper */
@@ -63,6 +65,8 @@ export function usePreviewHealth({
   startupSetPreviewError,
   startupSetIsStarting,
   startupClearLogs,
+  setSessionExpired,
+  setSessionExpiredMessage,
   preflight,
   resetToStartScreen,
 }: PreviewHealthParams): PreviewHealthReturn {
@@ -145,6 +149,14 @@ export function usePreviewHealth({
             }
             if (proxyError.toLowerCase().includes('no active session')) {
               if (currentWorkstationId) clearProjectPreviewSession(currentWorkstationId);
+              setSessionExpired(true);
+              setSessionExpiredMessage(t('terminal:preview.sessionExpired'));
+              startupSetPreviewError(null);
+              startupSetIsStarting(false);
+              setWebViewReady(false);
+              setIsLoading(true);
+              setServerStatus('stopped');
+              return;
             }
             if (isTransientProxyError(proxyError)) {
               console.warn('[Preview:CHECK] Transient proxy error, retrying:', proxyError);

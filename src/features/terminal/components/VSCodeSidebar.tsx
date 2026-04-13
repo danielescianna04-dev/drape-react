@@ -15,10 +15,11 @@ import { VerticalCardSwitcher } from './VerticalCardSwitcher';
 import { ContentRenderer } from './ContentRenderer';
 import { TabBar } from './TabBar';
 import { ChatPanel } from './ChatPanel';
-import { PreviewPanel } from './PreviewPanel';
 import { GitPanel } from './GitPanel';
 import { GitSheet } from './GitSheet';
 import { VerticalIconSwitcher } from './VerticalIconSwitcher';
+import { VSCodeSidebarHeader } from './VSCodeSidebarHeader';
+import { getSidebarPreviewPath, openOrCreateSidebarTab } from './vscodeSidebarTabUtils';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
@@ -37,7 +38,7 @@ const PILL_VERTICAL_PADDING = 80;
 interface Props {
   onOpenAllProjects?: () => void;
   onExit?: () => void;
-  children?: (tab: Tab, isCardMode: boolean, cardDimensions: { width: number, height: number }, animatedStyle?: any) => React.ReactNode;
+  children?: (tab: Tab, isCardMode: boolean, cardDimensions: { width: number, height: number }, animatedStyle?: Record<string, unknown>) => React.ReactNode;
 }
 
 export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) => {
@@ -47,7 +48,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const [forceHideToggle, setForceHideToggle] = useState(false);
   const [isGitSheetVisible, setIsGitSheetVisible] = useState(false);
   const { tabs, setActiveTab, addTab, activeTabId } = useTabStore();
-  const [showPreviewPanel, setShowPreviewPanel] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const menuProgress = useSharedValue(0); // 0 = button, 1 = expanded menu
 
@@ -98,16 +98,18 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const backdropAnimatedStyle = useAnimatedStyle(() => ({
     opacity: interpolate(menuProgress.value, [0, 1], [0, 1]),
   }));
-  const [isPreviewPanelMounted, setIsPreviewPanelMounted] = useState(false);
   const previewServerUrl = useUIStore((state) => state.previewServerUrl);
   const projectPreviewUrls = useUIStore((state) => state.projectPreviewUrls);
   const setIsSidebarOpen = useUIStore((state) => state.setIsSidebarOpen);
-  const openPreviewRequested = useUIStore((state) => state.openPreviewRequested);
-  const openGitSheetRequested = useUIStore((state) => state.openGitSheetRequested);
+  const openPreviewRequestId = useUIStore((state) => state.openPreviewRequestId);
+  const openGitSheetRequestId = useUIStore((state) => state.openGitSheetRequestId);
   const openGitSheetTab = useUIStore((state) => state.openGitSheetTab);
-  const openEnvVarsRequested = useUIStore((state) => state.openEnvVarsRequested);
+  const openEnvVarsRequestId = useUIStore((state) => state.openEnvVarsRequestId);
   const flyMachineId = useUIStore((state) => state.flyMachineId);
   const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
+  const lastHandledPreviewRequestId = useRef(0);
+  const lastHandledGitRequestId = useRef(0);
+  const lastHandledEnvVarsRequestId = useRef(0);
 
   // Shared values - MUST be declared before useEffect that uses them
   const trackpadTranslation = useSharedValue(0);
@@ -117,45 +119,44 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const sidebarTranslateX = useSharedValue(0);
   const skipZoomAnimation = useSharedValue(false);
   const pillTranslateY = useSharedValue(SCREEN_HEIGHT / 2 - 40); // Initial center position
+  const openPreviewTab = useCallback(() => {
+    openOrCreateSidebarTab({
+      tabs,
+      setActiveTab,
+      addTab,
+      id: 'preview',
+      type: 'preview',
+      title: 'Preview',
+    });
+  }, [tabs, setActiveTab, addTab]);
   // Auto-open preview when requested (e.g. after AI fix) — opens as a tab
   // Respects preview gate: if blocked, don't auto-open
   React.useEffect(() => {
-    if (openPreviewRequested) {
-      useUIStore.getState().setOpenPreviewRequested(false);
+    const consumedRequestId = useUIStore.getState().consumeOpenPreviewRequest(lastHandledPreviewRequestId.current);
+    if (consumedRequestId > lastHandledPreviewRequestId.current) {
+      lastHandledPreviewRequestId.current = consumedRequestId;
       openPreviewTab();
       setActivePanel(null);
     }
-  }, [openPreviewRequested]);
+  }, [openPreviewRequestId, openPreviewTab]);
 
   React.useEffect(() => {
-    if (openGitSheetRequested) {
-      useUIStore.setState({ openGitSheetRequested: false });
+    const consumedRequestId = useUIStore.getState().consumeOpenGitSheetRequest(lastHandledGitRequestId.current);
+    if (consumedRequestId > lastHandledGitRequestId.current) {
+      lastHandledGitRequestId.current = consumedRequestId;
       setIsGitSheetVisible(true);
     }
-  }, [openGitSheetRequested]);
+  }, [openGitSheetRequestId]);
 
   React.useEffect(() => {
-    if (openEnvVarsRequested) {
-      useUIStore.getState().setOpenEnvVarsRequested(false);
+    const consumedRequestId = useUIStore.getState().consumeOpenEnvVarsRequest(lastHandledEnvVarsRequestId.current);
+    if (consumedRequestId > lastHandledEnvVarsRequestId.current) {
+      lastHandledEnvVarsRequestId.current = consumedRequestId;
       const existing = tabs.find(t => t.id === 'env-vars');
       if (existing) setActiveTab('env-vars');
-      else addTab({ id: 'env-vars', type: 'envVars' as any, title: 'Environment Variables', data: {} });
+      else addTab({ id: 'env-vars', type: 'envVars', title: 'Environment Variables', data: {} });
     }
-  }, [openEnvVarsRequested]);
-
-  const openPreviewTab = useCallback(() => {
-    const existing = tabs.find(t => t.id === 'preview');
-    if (existing) {
-      setActiveTab('preview');
-    } else {
-      addTab({
-        id: 'preview',
-        type: 'preview',
-        title: 'Preview',
-        data: {},
-      });
-    }
-  }, [tabs, setActiveTab, addTab]);
+  }, [openEnvVarsRequestId, tabs, setActiveTab, addTab]);
 
   // Preview gate removed — preview is always accessible. Issues show in the WebView.
 
@@ -266,7 +267,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const hamburgerTopStyle = useAnimatedStyle(() => {
     'worklet';
     const p = drawerProgress.value;
-    return { transform: [{ translateY: p * 6 }, { rotate: `${p * 45}deg` }] } as any;
+    return { transform: [{ translateY: p * 6 }, { rotate: `${p * 45}deg` }] } as { transform: { translateY: number }[] };
   });
   const hamburgerMidStyle = useAnimatedStyle(() => {
     'worklet';
@@ -275,7 +276,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const hamburgerBotStyle = useAnimatedStyle(() => {
     'worklet';
     const p = drawerProgress.value;
-    return { transform: [{ translateY: p * -6 }, { rotate: `${p * -45}deg` }] } as any;
+    return { transform: [{ translateY: p * -6 }, { rotate: `${p * -45}deg` }] } as { transform: { translateY: number }[] };
   });
 
   // Outer wrapper: ONLY translateX (pure GPU compositing, zero layout)
@@ -359,85 +360,65 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const handleEnvVarsClick = useCallback(() => {
     Keyboard.dismiss();
     tracciaPannelloAperto('envVars');
-    setShowPreviewPanel(false);
-    const envVarsTab = tabs.find(t => t.id === 'env-vars');
-    if (envVarsTab) {
-      setActiveTab('env-vars');
-    } else {
-      addTab({
-        id: 'env-vars',
-        type: 'envVars',
-        title: 'Environment Variables',
-        data: {},
-      });
-    }
+    openOrCreateSidebarTab({
+      tabs,
+      setActiveTab,
+      addTab,
+      id: 'env-vars',
+      type: 'envVars',
+      title: 'Environment Variables',
+    });
   }, [tabs, setActiveTab, addTab]);
 
   const handleShellClick = useCallback(() => {
     Keyboard.dismiss();
     tracciaPannelloAperto('terminal');
-    setShowPreviewPanel(false);
-    const shellTab = tabs.find(t => t.id === 'shell');
-    if (shellTab) {
-      setActiveTab('shell');
-    } else {
-      addTab({
-        id: 'shell',
-        type: 'shell' as any,
-        title: 'Logs',
-        data: {},
-      });
-    }
+    openOrCreateSidebarTab({
+      tabs,
+      setActiveTab,
+      addTab,
+      id: 'shell',
+      type: 'shell',
+      title: 'Logs',
+    });
   }, [tabs, setActiveTab, addTab]);
 
   const handleBuildReportClick = useCallback(() => {
     Keyboard.dismiss();
-    setShowPreviewPanel(false);
-    const reportTab = tabs.find(t => t.id === 'build-report');
-    if (reportTab) {
-      setActiveTab('build-report');
-    } else {
-      addTab({
-        id: 'build-report',
-        type: 'buildReport' as any,
-        title: 'Build Report',
-        data: {},
-      });
-    }
+    openOrCreateSidebarTab({
+      tabs,
+      setActiveTab,
+      addTab,
+      id: 'build-report',
+      type: 'buildReport',
+      title: 'Build Report',
+    });
   }, [tabs, setActiveTab, addTab]);
 
   const handleTerminalClick = useCallback(() => {
     Keyboard.dismiss();
     tracciaPannelloAperto('pty');
-    setShowPreviewPanel(false);
-    const ptyTab = tabs.find(t => t.id === 'interactive-terminal');
-    if (ptyTab) {
-      setActiveTab('interactive-terminal');
-    } else {
-      addTab({
-        id: 'interactive-terminal',
-        type: 'pty' as any,
-        title: 'Terminal',
-        data: {},
-      });
-    }
+    openOrCreateSidebarTab({
+      tabs,
+      setActiveTab,
+      addTab,
+      id: 'interactive-terminal',
+      type: 'pty',
+      title: 'Terminal',
+    });
   }, [tabs, setActiveTab, addTab]);
 
   const handleDatabaseClick = useCallback(() => {
     Keyboard.dismiss();
     tracciaPannelloAperto('database');
-    setShowPreviewPanel(false);
-    const dbTab = tabs.find(t => t.id === 'database');
-    if (dbTab) {
-      setActiveTab('database');
-    } else {
-      addTab({
-        id: 'database',
-        type: 'database' as any,
-        title: 'Database',
-        data: {},
-      });
-    }
+    openOrCreateSidebarTab({
+      tabs,
+      setActiveTab,
+      addTab,
+      id: 'database',
+      type: 'database',
+      title: 'Database',
+    });
   }, [tabs, setActiveTab, addTab]);
 
   const openVerticalPanel = useCallback(() => {
@@ -527,8 +508,13 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   ), [children]);
 
   const memoizedChatPanel = React.useMemo(() => (
-    <ChatPanel onClose={handleClosePanel} onHidePreview={() => setShowPreviewPanel(false)} onExit={() => { removeAllGlassEffects(); onExit?.(); }} />
+    <ChatPanel onClose={handleClosePanel} onExit={() => { removeAllGlassEffects(); onExit?.(); }} />
   ), [handleClosePanel]);
+
+  const currentPreviewPath = getSidebarPreviewPath(previewCurrentUrl, lastNonRootPathRef.current);
+  if (currentPreviewPath !== '/') {
+    lastNonRootPathRef.current = currentPreviewPath;
+  }
 
   return (
     <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden, hideSidebar, showSidebar, forceHideToggle, setForceHideToggle }}>
@@ -550,178 +536,51 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         {/* Border decoration — OUTSIDE overflow:hidden so border is visible */}
         <Animated.View style={[StyleSheet.absoluteFillObject, borderDecorationStyle, { borderRadius: 40, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' }]} pointerEvents="none" />
         <View style={[StyleSheet.absoluteFillObject, { borderRadius: 40, overflow: 'hidden', backgroundColor: AppColors.dark.backgroundAlt }]}>
-          {/* Header */}
-          <View style={styles.minimalHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <TouchableOpacity activeOpacity={0.7} onPress={() => togglePanel('chat')}>
-                <GlassCard style={styles.headerButtonGlass}>
-                  <View style={styles.headerButton}>
-                    <View style={{ width: 18, height: 14, justifyContent: 'space-between' }}>
-                      <Animated.View style={[{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerTopStyle]} />
-                      <Animated.View style={[{ width: 14, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerMidStyle]} />
-                      <Animated.View style={[{ width: 18, height: 2, borderRadius: 1, backgroundColor: '#fff' }, hamburgerBotStyle]} />
-                    </View>
-                  </View>
-                </GlassCard>
-              </TouchableOpacity>
-
-              {/* Back to chat button — shown when not on terminal/chat */}
-              {activeTab?.type !== 'terminal' && activeTab?.type !== 'chat' && (
-                <TouchableOpacity activeOpacity={0.7} onPress={() => {
-                  const chatTab = tabs.find(t => t.type === 'terminal' || t.type === 'chat');
-                  if (chatTab) setActiveTab(chatTab.id);
-                }}>
-                  <GlassCard style={styles.headerButtonGlass}>
-                    <View style={styles.headerButton}>
-                      <Ionicons name="chatbubble-ellipses-outline" size={18} color="#fff" />
-                    </View>
-                  </GlassCard>
-                </TouchableOpacity>
-              )}
-
-              {/* Back button for database table detail */}
-              {activeTab?.type === 'database' && databaseBackHandler && (
-                <TouchableOpacity activeOpacity={0.7} onPress={() => databaseBackHandler?.()}>
-                  <GlassCard style={styles.headerButtonGlass}>
-                    <View style={styles.headerButton}>
-                      <Ionicons name="chevron-back" size={18} color="#fff" />
-                    </View>
-                  </GlassCard>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Navigation + URL bar — only when preview is visible */}
-            {isPreviewShowing && <>
-              <TouchableOpacity
-                onPress={() => previewHandlers.goBack?.()}
-                activeOpacity={0.7}
-                style={{ width: 28, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: 4 }}
-              >
-                <Ionicons name="chevron-back" size={18} color="rgba(255, 255, 255, 0.5)" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => previewHandlers.goForward?.()}
-                activeOpacity={0.7}
-                style={{ width: 28, height: 40, alignItems: 'center', justifyContent: 'center' }}
-              >
-                <Ionicons name="chevron-forward" size={18} color="rgba(255, 255, 255, 0.5)" />
-              </TouchableOpacity>
-              <GlassCard style={{ borderRadius: 20, overflow: 'hidden', flex: 1, marginLeft: 4 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', height: 40, paddingHorizontal: 14, gap: 6 }}>
-                  <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: previewCurrentUrl ? '#00D084' : '#666' }} />
-                  <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }} numberOfLines={1}>
-                    {(() => {
-                      try {
-                        const url = new URL(previewCurrentUrl);
-                        const match = url.pathname.match(/^\/preview\/[^/]+(\/.*)?$/);
-                        const path = match?.[1] || '/';
-                        if (path !== '/') lastNonRootPathRef.current = path;
-                        return path !== '/' ? path : lastNonRootPathRef.current;
-                      } catch { return lastNonRootPathRef.current; }
-                    })()}
-                  </Text>
-                </View>
-              </GlassCard>
-            </>}
-          </View>
-
-          {/* 3-dot morph button */}
-          {showHeaderMenu && (
-            <TouchableWithoutFeedback onPress={closeMenu}>
-              <Animated.View style={[styles.menuBackdrop, backdropAnimatedStyle]} />
-            </TouchableWithoutFeedback>
-          )}
-          <View style={styles.morphButtonWrapper} pointerEvents="box-none">
-            <TouchableOpacity activeOpacity={1} onPress={showHeaderMenu ? closeMenu : openMenu}>
-              <GlassCard style={{ borderRadius: 16, overflow: 'visible' }}>
-                <Animated.View style={[styles.morphButton, morphStyle]}>
-                  <Animated.View style={[styles.dotsContainer, dotsOpacity]}>
-                    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#fff' }} />
-                    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#fff' }} />
-                    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#fff' }} />
-                  </Animated.View>
-                  <Animated.View style={[styles.menuContent, menuItemsOpacity]}>
-                    <TouchableOpacity
-                      style={styles.menuItem}
-                      activeOpacity={0.6}
-                      onPress={() => {
-                        closeMenu();
-                        setTimeout(() => openPreviewTab(), 280);
-                      }}
-                    >
-                      <Ionicons name="eye-outline" size={20} color="#fff" />
-                      <Text style={styles.menuItemText}>Mostra preview</Text>
-                    </TouchableOpacity>
-                    {/* Preview actions — only when preview is showing */}
-                    {isPreviewShowing && (
-                      <>
-                        <View style={styles.menuDivider} />
-                        <TouchableOpacity
-                          style={styles.menuItem}
-                          activeOpacity={0.6}
-                          onPress={() => {
-                            closeMenu();
-                            setTimeout(() => previewHandlers.refresh?.(), 280);
-                          }}
-                        >
-                          <Ionicons name="refresh" size={20} color="#fff" />
-                          <Text style={styles.menuItemText}>Ricarica</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.menuItem}
-                          activeOpacity={0.6}
-                          onPress={() => {
-                            closeMenu();
-                            const next = previewViewportMode === 'mobile' ? 'desktop' : 'mobile';
-                            previewHandlers.setViewportMode?.(next);
-                          }}
-                        >
-                          <Ionicons
-                            name={previewViewportMode === 'desktop' ? 'phone-portrait-outline' : 'desktop-outline'}
-                            size={20}
-                            color="#fff"
-                          />
-                          <Text style={styles.menuItemText}>
-                            {previewViewportMode === 'desktop' ? 'Vista mobile' : 'Vista desktop'}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.menuItem}
-                          activeOpacity={0.6}
-                          onPress={() => {
-                            closeMenu();
-                            setTimeout(() => previewHandlers.publish?.(), 280);
-                          }}
-                        >
-                          <Ionicons
-                            name={previewPublishInfo ? 'cloud-done-outline' : 'cloud-upload-outline'}
-                            size={20}
-                            color={previewPublishInfo ? '#00D084' : '#fff'}
-                          />
-                          <Text style={styles.menuItemText}>
-                            {previewPublishInfo ? 'Aggiorna sito' : 'Pubblica'}
-                          </Text>
-                        </TouchableOpacity>
-                      </>
-                    )}
-                    <View style={styles.menuDivider} />
-                    <TouchableOpacity
-                      style={styles.menuItem}
-                      activeOpacity={0.6}
-                      onPress={() => {
-                        closeMenu();
-                        setTimeout(() => handleBuildReportClick(), 280);
-                      }}
-                    >
-                      <Ionicons name="time-outline" size={20} color="#8B5CF6" />
-                      <Text style={styles.menuItemText}>Project History</Text>
-                    </TouchableOpacity>
-                  </Animated.View>
-                </Animated.View>
-              </GlassCard>
-            </TouchableOpacity>
-          </View>
+          <VSCodeSidebarHeader
+            styles={styles}
+            isPreviewShowing={isPreviewShowing}
+            activeTabType={activeTab?.type}
+            databaseBackHandler={databaseBackHandler}
+            tabs={tabs}
+            setActiveTab={setActiveTab}
+            togglePanel={togglePanel}
+            previewCurrentUrl={previewCurrentUrl}
+            previewHandlers={previewHandlers}
+            previewPublishInfo={previewPublishInfo}
+            previewViewportMode={previewViewportMode}
+            currentPreviewPath={currentPreviewPath}
+            showHeaderMenu={showHeaderMenu}
+            closeMenu={closeMenu}
+            openMenu={openMenu}
+            morphStyle={morphStyle}
+            dotsOpacity={dotsOpacity}
+            menuItemsOpacity={menuItemsOpacity}
+            backdropAnimatedStyle={backdropAnimatedStyle}
+            hamburgerTopStyle={hamburgerTopStyle}
+            hamburgerMidStyle={hamburgerMidStyle}
+            hamburgerBotStyle={hamburgerBotStyle}
+            onOpenPreview={() => {
+              closeMenu();
+              setTimeout(() => openPreviewTab(), 280);
+            }}
+            onRefreshPreview={() => {
+              closeMenu();
+              setTimeout(() => previewHandlers.refresh?.(), 280);
+            }}
+            onToggleViewport={() => {
+              closeMenu();
+              const next = previewViewportMode === 'mobile' ? 'desktop' : 'mobile';
+              previewHandlers.setViewportMode?.(next);
+            }}
+            onPublishPreview={() => {
+              closeMenu();
+              setTimeout(() => previewHandlers.publish?.(), 280);
+            }}
+            onOpenProjectHistory={() => {
+              closeMenu();
+              setTimeout(() => handleBuildReportClick(), 280);
+            }}
+          />
 
           {/* Content — memoized to avoid re-render when drawer state changes */}
           {memoizedContent}

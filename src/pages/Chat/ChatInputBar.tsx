@@ -85,11 +85,11 @@ export interface ChatInputBarProps {
   // Glass
   inputBarGlassId: string;
   glassApplied?: boolean;
-  onLayout?: (e: any) => void;
+  onLayout?: (e: { nativeEvent: { layout: { x: number; y: number; width: number; height: number } } }) => void;
 
   // Animations
-  aiModeAnimatedStyle?: any;
-  dropdownAnimatedStyle?: any;
+  aiModeAnimatedStyle?: Record<string, unknown>;
+  dropdownAnimatedStyle?: Record<string, unknown>;
 
   // Project context bar
   repoName?: string;
@@ -178,7 +178,7 @@ export const ChatInputBar = React.memo(({
               <TouchableOpacity onPress={onBudgetPress} activeOpacity={0.7} style={styles.budgetBtn}>
                 <View style={styles.budgetTrack}>
                   <View style={[styles.budgetFill, {
-                    width: `${Math.min(budgetInfo.percent, 100)}%` as any,
+                    width: `${Math.min(budgetInfo.percent, 100)}%` as `${number}%`,
                     backgroundColor: budgetInfo.percent >= 85 ? '#FF6B6B' : budgetInfo.percent >= 60 ? '#FFB86C' : '#10B981',
                   }]} />
                 </View>
@@ -284,7 +284,7 @@ export const ChatInputBar = React.memo(({
             {AI_MODELS.map((model) => {
               const Icon = model.IconComponent;
               const isSelected = selectedModel === model.id;
-              const hasLevels = 'thinkingLevels' in model && (model as any).thinkingLevels?.length > 0;
+              const hasLevels = 'thinkingLevels' in model && Array.isArray((model as typeof AI_MODELS[number] & { thinkingLevels?: readonly string[] }).thinkingLevels);
               const isLocked = ('isPremium' in model && model.isPremium) && !isPaidUser;
 
               return (
@@ -292,7 +292,7 @@ export const ChatInputBar = React.memo(({
                   key={model.id}
                   style={[styles.dropdownItem, isSelected && styles.dropdownItemActive, isLocked && { opacity: 0.45 }]}
                   onPress={() => {
-                    if (isLocked) { onLockedModelPress(model as any); return; }
+                    if (isLocked) { onLockedModelPress(model); return; }
                     onSelectModel(model.id);
                     if (hasLevels) {
                       const def = model.id.includes('flash') ? 'medium' : 'low';
@@ -319,7 +319,7 @@ export const ChatInputBar = React.memo(({
             {/* Thinking levels */}
             {(() => {
               const currentModel = AI_MODELS.find(m => m.id === selectedModel);
-              const modelLevels = ('thinkingLevels' in (currentModel || {})) ? (currentModel as any)?.thinkingLevels || [] : [];
+              const modelLevels: readonly string[] = (currentModel && 'thinkingLevels' in currentModel) ? (currentModel as typeof AI_MODELS[number] & { thinkingLevels: readonly string[] }).thinkingLevels : [];
               const allLevels = ['minimal', 'low', 'medium', 'high'];
               return (
                 <View style={styles.thinkingContainer}>

@@ -1,71 +1,119 @@
 import { TerminalItemType } from '../../shared/types';
 import type { ChatEngineMessage } from '../../hooks/engine/useChatEngine';
 
-export const getToolStartMessage = (tool: string, input: any): string => {
-  let parsedInput: any = {};
-  try {
-    parsedInput = typeof input === 'string' ? JSON.parse(input) : (input || {});
-  } catch {
-    parsedInput = input || {};
+// ── Tool payload types ──────────────────────────────────────
+
+/** Loosely-typed bag for tool input/result payloads from the agent stream */
+type ToolPayload = Record<string, unknown>;
+
+/** Safely parse a tool input that may be a string or object */
+const parseToolPayload = (raw: unknown): ToolPayload => {
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw as ToolPayload;
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) as ToolPayload; } catch { return {}; }
   }
+  return {};
+};
 
-  const getFileName = (payload: any) => {
-    const path = payload?.path || payload?.filePath || payload?.file_path || '';
-    return path ? path.split('/').pop() || path : '';
-  };
+/** Extract a file name from various tool payload conventions */
+const getFileName = (payload: ToolPayload): string => {
+  const path = String(payload?.path ?? payload?.filePath ?? payload?.file_path ?? '');
+  return path ? path.split('/').pop() || path : '';
+};
 
-  const toolMessages: Record<string, (payload: any) => string> = {
+/**
+ * Type guard: does the result look like an object with typed fields?
+ * Used for result payloads that have `success`, `content`, `error`, etc.
+ */
+const isResultObject = (raw: unknown): raw is ToolPayload =>
+  raw != null && typeof raw === 'object' && !Array.isArray(raw);
+
+/** Extract string content from a tool result */
+const extractResultContent = (raw: unknown): { text: string; hasError: boolean; errorMessage: string } => {
+  let text = '';
+  let hasError = false;
+  let errorMessage = '';
+
+  try {
+    if (raw == null) return { text, hasError, errorMessage };
+    if (isResultObject(raw)) {
+      if (raw.success === false) {
+        hasError = true;
+        errorMessage = String(raw.error ?? 'Unknown error');
+      } else if (typeof raw.content === 'string') {
+        text = raw.content;
+      } else if (typeof raw.message === 'string') {
+        text = raw.message;
+      } else {
+        text = JSON.stringify(raw);
+      }
+    } else {
+      text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+    }
+  } catch { /* swallow */ }
+
+  return { text, hasError, errorMessage };
+};
+
+// ── Tool start messages ─────────────────────────────────────
+
+export const getToolStartMessage = (tool: string, input: unknown): string => {
+  const parsedInput = parseToolPayload(input);
+
+  const toolMessages: Record<string, (payload: ToolPayload) => string> = {
     read_file: (payload) => { const file = getFileName(payload); return file ? `Read ${file}\n└─ Reading...` : 'Read file\n└─ Reading...'; },
     write_file: (payload) => { const file = getFileName(payload); return file ? `Write ${file}\n└─ Writing...` : 'Write file\n└─ Writing...'; },
     edit_file: (payload) => { const file = getFileName(payload); return file ? `Edit ${file}\n└─ Applying edit...` : 'Edit file\n└─ Applying edit...'; },
-    list_directory: (payload) => `List files in ${payload?.path || payload?.directory || '.'}\n└─ Loading...`,
-    list_files: (payload) => `List files in ${payload?.path || payload?.directory || '.'}\n└─ Loading...`,
-    search_in_files: (payload) => { const pattern = payload?.pattern || payload?.query; return pattern ? `Search "${pattern}"\n└─ Searching...` : 'Search\n└─ Searching...'; },
-    grep_search: (payload) => { const pattern = payload?.pattern || payload?.query; return pattern ? `Search "${pattern}"\n└─ Searching...` : 'Search\n└─ Searching...'; },
-    glob_files: (payload) => { const pattern = payload?.pattern; return pattern ? `Glob pattern: ${pattern}\n└─ Searching...` : 'Glob\n└─ Searching...'; },
-    glob_search: (payload) => { const pattern = payload?.pattern; return pattern ? `Glob pattern: ${pattern}\n└─ Searching...` : 'Glob\n└─ Searching...'; },
-    run_command: (payload) => { const command = payload?.command; return command ? `Run command\n└─ ${command.substring(0, 50)}...` : 'Run command\n└─ Executing...'; },
-    execute_command: (payload) => { const command = payload?.command; return command ? `Run command\n└─ ${command.substring(0, 50)}...` : 'Run command\n└─ Executing...'; },
-    web_search: (payload) => { const query = payload?.query; return query ? `Web search\n└─ "${query}"...` : 'Web search\n└─ Searching...'; },
+    list_directory: (p) => `List files in ${p?.path || p?.directory || '.'}\n└─ Loading...`,
+    list_files: (p) => `List files in ${p?.path || p?.directory || '.'}\n└─ Loading...`,
+    search_in_files: (p) => { const q = p?.pattern || p?.query; return q ? `Search "${q}"\n└─ Searching...` : 'Search\n└─ Searching...'; },
+    grep_search: (p) => { const q = p?.pattern || p?.query; return q ? `Search "${q}"\n└─ Searching...` : 'Search\n└─ Searching...'; },
+    glob_files: (p) => { const q = p?.pattern; return q ? `Glob pattern: ${q}\n└─ Searching...` : 'Glob\n└─ Searching...'; },
+    glob_search: (p) => { const q = p?.pattern; return q ? `Glob pattern: ${q}\n└─ Searching...` : 'Glob\n└─ Searching...'; },
+    run_command: (p) => { const c = String(p?.command ?? ''); return c ? `Run command\n└─ ${c.substring(0, 50)}...` : 'Run command\n└─ Executing...'; },
+    execute_command: (p) => { const c = String(p?.command ?? ''); return c ? `Run command\n└─ ${c.substring(0, 50)}...` : 'Run command\n└─ Executing...'; },
+    web_search: (p) => { const q = p?.query; return q ? `Web search\n└─ "${q}"...` : 'Web search\n└─ Searching...'; },
     web_fetch: () => 'Fetch URL\n└─ Loading...',
-    multi_edit_file: (payload) => {
-      const file = getFileName(payload);
-      const editCount = payload?.edits?.length || '?';
+    multi_edit_file: (p) => {
+      const file = getFileName(p);
+      const edits = Array.isArray(p?.edits) ? p.edits : [];
+      const editCount = edits.length || '?';
       return file ? `Multi-edit ${file}\n└─ Applying ${editCount} edits...` : `Multi-edit file\n└─ Applying ${editCount} edits...`;
     },
-    patch_file: (payload) => { const file = getFileName(payload); return file ? `Patch ${file}\n└─ Applying diff...` : 'Patch file\n└─ Applying diff...'; },
-    load_skill: (payload) => { const name = payload?.name; return name ? `Load skill: ${name}\n└─ Loading...` : 'List skills\n└─ Discovering...'; },
-    tool_search: (payload) => { const query = payload?.query; return query ? `Tool search\n└─ "${query}"...` : 'Tool search\n└─ Searching...'; },
-    command_output: (payload) => `Check command\n└─ ${payload?.command_id || '?'}`,
+    patch_file: (p) => { const file = getFileName(p); return file ? `Patch ${file}\n└─ Applying diff...` : 'Patch file\n└─ Applying diff...'; },
+    load_skill: (p) => { const name = p?.name; return name ? `Load skill: ${name}\n└─ Loading...` : 'List skills\n└─ Discovering...'; },
+    tool_search: (p) => { const q = p?.query; return q ? `Tool search\n└─ "${q}"...` : 'Tool search\n└─ Searching...'; },
+    command_output: (p) => `Check command\n└─ ${p?.command_id || '?'}`,
     memory_read: () => 'Read memory\n└─ Loading project memory...',
     memory_write: () => 'Save memory\n└─ Updating project memory...',
-    dispatch_agent: (payload) => {
-      const agentType = payload?.type || 'agent';
-      const prompt = payload?.prompt?.substring(0, 60) || 'Processing...';
+    dispatch_agent: (p) => {
+      const agentType = p?.type || 'agent';
+      const prompt = String(p?.prompt ?? '').substring(0, 60) || 'Processing...';
       return `Agent: ${agentType}\n└─ ${prompt}`;
     },
-    ask_user_question: (payload) => {
-      const questions = payload?.questions;
+    ask_user_question: (p) => {
+      const questions = p?.questions;
       if (Array.isArray(questions) && questions.length > 0) {
-        const questionText = questions.map((question: any) => question?.question || question).join('\n   ');
+        const questionText = questions.map((q: unknown) => (isResultObject(q) ? q?.question : q) || q).join('\n   ');
         return `User Question\n└─ ${questionText}`;
       }
       return 'User Question\n└─ Waiting for response...';
     },
     todo_write: () => 'Todo List\n└─ Updating...',
     todo_read: () => 'Todo List\n└─ Reading...',
-    sub_agent: (payload) => {
-      const prompt = payload?.prompt?.substring(0, 60) || 'Processing...';
+    sub_agent: (p) => {
+      const prompt = String(p?.prompt ?? '').substring(0, 60) || 'Processing...';
       return `Agent: sub-agent\n└─ ${prompt}`;
     },
-    user_question: (payload) => {
-      const question = payload?.question || payload?.text || '';
+    user_question: (p) => {
+      const question = p?.question || p?.text || '';
       return question ? `User Question\n└─ ${question}` : 'User Question\n└─ Waiting for response...';
     },
-    diagnostics: (payload) => { const file = getFileName(payload); return file ? `Diagnostics ${file}\n└─ Checking...` : 'Diagnostics\n└─ Checking...'; },
-    code_search: (payload) => { const query = payload?.query || payload?.pattern || ''; return query ? `Search "${query}"\n└─ Searching code...` : 'Search code\n└─ Searching...'; },
-    skill: (payload) => { const name = payload?.name || payload?.path || ''; return name ? `Skill: ${name}\n└─ Loading...` : 'Skill\n└─ Loading...'; },
-    lsp: (payload) => { const action = payload?.action || ''; return action ? `LSP: ${action}\n└─ Processing...` : 'LSP\n└─ Processing...'; },
+    diagnostics: (p) => { const file = getFileName(p); return file ? `Diagnostics ${file}\n└─ Checking...` : 'Diagnostics\n└─ Checking...'; },
+    code_search: (p) => { const q = p?.query || p?.pattern || ''; return q ? `Search "${q}"\n└─ Searching code...` : 'Search code\n└─ Searching...'; },
+    skill: (p) => { const name = p?.name || p?.path || ''; return name ? `Skill: ${name}\n└─ Loading...` : 'Skill\n└─ Loading...'; },
+    lsp: (p) => { const action = p?.action || ''; return action ? `LSP: ${action}\n└─ Processing...` : 'LSP\n└─ Processing...'; },
   };
 
   const getMessage = toolMessages[tool];
@@ -78,41 +126,9 @@ export const getToolStartMessage = (tool: string, input: any): string => {
   }
 };
 
-export const formatToolResult = (tool: string, toolInput: any, rawResult: any): string => {
-  let result = '';
-  let hasError = false;
-  let errorMessage = '';
-
-  try {
-    if (rawResult !== null && rawResult !== undefined) {
-      if (typeof rawResult === 'object' && rawResult.success === false) {
-        hasError = true;
-        errorMessage = rawResult.error || 'Unknown error';
-      } else if (typeof rawResult === 'object' && rawResult.content) {
-        result = typeof rawResult.content === 'string' ? rawResult.content : JSON.stringify(rawResult.content);
-      } else if (typeof rawResult === 'object' && rawResult.message) {
-        result = rawResult.message;
-      } else {
-        result = typeof rawResult === 'string' ? rawResult : JSON.stringify(rawResult);
-      }
-    }
-  } catch {
-    result = '';
-  }
-
-  let input: any = {};
-  try {
-    if (toolInput) {
-      input = typeof toolInput === 'string' ? JSON.parse(toolInput) : toolInput;
-    }
-  } catch {
-    input = {};
-  }
-
-  const getFileName = (payload: any) => {
-    const filePath = payload?.file_path || payload?.path || payload?.filePath || '';
-    return filePath ? filePath.split('/').pop() || filePath : '';
-  };
+export const formatToolResult = (tool: string, toolInput: unknown, rawResult: unknown): string => {
+  const { text: result, hasError, errorMessage } = extractResultContent(rawResult);
+  const input = parseToolPayload(toolInput);
 
   if (tool === 'read_file') {
     const file = getFileName(input);
@@ -145,7 +161,7 @@ export const formatToolResult = (tool: string, toolInput: any, rawResult: any): 
     return `Search "${pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${result}`;
   }
   if (tool === 'run_command' || tool === 'execute_command') {
-    const command = input?.command || 'command';
+    const command = String(input?.command || 'command');
     if (command.startsWith('curl')) {
       const urlMatch = command.match(/curl\s+(?:-[sS]\s+)?(?:['"])?([^\s'"]+)/);
       const url = urlMatch ? urlMatch[1] : command.substring(5).trim();
@@ -153,10 +169,10 @@ export const formatToolResult = (tool: string, toolInput: any, rawResult: any): 
       let stdout = '';
       let stderr = '';
       try {
-        if (typeof rawResult === 'object' && rawResult !== null) {
-          exitCode = rawResult.exitCode || 0;
-          stdout = rawResult.stdout || '';
-          stderr = rawResult.stderr || '';
+        if (isResultObject(rawResult)) {
+          exitCode = Number(rawResult.exitCode ?? 0);
+          stdout = String(rawResult.stdout ?? '');
+          stderr = String(rawResult.stderr ?? '');
         } else if (typeof result === 'string' && result.includes('exitCode')) {
           const parsed = JSON.parse(result);
           exitCode = parsed.exitCode || 0;
@@ -174,7 +190,7 @@ export const formatToolResult = (tool: string, toolInput: any, rawResult: any): 
       return `Execute: curl ${url}\n└─ ${status}${output}`;
     }
     let actualOutput = result;
-    if (typeof rawResult === 'object' && rawResult !== null && rawResult.stdout) {
+    if (isResultObject(rawResult) && typeof rawResult.stdout === 'string') {
       actualOutput = rawResult.stdout;
     }
     const resultLines = (actualOutput || '').split('\n');
@@ -188,7 +204,8 @@ export const formatToolResult = (tool: string, toolInput: any, rawResult: any): 
   }
   if (tool === 'multi_edit_file') {
     const file = getFileName(input);
-    const editCount = input?.edits?.length || '?';
+    const edits = Array.isArray(input?.edits) ? input.edits : [];
+    const editCount = edits.length || '?';
     if (hasError) return `Multi-edit ${file || 'file'}\n└─ Error: ${errorMessage}`;
     const diffStart = result.indexOf('\n\n');
     const diffContent = diffStart >= 0 ? result.substring(diffStart + 2) : '';
@@ -196,7 +213,7 @@ export const formatToolResult = (tool: string, toolInput: any, rawResult: any): 
   }
   if (tool === 'dispatch_agent') {
     const agentType = input?.type || 'agent';
-    const description = input?.prompt?.substring(0, 80) || 'Task';
+    const description = String(input?.prompt ?? '').substring(0, 80) || 'Task';
     if (hasError) return `Agent: ${agentType}\n└─ Error: ${errorMessage}\n\n${description}`;
     return `Agent: ${agentType}\n└─ Completed\n\n${description}${result ? `\n\n${result.substring(0, 1000)}` : ''}`;
   }
@@ -240,66 +257,55 @@ export const formatToolResult = (tool: string, toolInput: any, rawResult: any): 
     return 'Save memory\n└─ Updated';
   }
   if (tool === 'web_fetch') {
-    const url = input?.url || 'URL';
+    const url = String(input?.url || 'URL');
     const urlShort = url.length > 50 ? `${url.substring(0, 50)}...` : url;
     return `Fetch: ${urlShort}\n└─ Completed\n\n${result.substring(0, 2000)}${result.length > 2000 ? '...' : ''}`;
   }
   if (tool === 'launch_sub_agent') {
     const agentType = input?.subagent_type || input?.type || 'agent';
-    const description = input?.description || input?.prompt?.substring(0, 60) || 'Task';
+    const description = String(input?.description || '').substring(0, 60) || String(input?.prompt ?? '').substring(0, 60) || 'Task';
     if (hasError) return `Agent: ${agentType}\n└─ Error: ${errorMessage}\n\n${description}`;
     let summary = '';
     try {
-      if (typeof rawResult === 'object' && rawResult?.summary) summary = rawResult.summary;
-      else if (typeof result === 'string' && result.length > 0 && result !== 'undefined') summary = result;
+      if (isResultObject(rawResult) && typeof rawResult.summary === 'string') summary = rawResult.summary;
+      else if (result.length > 0 && result !== 'undefined') summary = result;
     } catch {
       summary = '';
     }
     return `Agent: ${agentType}\n└─ Completed\n\n${description}${summary ? `\n\n${summary}` : ''}`;
   }
   if (tool === 'todo_write') {
-    let todos: any[] = [];
-    try {
-      todos = input?.todos || [];
-    } catch {
-      todos = [];
-    }
+    const todos = Array.isArray(input?.todos) ? (input.todos as ToolPayload[]) : [];
     const totalTasks = todos.length;
-    const completedTasks = todos.filter((todo: any) => todo.status === 'completed').length;
-    const inProgressTasks = todos.filter((todo: any) => todo.status === 'in_progress').length;
-    const todoLines = todos.map((todo: any) => `${todo.status || 'pending'}|${todo.content || ''}`).join('\n');
+    const completedTasks = todos.filter((todo) => todo.status === 'completed').length;
+    const inProgressTasks = todos.filter((todo) => todo.status === 'in_progress').length;
+    const todoLines = todos.map((todo) => `${todo.status || 'pending'}|${todo.content || ''}`).join('\n');
     return `Todo List\n└─ ${totalTasks} task${totalTasks !== 1 ? 's' : ''} (${completedTasks} done, ${inProgressTasks} in progress)\n\n${todoLines}`;
   }
   if (tool === 'web_search') {
-    let searchResults: any[] = [];
+    let searchResults: ToolPayload[] = [];
     let query = '';
     let count = 0;
     try {
-      if (typeof rawResult === 'object' && rawResult?.results) {
-        searchResults = rawResult.results || [];
-        query = rawResult.query || input?.query || 'query';
-        count = rawResult.count || searchResults.length;
+      if (isResultObject(rawResult) && Array.isArray(rawResult.results)) {
+        searchResults = rawResult.results as ToolPayload[];
+        query = String(rawResult.query ?? input?.query ?? 'query');
+        count = (typeof rawResult.count === 'number' ? rawResult.count : searchResults.length);
       }
     } catch {
       searchResults = [];
     }
-    const searchLines = searchResults.map((entry: any) => `${entry.title || 'Untitled'}|${entry.url || ''}|${entry.snippet || ''}`).join('\n');
+    const searchLines = searchResults.map((entry) => `${entry.title || 'Untitled'}|${entry.url || ''}|${entry.snippet || ''}`).join('\n');
     return `Web Search "${query}"\n└─ ${count} result${count !== 1 ? 's' : ''} found\n\n${searchLines}`;
   }
   if (tool === 'ask_user_question') {
-    let questions: any[] = [];
-    let answers: any = {};
-    try {
-      if (input?.questions) questions = input.questions;
-      if (typeof rawResult === 'object' && rawResult?.answers) answers = rawResult.answers;
-    } catch {
-      answers = {};
-    }
-    const qaLines = questions.map((question: any, index: number) => `${question.question || ''}|${answers[`q${index}`] || 'No answer'}`).join('\n');
+    const questions = Array.isArray(input?.questions) ? (input.questions as ToolPayload[]) : [];
+    const answers: ToolPayload = (isResultObject(rawResult) && isResultObject(rawResult.answers)) ? rawResult.answers as ToolPayload : {};
+    const qaLines = questions.map((question, index: number) => `${question.question || ''}|${answers[`q${index}`] || 'No answer'}`).join('\n');
     return `User Question\n└─ ${questions.length} question${questions.length !== 1 ? 's' : ''} answered\n\n${qaLines}`;
   }
   if (tool === 'sub_agent') {
-    const description = input?.prompt?.substring(0, 80) || 'Task';
+    const description = String(input?.prompt ?? '').substring(0, 80) || 'Task';
     if (hasError) return `Agent: sub-agent\n└─ Error: ${errorMessage}`;
     return `Agent: sub-agent\n└─ Completed\n\n${description}${result ? `\n\n${result.substring(0, 1000)}` : ''}`;
   }
@@ -337,9 +343,10 @@ export const formatEngineMessage = (
   message: ChatEngineMessage,
   unknownErrorLabel: string,
 ) => {
-  const costProps: any = {};
-  if ((message as any).costEur) costProps.costEur = (message as any).costEur;
-  if ((message as any).tokensUsed) costProps.tokensUsed = (message as any).tokensUsed;
+  const costProps: Record<string, unknown> = {};
+  const messageRecord = message as unknown as Record<string, unknown>;
+  if (messageRecord.costEur) costProps.costEur = messageRecord.costEur;
+  if (messageRecord.tokensUsed) costProps.tokensUsed = messageRecord.tokensUsed;
 
   switch (message.type) {
     case 'thinking':

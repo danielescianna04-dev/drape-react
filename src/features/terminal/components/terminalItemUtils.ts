@@ -43,6 +43,16 @@ export const isTerminalCommandItem = (item: TerminalItem): boolean => (
 
 export const isUserMessageItem = (item: TerminalItem): boolean => item.type === TerminalItemType.USER_MESSAGE;
 
+export const canRetryTerminalTool = (
+  item: TerminalItem,
+  hasRetryHandler: boolean,
+): boolean => (
+  hasRetryHandler &&
+  !!item.toolInfo &&
+  item.toolInfo.status === 'error' &&
+  !!item.toolInfo.tool
+);
+
 export const shouldRenderTerminalItem = (
   item: TerminalItem | undefined,
   showThinking: boolean,

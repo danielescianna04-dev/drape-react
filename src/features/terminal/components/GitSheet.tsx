@@ -1,29 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, Dimensions, Pressable, Modal } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
-import { AppColors } from '../../../shared/theme/colors';
-import { GitAccount } from '../../../core/git/gitAccountService';
+import { View, StyleSheet, Dimensions } from 'react-native';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
-import { config } from '../../../config/config';
-import { getAuthHeaders } from '../../../core/api/getAuthToken';
-import { AddGitAccountModal } from '../../settings/components/AddGitAccountModal';
-import { ConnectRepoModal } from './ConnectRepoModal';
-import { GitAccountPickerModal, GitCommitComposerModal, GitCommitContextMenu, GitPullModal, GitPushModal } from './GitSheetOverlays';
-import { tracciaTabGitCambiato, tracciaSelezionaTuttoGit, tracciaAccountGitCollegato, tracciaConnettiRepo } from '../../../core/services/analyticsService';
-import { CommitFilesModal, DiffViewerModal } from './GitDiffModals';
-import {
-  GitSheetAccountRow,
-  GitSheetBranchesSection,
-  GitSheetChangesSection,
-  GitSheetCommitsSection,
-  GitSheetContainer,
-  GitSheetFileContextMenu,
-  GitSheetHeader,
-  GitSheetTabs,
-} from './GitSheetSections';
+import { AppColors } from '../../../shared/theme/colors';
+import { GitSheetBody } from './GitSheetBody';
+import { GitSheetDialogs } from './GitSheetDialogs';
+import { GitSheetModalShell } from './GitSheetModalShell';
 import { useGitSheetData } from './hooks/useGitSheetData';
 import { useGitSheetActions } from './hooks/useGitSheetActions';
+import { useGitSheetLifecycle } from './hooks/useGitSheetLifecycle';
+import { deriveGitSheetRepoMeta } from './hooks/gitSheetRepoMeta';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const MODAL_HEIGHT = SCREEN_HEIGHT * 0.65;
@@ -43,9 +28,10 @@ export const GitSheet = ({ visible, onClose, initialTab }: Props) => {
 
   // Derived repo info
   const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
-  const repoName = repoUrl ? repoUrl.split('/').pop()?.replace('.git', '') : 'Repository';
-  const repoOwner = repoUrl ? repoUrl.split('/').slice(-2, -1)[0] : '';
-  const isOwnRepo = data.linkedAccount?.username?.toLowerCase() === repoOwner?.toLowerCase();
+  const { repoName, repoOwner, isOwnRepo } = deriveGitSheetRepoMeta(
+    repoUrl,
+    data.linkedAccount?.username,
+  );
 
   // ─── Actions hook ─────────────────────────────────────────────────────
   const actions = useGitSheetActions({
@@ -59,7 +45,7 @@ export const GitSheet = ({ visible, onClose, initialTab }: Props) => {
     allChangedFiles: data.allChangedFiles,
     isOwnRepo,
     repoOwner,
-    repoName: repoName || 'Repository',
+    repoName,
     isLoadingRef: data.isLoadingRef,
     skipAutoFilterRef: data.skipAutoFilterRef,
     previousBranchRef: data.previousBranchRef,
@@ -70,371 +56,58 @@ export const GitSheet = ({ visible, onClose, initialTab }: Props) => {
     t: data.t,
   });
 
-  // Sync initialTab when it changes while opening
-  useEffect(() => {
-    if (visible && initialTab) actions.setActiveSection(initialTab);
-  }, [visible, initialTab]);
-
-  // Reset action state when sheet closes
-  useEffect(() => {
-    if (!visible) {
-      actions.resetActionState();
-      data.setDiffFile(null);
-      data.setDiffContent(null);
-    }
-  }, [visible]);
+  const lifecycle = useGitSheetLifecycle({
+    visible,
+    initialTab,
+    actions,
+    data,
+    currentWorkstationName: currentWorkstation?.name,
+    setShowAddAccountModal,
+  });
 
   return (
-    <Modal
+    <GitSheetModalShell
       visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-      statusBarTranslucent
+      onClose={onClose}
+      styles={styles}
+      actionLoading={actions.actionLoading}
+      repoName={repoName}
+      repoOwner={repoOwner}
+      aheadCount={data.aheadCount}
+      behindCount={data.behindCount}
+      onAction={actions.handleGitAction}
+      activeSection={actions.activeSection}
+      isGitRepo={data.isGitRepo}
+      changesCount={data.allChangedFiles.length}
+      t={data.t}
+      onSelectSection={lifecycle.onSelectSection}
+      refreshing={data.refreshing}
+      onRefresh={data.handleRefresh}
+      linkedAccount={data.linkedAccount}
+      onOpenAccountPicker={() => actions.setShowAccountPicker(true)}
+      fileContextMenu={actions.fileContextMenu}
+      onCloseFileMenu={() => actions.setFileContextMenu(null)}
+      onViewDiff={() => actions.handleFileMenuAction('viewDiff')}
+      onDiscard={() => actions.handleFileMenuAction('discard')}
     >
-      <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-      <View style={styles.backdrop} pointerEvents="box-none">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <GitSheetContainer styles={styles}>
-          <GitSheetHeader
-            styles={styles}
-            repoName={repoName}
-            repoOwner={repoOwner}
-            onClose={onClose}
-            actionLoading={actions.actionLoading}
-            aheadCount={data.aheadCount}
-            behindCount={data.behindCount}
-            onAction={actions.handleGitAction}
-          />
-          <GitSheetTabs
-            styles={styles}
-            activeSection={actions.activeSection}
-            isGitRepo={data.isGitRepo}
-            changesCount={data.allChangedFiles.length}
-            t={data.t}
-            onSelect={(section) => {
-              actions.setActiveSection(section);
-              tracciaTabGitCambiato(section);
-              if (section === 'changes') data.fetchBackendStatus(data.currentBranch);
-            }}
-          />
-
-          <ScrollView
-            style={styles.content}
-            contentContainerStyle={styles.contentContainer}
-            showsVerticalScrollIndicator={true}
-            nestedScrollEnabled={true}
-            keyboardShouldPersistTaps="handled"
-            refreshControl={
-              <RefreshControl refreshing={data.refreshing} onRefresh={data.handleRefresh} tintColor="#fff" />
-            }
-          >
-            {data.gitLoading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={AppColors.primary} />
-                {data.errorMsg && (
-                  <Text style={styles.loadingText}>{data.errorMsg}</Text>
-                )}
-              </View>
-            ) : !data.isGitRepo && !repoUrl ? (
-              <View style={styles.emptyState}>
-                <View style={styles.connectGitIcon}>
-                  <Ionicons name="git-branch-outline" size={32} color="rgba(255,255,255,0.4)" />
-                </View>
-                <Text style={styles.connectGitTitle}>{data.t('connectRepo.title')}</Text>
-                <Text style={styles.connectGitSubtitle}>
-                  {data.t('connectRepo.noAccountsAvailable')}
-                </Text>
-                <TouchableOpacity
-                  style={styles.connectGitButton}
-                  onPress={() => { actions.setShowConnectModal(true); tracciaConnettiRepo(); }}
-                >
-                  <Ionicons name="add-circle-outline" size={18} color="#fff" />
-                  <Text style={styles.connectGitButtonText}>{data.t('connectRepo.title')}</Text>
-                </TouchableOpacity>
-              </View>
-            ) : actions.activeSection === 'commits' ? (
-              <GitSheetCommitsSection
-                styles={styles}
-                t={data.t as any}
-                repoUrl={repoUrl}
-                errorMsg={data.errorMsg}
-                commits={data.commits}
-                displayCommits={data.displayCommits}
-                branches={data.branches}
-                selectedBranchFilter={data.selectedBranchFilter}
-                branchFilterLoading={data.branchFilterLoading}
-                isDetachedHead={data.isDetachedHead}
-                detachedAt={data.detachedAt}
-                previousBranch={data.previousBranchRef.current || data.currentBranch}
-                currentBranch={data.currentBranch}
-                aheadCount={data.aheadCount}
-                remoteHead={data.remoteHead}
-                linkedAccount={data.linkedAccount}
-                branchColorMap={data.branchColorMap}
-                commitTimelineColors={data.commitTimelineColors}
-                actionLoading={actions.actionLoading}
-                onSelectBranchFilter={data.handleBranchFilterSelect}
-                onReturnToBranch={actions.handleReturnToBranch}
-                onOpenCommitMenu={actions.setCommitContextMenu}
-                onOpenConnectRepo={() => { actions.setShowConnectModal(true); tracciaConnettiRepo(); }}
-                onRetryLoad={() => data.loadGitData()}
-              />
-            ) : actions.activeSection === 'branches' ? (
-              <GitSheetBranchesSection
-                styles={styles}
-                t={data.t as any}
-                branches={data.branches}
-                showCreateBranch={actions.showCreateBranch}
-                newBranchName={actions.newBranchName}
-                actionLoading={actions.actionLoading}
-                onSetNewBranchName={actions.setNewBranchName}
-                onShowCreateBranch={actions.setShowCreateBranch}
-                onCreateBranch={actions.handleCreateBranch}
-              />
-            ) : (
-              <GitSheetChangesSection
-                styles={styles}
-                t={data.t as any}
-                allChangedFiles={data.allChangedFiles}
-                changeFileTree={data.changeFileTree}
-                selectedFiles={actions.selectedFiles}
-                expandedFolders={actions.expandedChangeFolders}
-                statusRefreshing={data.statusRefreshing}
-                actionLoading={actions.actionLoading}
-                gitAccountsCount={data.gitAccounts.length}
-                onToggleSelectAll={() => {
-                  actions.toggleSelectAll();
-                  tracciaSelezionaTuttoGit();
-                }}
-                onDiscardSelected={() => actions.handleDiscard(Array.from(actions.selectedFiles))}
-                onToggleFile={actions.toggleFileSelection}
-                onToggleFolder={(path) => {
-                  actions.setExpandedChangeFolders((prev) => {
-                    const next = new Set(prev);
-                    next.has(path) ? next.delete(path) : next.add(path);
-                    return next;
-                  });
-                }}
-                onOpenDiff={data.fetchDiff}
-                onOpenFileMenu={actions.setFileContextMenu}
-                onOpenCommitModal={() => {
-                  if (actions.selectedFiles.size === 0) {
-                    Alert.alert(data.t('terminal:git.selectFiles'), data.t('terminal:git.selectAtLeastOneFile'));
-                    return;
-                  }
-                  actions.setShowCommitModal(true);
-                }}
-                onOpenAddAccount={() => {
-                  setShowAddAccountModal(true);
-                  tracciaAccountGitCollegato('github');
-                }}
-              />
-            )}
-          </ScrollView>
-
-          {data.linkedAccount && (
-            <GitSheetAccountRow
-              styles={styles}
-              linkedAccount={data.linkedAccount}
-              onOpen={() => actions.setShowAccountPicker(true)}
-            />
-          )}
-        </GitSheetContainer>
-      </View>
-
-      <AddGitAccountModal
-        visible={showAddAccountModal}
-        onClose={() => setShowAddAccountModal(false)}
-        onAccountAdded={data.loadAccountInfo}
-      />
-
-      <CommitFilesModal
-        visible={actions.commitFilesModal !== null}
-        modalData={actions.commitFilesModal}
-        commitFiles={data.commitFiles}
-        loading={data.commitFilesLoading}
-        expandedFile={actions.expandedCommitFile}
-        expandedDiff={actions.expandedCommitDiff}
-        expandedDiffLoading={actions.expandedCommitDiffLoading}
-        collapsedFolders={actions.commitCollapsedFolders}
+      <GitSheetBody
         styles={styles}
-        onClose={() => {
-          actions.setCommitFilesModal(null);
-          actions.setExpandedCommitFile(null);
-          actions.setExpandedCommitDiff(null);
-        }}
-        onBack={() => {
-          actions.setExpandedCommitFile(null);
-          actions.setExpandedCommitDiff(null);
-        }}
-        onToggleFolder={(path) => {
-          actions.setCommitCollapsedFolders((prev) => {
-            const next = new Set(prev);
-            next.has(path) ? next.delete(path) : next.add(path);
-            return next;
-          });
-        }}
-        onOpenFile={async (filePath) => {
-          if (!actions.commitFilesModal || !currentWorkstation?.id) return;
-          actions.setExpandedCommitFile(filePath);
-          actions.setExpandedCommitDiff(null);
-          actions.setExpandedCommitDiffLoading(true);
-          try {
-            const authHeaders = await getAuthHeaders();
-            const res = await fetch(
-              `${config.apiUrl}/git/commit-diff/${currentWorkstation.id}?commit=${encodeURIComponent(actions.commitFilesModal.hash)}&file=${encodeURIComponent(filePath)}`,
-              { headers: authHeaders },
-            );
-            const fetchedData = await res.json();
-            actions.setExpandedCommitDiff(fetchedData.diff || '');
-          } catch (error: any) {
-            actions.setExpandedCommitDiff(`Error: ${error.message}`);
-          } finally {
-            actions.setExpandedCommitDiffLoading(false);
-          }
-        }}
+        data={data}
+        actions={actions}
+        repoUrl={repoUrl}
+        currentWorkstationName={lifecycle.currentWorkstationName}
+        onOpenAddAccount={lifecycle.onOpenAddAccount}
+        onOpenConnectRepo={lifecycle.onOpenConnectRepo}
       />
-
-      <DiffViewerModal
-        visible={data.diffFile !== null && actions.commitFilesModal === null}
-        file={data.diffFile}
-        diff={data.diffContent}
-        loading={data.diffLoading}
+      <GitSheetDialogs
         styles={styles}
-        onClose={() => data.setDiffFile(null)}
-      />
-
-      {actions.fileContextMenu && (
-        <GitSheetFileContextMenu
-          styles={styles}
-          title={actions.fileContextMenu.file.split('/').pop() || actions.fileContextMenu.file}
-          y={actions.fileContextMenu.y}
-          viewDiffLabel={data.t('terminal:git.viewDiff')}
-          discardLabel={data.t('terminal:git.discardChanges')}
-          onClose={() => actions.setFileContextMenu(null)}
-          onViewDiff={() => actions.handleFileMenuAction('viewDiff')}
-          onDiscard={() => actions.handleFileMenuAction('discard')}
-        />
-      )}
-
-      <ConnectRepoModal
-        visible={actions.showConnectModal}
-        onClose={() => actions.setShowConnectModal(false)}
-        onConnected={(newRepoUrl) => {
-          actions.setShowConnectModal(false);
-          data.isLoadingRef.current = false;
-          data.hasStartedRef.current = false;
-          setTimeout(() => {
-            data.loadGitData(data.accountsRef.current, newRepoUrl);
-          }, 300);
-        }}
-        projectName={currentWorkstation?.name}
-      />
-
-      <GitAccountPickerModal
-        visible={actions.showAccountPicker}
-        styles={styles}
-        t={data.t}
-        gitAccounts={data.gitAccounts}
-        linkedAccount={data.linkedAccount}
-        onClose={() => actions.setShowAccountPicker(false)}
-        onSelectAccount={(account: GitAccount) => {
-          data.setLinkedAccount(account);
-          actions.setShowAccountPicker(false);
-        }}
-        onAddAccount={() => {
-          actions.setShowAccountPicker(false);
-          setShowAddAccountModal(true);
-          tracciaAccountGitCollegato('picker');
-        }}
-      />
-
-      <GitCommitComposerModal
-        visible={actions.showCommitModal}
-        styles={styles}
-        t={data.t}
-        selectedFiles={actions.selectedFiles}
-        commitMessage={actions.commitMessage}
-        setCommitMessage={actions.setCommitMessage}
-        commitDescription={actions.commitDescription}
-        setCommitDescription={actions.setCommitDescription}
-        actionLoading={actions.actionLoading}
-        onClose={() => actions.setShowCommitModal(false)}
-        onCommit={async () => {
-          const success = await actions.handleCommit();
-          if (success) actions.setShowCommitModal(false);
-        }}
-        onCommitAndPush={actions.handleCommitAndPush}
-      />
-
-      <GitCommitContextMenu
-        visible={!!actions.commitContextMenu}
-        styles={styles}
-        commitContextMenu={actions.commitContextMenu}
-        newBranchFromCommit={actions.newBranchFromCommit}
-        branchFromName={actions.branchFromName}
-        setBranchFromName={actions.setBranchFromName}
-        actionLoading={actions.actionLoading}
+        data={data}
+        actions={actions}
         currentWorkstation={currentWorkstation}
-        currentBranch={data.currentBranch}
-        isDetachedHead={data.isDetachedHead}
-        previousBranchRef={data.previousBranchRef}
-        linkedAccount={data.linkedAccount}
-        userId={data.userId}
-        allChangedFiles={data.allChangedFiles}
-        setActionLoading={actions.setActionLoading}
-        setCommitContextMenu={actions.setCommitContextMenu}
-        setNewBranchFromCommit={actions.setNewBranchFromCommit}
-        setCommitFilesModal={actions.setCommitFilesModal}
-        setExpandedCommitFile={actions.setExpandedCommitFile}
-        setExpandedCommitDiff={actions.setExpandedCommitDiff}
-        setCommitCollapsedFolders={actions.setCommitCollapsedFolders}
-        fetchCommitFiles={data.fetchCommitFiles}
-        handleRevertCommit={actions.handleRevertCommit}
-        handleBranchFromCommit={actions.handleBranchFromCommit}
-        loadGitData={data.loadGitData}
-        t={data.t}
+        showAddAccountModal={showAddAccountModal}
+        setShowAddAccountModal={setShowAddAccountModal}
       />
-
-      <GitPullModal
-        visible={actions.showPullModal}
-        styles={styles}
-        branches={data.branches}
-        pullRemote={actions.pullRemote}
-        pullBranch={actions.pullBranch}
-        setPullBranch={actions.setPullBranch}
-        pullBranchPickerOpen={actions.pullBranchPickerOpen}
-        setPullBranchPickerOpen={actions.setPullBranchPickerOpen}
-        pullIntoBranch={actions.pullIntoBranch}
-        setPullIntoBranch={actions.setPullIntoBranch}
-        pullIntoPickerOpen={actions.pullIntoPickerOpen}
-        setPullIntoPickerOpen={actions.setPullIntoPickerOpen}
-        currentBranch={data.currentBranch}
-        pullRebase={actions.pullRebase}
-        setPullRebase={actions.setPullRebase}
-        pullStash={actions.pullStash}
-        setPullStash={actions.setPullStash}
-        actionLoading={actions.actionLoading}
-        onClose={() => actions.setShowPullModal(false)}
-        onExecute={actions.executePull}
-      />
-
-      <GitPushModal
-        visible={actions.showPushModal}
-        styles={styles}
-        branches={data.branches}
-        currentBranch={data.currentBranch}
-        pushDestBranch={actions.pushDestBranch}
-        setPushDestBranch={actions.setPushDestBranch}
-        pushDestPickerOpen={actions.pushDestPickerOpen}
-        setPushDestPickerOpen={actions.setPushDestPickerOpen}
-        actionLoading={actions.actionLoading}
-        onClose={() => actions.setShowPushModal(false)}
-        onExecute={actions.executePush}
-      />
-
-    </Modal>
+    </GitSheetModalShell>
   );
 };
 

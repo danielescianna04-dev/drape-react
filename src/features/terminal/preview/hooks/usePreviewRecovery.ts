@@ -17,6 +17,7 @@ import { useAgentStore } from '../../../../core/agent/agentStore';
 
 import type { PreviewAutoFixReturn } from '../../../../hooks/preview/usePreviewAutoFix';
 import type { PreviewSessionReturn } from './usePreviewSession';
+import type { usePreviewStartup } from '../../hooks/usePreviewStartup';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -24,8 +25,8 @@ type ServerStatus = 'checking' | 'running' | 'stopped';
 
 export interface PreviewRecoveryParams {
   apiUrl: string;
-  t: (key: string, opts?: any) => string;
-  currentWorkstation: any;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+  currentWorkstation: { id: string; name?: string } | null;
   webViewRef: React.RefObject<WebView>;
   terminalScrollRef: React.RefObject<ScrollView>;
   session: PreviewSessionReturn;
@@ -50,11 +51,17 @@ export interface PreviewRecoveryParams {
   ignoreLogsUntilRef: React.MutableRefObject<number>;
   logsSinceCursorRef: React.MutableRefObject<number>;
   /** startup hook */
-  startup: any;
+  startup: ReturnType<typeof usePreviewStartup>;
   handleStartServer: () => Promise<void>;
   terminalOutput: string[];
   setTerminalOutput: React.Dispatch<React.SetStateAction<string[]>>;
   resetToStartScreen: () => void;
+  sessionExpiredState?: {
+    value: boolean;
+    setValue: React.Dispatch<React.SetStateAction<boolean>>;
+    message: string;
+    setMessage: React.Dispatch<React.SetStateAction<string>>;
+  };
 }
 
 export interface PreviewRecoveryReturn {
@@ -103,10 +110,15 @@ export function usePreviewRecovery({
   terminalOutput,
   setTerminalOutput,
   resetToStartScreen,
+  sessionExpiredState,
 }: PreviewRecoveryParams): PreviewRecoveryReturn {
 
-  const [sessionExpired, setSessionExpired] = useState(false);
-  const [sessionExpiredMessage, setSessionExpiredMessage] = useState('');
+  const [localSessionExpired, setLocalSessionExpired] = useState(false);
+  const [localSessionExpiredMessage, setLocalSessionExpiredMessage] = useState('');
+  const sessionExpired = sessionExpiredState?.value ?? localSessionExpired;
+  const setSessionExpired = sessionExpiredState?.setValue ?? setLocalSessionExpired;
+  const sessionExpiredMessage = sessionExpiredState?.message ?? localSessionExpiredMessage;
+  const setSessionExpiredMessage = sessionExpiredState?.setMessage ?? setLocalSessionExpiredMessage;
   const preflightDoneRef = useRef(false);
   const autoFixTriggeredRef = useRef(false);
   const logsXhrRef = useRef<XMLHttpRequest | null>(null);
@@ -116,7 +128,10 @@ export function usePreviewRecovery({
   const handleRetryPreview = () => {
     startup.setPreviewError(null);
     startup.setReportSent(false);
-    if (serverStatusRef.current === 'running' || session.currentPreviewUrl) {
+    const canReloadRunningPreview =
+      serverStatusRef.current === 'running' && !!session.currentPreviewUrl;
+
+    if (canReloadRunningPreview) {
       setServerStatus('running');
       startup.setIsStarting(false);
       webViewRef.current?.reload();
@@ -218,13 +233,6 @@ export function usePreviewRecovery({
     store.setAutoRetryPreview(true);
     handleClose();
   };
-
-  // ── Auto-fix preflight: mark verified when WebView loads ─────
-
-  useEffect(() => {
-    if (!startup.webViewReady && !preflightDoneRef.current) return;
-    // webViewReady not available here — we rely on the orchestrator passing it
-  }, []);
 
   // ── Reset preflight when project changes ─────────────────────
 

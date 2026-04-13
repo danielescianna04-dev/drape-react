@@ -19,18 +19,18 @@ import { isEnvRelatedMessage, isTransientProxyError, isCssNoiseError } from '../
 
 // Sub-components
 import { PreviewToolbar } from './PreviewToolbar';
-import { PreviewWebView } from './PreviewWebView';
 import { PreviewAIChat } from './PreviewAIChat';
 import { PreviewPublishSheet } from './PreviewPublishSheet';
-import { PreviewEnvVarsForm } from './PreviewEnvVarsForm';
-
-// Phase 5+6: New pure state screens + surfaces
+import { usePreviewMachine } from '../preview';
+import { derivePreviewPhase } from '../preview/derivePreviewPhase';
 import {
   PreviewStateStart,
   PreviewStateLoading,
   PreviewStateFixing,
+  PreviewStateEnvRequired,
   PreviewStateSessionExpired,
   PreviewStateFatalError,
+  PreviewSurfaceWeb,
   PreviewSurfaceConsole,
 } from '../preview/components';
 import { getPreviewCapability } from '../preview/previewCapabilities';
@@ -297,6 +297,86 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const detectedTech = (projectInfo?.type || currentWorkstation?.technology || currentWorkstation?.language || '').toLowerCase();
   const previewCapability = getPreviewCapability(detectedTech);
   const isPreviewSupported = previewCapability !== 'unsupported';
+  const { state: previewState, dispatch: dispatchPreview } = usePreviewMachine();
+
+  React.useEffect(() => {
+    const phase = derivePreviewPhase({
+      sessionExpired,
+      serverStatus,
+      hasRequiredEnvVars: !!requiredEnvVars,
+      hasPreviewError: !!startup.previewError,
+      isFixing: autoFix.isFixing || autoFixTriggeredRef.current,
+      previewCapability,
+      webViewReady,
+    });
+
+    dispatchPreview({
+      type: 'SYNC_EXTERNAL_STATE',
+      phase,
+      previewUrl: currentPreviewUrl || null,
+      envVarsRequired: requiredEnvVars,
+      error: startup.previewError
+        ? {
+            kind: sessionExpired ? 'session_expired' : 'unknown',
+            message: startup.previewError.message,
+            recoverable: !!(autoFix.isFixing || autoFixTriggeredRef.current),
+            raw: startup.previewError.message,
+          }
+        : null,
+      sessionExpiredMessage: sessionExpiredMessage || null,
+      webViewReady,
+      canGoBack,
+      canGoForward,
+      viewportMode,
+      displayedMessage: autoFix.isFixing ? autoFix.statusMessage || startup.displayedMessage : startup.displayedMessage,
+      progress: startup.smoothProgress,
+      hasWebUi: hasWebUI,
+      terminalOutput,
+      startupLogs: startup.previewLogs.map((log) => ({
+        timestamp: log.timestamp,
+        message: log.message,
+        type: 'info' as const,
+      })),
+      autoFix: {
+        active: autoFix.isFixing || autoFixTriggeredRef.current,
+        attempt: autoFix.fixAttempt,
+        statusMessage: autoFix.statusMessage || null,
+      },
+    });
+  }, [
+    sessionExpired,
+    sessionExpiredMessage,
+    serverStatus,
+    requiredEnvVars,
+    startup.previewError,
+    startup.displayedMessage,
+    startup.smoothProgress,
+    autoFix.isFixing,
+    autoFix.fixAttempt,
+    autoFix.statusMessage,
+    autoFixTriggeredRef.current,
+    currentPreviewUrl,
+    webViewReady,
+    canGoBack,
+    canGoForward,
+    viewportMode,
+    hasWebUI,
+    terminalOutput,
+    previewCapability,
+    dispatchPreview,
+  ]);
+
+  const previewTerminalLines = previewState.terminalOutput.length > 0
+    ? previewState.terminalOutput
+    : previewState.startupLogs.map(log => log.message);
+  const previewWebLogs = previewState.startupLogs.map((log, index) => ({
+    id: index,
+    timestamp: log.timestamp,
+    message: log.message,
+  }));
+  const previewErrorMessage = previewState.error?.message ?? null;
+  const previewEnvVars = previewState.envVarsRequired;
+  const previewSessionMessage = previewState.sessionExpiredMessage;
 
   // ---- Render ----
   if (!isPreviewSupported) {
@@ -382,9 +462,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                 </TouchableOpacity>
               )}
               {/* Phase 5: State screens — pure components */}
-              {serverStatus === 'stopped' && requiredEnvVars ? (
-                <PreviewEnvVarsForm
-                  requiredEnvVars={requiredEnvVars}
+              {previewState.phase === 'preflight_env' && previewEnvVars ? (
+                <PreviewStateEnvRequired
+                  requiredEnvVars={previewEnvVars}
                   envVarValues={envVarValues}
                   onChangeEnvVar={(key, value) => setEnvVarValues(prev => ({ ...prev, [key]: value }))}
                   isSaving={isSavingEnv}
@@ -393,32 +473,32 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   topInset={insets.top}
                   bottomInset={insets.bottom}
                 />
-              ) : sessionExpired ? (
+              ) : previewState.phase === 'session_expired' ? (
                 <PreviewStateSessionExpired
-                  message={sessionExpiredMessage}
+                  message={previewSessionMessage || ''}
                   onRestart={handleStartServer}
                   t={t}
                 />
-              ) : serverStatus === 'stopped' && startup.previewError && !autoFix.isFixing && !autoFixTriggeredRef.current ? (
+              ) : previewState.phase === 'fatal_error' && previewErrorMessage ? (
                 <PreviewStateFatalError
-                  errorMessage={startup.previewError.message}
-                  terminalOutput={terminalOutput}
+                  errorMessage={previewErrorMessage}
+                  terminalOutput={previewTerminalLines}
                   onRetry={handleRetryPreview}
                   onFixWithAI={sendErrorToChat}
                   onUpgrade={() => { tracciaPaginaPianiVista('preview_limit'); useNavigationStore.getState().navigateTo('plans'); }}
                   t={t}
                 />
-              ) : serverStatus === 'stopped' && startup.previewError && (autoFix.isFixing || autoFixTriggeredRef.current) ? (
+              ) : previewState.phase === 'fixing' ? (
                 <PreviewStateFixing
-                  terminalLines={terminalOutput}
-                  statusMessage={autoFix.statusMessage || 'Risolvo il problema...'}
-                  fixAttempt={autoFix.fixAttempt}
+                  terminalLines={previewState.terminalOutput}
+                  statusMessage={previewState.autoFix.statusMessage || 'Risolvo il problema...'}
+                  fixAttempt={previewState.autoFix.attempt}
                   smoothProgress={startup.smoothProgress}
                   elapsedSeconds={startup.elapsedSeconds}
                   pulseAnim={startup.pulseAnim}
                   t={t}
                 />
-              ) : serverStatus === 'stopped' ? (
+              ) : previewState.phase === 'idle' ? (
                 <PreviewStateStart
                   projectName={currentWorkstation?.name}
                   technology={currentWorkstation?.technology}
@@ -429,28 +509,28 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   onStart={handleStartWithTransition}
                   t={t}
                 />
-              ) : serverStatus === 'checking' ? (
+              ) : previewState.phase === 'starting' || previewState.phase === 'waiting_health' ? (
                 /* During 'checking', show ONLY loading screen — no WebView. */
                 <PreviewStateLoading
-                  terminalLines={terminalOutput.length > 0 ? terminalOutput : startup.previewLogs.map(l => l.message)}
-                  displayedMessage={autoFix.isFixing ? autoFix.statusMessage : startup.displayedMessage}
+                  terminalLines={previewTerminalLines}
+                  displayedMessage={previewState.displayedMessage}
                   startingMessage={startup.startingMessage}
                   smoothProgress={startup.smoothProgress}
                   elapsedSeconds={startup.elapsedSeconds}
                   pulseAnim={startup.pulseAnim}
                   t={t}
                 />
-              ) : previewCapability === 'console' ? (
+              ) : previewCapability === 'console' && previewState.phase === 'ready' ? (
                 /* Phase 6: Console surface for non-web projects */
                 <PreviewSurfaceConsole
-                  terminalOutput={terminalOutput}
+                  terminalOutput={previewState.terminalOutput}
                   onStop={handleStopPreview}
                   projectName={currentWorkstation?.name}
                   terminalScrollRef={terminalScrollRef}
                 />
               ) : (
                 /* Phase 6: Web surface (default) */
-                <PreviewWebView
+                <PreviewSurfaceWeb
                   webViewRef={webViewRef}
                   currentPreviewUrl={currentPreviewUrl}
                   coderToken={coderToken}
@@ -461,12 +541,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   webViewReady={webViewReady && (autoFix.state === 'verified' || autoFix.state === 'idle' || preflightDoneRef.current)}
                   serverStatus={serverStatus}
                   isLoading={isLoading}
-                  terminalOutput={terminalOutput}
+                  terminalOutput={previewState.terminalOutput}
                   terminalScrollRef={terminalScrollRef}
                   maskOpacityAnim={startup.maskOpacityAnim}
-                  previewError={startup.previewError}
-                  previewLogs={startup.previewLogs}
-                  displayedMessage={autoFix.isFixing ? autoFix.statusMessage : startup.displayedMessage}
+                  previewError={previewState.error ? { message: previewState.error.message, timestamp: new Date() } : null}
+                  previewLogs={previewWebLogs}
+                  displayedMessage={previewState.displayedMessage}
                   startingMessage={startup.startingMessage}
                   smoothProgress={startup.smoothProgress}
                   elapsedSeconds={startup.elapsedSeconds}
@@ -489,7 +569,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             </View>
           </View>
 
-          {serverStatus === 'running' && webViewReady && (
+          {previewState.phase === 'ready' && webViewReady && (
             <PreviewAIChat
               isInputExpanded={chat.isInputExpanded}
               isMessagesCollapsed={chat.isMessagesCollapsed}

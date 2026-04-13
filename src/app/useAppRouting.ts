@@ -1,10 +1,9 @@
 import { useEffect } from 'react';
-import { useAuthStore, consumePendingNewUser } from '../core/auth/authStore';
+import { useAuthStore, clearPendingNewUser, peekPendingNewUser } from '../core/auth/authStore';
 import { useConsentStore } from '../core/services/consentService';
-import { useNavigationStore } from '../core/navigation/navigationStore';
+import { useNavigationStore, type Screen } from '../core/navigation/navigationStore';
 import { useTerminalStore } from '../core/terminal/terminalStore';
-
-type Screen = 'splash' | 'auth' | 'consent' | 'onboarding' | 'onboardingFlow' | 'firstProjectChoice' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
+import { resolveAuthenticatedAppFlow } from './authFlowState';
 
 interface UseAppRoutingParams {
   currentScreen: Screen;
@@ -39,26 +38,28 @@ export function useAppRouting({
   useEffect(() => {
     if (!isInitialized || !user || !consentLoaded) return;
 
-    // Check module-level flag (immune to React batching / Zustand race conditions)
-    const pendingNew = consumePendingNewUser();
-    const shouldOnboard =
-      isNewUser ||
-      pendingNew ||
-      (user.onboardingCompleted === false && !user.hasCreatedFirstProject);
-    const shouldResumeFirstCreate = user.onboardingCompleted === true && user.hasCreatedFirstProject === false;
-    const shouldRequestExistingUserConsent = !shouldOnboard && consent === null;
+    const decision = resolveAuthenticatedAppFlow({
+      user,
+      isNewUser,
+      pendingNewUser: peekPendingNewUser(),
+      consent,
+    });
 
-    // New users MUST see onboarding, regardless of current screen
-    if (shouldOnboard && currentScreen !== 'onboardingFlow' && currentScreen !== 'create') {
-      useAuthStore.setState({ isNewUser: false });
+    if (decision.targetScreen === 'onboardingFlow' && currentScreen !== 'onboardingFlow' && currentScreen !== 'create') {
+      if (decision.shouldResetIsNewUser) {
+        clearPendingNewUser();
+        useAuthStore.setState({ isNewUser: false });
+      }
       setIsFirstCreate(true);
-      setOnboardingDraft({ experienceLevel: null, referralSource: null });
+      if (decision.shouldResetOnboardingDraft) {
+        setOnboardingDraft({ experienceLevel: null, referralSource: null });
+      }
       setCurrentScreen('onboardingFlow');
       return;
     }
 
     if (
-      shouldRequestExistingUserConsent &&
+      decision.targetScreen === 'consent' &&
       currentScreen !== 'consent' &&
       currentScreen !== 'onboardingFlow'
     ) {
@@ -68,7 +69,7 @@ export function useAppRouting({
 
     // User finished onboarding but never completed the first project creation flow.
     if (
-      shouldResumeFirstCreate &&
+      decision.targetScreen === 'firstProjectChoice' &&
       currentScreen !== 'create' &&
       currentScreen !== 'firstProjectChoice' &&
       currentScreen !== 'consent' &&
@@ -76,21 +77,14 @@ export function useAppRouting({
       currentScreen !== 'onboardingFlow'
     ) {
       setIsFirstCreate(true);
-      setOnboardingInitialStep('referral');
+      setOnboardingInitialStep(decision.onboardingInitialStep);
       setCurrentScreen('firstProjectChoice');
       return;
     }
 
     // Post-auth navigation (only from auth screen)
     if (currentScreen === 'auth') {
-      const plan = user.plan || 'free';
-      if (shouldRequestExistingUserConsent) {
-        setCurrentScreen('consent');
-      } else if (plan === 'free') {
-        setCurrentScreen('onboarding');
-      } else {
-        setCurrentScreen('home');
-      }
+      setCurrentScreen(decision.targetScreen);
     }
   }, [user, isInitialized, currentScreen, isNewUser, consent, consentLoaded]);
 
@@ -138,31 +132,31 @@ export function useAppRouting({
   // Handle splash screen finish - navigate based on auth state
   const handleSplashFinish = () => {
     if (isInitialized && user && consentLoaded) {
-      const pendingNew = consumePendingNewUser();
-      const shouldOnboard =
-        isNewUser ||
-        pendingNew ||
-        (user.onboardingCompleted === false && !user.hasCreatedFirstProject);
-      const shouldResumeFirstCreate = user.onboardingCompleted === true && user.hasCreatedFirstProject === false;
-      const shouldRequestExistingUserConsent = !shouldOnboard && consent === null;
-      if (shouldOnboard) {
-        useAuthStore.setState({ isNewUser: false });
+      const decision = resolveAuthenticatedAppFlow({
+        user,
+        isNewUser,
+        pendingNewUser: peekPendingNewUser(),
+        consent,
+      });
+
+      if (decision.targetScreen === 'onboardingFlow') {
+        if (decision.shouldResetIsNewUser) {
+          clearPendingNewUser();
+          useAuthStore.setState({ isNewUser: false });
+        }
         setIsFirstCreate(true);
-        setOnboardingDraft({ experienceLevel: null, referralSource: null });
+        if (decision.shouldResetOnboardingDraft) {
+          setOnboardingDraft({ experienceLevel: null, referralSource: null });
+        }
         setCurrentScreen('onboardingFlow');
-      } else if (shouldRequestExistingUserConsent) {
+      } else if (decision.targetScreen === 'consent') {
         setCurrentScreen('consent');
-      } else if (shouldResumeFirstCreate) {
+      } else if (decision.targetScreen === 'firstProjectChoice') {
         setIsFirstCreate(true);
-        setOnboardingInitialStep('referral');
+        setOnboardingInitialStep(decision.onboardingInitialStep);
         setCurrentScreen('firstProjectChoice');
       } else {
-        const plan = user.plan || 'free';
-        if (plan === 'free') {
-          setCurrentScreen('onboarding');
-        } else {
-          setCurrentScreen('home');
-        }
+        setCurrentScreen(decision.targetScreen);
       }
     } else {
       setCurrentScreen('auth');

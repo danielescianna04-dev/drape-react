@@ -44,3 +44,88 @@ describe('chatToolFormatting', () => {
     expect(usage).toBeGreaterThan(0);
   });
 });
+
+describe('getToolStartMessage payload handling', () => {
+  it('handles string input by parsing JSON', () => {
+    const msg = getToolStartMessage('read_file', '{"path": "/app/index.ts"}');
+    expect(msg).toContain('Read index.ts');
+  });
+
+  it('handles null/undefined input gracefully', () => {
+    expect(getToolStartMessage('read_file', null)).toContain('Read file');
+    expect(getToolStartMessage('read_file', undefined)).toContain('Read file');
+  });
+
+  it('handles unknown tool names', () => {
+    expect(getToolStartMessage('mystery_tool', {})).toBe('mystery_tool\n└─ Running...');
+  });
+
+  it('handles malformed JSON string input', () => {
+    expect(getToolStartMessage('read_file', 'not json')).toContain('Read file');
+  });
+
+  it('formats command tools with truncated command', () => {
+    const longCmd = 'npm run build --verbose --production --output=dist/out';
+    const msg = getToolStartMessage('run_command', { command: longCmd });
+    expect(msg).toContain('Run command');
+    expect(msg.length).toBeLessThan(200);
+  });
+});
+
+describe('formatToolResult payload handling', () => {
+  it('handles string result', () => {
+    const msg = formatToolResult('write_file', { path: '/app/new.ts' }, 'File written');
+    expect(msg).toContain('Write new.ts');
+    expect(msg).toContain('File created');
+  });
+
+  it('handles object result with content field', () => {
+    const msg = formatToolResult('read_file', { path: '/a.ts' }, { content: 'line1\nline2\nline3' });
+    expect(msg).toContain('3 lines');
+  });
+
+  it('handles error result (success: false)', () => {
+    const msg = formatToolResult('edit_file', { path: '/a.ts' }, { success: false, error: 'File not found' });
+    expect(msg).toContain('Error');
+    expect(msg).toContain('File not found');
+  });
+
+  it('handles null/undefined result', () => {
+    const msg = formatToolResult('write_file', { path: '/a.ts' }, null);
+    expect(msg).toContain('File created');
+  });
+
+  it('formats todo_write with typed todos', () => {
+    const msg = formatToolResult('todo_write', {
+      todos: [
+        { status: 'completed', content: 'fix bug' },
+        { status: 'in_progress', content: 'add tests' },
+        { status: 'pending', content: 'deploy' },
+      ],
+    }, 'ok');
+    expect(msg).toContain('3 tasks');
+    expect(msg).toContain('1 done');
+    expect(msg).toContain('1 in progress');
+  });
+
+  it('formats web_search with structured result', () => {
+    const msg = formatToolResult('web_search', { query: 'react hooks' }, {
+      results: [
+        { title: 'React Docs', url: 'https://react.dev', snippet: 'Hooks guide' },
+      ],
+      query: 'react hooks',
+      count: 1,
+    });
+    expect(msg).toContain('1 result');
+    expect(msg).toContain('React Docs');
+  });
+
+  it('handles command result with stdout/stderr', () => {
+    const msg = formatToolResult('run_command', { command: 'ls -la' }, {
+      stdout: 'total 100\nfile1.ts\nfile2.ts',
+      stderr: '',
+      exitCode: 0,
+    });
+    expect(msg).toContain('Execute: ls -la');
+  });
+});

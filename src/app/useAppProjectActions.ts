@@ -12,12 +12,11 @@ import { useFileCacheStore } from '../core/cache/fileCacheStore';
 import { liveActivityService } from '../core/services/liveActivityService';
 import { tracciaEntrataNelProgetto, tracciaErrore } from '../core/services/analyticsService';
 import { getAuthToken } from '../core/api/getAuthToken';
+import type { Screen } from '../core/navigation/navigationStore';
 import { parseGitUrl, checkRepoAccess } from './gitProviders';
 import { config } from '../config/config';
 import type { WorkstationInfo } from '../shared/types';
 import i18n from '../i18n';
-
-type Screen = 'splash' | 'auth' | 'consent' | 'onboarding' | 'onboardingFlow' | 'firstProjectChoice' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
 
 interface UseAppProjectActionsParams {
   setCurrentScreen: (screen: Screen | ((prev: Screen) => Screen)) => void;
