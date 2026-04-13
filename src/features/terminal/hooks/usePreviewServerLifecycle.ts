@@ -1,28 +1,28 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { Animated, Easing, ScrollView } from 'react-native';
+/**
+ * usePreviewServerLifecycle — thin orchestrator.
+ *
+ * Composes focused hooks and wires them together.
+ * Exposes the same external API that PreviewPanel.tsx expects.
+ */
+import { useState, useEffect, useRef } from 'react';
+import { Animated, ScrollView } from 'react-native';
 import { WebView } from 'react-native-webview';
-import i18next from 'i18next';
 import { ProjectInfo } from '../../../core/preview/projectDetector';
-import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
-import { useAuthStore } from '../../../core/auth/authStore';
-import { logOutput, logError, logSystem } from '../../../core/terminal/terminalLogger';
-import { gitAccountService } from '../../../core/git/gitAccountService';
+import { logOutput, logSystem } from '../../../core/terminal/terminalLogger';
 import { serverLogService } from '../../../core/services/serverLogService';
-import { fileWatcherService } from '../../../core/services/agentService';
-import { tracciaAnteprimaAvviata, tracciaAnteprimaPronta, tracciaAnteprimaAggiornata, tracciaAnteprimaFermata, tracciaErroreAnteprima, tracciaFixAIAnteprima } from '../../../core/services/analyticsService';
-import { getAuthToken, getAuthHeaders } from '../../../core/api/getAuthToken';
-import { useAgentStore } from '../../../core/agent/agentStore';
-import { useTabStore } from '../../../core/tabs/tabStore';
+import { getAuthHeaders } from '../../../core/api/getAuthToken';
 import { ViewportMode } from '../components/PreviewToolbar';
-import { captureRef } from 'react-native-view-shot';
 
 import { usePreviewStartup } from './usePreviewStartup';
 import type { PreviewAutoFixReturn } from '../../../hooks/preview/usePreviewAutoFix';
 
-const USE_HOLY_GRAIL = true;
-
-const pendingReleaseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+import { usePreviewSession } from '../preview/hooks/usePreviewSession';
+import { usePreviewPreflight } from '../preview/hooks/usePreviewPreflight';
+import { usePreviewHealth } from '../preview/hooks/usePreviewHealth';
+import { usePreviewStartupFlow } from '../preview/hooks/usePreviewStartupFlow';
+import { usePreviewRecovery } from '../preview/hooks/usePreviewRecovery';
+import { usePreviewNavigation } from '../preview/hooks/usePreviewNavigation';
 
 type ServerStatus = 'checking' | 'running' | 'stopped';
 
@@ -92,1316 +92,212 @@ export function usePreviewServerLifecycle({
   currentWorkstationName,
 }: UsePreviewServerLifecycleParams) {
 
-  // ---- Core server state ----
-  const [isLoading, setIsLoading] = useState(true);
-  const [canGoBack, setCanGoBack] = useState(false);
-  const [canGoForward, setCanGoForward] = useState(false);
+  // ── Core server state ────────────────────────────────────────
 
-  // Never trust persisted 'running' — always verify with checkServerStatus first.
-  // If project has a machine ID, start as 'checking' (will verify). Otherwise 'stopped'.
+  const [isLoading, setIsLoading] = useState(true);
   const globalStatusBelongsToProject = projectId && projectMachineIds[projectId];
-  const initialServerStatus = globalStatusBelongsToProject ? 'checking' as const : 'stopped' as const;
+  const initialServerStatus: ServerStatus = globalStatusBelongsToProject ? 'checking' : 'stopped';
   const [serverStatus, setServerStatusLocal] = useState<ServerStatus>(initialServerStatus);
   const serverStatusRef = useRef<ServerStatus>(initialServerStatus);
   const [webViewReady, setWebViewReady] = useState(false);
+  const [hasWebUI, setHasWebUIState] = useState(true);
+  const hasWebUIRef = useRef(true);
+  const setHasWebUI = (val: boolean) => { hasWebUIRef.current = val; setHasWebUIState(val); };
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  const [coderToken, setCoderToken] = useState<string | null>(null);
+  const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
+  const [terminalAuthToken, setTerminalAuthToken] = useState<string | null>(null);
 
-  const checkInterval = useRef<NodeJS.Timeout | null>(null);
+  // Shared refs
+  const prevWorkstationId = useRef<string | null>(null);
+  const logsSinceCursorRef = useRef<number>(0);
+  const errorDetectedRef = useRef(false);
+  const errorDetectionEnabledAtRef = useRef(0);
+  const ignoreLogsUntilRef = useRef(0);
+
+  // Health check interval ref (shared between health & recovery)
+  const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const setServerStatus = (status: ServerStatus) => {
-    // Skip if status hasn't changed — prevents unnecessary re-renders
-    // that can cause WebView reload loops during periodic health checks
     if (serverStatusRef.current === status) return;
     setServerStatusLocal(status);
     setPreviewServerStatus(status);
     serverStatusRef.current = status;
-    // Immediately kill health-check interval when going to 'stopped'
-    // so an in-flight or about-to-fire interval can't override the error screen.
-    if (status === 'stopped' && checkInterval.current) {
-      clearInterval(checkInterval.current);
-      checkInterval.current = null;
+    if (status === 'stopped' && checkIntervalRef.current) {
+      clearInterval(checkIntervalRef.current);
+      checkIntervalRef.current = null;
     }
   };
 
-  const clearPendingRelease = (targetProjectId?: string | null) => {
-    if (!targetProjectId) return;
-    const timer = pendingReleaseTimers.get(targetProjectId);
-    if (timer) {
-      clearTimeout(timer);
-      pendingReleaseTimers.delete(targetProjectId);
-    }
-  };
+  // ── 1. Session ───────────────────────────────────────────────
 
-  const getInitialPreviewUrl = () => {
-    // 1. Prefer project-specific URL from the per-project map
-    const projectSpecificUrl = projectId ? projectPreviewUrls[projectId] : null;
+  const session = usePreviewSession({
+    projectId,
+    previewUrl,
+    globalServerUrl,
+    globalFlyMachineId,
+    projectMachineIds,
+    projectPreviewUrls,
+    projectPreviewTokens,
+    setPreviewServerUrl,
+    setPreviewAccessToken,
+    setGlobalFlyMachineId,
+    clearProjectPreviewSession,
+    currentWorkstationId: currentWorkstation?.id,
+  });
 
-    // 2. Check if globalServerUrl belongs to THIS project
-    const globalBelongsToProject = globalServerUrl && projectId && (
-      globalServerUrl.includes(`/preview/${projectId}`) ||
-      globalServerUrl.includes(`${projectId}.drape.info`)
-    );
+  // ── 2. Startup hook ──────────────────────────────────────────
 
-    // 3. Pick the best source: project-specific > global (if same project) > previewUrl prop
-    let url = projectSpecificUrl
-      || (globalBelongsToProject ? globalServerUrl : null)
-      || previewUrl
-      || '';
-
-    if (!url.includes('localhost:3000') && url) {
-      try {
-        const parsed = new URL(url);
-        const match = parsed.pathname.match(/^\/preview\/([^/]+)/);
-        if (match) {
-          // Convert legacy path-based URL to subdomain: dev.drape.info/preview/proj-123/ → proj-123.drape.info/
-          const projId = match[1];
-          url = `https://${projId}.drape.info/`;
-        } else if (projectId && parsed.hostname === 'drape.info' || parsed.hostname === 'dev.drape.info') {
-          // Stored URL is corrupted — reconstruct as subdomain
-          url = `https://${projectId}.drape.info/`;
-        }
-        // If already subdomain format, keep as-is
-      } catch {}
-    }
-    return url;
-  };
-
-  const [previewAccessToken, setPreviewAccessTokenLocal] = useState<string | null>(
-    projectId ? (projectPreviewTokens[projectId] || null) : null
-  );
-  const previewAccessTokenRef = useRef<string | null>(projectId ? (projectPreviewTokens[projectId] || null) : null);
-
-  const withPreviewToken = (url: string, tokenOverride?: string | null): string => {
-    if (!url) return url;
-    const token = tokenOverride ?? previewAccessTokenRef.current;
-    if (!token) return url;
-    try {
-      const parsed = new URL(url);
-      // Subdomain preview: project-xxx.drape.info — always add token
-      const isSubdomainPreview = parsed.hostname.endsWith('.drape.info') && !['www.drape.info', 'dev.drape.info', 'api.drape.info', 'drape.info'].includes(parsed.hostname);
-      // Legacy path-based preview: drape.info/preview/{projectId}/
-      const isPathPreview = parsed.pathname.startsWith('/preview/');
-
-      if (!isSubdomainPreview && !isPathPreview) return url;
-
-      // Ensure trailing slash on /preview/{projectId} to prevent 301 redirect
-      if (isPathPreview && parsed.pathname.match(/^\/preview\/[^/]+$/)) {
-        parsed.pathname += '/';
-      }
-      parsed.searchParams.set('pt', token);
-      return parsed.toString();
-    } catch {
-      return url;
-    }
-  };
-
-  const [currentPreviewUrl, setCurrentPreviewUrlLocal] = useState(getInitialPreviewUrl());
-
-  const setCurrentPreviewUrl = (url: string) => {
-    const secured = withPreviewToken(url);
-    setCurrentPreviewUrlLocal(secured);
-    setPreviewServerUrl(secured, currentWorkstation?.id);
-  };
-
-  const updatePreviewAccessToken = (token: string | null, targetProjectId?: string) => {
-    const pid = targetProjectId || currentWorkstation?.id;
-    setPreviewAccessTokenLocal(token);
-    previewAccessTokenRef.current = token;
-    setPreviewAccessToken(token, pid);
-    if (currentPreviewUrl) {
-      const secured = withPreviewToken(currentPreviewUrl, token);
-      setCurrentPreviewUrlLocal(secured);
-      setPreviewServerUrl(secured, pid);
-    }
-  };
-
-  const [viewportMode, setViewportMode] = useState<ViewportMode>('mobile');
-  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
-  const [hasWebUI, setHasWebUIState] = useState(true);
-  const hasWebUIRef = useRef(true);
-  const setHasWebUI = (val: boolean) => { hasWebUIRef.current = val; setHasWebUIState(val); };
-  const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
-  const [terminalAuthToken, setTerminalAuthToken] = useState<string | null>(null);
-  const logsXhrRef = useRef<XMLHttpRequest | null>(null);
-  const prevWorkstationId = useRef<string | null>(null);
-  const logsSinceCursorRef = useRef<number>(0);
-  const [coderToken, setCoderToken] = useState<string | null>(null);
-  const flyMachineIdRef = useRef<string | null>(globalFlyMachineId);
-  const [sessionExpired, setSessionExpired] = useState(false);
-  const [sessionExpiredMessage, setSessionExpiredMessage] = useState('');
-
-  // Reload banner: defer reload until agent finishes all file changes
-  const [showReloadBanner, setShowReloadBanner] = useState(false);
-  const pendingChangesRef = useRef(0);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const agentIsRunning = useAgentStore((s) => s.isRunning);
-  const agentFilesCreated = useAgentStore((s) => s.filesCreated);
-  const agentFilesModified = useAgentStore((s) => s.filesModified);
-  const agentIsRunningRef = useRef(false);
-
-  const previewTokenFromUrl = useMemo(() => {
-    if (!currentPreviewUrl) return null;
-    try {
-      return new URL(currentPreviewUrl).searchParams.get('pt');
-    } catch {
-      return null;
-    }
-  }, [currentPreviewUrl]);
-  const effectivePreviewAccessToken = previewAccessToken || previewTokenFromUrl;
-
-  // ---- Startup hook (called here so it receives real serverStatus & webViewReady) ----
   const startup = usePreviewStartup({
     projectId,
-    previewAccessToken: effectivePreviewAccessToken,
+    previewAccessToken: session.effectivePreviewAccessToken,
     serverStatus,
     webViewReady,
     currentWorkstationName,
   });
 
-  // Environment variables
-  const [requiredEnvVars, setRequiredEnvVars] = useState<Array<{ key: string; defaultValue: string; description: string; required: boolean }> | null>(null);
-  const [envVarValues, setEnvVarValues] = useState<Record<string, string>>({});
-  const [isSavingEnv, setIsSavingEnv] = useState(false);
-
-  // Grace period: skip old cached logs from container for N seconds after startup
-  const ignoreLogsUntilRef = useRef(0);
-
-  // When "Start Anyway" is used, skip env error redirects for this session
-  const skipEnvErrorRedirectRef = useRef(false);
-  // Detect critical errors in terminal output and immediately show error screen
-  const errorDetectedRef = useRef(false);
-  // Grace period: skip error detection for first N seconds after startup to ignore old cached logs
-  const errorDetectionEnabledAtRef = useRef(0);
-
-  // Auto-fix refs
-  const preflightDoneRef = useRef(false);
-  const autoFixTriggeredRef = useRef(false);
-
-  const isMissingPreviewTokenError = (message?: string | null): boolean => {
-    const normalized = (message || '').toLowerCase();
-    return normalized.includes('preview access token required')
-      || normalized.includes('preview token required')
-      || normalized.includes('missing preview token');
-  };
-
-  const inferHasWebUI = (projectType?: string): boolean => {
-    const normalized = String(projectType || '').toLowerCase();
-    if (!normalized) return true;
-    // Only explicit console templates are no-web. If backend doesn't provide
-    // hasWebUI, prefer web to avoid false negatives on server projects.
-    const noWebUiTypes = new Set(['python-console', 'javascript-console', 'c-lang', 'cpp', 'java']);
-    return !noWebUiTypes.has(normalized);
-  };
+  // ── Reset helper (used by health, recovery) ──────────────────
 
   const resetToStartScreen = () => {
-    if (currentWorkstation?.id) {
-      clearProjectPreviewSession(currentWorkstation.id);
-    }
-    setSessionExpired(false);
-    setSessionExpiredMessage('');
-    startup.setPreviewError(null);
-    startup.setIsStarting(false);
+    if (currentWorkstation?.id) clearProjectPreviewSession(currentWorkstation.id);
     setServerStatus('stopped');
     setWebViewReady(false);
     setIsLoading(true);
-  };
-
-  useEffect(() => {
-    const token = projectId ? (projectPreviewTokens[projectId] || null) : null;
-    setPreviewAccessTokenLocal(token);
-    previewAccessTokenRef.current = token;
-  }, [projectId, projectPreviewTokens]);
-
-  // ---- Server lifecycle ----
-
-  const normalizeStartupStep = (rawStep?: string): string => {
-    const step = (rawStep || '').toLowerCase();
-    const map: Record<string, string> = {
-      container: 'booting',
-      clone: 'cloning',
-      detect: 'detecting',
-      install: 'installing',
-      server: 'starting',
-      starting: 'starting',
-      ready: 'ready',
-      analyzing: 'analyzing',
-      cloning: 'cloning',
-      detecting: 'detecting',
-      booting: 'booting',
-      installing: 'installing',
-    };
-    return map[step] || step || 'analyzing';
-  };
-
-  const extractMissingEnvVars = (input: string): string[] => {
-    if (!input) return [];
-    const vars = new Set<string>();
-    const bulletMatches = input.matchAll(/[•\-]\s*([A-Z][A-Z0-9_]{2,})/g);
-    for (const m of bulletMatches) vars.add(m[1]);
-    const t3Style = input.matchAll(/^\s*([A-Z][A-Z0-9_]{2,})\s*:\s*\[\s*'Required'\s*\]/gm);
-    for (const m of t3Style) vars.add(m[1]);
-    const inline = input.matchAll(/\b([A-Z][A-Z0-9_]{2,})\b/g);
-    for (const m of inline) {
-      if (!['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', 'HTTP', 'HTTPS', 'HTML', 'JSON', 'XML', 'ERROR', 'WARNING', 'NULL', 'TRUE', 'FALSE', 'UNDEFINED', 'NAN'].includes(m[1])) vars.add(m[1]);
-    }
-    return [...vars].slice(0, 20);
-  };
-
-  const applyMissingEnvVarsFromMessage = (message: string) => {
-    const missing = extractMissingEnvVars(message);
-    if (missing.length === 0) return false;
-    setRequiredEnvVars(
-      missing.map((key) => ({ key, defaultValue: '', description: '', required: true }))
-    );
-    setEnvVarValues((prev) => {
-      const next = { ...prev };
-      for (const key of missing) {
-        if (next[key] === undefined) next[key] = '';
-      }
-      return next;
-    });
-    return true;
-  };
-
-  const extractStartupErrorFromBody = (bodyText: string): string | null => {
-    if (!bodyText) return null;
-    const lower = bodyText.toLowerCase();
-    if (lower.includes('invalid environment variables') || lower.includes('environment variable') || lower.includes('not set')) {
-      const vars = extractMissingEnvVars(bodyText);
-      if (vars.length > 0) {
-        return i18next.t('terminal:preview.missingEnvVarsWithList', { vars: vars.map(v => `• ${v}`).join('\n') });
-      }
-      return i18next.t('terminal:preview.missingEnvVars');
-    }
-    if (lower.includes('cannot find module') || lower.includes('module_not_found')) {
-      return i18next.t('terminal:preview.moduleNotFound');
-    }
-    if (lower.includes('failed to compile') || lower.includes('syntaxerror')) {
-      return i18next.t('terminal:preview.compileError');
-    }
-    return null;
-  };
-
-  // Detect if an error message is related to missing/invalid env vars
-  const isEnvRelatedError = (msg: string): boolean => {
-    if (!msg) return false;
-    const lower = msg.toLowerCase();
-    return lower.includes('missing value') ||
-      lower.includes('apikey') ||
-      lower.includes('api key') ||
-      lower.includes('api_key') ||
-      lower.includes('environment variable') ||
-      lower.includes('env variable') ||
-      lower.includes('not defined') ||
-      lower.includes('is not set') ||
-      lower.includes('is undefined') ||
-      lower.includes('process.env') ||
-      /\b(NEXT_PUBLIC_|REACT_APP_|VITE_|NUXT_)\w+/.test(msg);
-  };
-
-  // Redirect env-related errors to EnvVarsView tab
-  const redirectToEnvVarsWithError = (errorMessage: string) => {
-    // User chose "Start Anyway" — don't redirect, let preview show the error normally
-    if (skipEnvErrorRedirectRef.current) return;
-    onClose();
-    startup.setIsStartTransitioning(false);
-    startup.startTransitionAnim.setValue(0);
-    // Preserve existing missingVars so user still sees what needs configuring
-    const existingEnvTab = useTabStore.getState().tabs.find((t) => t.id === 'env-vars');
-    const existingMissingVars = existingEnvTab?.data?.missingVars;
-    useTabStore.getState().addTab({
-      id: 'env-vars',
-      type: 'envVars' as any,
-      title: 'Environment Variables',
-      data: {
-        runtimeError: errorMessage,
-        fromPreview: true,
-        ...(existingMissingVars ? { missingVars: existingMissingVars } : {}),
-      },
-    });
-  };
-
-  const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
-    // Console projects have no web server — skip health check entirely
-    if (!hasWebUIRef.current) return;
-    const rawUrl = urlOverride || currentPreviewUrl;
-    if (!rawUrl) return;
-    // Always health-check the project root, not sub-routes like /login or /register.
-    // The proxy may return "Endpoint not found" for sub-paths via direct fetch,
-    // even though the WebView serves them correctly via client-side routing.
-    let urlToCheck = rawUrl;
-    try {
-      const parsed = new URL(rawUrl);
-      const previewMatch = parsed.pathname.match(/^(\/preview\/[^/]+\/)/);
-      if (previewMatch) {
-        parsed.pathname = previewMatch[1];
-        urlToCheck = parsed.toString();
-      }
-    } catch { /* keep rawUrl */ }
-    const maxRetries = 300;
-    console.log(`[Preview:CHECK] checkServerStatus #${retryCount}`, { url: urlToCheck, serverStatus: serverStatusRef.current });
-
-    const scheduleRetry = (delayMs = 2000) => {
-      if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
-        setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), delayMs);
-      }
-    };
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-      const response = await fetch(urlToCheck, {
-        method: 'GET', cache: 'no-store', credentials: 'include',
-        redirect: 'manual' as RequestRedirect,
-        headers: {
-          'Coder-Session-Token': coderToken || '',
-          'Accept': 'text/html',
-          'X-Drape-Check': 'true',
-          ...(previewAccessTokenRef.current ? { 'X-Drape-Preview-Token': previewAccessTokenRef.current } : {}),
-          ...(flyMachineIdRef.current ? { 'Fly-Force-Instance-Id': flyMachineIdRef.current } : {}),
-        },
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      // With redirect:'manual', 3xx means the server is redirecting (not serving preview content)
-      if (response.status >= 300 && response.status < 400) {
-        console.warn('[Preview:CHECK] Server returned redirect (not serving preview):', response.status);
-        scheduleRetry(2000);
-        return;
-      }
-
-      const agentStatus = response.headers.get('X-Drape-Agent-Status');
-      const contentType = response.headers.get('Content-Type') || '';
-
-      if (agentStatus === 'waiting') {
-        startup.setStartingMessage(t('terminal:preview.installingDeps'));
-        scheduleRetry(2000);
-        return;
-      }
-
-      let bodyText = '';
-      const shouldReadBody = contentType.includes('application/json')
-        || contentType.includes('text/plain')
-        || response.status >= 500;
-      if (shouldReadBody) {
-        try {
-          bodyText = await response.text();
-        } catch { /* ignore */ }
-      }
-
-      // Proxy-side errors are returned as JSON payloads.
-      if (bodyText && bodyText.trim().startsWith('{')) {
-        try {
-          const jsonBody = JSON.parse(bodyText);
-          if (jsonBody.error) {
-            const proxyError = `${jsonBody.error}${jsonBody.message ? `: ${jsonBody.message}` : ''}`;
-            if (isMissingPreviewTokenError(proxyError)) {
-              resetToStartScreen();
-              return;
-            }
-            if (proxyError.toLowerCase().includes('no active session')) {
-              setSessionExpired(true);
-              setSessionExpiredMessage(t('terminal:preview.sessionExpired'));
-              if (currentWorkstation?.id) clearProjectPreviewSession(currentWorkstation.id);
-            }
-            // Transient proxy errors — retry instead of showing fatal error
-            const isTransientProxy =
-              proxyError.includes('Endpoint not found') ||
-              proxyError.includes('ECONNREFUSED') ||
-              proxyError.includes('Too many requests') ||
-              proxyError.includes('429');
-            if (isTransientProxy) {
-              console.warn('[Preview:CHECK] Transient proxy error, retrying:', proxyError);
-              scheduleRetry(2000);
-              return;
-            }
-
-            startup.setStartingMessage(t('terminal:preview.startingDevServer'));
-            if (serverStatusRef.current === 'running') {
-              startup.setPreviewError({ message: proxyError, timestamp: new Date() });
-              tracciaErroreAnteprima(proxyError);
-              setServerStatus('stopped');
-              startup.setIsStarting(false);
-            } else {
-              scheduleRetry(2000);
-            }
-            return;
-          }
-        } catch { /* ignore malformed JSON */ }
-      }
-
-      if (response.status >= 200 && response.status < 300) {
-        // If status changed to 'stopped' while this fetch was in-flight
-        // (e.g. WebView detected a BUILD_ERROR), don't override back to 'running'.
-        if (serverStatusRef.current === 'stopped') {
-          return;
-        }
-        console.log('[Preview:CHECK] Server OK! Setting running');
-        const wasRunning = serverStatusRef.current === 'running';
-        if (!wasRunning) {
-          logOutput(`Server is running at ${urlToCheck}`, 'preview', 0);
-        }
-        setServerStatus('running');
-        // Only reset UI state on transition to running — NOT during periodic health checks
-        if (!wasRunning) {
-          startup.clearLogs();
-          startup.setIsStarting(false);
-          // Keep loading mask visible for web projects until the WebView reports
-          // first meaningful content via WEBVIEW_READY/PAGE_INFO.
-          if (!hasWebUI) {
-            setWebViewReady(true);
-          } else {
-            setWebViewReady(false);
-            setIsLoading(true);
-          }
-        }
-        return;
-      }
-
-      if (response.status === 500) {
-        // During normal running, don't force-stop on transient route-level 500.
-        if (serverStatusRef.current === 'running') {
-          return;
-        }
-
-        const startupError = extractStartupErrorFromBody(bodyText);
-        if (startupError) {
-          applyMissingEnvVarsFromMessage(startupError);
-          startup.setPreviewError({ message: startupError, timestamp: new Date() });
-          tracciaErroreAnteprima(startupError);
-          setServerStatus('stopped');
-          startup.setIsStarting(false);
-          return;
-        }
-
-        startup.setStartingMessage(t('terminal:preview.waitingForServer'));
-        scheduleRetry(2000);
-        return;
-      }
-
-      if (response.status === 403 || response.status === 404 || response.status === 503) {
-        startup.setStartingMessage(
-          response.status === 503
-            ? t('terminal:preview.startingDevServer')
-            : t('terminal:preview.configuringServer')
-        );
-        scheduleRetry(2000);
-        return;
-      }
-
-      if (response.status === 401) {
-        resetToStartScreen();
-        return;
-      }
-
-      startup.setStartingMessage(t('terminal:preview.waitingForServer'));
-      scheduleRetry(2000);
-    } catch (error: any) {
-      startup.setStartingMessage(error.name === 'AbortError' ? t('terminal:preview.connecting') : t('terminal:preview.retryingConnection'));
-      scheduleRetry(3000);
-    }
-  };
-
-  // Pre-flight: detect missing env vars before starting preview
-  const preflightEnvCheck = async (): Promise<boolean> => {
-    if (!currentWorkstation?.id) return true;
-    try {
-      const authHeaders = await getAuthHeaders();
-      const [analyzeRes, envRes] = await Promise.all([
-        fetch(`${apiUrl}/fly/project/${currentWorkstation.id}/env/analyze`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders },
-        }),
-        fetch(`${apiUrl}/fly/project/${currentWorkstation.id}/env`, {
-          headers: authHeaders,
-        }),
-      ]);
-      if (!analyzeRes.ok) return true;
-      const analyzeData = await analyzeRes.json();
-      const required: Array<{ key: string; value?: string }> = analyzeData.variables || [];
-      if (required.length === 0) return true;
-
-      const envData = envRes.ok ? await envRes.json() : { variables: [] };
-      const existing = new Set((envData.variables || []).map((v: any) => v.key));
-      const missing = required.filter((v) => !existing.has(v.key));
-      if (missing.length === 0) return true;
-
-      // Navigate to env vars tab with missing vars info
-      onClose();
-      useTabStore.getState().addTab({
-        id: 'env-vars',
-        type: 'envVars' as any,
-        title: 'Environment Variables',
-        data: {
-          missingVars: missing.map((v) => ({ key: v.key, value: v.value || '' })),
-          fromPreview: true,
-        },
-      });
-      return false;
-    } catch {
-      return true;
-    }
-  };
-
-  const handleStartServer = async () => {
-    if (!currentWorkstation?.id) {
-      logError('No workstation selected', 'preview');
-      return;
-    }
-
-    // Check for missing env vars before starting (skip if "Start Anyway" was used)
-    if (useUIStore.getState().skipNextPreflight) {
-      useUIStore.getState().setSkipNextPreflight(false);
-      skipEnvErrorRedirectRef.current = true;
-    } else {
-      skipEnvErrorRedirectRef.current = false;
-      const canProceed = await preflightEnvCheck();
-      if (!canProceed) {
-        startup.setIsStartTransitioning(false);
-        startup.startTransitionAnim.setValue(0);
-        return;
-      }
-    }
-
-    tracciaAnteprimaAvviata(currentWorkstation?.name || 'unknown');
-    clearPendingRelease(currentWorkstation.id);
-    // Always reset readiness before a new start to avoid showing stale/black frame.
-    setWebViewReady(false);
-    setIsLoading(true);
-    // Clear old terminal output, error detection, and persisted error state
-    setTerminalOutput([]);
-    logsSinceCursorRef.current = 0;
-    errorDetectedRef.current = false;
     startup.setPreviewError(null);
-    // Clear stale runtimeError from env-vars tab, but preserve missingVars so user knows what to configure
-    const tabStore = useTabStore.getState();
-    const envTab = tabStore.tabs.find((t) => t.id === 'env-vars');
-    if (envTab?.data?.runtimeError) {
-      const { runtimeError: _removed, ...keepData } = envTab.data;
-      tabStore.updateTab('env-vars', { data: keepData });
-    }
-    // Grace period: skip old cached logs burst from container (arrives in first ~2-3s)
-    errorDetectionEnabledAtRef.current = Date.now() + 1200;
-    ignoreLogsUntilRef.current = Date.now() + 1200;
-
-    // Quick health check: if we already have a machineId and preview URL,
-    // check if the server is already responding. Skip the full SSE flow if so.
-    console.log('[Preview:START] handleStartServer called', {
-      globalFlyMachineId, currentPreviewUrl, serverStatus: serverStatusRef.current,
-      projectId: currentWorkstation?.id,
-    });
-    if (globalFlyMachineId && currentPreviewUrl) {
-      console.log('[Preview:START] Quick health check starting...', { url: currentPreviewUrl, machineId: globalFlyMachineId });
-      setServerStatus('checking');
-      startup.setIsStarting(true);
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        const response = await fetch(currentPreviewUrl, {
-          method: 'GET', cache: 'no-store', credentials: 'include',
-          redirect: 'manual' as RequestRedirect,
-          headers: {
-            'Fly-Force-Instance-Id': globalFlyMachineId,
-            ...(previewAccessTokenRef.current ? { 'X-Drape-Preview-Token': previewAccessTokenRef.current } : {}),
-          },
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        console.log('[Preview:START] Quick health check response:', response.status, 'type:', response.type);
-        // With redirect:'manual', 3xx responses come back as-is (not followed)
-        if (response.status >= 300 && response.status < 400) {
-          console.log('[Preview:START] Quick health check got redirect — server not serving preview content');
-          // Fall through to SSE flow
-        } else if (response.status >= 200 && response.status < 300) {
-          console.log('[Preview:START] Quick health check PASSED — setting running');
-          setServerStatus('running');
-          startup.setIsStarting(false);
-          if (!hasWebUI) {
-            setWebViewReady(true);
-          }
-          return;
-        }
-        console.log('[Preview:START] Quick health check failed, falling through to SSE');
-      } catch (e: any) {
-        console.log('[Preview:START] Quick health check error:', e.message);
-      }
-    } else {
-      console.log('[Preview:START] Skipping quick health check (no machineId or URL)', { globalFlyMachineId, currentPreviewUrl });
-    }
-
-    setSessionExpired(false);
-    setSessionExpiredMessage('');
-    startup.setIsStarting(true);
-    setServerStatus('checking');
-    startup.clearLogs();
-
-    startup.setStartupSteps([
-      { id: 'analyzing', label: t('terminal:preview.steps.analyzing'), status: 'pending' },
-      { id: 'cloning', label: t('terminal:preview.steps.cloning'), status: 'pending' },
-      { id: 'detecting', label: t('terminal:preview.steps.detecting'), status: 'pending' },
-      { id: 'booting', label: t('terminal:preview.steps.booting'), status: 'pending' },
-      { id: 'installing', label: t('terminal:preview.steps.installing'), status: 'pending' },
-      { id: 'starting', label: t('terminal:preview.steps.starting'), status: 'pending' },
-      { id: 'ready', label: t('terminal:preview.steps.ready'), status: 'pending' },
-    ]);
-    startup.setCurrentStepId('analyzing');
-    startup.setStartingMessage(t('terminal:preview.analyzingProject'));
-    startup.setTargetProgress(5);
-    startup.setIsNextJsProject(false);
-
-    logSystem(`Starting AI-powered preview for ${currentWorkstation?.name || 'project'}...`, 'preview');
-    console.log('[Preview:SSE] Starting SSE flow...');
-
-    try {
-      const userId = useWorkstationStore.getState().userId || 'anonymous';
-      const userEmail = useAuthStore.getState().user?.email || 'anonymous@drape.dev';
-      let githubToken: string | null = null;
-      const repoUrl = currentWorkstation.repositoryUrl || currentWorkstation.githubUrl;
-      if (repoUrl) {
-        const tokenResult = await gitAccountService.getTokenForRepo(userId, repoUrl);
-        githubToken = tokenResult?.token || null;
-      }
-      const username = userEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-      const previewEndpoint = USE_HOLY_GRAIL ? `${apiUrl}/fly/preview/start` : `${apiUrl}/preview/start`;
-
-      const authToken = await getAuthToken();
-      if (authToken) setTerminalAuthToken(authToken);
-
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', previewEndpoint);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        if (authToken) {
-          xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
-        }
-
-        let lastIndex = 0;
-        let pollInterval: any = null;
-        let dataBuffer = '';
-        let readyReceived = false;
-        let errorReceived = false;
-        const MAX_RESPONSE_SIZE = 2 * 1024 * 1024; // 2MB — lower limit to prevent RangeError cascade
-
-        const processResponse = () => {
-          // Safety: abort connection if response grows too large.
-          // Must try-catch because xhr.responseText.length itself throws
-          // RangeError when the string exceeds V8's ~512MB limit.
-          try {
-            if (xhr.responseText && xhr.responseText.length > MAX_RESPONSE_SIZE) {
-              console.warn('[Preview:SSE] Response too large, aborting SSE connection');
-              try { xhr.abort(); } catch {}
-              return;
-            }
-          } catch (e) {
-            console.warn('[Preview:SSE] String limit exceeded, aborting');
-            try { xhr.abort(); } catch {}
-            return;
-          }
-          let newData: string;
-          try {
-            newData = xhr.responseText.substring(lastIndex);
-          } catch (e) {
-            try { xhr.abort(); } catch {}
-            return;
-          }
-          if (!newData) return;
-          lastIndex = xhr.responseText.length;
-          dataBuffer += newData;
-
-          let lineEndIndex;
-          while ((lineEndIndex = dataBuffer.indexOf('\n')) !== -1) {
-            const line = dataBuffer.substring(0, lineEndIndex).trim();
-            dataBuffer = dataBuffer.substring(lineEndIndex + 1);
-
-            if (line.startsWith('data: ')) {
-              try {
-                const dataStr = line.substring(6);
-                if (dataStr === '[DONE]') continue;
-                const parsed = JSON.parse(dataStr);
-                console.log('[Preview:SSE] Event received:', parsed.type, parsed.step, parsed.message?.substring(0, 80));
-
-                if (parsed.type === 'warning') {
-                  try {
-                    const warningData = JSON.parse(parsed.step);
-                    if (warningData.type === 'nextjs-version') {
-                      startup.setIsNextJsProject(true);
-                      startup.setTargetProgress(20);
-                      logOutput(`⚠️ ${warningData.message}`, 'preview', 0);
-                    }
-                  } catch {}
-                } else if (parsed.type === 'log') {
-                  const rawText = typeof parsed.text === 'string'
-                    ? parsed.text
-                    : (typeof parsed.message === 'string' ? parsed.message : '');
-                  if (!rawText) continue;
-                  const lines = rawText
-                    .replace(/\r/g, '\n')
-                    .replace(/\u0000/g, '')
-                    .split('\n')
-                    .map((line: string) => line.trimEnd())
-                    .filter((line: string) => line.trim().length > 0);
-                  if (lines.length === 0) continue;
-
-                  startup.recentLogsRef.current.push(...lines.map((line: string) => `[LOG] ${line}`));
-                  if (startup.recentLogsRef.current.length > 200) {
-                    startup.recentLogsRef.current = startup.recentLogsRef.current.slice(-200);
-                  }
-
-                  setTerminalOutput(prev => {
-                    const newOutput = [...prev, ...lines];
-                    return newOutput.length > 500 ? newOutput.slice(-500) : newOutput;
-                  });
-                  if (serverStatusRef.current !== 'running') {
-                    startup.setDisplayedMessage(lines[lines.length - 1]);
-                  }
-                  setTimeout(() => terminalScrollRef.current?.scrollToEnd({ animated: true }), 40);
-                } else if (parsed.type === 'step') {
-                  startup.recentLogsRef.current.push(`[STEP] ${parsed.step}: ${parsed.message}`);
-                  if (startup.recentLogsRef.current.length > 50) startup.recentLogsRef.current.shift();
-
-                  const normalizedStep = normalizeStartupStep(parsed.step);
-                  startup.setCurrentStepId(normalizedStep);
-                  startup.setStartingMessage(parsed.message);
-                  startup.setDisplayedMessage(parsed.message);
-
-                  const stepProgressMap: Record<string, number> = {
-                    'analyzing': 5,
-                    'cloning': 10,
-                    'detecting': 15,
-                    'warning': 20,
-                    'booting': 25,
-                    'installing': 40,
-                    'starting': 70,
-                    'ready': 100,
-                  };
-                  startup.setTargetProgress(stepProgressMap[normalizedStep] || startup.targetProgress);
-
-                  if (parsed.projectType?.toLowerCase().includes('next') ||
-                    parsed.message?.toLowerCase().includes('next.js') ||
-                    parsed.message?.toLowerCase().includes('turbopack')) {
-                    startup.setIsNextJsProject(true);
-                  }
-
-                  startup.setStartupSteps(startup.startupSteps.map(step => {
-                    if (step.id === normalizedStep) return { ...step, status: 'active' as const };
-                    const stepOrder = ['analyzing', 'cloning', 'detecting', 'booting', 'installing', 'starting', 'ready'];
-                    const currentIdx = stepOrder.indexOf(normalizedStep);
-                    const stepIdx = stepOrder.indexOf(step.id);
-                    if (stepIdx < currentIdx) return { ...step, status: 'complete' as const };
-                    return step;
-                  }));
-
-                if (normalizedStep === 'ready') {
-                  readyReceived = true;
-                  const result = parsed;
-                    console.log('[Preview:SSE] READY received!', {
-                      previewUrl: result.previewUrl, machineId: result.machineId,
-                      coderToken: !!result.coderToken, hasWebUI: result.hasWebUI,
-                    });
-                    // Backend already verified the server is responding — set 'running' immediately.
-                    const completeSetup = () => {
-                      console.log('[Preview:SSE] completeSetup() called — setting running');
-                      setServerStatus('running');
-                      tracciaAnteprimaPronta(currentWorkstation?.name || 'unknown');
-                      startup.clearLogs();
-                      startup.setIsStarting(false);
-                      resolve();
-                    };
-
-                    // Check if detected tech is supported for preview
-                    const SUPPORTED_TECHS = ['nextjs', 'react', 'vite', 'vue', 'html', 'static', 'astro', 'expo', 'nodejs'];
-                    if (result.projectInfo?.type && !SUPPORTED_TECHS.some(s => result.projectInfo.type.includes(s)) && result.projectInfo.type !== 'unknown' && result.projectInfo.type !== 'detecting') {
-                      console.log(`[Preview] Unsupported tech detected: ${result.projectInfo.type}`);
-                      setServerStatus('stopped');
-                      // projectInfo will be set below — PreviewPanel reads it for the "non supportata" screen
-                    }
-
-                    // Save detected technology to workstation store
-                    if (result.projectInfo?.type && currentWorkstation) {
-                      const detectedTech = result.projectInfo.type;
-                      if (detectedTech !== 'unknown' && detectedTech !== 'static' && detectedTech !== 'detecting') {
-                        const { useWorkstationStore } = require('../../../core/terminal/workstationStore');
-                        const wsStore = useWorkstationStore.getState();
-                        const updated = { ...currentWorkstation, technology: detectedTech, language: detectedTech };
-                        wsStore.setWorkstation(updated);
-                        // Also persist to Firestore
-                        import('firebase/firestore').then(({ doc, updateDoc }) => {
-                          import('../../../config/firebase').then(({ db }) => {
-                            if (currentWorkstation.projectId || currentWorkstation.id) {
-                              const projId = currentWorkstation.projectId || currentWorkstation.id;
-                              updateDoc(doc(db, 'user_projects', projId), { technology: detectedTech }).catch(() => {});
-                            }
-                          });
-                        }).catch(() => {});
-                      }
-                    }
-
-                    if (result.projectInfo) {
-                      setProjectInfo({
-                        type: result.projectInfo.type || 'unknown',
-                        defaultPort: result.projectInfo.defaultPort || result.projectInfo.port || 3000,
-                        startCommand: result.projectInfo.startCommand || '',
-                        installCommand: result.projectInfo.installCommand || '',
-                        description: result.projectInfo.description || '',
-                        hasWebUI: typeof result.hasWebUI === 'boolean'
-                          ? result.hasWebUI
-                          : inferHasWebUI(result.projectInfo.type),
-                      });
-                    }
-
-                    // Determine hasWebUI from backend response or infer from project type
-                    const projectHasWebUI = typeof result.hasWebUI === 'boolean'
-                      ? result.hasWebUI
-                      : inferHasWebUI(result.projectInfo?.type);
-                    setHasWebUI(projectHasWebUI);
-                    if (!projectHasWebUI) setWebViewReady(true);
-
-                    if (result.previewUrl) {
-                      if (result.coderToken) setCoderToken(result.coderToken);
-                      if (result.previewToken) {
-                        updatePreviewAccessToken(result.previewToken, currentWorkstation?.id);
-                      }
-
-                      if (result.machineId) {
-                        setGlobalFlyMachineId(result.machineId, currentWorkstation?.id);
-                        flyMachineIdRef.current = result.machineId;
-                        getAuthHeaders().then(authHeaders => fetch(`${apiUrl}/fly/session`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json', ...authHeaders },
-                          body: JSON.stringify({ projectId: currentWorkstation?.id, machineId: result.machineId }),
-                          credentials: 'include',
-                        })).then(res => res.json()).then((sessionData) => {
-                          if (sessionData?.previewToken) {
-                            updatePreviewAccessToken(sessionData.previewToken, currentWorkstation?.id);
-                          }
-                          setTimeout(() => {
-                            setCurrentPreviewUrl(result.previewUrl);
-                            completeSetup();
-                          }, 1000);
-                        }).catch(() => {
-                          setCurrentPreviewUrl(result.previewUrl);
-                          completeSetup();
-                        });
-                      } else {
-                        setCurrentPreviewUrl(result.previewUrl);
-                        completeSetup();
-                      }
-                    } else {
-                      // Console project (no web UI) — clear preview URL, keep machineId for exec
-                      setCurrentPreviewUrlLocal('');
-                      if (currentWorkstation?.id) {
-                        setPreviewServerUrl('', currentWorkstation.id);
-                      }
-                      if (result.machineId) {
-                        setGlobalFlyMachineId(result.machineId, currentWorkstation?.id);
-                        flyMachineIdRef.current = result.machineId;
-                      }
-                      completeSetup();
-                    }
-                  }
-                } else if (parsed.type === 'error') {
-                  console.log('[Preview:SSE] ERROR received:', parsed.message);
-                  errorReceived = true;
-                  // Redirect env-related errors to EnvVarsView
-                  if (isEnvRelatedError(parsed.message || '')) {
-                    redirectToEnvVarsWithError(parsed.message || '');
-                  }
-                  applyMissingEnvVarsFromMessage(parsed.message || '');
-                  startup.recentLogsRef.current.push(`[ERROR] ${parsed.message}`);
-                  startup.setStartupSteps(startup.startupSteps.map(s => s.status === 'active' ? { ...s, status: 'error' as const } : s));
-                  logError(parsed.message, 'preview');
-                  setServerStatus('stopped');
-                  startup.setIsStarting(false);
-                  startup.setPreviewError({ message: parsed.message, timestamp: new Date() });
-                  tracciaErroreAnteprima(parsed.message);
-                  reject(new Error(parsed.message));
-                }
-              } catch {}
-            }
-          }
-        };
-
-        xhr.onprogress = () => processResponse();
-        pollInterval = setInterval(processResponse, 100);
-
-        xhr.onload = async () => {
-          console.log('[Preview:SSE] XHR onload', { status: xhr.status, readyReceived, errorReceived });
-          if (pollInterval) clearInterval(pollInterval);
-          processResponse();
-          if (xhr.status < 200 || xhr.status >= 300) {
-            console.log('[Preview:SSE] XHR bad status:', xhr.status);
-            let message = `Server error: ${xhr.status}`;
-            let errorCode = '';
-            try {
-              const payload = JSON.parse(xhr.responseText || '{}');
-              errorCode = payload?.error || '';
-              // Prefer human-readable message over error code
-              if (typeof payload?.message === 'string' && payload.message.trim().length > 0) {
-                message = payload.message;
-              } else if (typeof payload?.error === 'string' && payload.error.trim().length > 0) {
-                message = payload.error;
-              }
-            } catch {}
-            if (xhr.status === 403 && message === `Server error: 403`) {
-              message = 'Access denied: project ownership check failed. Refresh project list and retry.';
-            }
-            // Prefix limit errors so UI can show upgrade card
-            if (errorCode === 'PREVIEW_LIMIT_EXCEEDED' || errorCode === 'PUBLISH_REQUIRES_PAID') {
-              message = `__LIMIT__${errorCode}__::${message}`;
-            }
-            reject(new Error(message));
-            return;
-          }
-          if (!readyReceived && !errorReceived && xhr.status === 200) {
-            console.log('[Preview:SSE] No ready/error received, falling back to session check');
-            try {
-              const fallbackAuthHeaders = await getAuthHeaders();
-              const sessionRes = await fetch(`${apiUrl}/fly/session`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...fallbackAuthHeaders },
-                body: JSON.stringify({ projectId: currentWorkstation?.id }),
-                credentials: 'include',
-              });
-              const sessionData = await sessionRes.json();
-              if (sessionData.machineId) {
-                setGlobalFlyMachineId(sessionData.machineId, currentWorkstation?.id);
-                flyMachineIdRef.current = sessionData.machineId;
-                if (sessionData.previewToken) {
-                  updatePreviewAccessToken(sessionData.previewToken, currentWorkstation?.id);
-                }
-                const fallbackUrl = `${apiUrl}/preview/${currentWorkstation?.id}/`;
-                setCurrentPreviewUrl(fallbackUrl);
-                setServerStatus('running');
-                startup.setIsStarting(false);
-                resolve();
-              } else {
-                if (currentWorkstation?.id) {
-                  clearProjectPreviewSession(currentWorkstation.id);
-                }
-                reject(new Error('Preview completed but ready event was lost'));
-              }
-            } catch {
-              reject(new Error('Preview completed but ready event was lost'));
-            }
-          }
-        };
-
-        xhr.onerror = () => {
-          if (pollInterval) clearInterval(pollInterval);
-          reject(new Error('Network error'));
-        };
-
-        xhr.send(JSON.stringify({
-          projectId: USE_HOLY_GRAIL ? currentWorkstation.id : undefined,
-          workstationId: USE_HOLY_GRAIL ? undefined : currentWorkstation.id,
-          repositoryUrl: repoUrl,
-          githubToken, userEmail, username,
-        }));
-      });
-    } catch (error: any) {
-      const message = error.message || t('terminal:preview.errorDuringStartup');
-      if (isMissingPreviewTokenError(message)) {
-        resetToStartScreen();
-        return;
-      }
-      // Limit errors: show upgrade UI directly, skip env/AI processing
-      if (message.startsWith('__LIMIT__')) {
-        setServerStatus('stopped');
-        startup.setIsStarting(false);
-        startup.setPreviewError({ message, timestamp: new Date() });
-        return;
-      }
-      // Redirect env-related errors to EnvVarsView
-      if (isEnvRelatedError(message || '')) {
-        redirectToEnvVarsWithError(message || '');
-      }
-      applyMissingEnvVarsFromMessage(message || '');
-      logError(message || t('terminal:preview.errorDuringStartup'), 'preview');
-      setServerStatus('stopped');
-      startup.setIsStarting(false);
-      startup.setPreviewError({ message: message || t('terminal:preview.errorStartingPreview'), timestamp: new Date() });
-      tracciaErroreAnteprima(message || 'Unknown preview error');
-    }
+    startup.setIsStarting(false);
   };
 
-  const handleStartWithTransition = () => {
-    startup.setIsStartTransitioning(true);
-    Animated.timing(startup.startTransitionAnim, {
-      toValue: 1, duration: 300, easing: Easing.in(Easing.cubic), useNativeDriver: true,
-    }).start(() => handleStartServer());
-  };
+  // ── 3. Preflight ─────────────────────────────────────────────
 
-  const handleRetryPreview = () => {
-    startup.setPreviewError(null);
-    startup.setReportSent(false);
+  const preflight = usePreviewPreflight({
+    apiUrl,
+    currentWorkstationId: currentWorkstation?.id,
+    onClose,
+    t,
+    clearStartTransition: () => {
+      startup.setIsStartTransitioning(false);
+      startup.startTransitionAnim.setValue(0);
+    },
+  });
 
-    // If server was already running, just reload the WebView instead of full restart
-    if (serverStatusRef.current === 'running' || currentPreviewUrl) {
-      setServerStatus('running');
-      startup.setIsStarting(false);
-      webViewRef.current?.reload();
-      return;
-    }
+  // ── 4. Health ────────────────────────────────────────────────
 
-    setTerminalOutput([]);
-    logsSinceCursorRef.current = 0;
-    errorDetectedRef.current = false;
-    // Grace period: skip old cached logs burst from container
-    errorDetectionEnabledAtRef.current = Date.now() + 1200;
-    ignoreLogsUntilRef.current = Date.now() + 1200;
-    startup.setStartupSteps([
-      { id: 'analyzing', label: t('terminal:preview.steps.analyzing'), status: 'pending' },
-      { id: 'cloning', label: t('terminal:preview.steps.cloning'), status: 'pending' },
-      { id: 'detecting', label: t('terminal:preview.steps.detecting'), status: 'pending' },
-      { id: 'booting', label: t('terminal:preview.steps.booting'), status: 'pending' },
-      { id: 'installing', label: t('terminal:preview.steps.installing'), status: 'pending' },
-      { id: 'starting', label: t('terminal:preview.steps.starting'), status: 'pending' },
-      { id: 'ready', label: t('terminal:preview.steps.ready'), status: 'pending' },
-    ]);
-    startup.setSmoothProgress(0);
-    handleStartServer();
-  };
+  const health = usePreviewHealth({
+    currentPreviewUrl: session.currentPreviewUrl,
+    coderToken,
+    previewAccessTokenRef: session.previewAccessTokenRef,
+    flyMachineIdRef: session.flyMachineIdRef,
+    hasWebUIRef,
+    serverStatusRef,
+    isVisible,
+    t,
+    currentWorkstationId: currentWorkstation?.id,
+    clearProjectPreviewSession,
+    setServerStatus,
+    setWebViewReady,
+    setIsLoading,
+    hasWebUI,
+    startupSetStartingMessage: startup.setStartingMessage,
+    startupSetPreviewError: startup.setPreviewError,
+    startupSetIsStarting: startup.setIsStarting,
+    startupClearLogs: startup.clearLogs,
+    preflight: {
+      applyMissingEnvVarsFromMessage: preflight.applyMissingEnvVarsFromMessage,
+      extractStartupErrorFromBody: preflight.extractStartupErrorFromBody,
+    },
+    resetToStartScreen,
+  });
 
-  const sendErrorToChat = () => {
-    if (!startup.previewError) return;
-    tracciaFixAIAnteprima();
-    // Build error message for the AI agent
-    const errorLines = terminalOutput
-      .filter(l => {
-        const lower = l.toLowerCase();
-        return lower.includes('error') || lower.includes('failed') || lower.includes('cannot') || lower.includes('×');
-      })
-      .slice(-10);
-    const logSnippet = errorLines.length > 0
-      ? errorLines.join('\n')
-      : startup.previewError.message;
+  // ── 5. Startup flow ──────────────────────────────────────────
 
-    const chatMessage = `Fix this preview error:\n\`\`\`\n${logSnippet}\n\`\`\``;
-    // Clear error state before closing so it won't be restored on reopen
-    startup.setPreviewError(null);
-    setTerminalOutput([]);
-    logsSinceCursorRef.current = 0;
-    errorDetectedRef.current = false;
-    // Grace period for when preview reopens: skip old cached logs burst
-    errorDetectionEnabledAtRef.current = Date.now() + 1200;
-    ignoreLogsUntilRef.current = Date.now() + 1200;
-    const store = useUIStore.getState();
-    store.setPendingChatMessage(chatMessage);
-    store.setAutoRetryPreview(true);
-    handleClose();
-  };
+  const startupFlow = usePreviewStartupFlow({
+    apiUrl,
+    t,
+    currentWorkstation,
+    terminalScrollRef,
+    session,
+    preflight,
+    setServerStatus,
+    serverStatusRef,
+    setWebViewReady,
+    setIsLoading,
+    hasWebUI,
+    setHasWebUI,
+    hasWebUIRef,
+    setProjectInfo,
+    setCoderToken,
+    setTerminalOutput,
+    setTerminalAuthToken,
+    setSessionExpired: (val: boolean) => recovery.setSessionExpired(val),
+    setSessionExpiredMessage: (msg: string) => recovery.setSessionExpiredMessage(msg),
+    errorDetectedRef,
+    errorDetectionEnabledAtRef,
+    ignoreLogsUntilRef,
+    logsSinceCursorRef,
+    startup,
+    checkServerStatus: health.checkServerStatus,
+    resetToStartScreen,
+  });
 
-  const handleStopPreview = () => {
-    if (checkInterval.current) {
-      clearInterval(checkInterval.current);
-      checkInterval.current = null;
-    }
-    if (logsXhrRef.current) {
-      logsXhrRef.current.abort();
-      logsXhrRef.current = null;
-    }
-    tracciaAnteprimaFermata();
+  // ── 6. Recovery ──────────────────────────────────────────────
 
-    if (currentWorkstation?.id) {
-      const closingProjectId = currentWorkstation.id;
+  const recovery = usePreviewRecovery({
+    apiUrl,
+    t,
+    currentWorkstation,
+    webViewRef,
+    terminalScrollRef,
+    session,
+    autoFix,
+    isVisible,
+    fadeAnim,
+    onClose,
+    serverStatusRef,
+    setServerStatus,
+    setWebViewReady,
+    setIsLoading,
+    setHasWebUI,
+    hasWebUIRef,
+    clearProjectPreviewSession,
+    setPreviewServerStatus,
+    setPreviewServerUrl,
+    setGlobalFlyMachineId,
+    jsErrorsRef,
+    checkInterval: health.checkInterval,
+    errorDetectedRef,
+    errorDetectionEnabledAtRef,
+    ignoreLogsUntilRef,
+    logsSinceCursorRef,
+    startup,
+    handleStartServer: startupFlow.handleStartServer,
+    terminalOutput: startupFlow.terminalOutput,
+    setTerminalOutput: startupFlow.setTerminalOutput,
+    resetToStartScreen,
+  });
 
-      clearPendingRelease(closingProjectId);
-      pendingReleaseTimers.delete(closingProjectId);
+  // ── 7. Navigation ────────────────────────────────────────────
 
-      setServerStatus('stopped');
-      setSessionExpired(false);
-      setSessionExpiredMessage('');
-      startup.setPreviewError(null);
-      startup.setIsStarting(false);
-      setTerminalOutput([]);
-      logsSinceCursorRef.current = 0;
-      errorDetectedRef.current = false;
-      errorDetectionEnabledAtRef.current = 0;
-      ignoreLogsUntilRef.current = 0;
-      setWebViewReady(false);
-      setIsLoading(true);
-      setHasWebUI(true);
+  const navigation = usePreviewNavigation({
+    currentWorkstation,
+    webViewRef,
+    session,
+    serverStatus,
+    setPreviewCurrentUrl,
+    setPreviewViewportMode,
+    setPreviewHandlers,
+    publishOpenPublishModal,
+    checkServerStatus: health.checkServerStatus,
+  });
 
-      setGlobalFlyMachineId(null, closingProjectId);
-      flyMachineIdRef.current = null;
-      updatePreviewAccessToken(null, closingProjectId);
-      setPreviewServerStatus('stopped');
-      setPreviewServerUrl(null, closingProjectId);
-      clearProjectPreviewSession(closingProjectId);
-      serverLogService.disconnect();
-
-      void (async () => {
-        try {
-          const releaseAuthHeaders = await getAuthHeaders();
-          await fetch(`${apiUrl}/fly/release`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...releaseAuthHeaders },
-            body: JSON.stringify({ projectId: closingProjectId }),
-          });
-        } catch {}
-      })();
-    }
-  };
-
-  const handleClose = () => {
-    handleStopPreview();
-    // Keep panel opacity at 1 when closed because VSCodeSidebar now keeps
-    // PreviewPanel mounted (hidden off-screen). Fading to 0 would persist
-    // and make reopen look like "stuck on chat".
-    fadeAnim.stopAnimation(() => {
-      fadeAnim.setValue(1);
-      onClose();
-    });
-  };
-
-  const handleRefresh = () => {
-    tracciaAnteprimaAggiornata();
-    pendingChangesRef.current = 0;
-    setShowReloadBanner(false);
-    useAgentStore.getState().clearFileTracking();
-    webViewRef.current?.clearCache(true);
-    const baseUrl = currentPreviewUrl.split('?')[0];
-    setCurrentPreviewUrl(`${baseUrl}?_t=${Date.now()}`);
-    webViewRef.current?.reload();
-    checkServerStatus();
-  };
-
-  const handleBannerReload = () => {
-    pendingChangesRef.current = 0;
-    setShowReloadBanner(false);
-    useAgentStore.getState().clearFileTracking();
-    handleRefresh();
-  };
+  // ── Save env vars (bridges preflight + startup) ──────────────
 
   const handleSaveEnvVars = async () => {
-    if (!currentWorkstation?.id) return;
-    setIsSavingEnv(true);
-    logSystem(t('terminal:preview.savingEnvVars'), 'preview');
-    try {
-      const envAuthHeaders = await getAuthHeaders();
-      const variables = Object.entries(envVarValues)
-        .filter(([key]) => key.trim().length > 0)
-        .map(([key, value]) => ({ key, value, isSecret: false }));
-
-      const response = await fetch(`${apiUrl}/fly/project/${currentWorkstation.id}/env`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...envAuthHeaders },
-        body: JSON.stringify({ variables }),
-      });
-      if (!response.ok) throw new Error(t('terminal:preview.saveError'));
-      logOutput(t('terminal:preview.varsSavedIn', { file: '.env' }), 'preview', 0);
-      setRequiredEnvVars(null);
-      setEnvVarValues({});
-      logSystem(t('terminal:preview.restartingServer'), 'preview');
-      handleStartServer();
-    } catch (error: any) {
-      logError(t('terminal:preview.errorWithMessage', { message: error.message }), 'preview');
-    } finally {
-      setIsSavingEnv(false);
-    }
+    await preflight.handleSaveEnvVars(startupFlow.handleStartServer);
   };
 
-  // ---- Effects ----
+  // ── Effects — project switch / init / URL fixups ─────────────
 
-  // Sync preview state to uiStore for header toolbar
-  useEffect(() => { setPreviewCurrentUrl(currentPreviewUrl); }, [currentPreviewUrl]);
-  useEffect(() => { setPreviewViewportMode(viewportMode); }, [viewportMode]);
-
-  // Use refs so the handlers always call the latest version without re-registering
-  const handleRefreshRef = useRef(handleRefresh);
-  handleRefreshRef.current = handleRefresh;
-  const publishRef = useRef(publishOpenPublishModal);
-  publishRef.current = publishOpenPublishModal;
-  const setCurrentPreviewUrlRef = useRef(setCurrentPreviewUrl);
-  setCurrentPreviewUrlRef.current = setCurrentPreviewUrl;
-
-  useEffect(() => {
-    setPreviewHandlers({
-      refresh: () => handleRefreshRef.current(),
-      publish: () => publishRef.current(),
-      setViewportMode: (mode: 'mobile' | 'desktop') => { setViewportMode(mode); },
-      setUrl: (url: string) => setCurrentPreviewUrlRef.current(url),
-      goBack: () => webViewRef.current?.goBack(),
-      goForward: () => webViewRef.current?.goForward(),
-    });
-    return () => setPreviewHandlers({ refresh: null, publish: null, setViewportMode: null, setUrl: null, goBack: null, goForward: null });
-  }, []);
-
-  // Hot reload: connect to file watcher — defer reload when agent is active
-  useEffect(() => {
-    const workstationId = currentWorkstation?.id;
-    const username = currentWorkstation?.githubAccountUsername?.toLowerCase() || 'default';
-    if (serverStatus === 'running' && workstationId && username) {
-      fileWatcherService.connect(workstationId, username, (change) => {
-        logOutput(`[Hot Reload] ${change.file} changed`, 'preview', 0);
-        pendingChangesRef.current += 1;
-
-        if (agentIsRunningRef.current) {
-          // Agent is active — accumulate changes, banner will appear when it finishes
-          return;
-        }
-        // No agent: debounce 1s then show banner
-        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = setTimeout(() => {
-          if (pendingChangesRef.current > 0) {
-            setShowReloadBanner(true);
-          }
-        }, 1000);
-      });
-    }
-  }, [serverStatus, currentWorkstation?.id]);
-
-  // Show reload banner when agent finishes and there are pending changes
-  useEffect(() => {
-    const wasRunning = agentIsRunningRef.current;
-    agentIsRunningRef.current = agentIsRunning;
-    if (wasRunning && !agentIsRunning) {
-      // Check both file watcher events AND agentStore file tracking
-      const agentTouchedFiles = agentFilesCreated.length + agentFilesModified.length;
-      if (pendingChangesRef.current > 0 || agentTouchedFiles > 0) {
-        setShowReloadBanner(true);
-      }
-    }
-  }, [agentIsRunning, agentFilesCreated.length, agentFilesModified.length]);
-
-  // Periodic health checks when running
-  useEffect(() => {
-    if (!isVisible) return;
-    if (serverStatus !== 'running') return;
-    if (currentPreviewUrl.includes('localhost:3001')) return;
-    checkInterval.current = setInterval(checkServerStatus, 5000);
-    return () => { if (checkInterval.current) clearInterval(checkInterval.current); };
-  }, [currentPreviewUrl, serverStatus, isVisible]);
-
-  // Re-run preflight when preview becomes visible and server is already running
-  // (e.g. user deleted an env var while preview was hidden, then reopened it)
-  const prevVisibleRef = useRef(isVisible);
-  useEffect(() => {
-    const wasHidden = !prevVisibleRef.current;
-    prevVisibleRef.current = isVisible;
-    if (!isVisible || !wasHidden) return;
-
-    // "Avvia comunque" → auto-start the server immediately (skip the start screen)
-    if (useUIStore.getState().skipNextPreflight) {
-      if (serverStatus === 'stopped') {
-        handleStartWithTransition();
-      }
-      return;
-    }
-
-    if (skipEnvErrorRedirectRef.current) return; // "Start Anyway" mode — skip
-    if (serverStatus !== 'running') return;
-    // Run preflight in background — if vars are missing, redirect to env vars
-    preflightEnvCheck().then((ok) => {
-      if (!ok) {
-        // preflightEnvCheck already redirected to env-vars tab
-        setServerStatus('stopped');
-        onClose();
-      }
-    }).catch(() => {});
-  }, [isVisible]);
-
-  // Set default project info — use workstation technology if available
+  // Set default project info
   useEffect(() => {
     if (!projectInfo) {
       const knownTech = currentWorkstation?.technology || currentWorkstation?.language || 'detecting';
@@ -1409,308 +305,55 @@ export function usePreviewServerLifecycle({
     }
   }, [currentWorkstation]);
 
-  // Fallback: force WebView ready after timeout only when loading finished.
+  // Fallback: force WebView ready after timeout
   useEffect(() => {
     let isMounted = true;
-
     if (serverStatus === 'running' && !webViewReady && !isLoading) {
-      const timer = setTimeout(() => {
-        if (isMounted) {
-          setWebViewReady(true);
-        }
-      }, 10000);
-      return () => {
-        isMounted = false;
-        clearTimeout(timer);
-      };
+      const timer = setTimeout(() => { if (isMounted) setWebViewReady(true); }, 10000);
+      return () => { isMounted = false; clearTimeout(timer); };
     }
-
     return () => { isMounted = false; };
   }, [serverStatus, webViewReady, isLoading]);
 
-  // ── Auto-Fix Preflight: mark as verified when WebView loads ──
-  // Backend already runs Puppeteer verification + auto-fix during creation.
-  // Frontend auto-fix caused infinite reload loops — disabled.
-  // Just mark as verified when WebView loads successfully.
+  // Auto-fix preflight: mark verified when WebView loads
   useEffect(() => {
-    if (!webViewReady || preflightDoneRef.current) return;
-    preflightDoneRef.current = true;
+    if (!webViewReady || recovery.preflightDoneRef.current) return;
+    recovery.preflightDoneRef.current = true;
     autoFix.reportCheckResult({ rootChildren: 1, jsErrors: [], screenshotBase64: null });
   }, [webViewReady]);
 
-  // Reset preflight when project changes
+  // Re-run preflight when preview becomes visible
+  const prevVisibleRef = useRef(isVisible);
   useEffect(() => {
-    preflightDoneRef.current = false;
-    autoFix.reset();
-    jsErrorsRef.current = [];
-  }, [currentWorkstation?.id]);
-
-  // Auto-recovery: request machineId if missing
-  useEffect(() => {
-    let isMounted = true;
-
-    const shouldRecover =
-      (serverStatus === 'running' || serverStatus === 'stopped')
-      && currentWorkstation?.id
-      && (!globalFlyMachineId || !previewAccessTokenRef.current);
-    if (shouldRecover) {
-      getAuthHeaders().then(recoverAuthHeaders => fetch(`${apiUrl}/fly/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...recoverAuthHeaders },
-        body: JSON.stringify({ projectId: currentWorkstation.id }),
-        credentials: 'include',
-      })).then(res => res.json()).then(data => {
-        if (!isMounted) return;
-        if (data.machineId) {
-          setGlobalFlyMachineId(data.machineId, currentWorkstation.id);
-          if (data.previewToken) {
-            updatePreviewAccessToken(data.previewToken, currentWorkstation.id);
-          }
-        } else {
-          clearProjectPreviewSession(currentWorkstation.id);
-        }
-      }).catch((err) => {
-        if (isMounted) {
-          console.warn('[Preview] Failed to recover machine ID:', err?.message || err);
-        }
-      });
+    const wasHidden = !prevVisibleRef.current;
+    prevVisibleRef.current = isVisible;
+    if (!isVisible || !wasHidden) return;
+    if (useUIStore.getState().skipNextPreflight) {
+      if (serverStatus === 'stopped') startupFlow.handleStartWithTransition();
+      return;
     }
-
-    return () => { isMounted = false; };
-  }, [serverStatus, globalFlyMachineId, currentWorkstation?.id, apiUrl, previewAccessToken]);
-
-  // Live logs SSE streaming
-  useEffect(() => {
-    let reconnectTimeout: NodeJS.Timeout | null = null;
-    let isMounted = true;
-
-    if (!isVisible) return;
-
-    const connectToLogs = async () => {
-      if (!isMounted) return;
-      // Console projects get output via SSE exec, not agent /logs stream
-      if (!hasWebUIRef.current) return;
-      if ((serverStatus !== 'running' && !startup.isStarting && serverStatus !== 'checking') || !currentWorkstation?.id) return;
-      if (logsXhrRef.current) { logsXhrRef.current.abort(); logsXhrRef.current = null; }
-
-      const logsSince = logsSinceCursorRef.current > 0
-        ? Math.max(0, logsSinceCursorRef.current)
-        : 0;
-      const tokenQuery = previewAccessTokenRef.current ? `&previewToken=${encodeURIComponent(previewAccessTokenRef.current)}` : '';
-      const logsUrl = `${apiUrl}/fly/logs/${currentWorkstation.id}?since=${logsSince}${tokenQuery}`;
-      const xhr = new XMLHttpRequest();
-      logsXhrRef.current = xhr;
-      let lastIndex = 0;
-      let dataBuffer = '';
-
-      const logsAuthToken = await getAuthToken();
-      xhr.open('GET', logsUrl);
-      xhr.setRequestHeader('Accept', 'text/event-stream');
-      if (logsAuthToken) {
-        xhr.setRequestHeader('Authorization', `Bearer ${logsAuthToken}`);
-      }
-
-      const LOG_MAX_RESPONSE_SIZE = 2 * 1024 * 1024; // 2MB — prevent RangeError cascade
-
-      xhr.onprogress = () => {
-        // Safety: abort connection if response grows too large.
-        // try-catch because xhr.responseText.length itself throws RangeError
-        // when the string exceeds V8's limit.
-        try {
-          if (xhr.responseText && xhr.responseText.length > LOG_MAX_RESPONSE_SIZE) {
-            console.warn('[Preview:Logs] Response too large, aborting log stream');
-            try { xhr.abort(); } catch {}
-            return;
-          }
-        } catch (e) {
-          console.warn('[Preview:Logs] String limit exceeded, aborting');
-          try { xhr.abort(); } catch {}
-          return;
-        }
-        let newData: string;
-        try {
-          newData = xhr.responseText.substring(lastIndex);
-        } catch (e) {
-          try { xhr.abort(); } catch {}
-          return;
-        }
-        if (!newData) return;
-        lastIndex = xhr.responseText.length;
-        dataBuffer += newData;
-
-        let lineEndIndex;
-        while ((lineEndIndex = dataBuffer.indexOf('\n')) !== -1) {
-          const rawLine = dataBuffer.substring(0, lineEndIndex).replace(/\r/g, '');
-          const line = rawLine.trim();
-          dataBuffer = dataBuffer.substring(lineEndIndex + 1);
-          if (line.startsWith('data: ')) {
-            try {
-              const dataStr = line.substring(6);
-              if (dataStr === '[DONE]') continue;
-              const data = JSON.parse(dataStr);
-              if (data.type === 'connected') continue;
-              if (data.type === 'error') {
-                if (typeof data.message === 'string' && isMissingPreviewTokenError(data.message)) {
-                  resetToStartScreen();
-                  continue;
-                }
-                if (typeof data.message === 'string' && data.message.toLowerCase().includes('no active session')) {
-                  clearProjectPreviewSession(currentWorkstation.id);
-                  setSessionExpired(true);
-                  setSessionExpiredMessage(t('terminal:preview.sessionExpired'));
-                  setServerStatus('stopped');
-                  startup.setIsStarting(false);
-                }
-                continue;
-              }
-              if (data.type === 'session_expired') {
-                setSessionExpired(true);
-                setSessionExpiredMessage(data.message || t('terminal:preview.sessionExpired'));
-                setServerStatus('stopped');
-                startup.setIsStarting(false);
-                if (checkInterval.current) { clearInterval(checkInterval.current); checkInterval.current = null; }
-                continue;
-              }
-              if (data.text) {
-                if (typeof data.id === 'number' && Number.isFinite(data.id) && data.id > 0) {
-                  logsSinceCursorRef.current = Math.max(logsSinceCursorRef.current, Math.floor(data.id));
-                }
-                if (serverStatus !== 'running') startup.setDisplayedMessage(data.text);
-                setTerminalOutput(prev => {
-                  const newOutput = [...prev, data.text];
-                  return newOutput.length > 500 ? newOutput.slice(-500) : newOutput;
-                });
-                setTimeout(() => terminalScrollRef.current?.scrollToEnd({ animated: true }), 50);
-              }
-            } catch {}
-          } else if (
-            line.length > 0 &&
-            !line.startsWith(':') &&
-            !line.startsWith('event:') &&
-            !line.startsWith('id:') &&
-            !line.startsWith('retry:')
-          ) {
-            if (serverStatus !== 'running') startup.setDisplayedMessage(line);
-            setTerminalOutput(prev => {
-              const newOutput = [...prev, line];
-              return newOutput.length > 500 ? newOutput.slice(-500) : newOutput;
-            });
-            setTimeout(() => terminalScrollRef.current?.scrollToEnd({ animated: true }), 50);
-          }
-        }
-      };
-
-      xhr.onerror = () => { if (isMounted) reconnectTimeout = setTimeout(connectToLogs, 3000); };
-      xhr.onload = () => {
-        if (xhr.status === 401 || xhr.status === 403) {
-          let message = xhr.status === 401
-            ? t('terminal:preview.sessionExpired')
-            : 'Access denied: project ownership check failed';
-          try {
-            const payload = JSON.parse(xhr.responseText || '{}');
-            if (typeof payload?.error === 'string' && payload.error.trim().length > 0) {
-              message = payload.error;
-            }
-          } catch {}
-          if (currentWorkstation?.id) {
-            clearProjectPreviewSession(currentWorkstation.id);
-          }
-          if (isMissingPreviewTokenError(message)) {
-            resetToStartScreen();
-            return;
-          }
-          setSessionExpired(true);
-          setSessionExpiredMessage(message);
-          setServerStatus('stopped');
-          startup.setIsStarting(false);
-          startup.setPreviewError({ message, timestamp: new Date() });
-          tracciaErroreAnteprima(message);
-          return;
-        }
-        // Retry on any non-200 status (404 = no session yet, 503 = unavailable)
-        if (xhr.status !== 200 && isMounted) reconnectTimeout = setTimeout(connectToLogs, 2000);
-      };
-      xhr.send();
-    };
-
-    connectToLogs();
-    return () => {
-      isMounted = false;
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
-      if (logsXhrRef.current) { logsXhrRef.current.abort(); logsXhrRef.current = null; }
-    };
-  }, [serverStatus, startup.isStarting, currentWorkstation?.id, apiUrl, previewAccessToken, isVisible]);
-
-  // Detect critical errors in terminal output and immediately show error screen
-  useEffect(() => {
-    // Only detect during startup, not when already running or already errored
-    if (serverStatus !== 'checking' || startup.previewError || errorDetectedRef.current) return;
-    // Skip if still within grace period (old cached logs from container)
-    if (Date.now() < errorDetectionEnabledAtRef.current) return;
-
-    const recentLines = terminalOutput.slice(-30);
-    const errorLines = recentLines.filter(line => {
-      const lower = line.toLowerCase();
-      return (lower.includes('error:') || lower.includes('× error') || lower.includes('failed to compile'))
-        && !lower.includes('[error]'); // skip our own log prefix
-    });
-
-    // If we see 2+ distinct error lines, immediately trigger error screen
-    if (errorLines.length >= 2) {
-      errorDetectedRef.current = true;
-      const errorSummary = errorLines.slice(0, 3).join('\n');
-      startup.setPreviewError({ message: errorSummary, timestamp: new Date() });
-      tracciaErroreAnteprima(errorSummary);
-      setServerStatus('stopped');
-      startup.setIsStarting(false);
-    }
-  }, [terminalOutput, serverStatus, startup.previewError]);
-
-  // Auto-fix: when a fatal preview error occurs, fix IN-PLACE (don't go to chat)
-  useEffect(() => {
-    if (startup.previewError && !autoFixTriggeredRef.current) {
-      autoFixTriggeredRef.current = true;
-      const timer = setTimeout(() => {
-        console.log('[PreviewAutoFix] Fatal error detected, fixing in-place');
-        const errorLines = terminalOutput
-          .filter(l => {
-            const lower = l.toLowerCase();
-            return lower.includes('error') || lower.includes('failed') || lower.includes('cannot');
-          })
-          .slice(-10);
-        const errors = errorLines.length > 0
-          ? errorLines
-          : [startup.previewError?.message || 'Preview failed to start'];
-        autoFix.reportCheckResult({
-          rootChildren: 0,
-          jsErrors: errors,
-          screenshotBase64: null,
-        });
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-    if (!startup.previewError) {
-      autoFixTriggeredRef.current = false;
-      errorDetectedRef.current = false;
-    }
-  }, [startup.previewError]);
+    if (preflight.skipEnvErrorRedirectRef.current) return;
+    if (serverStatus !== 'running') return;
+    preflight.preflightEnvCheck().then((ok) => {
+      if (!ok) { setServerStatus('stopped'); onClose(); }
+    }).catch(() => {});
+  }, [isVisible]);
 
   // Reset/restore state when project changes
   useEffect(() => {
     let isMounted = true;
     let timeoutId: NodeJS.Timeout | null = null;
-
     const currentId = currentWorkstation?.id;
+
     if (prevWorkstationId.current && prevWorkstationId.current !== currentId) {
       logsSinceCursorRef.current = 0;
-      clearPendingRelease(currentId);
+      session.clearPendingRelease(currentId);
       serverLogService.disconnect();
 
       const restoredMachineId = currentId ? projectMachineIds[currentId] : null;
       const restoredUrl = currentId ? projectPreviewUrls[currentId] : null;
       const restoredToken = currentId ? projectPreviewTokens[currentId] : null;
-      setPreviewAccessTokenLocal(restoredToken || null);
-      previewAccessTokenRef.current = restoredToken || null;
+      session.previewAccessTokenRef.current = restoredToken || null;
 
       if (restoredMachineId) {
         setServerStatus('checking');
@@ -1733,179 +376,157 @@ export function usePreviewServerLifecycle({
           }
           if (sessionData.machineId !== restoredMachineId) {
             setGlobalFlyMachineId(sessionData.machineId, currentId);
-            flyMachineIdRef.current = sessionData.machineId;
+            session.flyMachineIdRef.current = sessionData.machineId;
           }
-          if (sessionData.previewToken) {
-            updatePreviewAccessToken(sessionData.previewToken, currentId);
-          }
+          if (sessionData.previewToken) session.updatePreviewAccessToken(sessionData.previewToken, currentId);
           timeoutId = setTimeout(() => {
             if (isMounted) {
               const nextUrl = restoredUrl || `${apiUrl}/preview/${currentId}/`;
-              setCurrentPreviewUrl(nextUrl);
-              checkServerStatus(nextUrl);
+              session.setCurrentPreviewUrl(nextUrl);
+              health.checkServerStatus(nextUrl);
             }
           }, 1000);
         }).catch(() => {
           if (!isMounted) return;
           const nextUrl = restoredUrl || `${apiUrl}/preview/${currentId}/`;
-          setCurrentPreviewUrl(nextUrl);
-          checkServerStatus(nextUrl);
+          session.setCurrentPreviewUrl(nextUrl);
+          health.checkServerStatus(nextUrl);
         });
       } else {
         setServerStatus('stopped');
         setPreviewServerUrl(null);
         setPreviewAccessToken(null, currentId);
-        setPreviewAccessTokenLocal(null);
-        previewAccessTokenRef.current = null;
+        session.previewAccessTokenRef.current = null;
         setGlobalFlyMachineId(null);
         if (currentId) clearProjectPreviewSession(currentId);
         setProjectInfo(null);
         setCoderToken(null);
         startup.setIsStarting(false);
         setWebViewReady(false);
-        setCurrentPreviewUrlLocal(''); // Clear stale URL from previous project
+        session.setCurrentPreviewUrlLocal('');
         serverLogService.disconnect();
       }
-      if (checkInterval.current) { clearInterval(checkInterval.current); checkInterval.current = null; }
+      if (health.checkInterval.current) { clearInterval(health.checkInterval.current); health.checkInterval.current = null; }
     }
     prevWorkstationId.current = currentId || null;
-
-    return () => {
-      isMounted = false;
-      if (timeoutId) clearTimeout(timeoutId);
-    };
+    return () => { isMounted = false; if (timeoutId) clearTimeout(timeoutId); };
   }, [currentWorkstation?.id]);
 
   // Opening animation + session cookie restore + verify persisted session
   useEffect(() => {
     let isMounted = true;
-
     Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
-    clearPendingRelease(currentWorkstation?.id);
+    session.clearPendingRelease(currentWorkstation?.id);
     if (globalFlyMachineId && apiUrl) {
-      flyMachineIdRef.current = globalFlyMachineId;
+      session.flyMachineIdRef.current = globalFlyMachineId;
       getAuthHeaders().then(initAuthHeaders => fetch(`${apiUrl}/fly/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...initAuthHeaders },
         body: JSON.stringify({ projectId: currentWorkstation?.id, machineId: globalFlyMachineId }),
         credentials: 'include',
       })).then(res => res.json()).then((sessionData) => {
-        if (sessionData?.previewToken) {
-          updatePreviewAccessToken(sessionData.previewToken, currentWorkstation?.id);
-        }
-        // If we started as 'checking' (persisted machineId), verify the server is actually up
-        if (isMounted && serverStatusRef.current === 'checking' && currentPreviewUrl) {
-          setTimeout(() => {
-            if (isMounted) checkServerStatus();
-          }, 1000);
+        if (sessionData?.previewToken) session.updatePreviewAccessToken(sessionData.previewToken, currentWorkstation?.id);
+        if (isMounted && serverStatusRef.current === 'checking' && session.currentPreviewUrl) {
+          setTimeout(() => { if (isMounted) health.checkServerStatus(); }, 1000);
         }
       }).catch((err) => {
         if (isMounted) {
           console.warn('[Preview] Failed to restore session cookie:', err?.message || err);
-          // Still try to check — session might already exist
-          if (serverStatusRef.current === 'checking' && currentPreviewUrl) {
-            checkServerStatus();
-          }
+          if (serverStatusRef.current === 'checking' && session.currentPreviewUrl) health.checkServerStatus();
         }
       });
     } else if (serverStatusRef.current === 'checking') {
-      // No machineId but status is checking — shouldn't happen, reset to stopped
       if (currentWorkstation?.id) clearProjectPreviewSession(currentWorkstation.id);
       setServerStatus('stopped');
     }
-
     return () => { isMounted = false; };
   }, []);
 
-  // Fix corrupted or wrong-project URL: ensure it points to the current projectId
+  // Fix corrupted or wrong-project URL
   useEffect(() => {
-    if (!currentPreviewUrl || !projectId) return;
+    if (!session.currentPreviewUrl || !projectId) return;
     try {
-      const parsed = new URL(currentPreviewUrl);
-      // Subdomain preview (project-xxx.drape.info) — no fixing needed
+      const parsed = new URL(session.currentPreviewUrl);
       const isSubdomain = parsed.hostname.endsWith('.drape.info') && !['www.drape.info', 'dev.drape.info', 'api.drape.info', 'drape.info'].includes(parsed.hostname);
       if (isSubdomain) return;
-
-      // Legacy path-based preview — fix if wrong project
       const match = parsed.pathname.match(/^\/preview\/([^/]+)/);
-      if (!match) {
-        setCurrentPreviewUrl(`https://${projectId}.drape.info/`);
-      } else if (match[1] !== projectId) {
-        setCurrentPreviewUrl(`https://${projectId}.drape.info/`);
-      }
+      if (!match) session.setCurrentPreviewUrl(`https://${projectId}.drape.info/`);
+      else if (match[1] !== projectId) session.setCurrentPreviewUrl(`https://${projectId}.drape.info/`);
     } catch {}
-  }, [currentPreviewUrl, projectId]);
+  }, [session.currentPreviewUrl, projectId]);
 
-  // Ensure preview URL always carries the active preview token
+  // Ensure preview URL carries active token
   useEffect(() => {
-    if (!currentPreviewUrl) return;
-    const secured = withPreviewToken(currentPreviewUrl, previewAccessToken);
-    if (secured !== currentPreviewUrl) {
-      setCurrentPreviewUrlLocal(secured);
+    if (!session.currentPreviewUrl) return;
+    const secured = session.withPreviewToken(session.currentPreviewUrl, session.previewAccessToken);
+    if (secured !== session.currentPreviewUrl) {
+      session.setCurrentPreviewUrlLocal(secured);
       setPreviewServerUrl(secured, currentWorkstation?.id);
     }
-  }, [previewAccessToken]);
+  }, [session.previewAccessToken]);
 
   // Update URL when prop changes
   useEffect(() => {
-    if (previewUrl && previewUrl !== currentPreviewUrl && !globalServerUrl) {
-      setCurrentPreviewUrl(previewUrl);
+    if (previewUrl && previewUrl !== session.currentPreviewUrl && !globalServerUrl) {
+      session.setCurrentPreviewUrl(previewUrl);
     }
   }, [previewUrl]);
+
+  // ── Return — identical API to the original monolith ──────────
 
   return {
     // State
     serverStatus,
-    currentPreviewUrl,
-    coderToken,
-    previewAccessToken,
-    terminalOutput,
-    viewportMode,
+    currentPreviewUrl: session.currentPreviewUrl,
+    coderToken: startupFlow.coderToken,
+    previewAccessToken: session.previewAccessToken,
+    terminalOutput: startupFlow.terminalOutput,
+    viewportMode: navigation.viewportMode,
     hasWebUI,
     webViewReady,
     isLoading,
-    canGoBack,
-    canGoForward,
-    requiredEnvVars,
-    envVarValues,
-    isSavingEnv,
-    sessionExpired,
-    sessionExpiredMessage,
-    showReloadBanner,
-    projectInfo,
-    terminalAuthToken,
-    effectivePreviewAccessToken,
+    canGoBack: navigation.canGoBack,
+    canGoForward: navigation.canGoForward,
+    requiredEnvVars: preflight.requiredEnvVars,
+    envVarValues: preflight.envVarValues,
+    isSavingEnv: preflight.isSavingEnv,
+    sessionExpired: recovery.sessionExpired,
+    sessionExpiredMessage: recovery.sessionExpiredMessage,
+    showReloadBanner: navigation.showReloadBanner,
+    projectInfo: startupFlow.projectInfo,
+    terminalAuthToken: startupFlow.terminalAuthToken,
+    effectivePreviewAccessToken: session.effectivePreviewAccessToken,
 
     // Refs
-    flyMachineIdRef,
-    preflightDoneRef,
-    autoFixTriggeredRef,
+    flyMachineIdRef: session.flyMachineIdRef,
+    preflightDoneRef: recovery.preflightDoneRef,
+    autoFixTriggeredRef: recovery.autoFixTriggeredRef,
 
     // Setters
     setServerStatus,
-    setCurrentPreviewUrl,
+    setCurrentPreviewUrl: session.setCurrentPreviewUrl,
     setWebViewReady,
     setIsLoading,
-    setCanGoBack,
-    setCanGoForward,
-    setViewportMode,
-    setEnvVarValues,
-    setRequiredEnvVars,
+    setCanGoBack: navigation.setCanGoBack,
+    setCanGoForward: navigation.setCanGoForward,
+    setViewportMode: navigation.setViewportMode,
+    setEnvVarValues: preflight.setEnvVarValues,
+    setRequiredEnvVars: preflight.setRequiredEnvVars,
 
     // Handlers
-    handleStartServer,
-    handleStartWithTransition,
-    handleRetryPreview,
-    handleStopPreview,
-    handleClose,
-    handleRefresh,
-    handleBannerReload,
+    handleStartServer: startupFlow.handleStartServer,
+    handleStartWithTransition: startupFlow.handleStartWithTransition,
+    handleRetryPreview: recovery.handleRetryPreview,
+    handleStopPreview: recovery.handleStopPreview,
+    handleClose: recovery.handleClose,
+    handleRefresh: navigation.handleRefresh,
+    handleBannerReload: navigation.handleBannerReload,
     handleSaveEnvVars,
-    sendErrorToChat,
-    redirectToEnvVarsWithError,
-    checkServerStatus,
+    sendErrorToChat: recovery.sendErrorToChat,
+    redirectToEnvVarsWithError: preflight.redirectToEnvVarsWithError,
+    checkServerStatus: health.checkServerStatus,
 
-    // Startup hook (called internally with real serverStatus & webViewReady)
+    // Startup hook
     startup,
   };
 }

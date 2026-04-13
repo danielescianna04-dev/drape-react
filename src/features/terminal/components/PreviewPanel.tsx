@@ -12,16 +12,28 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
 import { useSidebarOffset } from '../context/SidebarContext';
 import { AskUserQuestionModal } from '../../../shared/components/modals/AskUserQuestionModal';
-import { tracciaCambioViewport } from '../../../core/services/analyticsService';
+import { tracciaCambioViewport, tracciaErroreAnteprima, tracciaElementoSelezionato, tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
+import { useNavigationStore } from '../../../core/navigation/navigationStore';
+import type { PreviewWebViewEvent } from '../preview/webview/previewWebViewEvents';
+import { isEnvRelatedMessage, isTransientProxyError, isCssNoiseError } from '../preview/webview/previewWebViewBridge';
 
 // Sub-components
 import { PreviewToolbar } from './PreviewToolbar';
 import { PreviewWebView } from './PreviewWebView';
 import { PreviewAIChat } from './PreviewAIChat';
 import { PreviewPublishSheet } from './PreviewPublishSheet';
-import { PreviewStartScreen, PreviewSessionExpiredScreen, PreviewErrorScreen, PreviewLoadingScreen } from './PreviewServerStatus';
-import { PreviewVerifyingScreen } from './PreviewVerifyingScreen';
 import { PreviewEnvVarsForm } from './PreviewEnvVarsForm';
+
+// Phase 5+6: New pure state screens + surfaces
+import {
+  PreviewStateStart,
+  PreviewStateLoading,
+  PreviewStateFixing,
+  PreviewStateSessionExpired,
+  PreviewStateFatalError,
+  PreviewSurfaceConsole,
+} from '../preview/components';
+import { getPreviewCapability } from '../preview/previewCapabilities';
 
 // Hooks
 import { usePreviewPublish } from '../hooks/usePreviewPublish';
@@ -172,6 +184,107 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     webViewRef,
   });
 
+  // Handle structured events from the thin PreviewWebView
+  const handlePreviewEvent = React.useCallback((event: PreviewWebViewEvent) => {
+    switch (event.type) {
+      case 'ready':
+        setWebViewReady(true);
+        break;
+
+      case 'page_info':
+        if (event.rootChildren > 0 || event.forceReady) {
+          if (!lifecycle.webViewReady) setWebViewReady(true);
+        }
+        break;
+
+      case 'navigation_state':
+        setCanGoBack(event.canGoBack);
+        setCanGoForward(event.canGoForward);
+        break;
+
+      case 'preview_error': {
+        const rawMsg = event.message;
+        if (serverStatus !== 'running') {
+          console.warn('[Preview] Proxy error during verification (ignored):', rawMsg);
+          return;
+        }
+        if (isTransientProxyError(rawMsg)) {
+          console.warn('[Preview] Transient proxy error (ignored):', rawMsg);
+          return;
+        }
+        console.warn('WebView detected non-transient proxy error:', rawMsg);
+        if (isEnvRelatedMessage(rawMsg)) {
+          redirectToEnvVarsWithError(rawMsg);
+          return;
+        }
+        let userMsg = rawMsg;
+        if (rawMsg.includes('ECONNREFUSED')) {
+          userMsg = t('terminal:preview.errorServerFailed');
+        } else if (rawMsg.includes('timeout') || rawMsg.includes('Timeout')) {
+          userMsg = t('terminal:preview.errorTimeout');
+        } else if (rawMsg.includes('ENOTFOUND') || rawMsg.includes('EHOSTUNREACH')) {
+          userMsg = t('terminal:preview.errorContainerUnreachable');
+        }
+        startup.setPreviewError({ message: userMsg, timestamp: new Date() });
+        tracciaErroreAnteprima(userMsg);
+        setServerStatus('stopped');
+        startup.setIsStarting(false);
+        break;
+      }
+
+      case 'build_error': {
+        const buildMsg = event.message || 'Build error';
+        console.error('[Preview] Build error detected:', buildMsg);
+        if (isEnvRelatedMessage(buildMsg)) {
+          redirectToEnvVarsWithError(buildMsg);
+          return;
+        }
+        startup.setPreviewError({ message: buildMsg, timestamp: new Date() });
+        tracciaErroreAnteprima(buildMsg);
+        setServerStatus('stopped');
+        startup.setIsStarting(false);
+        break;
+      }
+
+      case 'js_error':
+      case 'runtime_error': {
+        const jsMsg = event.message || '';
+        if (isCssNoiseError(jsMsg)) return;
+        console.warn('[Preview] JS/runtime error:', jsMsg);
+        if (!preflightDoneRef.current) jsErrorsRef.current.push(jsMsg);
+        if (isEnvRelatedMessage(jsMsg)) {
+          redirectToEnvVarsWithError(jsMsg);
+          return;
+        }
+        break;
+      }
+
+      case 'element_selected': {
+        const el = event.element;
+        let elementSelector = `<${el.tag}>`;
+        if (el.id) elementSelector = `<${el.tag}#${el.id}>`;
+        else if (el.className) {
+          const classes = el.className.split(' ').filter((c: string) => c && !c.startsWith('__inspector')).slice(0, 2);
+          if (classes.length > 0) elementSelector = `<${el.tag}.${classes.join('.')}>`;
+        }
+        chat.setSelectedElement({
+          selector: elementSelector,
+          text: (el.text?.trim()?.substring(0, 40) || '') + ((el.text?.length || 0) > 40 ? '...' : ''),
+          tag: el.tag,
+          className: el.className || '',
+          id: el.id,
+          innerHTML: el.innerHTML,
+        });
+        tracciaElementoSelezionato(elementSelector);
+        break;
+      }
+
+      case 'trigger_refresh':
+        handleRefresh();
+        break;
+    }
+  }, [serverStatus, lifecycle.webViewReady, setWebViewReady, setCanGoBack, setCanGoForward, setServerStatus, startup, redirectToEnvVarsWithError, handleRefresh, chat, t, preflightDoneRef, jsErrorsRef]);
+
   // Sync publish info to uiStore
   React.useEffect(() => { setPreviewPublishInfo(publish.existingPublish); }, [publish.existingPublish]);
 
@@ -180,11 +293,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   // Toolbar hidden — moved to VSCodeSidebar header
   const shouldRenderToolbar = false;
 
-  // Check if technology is supported for preview
-  const SUPPORTED_PREVIEW_TECHS = ['nextjs', 'react', 'vite', 'vue', 'html', 'static', 'astro', 'expo'];
-  // Check from workstation metadata OR from projectInfo detected during startup
+  // Phase 6: Capability-based preview routing
   const detectedTech = (projectInfo?.type || currentWorkstation?.technology || currentWorkstation?.language || '').toLowerCase();
-  const isPreviewSupported = !detectedTech || detectedTech === 'unknown' || detectedTech === 'detecting' || SUPPORTED_PREVIEW_TECHS.some(s => detectedTech.includes(s));
+  const previewCapability = getPreviewCapability(detectedTech);
+  const isPreviewSupported = previewCapability !== 'unsupported';
 
   // ---- Render ----
   if (!isPreviewSupported) {
@@ -269,6 +381,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   <Text style={styles.reloadBannerText}>Modifiche rilevate — Ricarica</Text>
                 </TouchableOpacity>
               )}
+              {/* Phase 5: State screens — pure components */}
               {serverStatus === 'stopped' && requiredEnvVars ? (
                 <PreviewEnvVarsForm
                   requiredEnvVars={requiredEnvVars}
@@ -281,66 +394,62 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   bottomInset={insets.bottom}
                 />
               ) : sessionExpired ? (
-                <PreviewSessionExpiredScreen
-                  sessionExpiredMessage={sessionExpiredMessage}
-                  onStartServer={handleStartServer}
+                <PreviewStateSessionExpired
+                  message={sessionExpiredMessage}
+                  onRestart={handleStartServer}
                   t={t}
                 />
               ) : serverStatus === 'stopped' && startup.previewError && !autoFix.isFixing && !autoFixTriggeredRef.current ? (
-                <PreviewErrorScreen
-                  previewError={startup.previewError}
+                <PreviewStateFatalError
+                  errorMessage={startup.previewError.message}
                   terminalOutput={terminalOutput}
-                  onClose={handleClose}
-                  onRetryPreview={handleRetryPreview}
-                  onSendErrorReport={sendErrorToChat}
-                  topInset={insets.top}
+                  onRetry={handleRetryPreview}
+                  onFixWithAI={sendErrorToChat}
+                  onUpgrade={() => { tracciaPaginaPianiVista('preview_limit'); useNavigationStore.getState().navigateTo('plans'); }}
                   t={t}
                 />
               ) : serverStatus === 'stopped' && startup.previewError && (autoFix.isFixing || autoFixTriggeredRef.current) ? (
-                <PreviewLoadingScreen
-                  previewError={null}
-                  previewLogs={startup.previewLogs}
-                  terminalOutput={terminalOutput}
-                  displayedMessage={autoFix.statusMessage || 'Risolvo il problema...'}
-                  startingMessage={`Tentativo ${autoFix.fixAttempt}...`}
+                <PreviewStateFixing
+                  terminalLines={terminalOutput}
+                  statusMessage={autoFix.statusMessage || 'Risolvo il problema...'}
+                  fixAttempt={autoFix.fixAttempt}
                   smoothProgress={startup.smoothProgress}
                   elapsedSeconds={startup.elapsedSeconds}
                   pulseAnim={startup.pulseAnim}
-                  onClose={handleClose}
-                  onRetryPreview={handleRetryPreview}
-                  onSendErrorReport={sendErrorToChat}
-                  topInset={insets.top}
                   t={t}
                 />
               ) : serverStatus === 'stopped' ? (
-                <PreviewStartScreen
-                  currentWorkstation={currentWorkstation}
+                <PreviewStateStart
+                  projectName={currentWorkstation?.name}
+                  technology={currentWorkstation?.technology}
+                  language={currentWorkstation?.language}
+                  projectId={currentWorkstation?.id}
                   isStartTransitioning={startup.isStartTransitioning}
                   startTransitionAnim={startup.startTransitionAnim}
-                  onStartWithTransition={handleStartWithTransition}
+                  onStart={handleStartWithTransition}
                   t={t}
                 />
               ) : serverStatus === 'checking' ? (
-                /* During 'checking', show ONLY loading screen — no WebView.
-                   checkServerStatus is polling; WebView would just cause
-                   conflicting error detection. WebView mounts only after
-                   checkServerStatus confirms the server is truly responsive. */
-                <PreviewLoadingScreen
-                  previewError={startup.previewError}
-                  previewLogs={startup.previewLogs}
-                  terminalOutput={terminalOutput}
+                /* During 'checking', show ONLY loading screen — no WebView. */
+                <PreviewStateLoading
+                  terminalLines={terminalOutput.length > 0 ? terminalOutput : startup.previewLogs.map(l => l.message)}
                   displayedMessage={autoFix.isFixing ? autoFix.statusMessage : startup.displayedMessage}
                   startingMessage={startup.startingMessage}
                   smoothProgress={startup.smoothProgress}
                   elapsedSeconds={startup.elapsedSeconds}
                   pulseAnim={startup.pulseAnim}
-                  onClose={handleClose}
-                  onRetryPreview={handleRetryPreview}
-                  onSendErrorReport={sendErrorToChat}
-                  topInset={insets.top}
                   t={t}
                 />
+              ) : previewCapability === 'console' ? (
+                /* Phase 6: Console surface for non-web projects */
+                <PreviewSurfaceConsole
+                  terminalOutput={terminalOutput}
+                  onStop={handleStopPreview}
+                  projectName={currentWorkstation?.name}
+                  terminalScrollRef={terminalScrollRef}
+                />
               ) : (
+                /* Phase 6: Web surface (default) */
                 <PreviewWebView
                   webViewRef={webViewRef}
                   currentPreviewUrl={currentPreviewUrl}
@@ -362,21 +471,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   smoothProgress={startup.smoothProgress}
                   elapsedSeconds={startup.elapsedSeconds}
                   pulseAnim={startup.pulseAnim}
+                  onPreviewEvent={handlePreviewEvent}
                   setIsLoading={setIsLoading}
-                  setCanGoBack={setCanGoBack}
-                  setCanGoForward={setCanGoForward}
-                  setWebViewReady={setWebViewReady}
                   setCurrentPreviewUrl={setCurrentPreviewUrl}
-                  setSelectedElement={chat.setSelectedElement}
-                  setPreviewError={startup.setPreviewError}
-                  setServerStatus={setServerStatus}
-                  setIsStarting={startup.setIsStarting}
-                  handleRefresh={handleRefresh}
                   onClose={handleClose}
                   onRetryPreview={handleRetryPreview}
                   onSendErrorReport={sendErrorToChat}
-                  onEnvError={redirectToEnvVarsWithError}
-                  onJsError={(msg: string) => { if (!preflightDoneRef.current) jsErrorsRef.current.push(msg); }}
                   topInset={insets.top}
                   viewportMode={viewportMode}
                   projectId={projectId || ''}

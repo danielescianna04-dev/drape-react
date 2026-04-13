@@ -3,7 +3,7 @@ import { FileViewer } from '../../features/terminal/components/FileViewer';
 import { TerminalView } from '../../features/terminal/components/TerminalView';
 import { GitHubView } from '../../features/terminal/components/views/GitHubView';
 import { BrowserView } from '../../features/terminal/components/views/BrowserView';
-import { PreviewView } from '../../features/terminal/components/views/PreviewView';
+import { PreviewPanel } from '../../features/terminal/components/PreviewPanel';
 import { EnvVarsView } from '../../features/terminal/components/views/EnvVarsView';
 import { TasksView } from '../../features/terminal/components/views/TasksView';
 import { ShellView } from '../../features/terminal/components/views/ShellView';
@@ -42,7 +42,15 @@ export const WorkspaceTabContent: React.FC<Props> = ({ tab }) => {
     case 'browser':
       return <BrowserView tab={tab} />;
     case 'preview':
-      return <PreviewView tab={tab} />;
+      return (
+        <PreviewPanel
+          onClose={() => {}}
+          previewUrl={tab.data?.previewUrl || ''}
+          projectName={tab.data?.projectName}
+          projectPath={tab.data?.projectPath}
+          isVisible={true}
+        />
+      );
     case 'shell':
       return <ShellView tab={tab} />;
     case 'envVars':
