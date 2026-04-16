@@ -18,14 +18,13 @@ const https = require('https');
 const BASE_URL = 'http://localhost:3000';
 const CLICK_TIMEOUT = 3000;
 const NAV_TIMEOUT = 12000;
-// 2 cycles: verify → self-heal → reverify. Mobile-only viewport for speed.
-// Outer verify loop (verify-project.service.ts MAX_ATTEMPTS=2) adds another layer.
-const MAX_QA_CYCLES = 2;
+// Single-pass probe: run Puppeteer + Gemini Vision, emit qa-report.json with
+// findings. Backend verify/auto-fix-orchestrator.ts owns all healing now —
+// qa-agent no longer writes files or calls the LLM for fixes.
 const VISION_API_KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || '';
 const PROJECT_DIR = '/home/coder/project';
 const MAX_SCREENSHOTS_PER_BATCH = 4;
 const MAX_SCREENSHOTS_TOTAL = 20; // Prevent OOM on large projects
-const MAX_FIX_FILES = 8;
 const PRIMARY_ROUTE_LIMIT = 5;
 const PRIMARY_CLICK_LIMIT = 24;
 const DEEP_CLICK_LIMIT = 80;
@@ -43,17 +42,6 @@ const TRANSIENT_EXTERNAL_IMAGE_HOSTS = [
 const VIEWPORTS = [
   { name: 'mobile', width: 430, height: 932 },
 ];
-
-// Files AI must NEVER modify (secrets, core config). CSS plumbing files ARE repairable.
-// KEEP IN SYNC with backend-ts/src/utils/protected-files.ts (PROTECTED_CONFIG_FILES).
-// This file runs in the container as raw JS and cannot import from the TS backend.
-const PROTECTED_FILES = new Set([
-  'package.json', 'tsconfig.json',
-  'next.config.ts', 'next.config.js', 'next.config.mjs',
-  'astro.config.mjs',
-  'vite.config.ts', 'vite.config.js',
-  'index.html',
-]);
 
 function normalizeInteractiveLabel(value) {
   return String(value || '').trim().toLowerCase();
@@ -820,149 +808,7 @@ function callGeminiVision(parts) {
   });
 }
 
-// ── Phase 3: Self-Healing ──────────────────────────────────────
-async function selfHeal(issues) {
-  if (!VISION_API_KEY) {
-    logAction('fix', 'skipped', 'No API key');
-    return { applied: false, filesModified: [] };
-  }
-
-  const toFix = issues.filter(i => i.severity === 'critical' || i.severity === 'high');
-  if (toFix.length === 0) {
-    logAction('fix', 'skipped', 'No critical/high issues');
-    return { applied: false, filesModified: [] };
-  }
-
-  logAction('fix', 'start', `Fixing ${toFix.length} critical/high issues`);
-
-  // Read source files
-  const sourceFiles = [];
-  const filesToRead = new Set();
-
-  try {
-    const found = require('child_process').execFileSync('find', [
-      path.join(PROJECT_DIR, 'app'), '-name', 'page.tsx', '-o', '-name', 'page.jsx'
-    ], { encoding: 'utf-8', timeout: 5000 }).trim().split('\n').filter(Boolean);
-    for (const f of found.slice(0, 10)) filesToRead.add(f);
-  } catch {}
-
-  for (const f of ['app/layout.tsx', 'app/page.tsx', 'app/globals.css', 'src/App.tsx', 'src/index.css', 'src/main.tsx']) {
-    const fp = path.join(PROJECT_DIR, f);
-    if (fs.existsSync(fp)) filesToRead.add(fp);
-  }
-
-  for (const fp of filesToRead) {
-    try {
-      const content = fs.readFileSync(fp, 'utf-8');
-      if (content.length < 50000) { // Skip huge files
-        sourceFiles.push({ path: fp.replace(PROJECT_DIR + '/', ''), content });
-      }
-    } catch {}
-  }
-
-  const issueText = toFix.slice(0, 10).map((i, idx) =>
-    `${idx + 1}. [${i.severity}] ${i.page || ''} (${i.viewport || 'all'}): ${i.description}${i.suggestion ? ' — ' + i.suggestion : ''}`
-  ).join('\n');
-
-  const fileText = sourceFiles.map(f => `--- ${f.path} ---\n${f.content}`).join('\n\n');
-
-  const fixParts = [{ text: `Fix these web application issues:
-
-ISSUES:
-${issueText}
-
-SOURCE FILES:
-${fileText}
-
-Return JSON array: [{"path": "relative/path", "content": "complete file content"}]
-Rules: complete file content, don't modify protected files, fix root cause, use Tailwind CSS, return ONLY valid JSON array.` }];
-
-  try {
-    const response = await callGeminiVision(fixParts);
-    const jsonMatch = response.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      logAction('fix', 'failed', 'No valid JSON from AI');
-      return { applied: false, filesModified: [] };
-    }
-
-    const fixes = JSON.parse(jsonMatch[0]);
-    const filesModified = [];
-
-    for (const fix of fixes.slice(0, MAX_FIX_FILES)) {
-      if (!fix.path || !fix.content?.trim()) continue;
-      if (PROTECTED_FILES.has(fix.path)) continue;
-      // Path traversal protection
-      const resolved = path.resolve(PROJECT_DIR, fix.path);
-      if (!resolved.startsWith(PROJECT_DIR)) continue;
-
-      const dir = path.dirname(resolved);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(resolved, fix.content);
-      filesModified.push(fix.path);
-      logAction('fix', 'written', fix.path);
-    }
-
-    logAction('fix', 'complete', `${filesModified.length} files modified`);
-    return { applied: filesModified.length > 0, filesModified };
-  } catch (err) {
-    logAction('fix', 'error', err.message.substring(0, 100));
-    return { applied: false, filesModified: [] };
-  }
-}
-
-// ── Phase 3b: Regenerate broken pages ──────────────────────────
-async function regenerateBrokenPages(brokenPages) {
-  if (!VISION_API_KEY || brokenPages.length === 0) return { regenerated: [] };
-
-  logAction('regenerate', 'start', `${brokenPages.length} pages to regenerate`);
-
-  // Read project description if available
-  let description = '';
-  try {
-    const meta = JSON.parse(fs.readFileSync(path.join(PROJECT_DIR, '.drape', 'project-meta.json'), 'utf-8'));
-    description = meta.description || meta.projectName || '';
-  } catch {}
-
-  const regenerated = [];
-
-  for (const pagePath of brokenPages.slice(0, 3)) { // Max 3 regenerations
-    const filePath = pagePath === '/' ? 'app/page.tsx' : `app${pagePath}/page.tsx`;
-
-    const prompt = [{ text: `Generate a complete, working React page component for route "${pagePath}" in a Next.js app.
-${description ? 'Project: ' + description : ''}
-
-Requirements:
-- Use "use client" if needed
-- Use Tailwind CSS for styling
-- Include realistic content (not Lorem ipsum)
-- Must be visually polished and professional
-- Export default function component
-- Return ONLY the complete file content, no markdown` }];
-
-    try {
-      const response = await callGeminiVision(prompt);
-      // Strip markdown code fences if present
-      const code = response.replace(/^```[a-z]*\n?/gm, '').replace(/```$/gm, '').trim();
-      if (code.length > 50) {
-        const fullPath = path.resolve(PROJECT_DIR, filePath);
-        if (fullPath.startsWith(PROJECT_DIR)) {
-          const dir = path.dirname(fullPath);
-          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(fullPath, code);
-          regenerated.push(filePath);
-          logAction('regenerate', 'written', filePath);
-        }
-      }
-    } catch (err) {
-      logAction('regenerate', 'error', `${pagePath}: ${err.message.substring(0, 80)}`);
-    }
-  }
-
-  logAction('regenerate', 'complete', `${regenerated.length} pages regenerated`);
-  return { regenerated };
-}
-
-// ── Main QA Loop ───────────────────────────────────────────────
+// ── Main QA probe ──────────────────────────────────────────────
 async function main() {
   const report = {
     status: 'failed',
@@ -981,111 +827,71 @@ async function main() {
       timeout: 15000,
     });
 
-    for (let cycle = 1; cycle <= MAX_QA_CYCLES; cycle++) {
-      logAction('qa', 'cycle-start', `Attempt ${cycle}/${MAX_QA_CYCLES}`);
+    // Single-pass probe: functional + visual, no internal self-heal.
+    // The backend orchestrator (verify/auto-fix-orchestrator.ts) decides
+    // whether to auto-fix, which model to use, and how many cycles to run.
+    const primaryFunctional = await functionalTest(browser, { mode: 'primary' });
+    const primaryIssues = [...primaryFunctional.issues];
+    const primaryBlocking = primaryIssues.filter(i => i.severity === 'critical' || i.severity === 'high' || i.blocking);
+    const primaryDeadInteractives = primaryFunctional.issues.filter(i =>
+      i.type === 'functional' &&
+      typeof i.description === 'string' &&
+      i.description.includes('clicked but nothing happened')
+    );
 
-      const primaryFunctional = await functionalTest(browser, { mode: 'primary' });
-      const primaryIssues = [...primaryFunctional.issues];
-      const primaryBlocking = primaryIssues.filter(i => i.severity === 'critical' || i.severity === 'high' || i.blocking);
-      const primaryDeadInteractives = primaryFunctional.issues.filter(i =>
+    let functional = primaryFunctional;
+    let visual = { issues: [], skipped: true };
+    let allIssues = [...primaryIssues];
+    let criticalHigh = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high');
+    let blockingIssues = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high' || i.blocking);
+    let deadInteractiveIssues = primaryDeadInteractives;
+
+    if (primaryBlocking.length === 0) {
+      logAction('qa', 'primary-pass', `Primary gate passed, running deep verification`);
+      const deepFunctional = await functionalTest(browser, { mode: 'deep' });
+      visual = await visualTest(deepFunctional.screenshots);
+      functional = deepFunctional;
+      allIssues = [...deepFunctional.issues, ...(visual.issues || [])];
+      criticalHigh = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high');
+      blockingIssues = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high' || i.blocking);
+      deadInteractiveIssues = deepFunctional.issues.filter(i =>
         i.type === 'functional' &&
         typeof i.description === 'string' &&
         i.description.includes('clicked but nothing happened')
       );
-
-      let functional = primaryFunctional;
-      let visual = { issues: [], skipped: true };
-      let allIssues = [...primaryIssues];
-      let criticalHigh = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high');
-      let blockingIssues = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high' || i.blocking);
-      let deadInteractiveIssues = primaryDeadInteractives;
-
-      if (primaryBlocking.length === 0) {
-        logAction('qa', 'primary-pass', `Primary gate passed, running deep verification`);
-        const deepFunctional = await functionalTest(browser, { mode: 'deep' });
-        visual = await visualTest(deepFunctional.screenshots);
-        functional = deepFunctional;
-        allIssues = [...deepFunctional.issues, ...(visual.issues || [])];
-        criticalHigh = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high');
-        blockingIssues = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high' || i.blocking);
-        deadInteractiveIssues = deepFunctional.issues.filter(i =>
-          i.type === 'functional' &&
-          typeof i.description === 'string' &&
-          i.description.includes('clicked but nothing happened')
-        );
-      } else {
-        logAction('qa', 'primary-fail', `${primaryBlocking.length} blocking issues in primary gate — skipping deep verification`);
-      }
-
-      const attempt = {
-        cycle,
-        verificationMode: primaryBlocking.length === 0 ? 'deep' : 'primary-only',
-        primaryFunctionalIssues: primaryFunctional.issues.length,
-        primaryBlockingCount: primaryBlocking.length,
-        primaryDeadInteractiveCount: primaryDeadInteractives.length,
-        functionalIssues: functional.issues.length,
-        visualIssues: (visual.issues || []).length,
-        criticalHighCount: criticalHigh.length,
-        blockingIssueCount: blockingIssues.length,
-        deadInteractiveCount: deadInteractiveIssues.length,
-        pages: functional.pages,
-        clicks: functional.clicks,
-        forms: functional.forms,
-        visualAnalysis: (visual.issues || []).slice(0, 20), // Cap for report size
-        visualSkipped: visual.skipped || false,
-      };
-
-      if (blockingIssues.length === 0) {
-        report.status = 'verified';
-        report.qualityScore = visual.qualityScore || (10 - Math.min(5, allIssues.filter(i => i.severity === 'medium').length));
-        attempt.fix = null;
-        report.attempts.push(attempt);
-        logAction('qa', 'verified', `Passed on cycle ${cycle}! Score: ${report.qualityScore}/10`);
-        break;
-      }
-
-      logAction('qa', 'issues', `${blockingIssues.length} blocking issues found (${deadInteractiveIssues.length} dead interactives)`);
-
-      if (cycle < MAX_QA_CYCLES) {
-        // Self-heal
-        const fixResult = await selfHeal(allIssues);
-        attempt.fix = fixResult;
-        report.attempts.push(attempt);
-
-        if (fixResult.applied) {
-          logAction('qa', 'reload', 'Waiting for hot reload...');
-          await new Promise(r => setTimeout(r, 5000));
-        }
-      } else {
-        // Last cycle failed — try regenerating broken pages
-        const brokenPages = [...new Set(criticalHigh.filter(i => i.page).map(i => i.page))];
-        const regenResult = await regenerateBrokenPages(brokenPages);
-        attempt.fix = { applied: regenResult.regenerated.length > 0, filesModified: regenResult.regenerated, regenerated: true };
-        report.attempts.push(attempt);
-
-        if (regenResult.regenerated.length > 0) {
-          logAction('qa', 'reload', 'Waiting for hot reload after regeneration...');
-          await new Promise(r => setTimeout(r, 5000));
-
-          // Final re-test
-          logAction('qa', 'final-retest', 'Re-testing after regeneration');
-          const finalFunctional = await functionalTest(browser);
-          const finalVisual = await visualTest(finalFunctional.screenshots);
-          const finalIssues = [...finalFunctional.issues, ...(finalVisual.issues || [])];
-          const finalBlocking = finalIssues.filter(i => i.severity === 'critical' || i.severity === 'high' || i.blocking);
-
-          if (finalBlocking.length === 0) {
-            report.status = 'verified';
-            report.qualityScore = finalVisual.qualityScore || 7;
-            logAction('qa', 'verified', 'Passed after regeneration!');
-          } else {
-            logAction('qa', 'failed', `${finalBlocking.length} blocking issues remain after regeneration`);
-          }
-        }
-      }
+    } else {
+      logAction('qa', 'primary-fail', `${primaryBlocking.length} blocking issues in primary gate — skipping deep verification`);
     }
 
-    report.totalIssues = report.attempts.reduce((sum, a) => sum + a.criticalHighCount, 0);
+    const attempt = {
+      cycle: 1,
+      verificationMode: primaryBlocking.length === 0 ? 'deep' : 'primary-only',
+      primaryFunctionalIssues: primaryFunctional.issues.length,
+      primaryBlockingCount: primaryBlocking.length,
+      primaryDeadInteractiveCount: primaryDeadInteractives.length,
+      functionalIssues: functional.issues.length,
+      visualIssues: (visual.issues || []).length,
+      criticalHighCount: criticalHigh.length,
+      blockingIssueCount: blockingIssues.length,
+      deadInteractiveCount: deadInteractiveIssues.length,
+      pages: functional.pages,
+      clicks: functional.clicks,
+      forms: functional.forms,
+      visualAnalysis: (visual.issues || []).slice(0, 20), // Cap for report size
+      visualSkipped: visual.skipped || false,
+      fix: null, // Healing is the backend's responsibility now.
+    };
+    report.attempts.push(attempt);
+
+    if (blockingIssues.length === 0) {
+      report.status = 'verified';
+      report.qualityScore = visual.qualityScore || (10 - Math.min(5, allIssues.filter(i => i.severity === 'medium').length));
+      logAction('qa', 'verified', `Passed! Score: ${report.qualityScore}/10`);
+    } else {
+      logAction('qa', 'issues', `${blockingIssues.length} blocking issues found (${deadInteractiveIssues.length} dead interactives) — backend will auto-fix`);
+    }
+
+    report.totalIssues = criticalHigh.length;
   } catch (err) {
     logAction('qa', 'fatal', err.message.substring(0, 200));
     report.status = 'error';

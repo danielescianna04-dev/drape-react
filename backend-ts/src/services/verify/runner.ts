@@ -163,7 +163,31 @@ export async function verify(projectId: string, userId: string, options: VerifyR
               const last = fullE2e.attempts[fullE2e.attempts.length - 1];
               if (last.pages && !e2e.pages?.length) e2e.pages = last.pages;
               if (last.clicks && !e2e.navigation?.length) e2e.navigation = last.clicks;
-              log.info(`[Verify] Loaded qa-report.json: ${last.pages?.length || 0} pages, ${last.clicks?.length || 0} clicks`);
+              // Surface Gemini Vision issues so the backend auto-fix prompt can see them.
+              // qa-agent no longer self-heals — these issues would otherwise be ignored.
+              if (Array.isArray(last.visualAnalysis) && last.visualAnalysis.length > 0) {
+                const visualErrors = last.visualAnalysis
+                  .filter((v: any) => v?.severity === 'critical' || v?.severity === 'high')
+                  .slice(0, 6)
+                  .map((v: any) => {
+                    const where = v.page ? ` on ${v.page}` : '';
+                    const hint = v.suggestion ? ` — ${v.suggestion}` : '';
+                    return `[visual] ${v.description || 'visual issue'}${where}${hint}`;
+                  });
+                if (!Array.isArray(e2e.errors)) e2e.errors = [];
+                for (const ve of visualErrors) {
+                  if (!e2e.errors.some((ex: string) => ex.startsWith(ve.substring(0, 40)))) {
+                    e2e.errors.push(ve);
+                  }
+                }
+                // qa-agent reports "verified" only when there are no blocking issues,
+                // but we still want to auto-fix visual-only regressions when they appear
+                // as critical/high — so flip passed=false if visual errors were surfaced.
+                if (visualErrors.length > 0 && e2e.passed !== false) {
+                  e2e.passed = false;
+                }
+                log.info(`[Verify] Promoted ${visualErrors.length} visual issue(s) to auto-fix queue`);
+              }
             } else {
               if (fullE2e.pages) e2e.pages = fullE2e.pages;
               if (fullE2e.navigation) e2e.navigation = fullE2e.navigation;

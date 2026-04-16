@@ -341,6 +341,7 @@ Rules:
 - For 'use client' errors: add 'use client' at top of file
 - For missing module: add the correct import
 - For blank page: ensure components return visible JSX with Tailwind classes
+- For "[visual]" errors: Gemini Vision spotted a layout/design issue (wrong alignment, broken grid, overlapping text, missing CSS, distorted images, inaccessible contrast). The description names the page and the issue. Open that page file and its CSS/layout, and fix the root cause — not only the symptom. If the issue mentions a missing element ("no heading", "no CTA", "empty section") add it with real content and Tailwind classes.
 - For "Page is blank" / "No visible content": the route renders but the viewport is effectively empty. Fix the actual route file and any component it renders so there is guaranteed visible above-the-fold content on first load:
   • render a real heading, body copy, and at least one visible card/list/grid/button section
   • if data arrays are empty or undefined, provide hardcoded fallback mock items instead of returning null/[]
