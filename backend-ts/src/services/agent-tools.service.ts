@@ -7,6 +7,7 @@ import { writeTodos, getTodos } from '../tools/todo-write';
 import { log } from '../utils/logger';
 import { Session, ToolResult } from '../types';
 import path from 'path';
+import { PROTECTED_TEMPLATE_FILES } from '../utils/protected-files';
 
 /**
  * Blocklist of dangerous command patterns to prevent abuse
@@ -222,17 +223,10 @@ class AgentToolsService {
   }
 
   /**
-   * Write a file to the project
+   * Write a file to the project.
+   * Blocks overwriting template scaffolding — see utils/protected-files.ts
    */
-  // Template config files that AI must NEVER overwrite
-  private static readonly PROTECTED_FILES = new Set([
-    'vite.config.ts', 'tsconfig.json', 'next.config.ts', 'next.config.mjs',
-    'postcss.config.mjs', 'postcss.config.js', 'tailwind.config.ts', 'tailwind.config.js',
-    'astro.config.mjs', 'index.html', 'src/main.tsx', 'src/main.ts',
-    'src/index.css', 'src/style.css', 'app/globals.css', 'app/layout.tsx',
-    'app/_layout.tsx',  // Expo root layout — contains web-mode navigation guard
-    'src/lib/utils.ts', 'app/lib/utils.ts',
-  ]);
+  private static readonly PROTECTED_FILES = PROTECTED_TEMPLATE_FILES;
 
   private async writeFile(
     projectId: string,
@@ -324,6 +318,14 @@ class AgentToolsService {
       if (/href\s*=\s*["'](#|)\s*["']/.test(content)) {
         issues.push('DEAD LINK: href="#" or href="" — use a real route path');
       }
+      // SafeLink/Link with empty href/to
+      if (/<(?:SafeLink|Link)[^>]+\b(?:href|to)\s*=\s*["']\s*["']/.test(content)) {
+        issues.push('DEAD LINK: SafeLink/Link with empty href/to — link must point to a real route');
+      }
+      // SafeLink/Link with hash-only href
+      if (/<(?:SafeLink|Link)[^>]+\b(?:href|to)\s*=\s*["']#["']/.test(content)) {
+        issues.push('DEAD LINK: SafeLink/Link points to "#" — use a real route or remove the element');
+      }
       // <button> without onClick/@click/onclick (but not type="submit" or disabled)
       const buttonMatches = content.match(/<button[^>]*>/gi) || [];
       for (const btn of buttonMatches) {
@@ -343,6 +345,29 @@ class AgentToolsService {
       // Expo/RN: Pressable/TouchableOpacity without onPress
       if (/<(?:Pressable|TouchableOpacity)[^>]*>/.test(content) && !content.includes('onPress')) {
         issues.push('DEAD BUTTON: Pressable/TouchableOpacity without onPress — use SafePressable or add onPress');
+      }
+      // SafeButton missing onClick/onPress
+      if (/<SafeButton\b[^>]*>/.test(content) && !/\bonClick=|\bonPress=/.test(content)) {
+        issues.push('DEAD BUTTON: SafeButton rendered without onClick/onPress — wire a real action or remove it');
+      }
+      // SafePressable missing onPress
+      if (/<SafePressable\b[^>]*>/.test(content) && !/\bonPress=/.test(content)) {
+        issues.push('DEAD BUTTON: SafePressable rendered without onPress — wire a real action or remove it');
+      }
+      // Buttons disabled by default without loading/submitting semantics
+      if (/<(?:SafeButton|button)[^>]*\bdisabled\b[^>]*>/.test(content) && !/isLoading|loading|isSubmitting|submitting/.test(content)) {
+        issues.push('RISKY: Button rendered disabled without loading/submitting state — make sure this is intentional and still part of a usable flow');
+      }
+      // Forms with submit buttons but no submit handler
+      if (/<form\b[^>]*>/.test(content) && /type=["']submit["']/.test(content) && !/\bonSubmit=|handleSubmit|@submit=/.test(content)) {
+        issues.push('DEAD FORM: form has a submit button but no submit handler — submit must validate and produce visible feedback');
+      }
+      // RN touchables with no visible feedback helpers
+      if (/\bonPress\s*=\s*\{\s*\(\s*\)\s*=>\s*toast/.test(content) === false &&
+          /<(?:SafeButton|SafePressable|Pressable|TouchableOpacity)/.test(content) &&
+          /onPress/.test(content) &&
+          /router\.push|set[A-Z][A-Za-z0-9_]*\(|navigation\.navigate|toggle[A-Z]|open[A-Z]/.test(content) === false) {
+        issues.push('RISKY: onPress handlers found without obvious navigation/state/toast feedback — verify every tap changes something visible');
       }
       // JSON.parse without fallback on localStorage/sessionStorage
       if (/JSON\.parse\(\s*(localStorage|sessionStorage)\.getItem\([^)]+\)\s*\)/.test(content)) {
@@ -531,6 +556,7 @@ class AgentToolsService {
     session?: Session
   ): Promise<ToolResult> {
     const { command, timeout = 60000, background = false } = input;
+    const commandStart = Date.now();
 
     if (!command) {
       return { success: false, error: 'command is required' };
@@ -589,16 +615,24 @@ class AgentToolsService {
     }
 
     try {
+      log.info(`[AgentTools] run_command start (${projectId}): ${effectiveCommand}`);
       const result = await dockerService.exec(
         session.agentUrl,
         effectiveCommand,
         '/home/coder/project',
         timeout
       );
+      const durationMs = Date.now() - commandStart;
+      if (durationMs >= 10000) {
+        log.warn(`[AgentTools] run_command slow (${projectId}) ${durationMs}ms: ${effectiveCommand}`);
+      } else {
+        log.info(`[AgentTools] run_command complete (${projectId}) ${durationMs}ms exit=${result.exitCode}: ${effectiveCommand}`);
+      }
 
       const output = [
         `Command: ${effectiveCommand}`,
         `Exit code: ${result.exitCode}`,
+        `Duration: ${Math.round(durationMs / 1000)}s`,
       ];
 
       if (result.stdout) {
@@ -617,6 +651,8 @@ class AgentToolsService {
         stderr: result.stderr,
       };
     } catch (error: any) {
+      const durationMs = Date.now() - commandStart;
+      log.warn(`[AgentTools] run_command failed (${projectId}) ${durationMs}ms: ${effectiveCommand} :: ${error.message}`);
       return {
         success: false,
         error: `Command execution failed: ${error.message}`,

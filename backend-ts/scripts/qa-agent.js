@@ -26,6 +26,18 @@ const PROJECT_DIR = '/home/coder/project';
 const MAX_SCREENSHOTS_PER_BATCH = 4;
 const MAX_SCREENSHOTS_TOTAL = 20; // Prevent OOM on large projects
 const MAX_FIX_FILES = 8;
+const PRIMARY_ROUTE_LIMIT = 5;
+const PRIMARY_CLICK_LIMIT = 24;
+const DEEP_CLICK_LIMIT = 80;
+const TRANSIENT_EXTERNAL_IMAGE_HOSTS = [
+  'picsum.photos',
+  'images.unsplash.com',
+  'source.unsplash.com',
+  'placehold.co',
+  'via.placeholder.com',
+  'dummyimage.com',
+  'placekitten.com',
+];
 
 // Mobile-only for speed during creation gate. Multi-viewport is future deep QA.
 const VIEWPORTS = [
@@ -33,13 +45,117 @@ const VIEWPORTS = [
 ];
 
 // Files AI must NEVER modify (secrets, core config). CSS plumbing files ARE repairable.
+// KEEP IN SYNC with backend-ts/src/utils/protected-files.ts (PROTECTED_CONFIG_FILES).
+// This file runs in the container as raw JS and cannot import from the TS backend.
 const PROTECTED_FILES = new Set([
   'package.json', 'tsconfig.json',
-  'next.config.ts', 'next.config.js',
+  'next.config.ts', 'next.config.js', 'next.config.mjs',
   'astro.config.mjs',
   'vite.config.ts', 'vite.config.js',
   'index.html',
 ]);
+
+function normalizeInteractiveLabel(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isInputDependentAction(el) {
+  const label = normalizeInteractiveLabel(el?.text);
+  return /(send|submit|search|filter|apply|reply|comment|message|chat)/i.test(label);
+}
+
+function isLikelyPrimaryInteractive(el) {
+  const label = normalizeInteractiveLabel(el?.text);
+  const href = normalizeInteractiveLabel(el?.href);
+  const tag = normalizeInteractiveLabel(el?.tag);
+
+  if (!label && !href && !el?.iconOnly) return false;
+  if (el?.type === 'button' || el?.type === 'interactive') return true;
+  if (el?.type === 'broken-link') return true;
+  if (href && href !== '#' && href !== '/') return true;
+  if (tag === 'button') return true;
+  if (el?.iconOnly && (el?.aboveFold || el?.inHeader || el?.inNav)) return true;
+
+  return /(home|chat|messages|status|settings|profile|search|explore|discover|feed|cart|checkout|shop|buy|subscribe|pricing|camera|reels|shorts|library|menu|account|orders|favorites|saved|notifications|inbox|calendar|book|schedule|next|continue|start|get started|view|open|export|download|share|play|watch|details)/i.test(label);
+}
+
+function classifyDeadInteractive(el, pagePath) {
+  const normalizedHref = normalizeInteractiveLabel(el?.href);
+  const normalizedPage = normalizeInteractiveLabel(pagePath);
+  const samePageHref =
+    normalizedHref &&
+    normalizedHref !== '#' &&
+    (normalizedHref === normalizedPage || normalizedHref === `${normalizedPage}/`);
+
+  if (samePageHref && el?.type === 'link') {
+    return {
+      severity: 'low',
+      blocking: false,
+      reason: 'same-page link',
+    };
+  }
+
+  if (el?.disabled || el?.ariaDisabled) {
+    return {
+      severity: 'low',
+      blocking: false,
+      reason: 'disabled interactive',
+    };
+  }
+
+  if (el?.inputRequired && el?.inputEmpty && isInputDependentAction(el)) {
+    return {
+      severity: 'low',
+      blocking: false,
+      reason: 'awaiting user input',
+    };
+  }
+
+  if (isLikelyPrimaryInteractive(el)) {
+    return {
+      severity: 'high',
+      blocking: true,
+      reason: 'primary interactive did nothing',
+    };
+  }
+
+  return {
+    severity: 'medium',
+    blocking: false,
+    reason: 'secondary interactive did nothing',
+  };
+}
+
+function isLikelyPrimaryRoute(route) {
+  if (!route || route === '/') return true;
+  if (route.includes('[') || route.includes(']')) return false;
+  const depth = route.split('/').filter(Boolean).length;
+  return depth <= 1;
+}
+
+function prioritizeClickables(clickables, pagePath, mode) {
+  const ranked = [...clickables].sort((a, b) => {
+    const aPrimary = isLikelyPrimaryInteractive(a) ? 1 : 0;
+    const bPrimary = isLikelyPrimaryInteractive(b) ? 1 : 0;
+    if (aPrimary !== bPrimary) return bPrimary - aPrimary;
+
+    const aAboveFold = a.aboveFold ? 1 : 0;
+    const bAboveFold = b.aboveFold ? 1 : 0;
+    if (aAboveFold !== bAboveFold) return bAboveFold - aAboveFold;
+
+    const aNav = a.type === 'nav' ? 1 : 0;
+    const bNav = b.type === 'nav' ? 1 : 0;
+    if (aNav !== bNav) return bNav - aNav;
+
+    return 0;
+  });
+
+  if (mode === 'primary') {
+    return ranked.filter(el => isLikelyPrimaryInteractive(el) || el.type === 'nav').slice(0, PRIMARY_CLICK_LIMIT);
+  }
+
+  return ranked.slice(0, DEEP_CLICK_LIMIT);
+}
 
 // ── Logging (no base64, no secrets) ────────────────────────────
 const qaLog = [];
@@ -109,7 +225,7 @@ function detectPages() {
 
 // ── Page Analysis ──────────────────────────────────────────────
 async function analyzePage(page) {
-  return page.evaluate(() => {
+  return page.evaluate((transientImageHosts) => {
     const body = document.body;
     const text = (body?.innerText?.trim() || '');
     const hasContent = text.length > 30;
@@ -139,7 +255,18 @@ async function analyzePage(page) {
 
     const images = document.querySelectorAll('img');
     let brokenImages = 0;
-    images.forEach(img => { if (!img.complete || img.naturalWidth === 0) brokenImages++; });
+    images.forEach((img) => {
+      if (img.complete && img.naturalWidth > 0) return;
+      const src = img.currentSrc || img.getAttribute('src') || '';
+      let host = '';
+      try {
+        host = new URL(src, window.location.href).hostname.toLowerCase();
+      } catch {}
+      const isTransientExternal =
+        !!host &&
+        transientImageHosts.some((allowedHost) => host === allowedHost || host.endsWith(`.${allowedHost}`));
+      if (!isTransientExternal) brokenImages++;
+    });
 
     return {
       hasContent, hasStyles, hasError, isBlank,
@@ -152,7 +279,7 @@ async function analyzePage(page) {
       bodyBg,
       title: document.title,
     };
-  });
+  }, TRANSIENT_EXTERNAL_IMAGE_HOSTS);
 }
 
 // ── Clickable Elements (CSS selectors, not coordinates) ────────
@@ -160,11 +287,38 @@ async function getClickableElements(page) {
   return page.evaluate(() => {
     const results = [];
     const seen = new Set();
+    const rects = [];
+    let qaIdCounter = 0;
+
+    function isContainedByExisting(rect) {
+      for (const existing of rects) {
+        if (
+          rect.x >= existing.x &&
+          rect.y >= existing.y &&
+          rect.x + rect.width <= existing.x + existing.width &&
+          rect.y + rect.height <= existing.y + existing.height
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
 
     function addEl(el, type, href) {
       const rect = el.getBoundingClientRect();
       if (rect.width < 5 || rect.height < 5) return;
-      if (rect.top > window.innerHeight || rect.bottom < 0) return;
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') return;
+      const disabled =
+        !!el.disabled ||
+        el.getAttribute('aria-disabled') === 'true' ||
+        el.getAttribute('data-disabled') === 'true';
+      if (disabled) return;
+      if (isContainedByExisting(rect)) return;
+      const interactiveAncestor = el.parentElement?.closest(
+        'a[href], button, [role="button"], [onclick], nav a, nav button, [role="tab"], [role="menuitem"]',
+      );
+      if (interactiveAncestor && interactiveAncestor !== el) return;
 
       // Get text from multiple sources — icon buttons often have no innerText
       let text = (el.innerText || '').trim().substring(0, 50);
@@ -184,23 +338,43 @@ async function getClickableElements(page) {
           if (cls) text = cls;
         }
       }
+      const iconOnly = !text;
       // Last resort: use tag + coordinates as identifier
       if (!text) text = `${el.tagName.toLowerCase()}@${Math.round(rect.x)},${Math.round(rect.y)}`;
 
-      const key = `${type}:${text}:${Math.round(rect.x)}`;
+      const key = `${type}:${text}:${Math.round(rect.x)}:${Math.round(rect.y)}`;
       if (seen.has(key)) return;
       seen.add(key);
+      rects.push({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
 
-      let selector = '';
-      if (el.id) selector = `#${CSS.escape(el.id)}`;
-      else if (el.getAttribute('data-testid')) selector = `[data-testid="${el.getAttribute('data-testid')}"]`;
-      else if (el.getAttribute('aria-label')) selector = `[aria-label="${el.getAttribute('aria-label')}"]`;
+      const qaId = el.getAttribute('data-drape-qa-id') || `qa-${++qaIdCounter}`;
+      el.setAttribute('data-drape-qa-id', qaId);
+      const selector = `[data-drape-qa-id="${qaId}"]`;
+
+      const scope =
+        el.closest('form, [role="search"], [class*="search"], [class*="chat"], [class*="message"], [class*="composer"], [data-chat], [data-search]') ||
+        el.parentElement ||
+        el;
+      const relatedField = scope?.querySelector?.(
+        'textarea, input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"])'
+      );
+      const relatedValue = typeof relatedField?.value === 'string' ? relatedField.value.trim() : '';
+      const inputRequired = !!relatedField;
+      const inputEmpty = inputRequired && relatedValue.length === 0;
 
       results.push({
         type, href: href || null, text, selector,
         tag: el.tagName.toLowerCase(),
+        iconOnly,
+        disabled,
+        ariaDisabled: el.getAttribute('aria-disabled') === 'true',
+        inputRequired,
+        inputEmpty,
+        inHeader: !!el.closest('header, [role="banner"]'),
+        inNav: !!el.closest('nav, [role="navigation"], [role="tablist"]'),
         x: Math.round(rect.x + rect.width / 2),
         y: Math.round(rect.y + rect.height / 2),
+        aboveFold: rect.top >= 0 && rect.top < (window.innerHeight * 1.1),
       });
     }
 
@@ -223,8 +397,17 @@ async function getClickableElements(page) {
       addEl(el, 'interactive', null);
     }
 
-    return results.slice(0, 40); // Cap clickables per page
+    return results.slice(0, 80); // Cap clickables per page
   });
+}
+
+async function refreshClickable(page, target) {
+  const currentClickables = await getClickableElements(page).catch(() => []);
+  return currentClickables.find((candidate) =>
+    candidate.type === target.type &&
+    candidate.text === target.text &&
+    (candidate.href || '') === (target.href || '')
+  ) || null;
 }
 
 // ── Form Detection & Fill ──────────────────────────────────────
@@ -312,11 +495,15 @@ async function waitForChange(page, prevSnapshot, timeout = CLICK_TIMEOUT) {
 }
 
 // ── Phase 1: Functional Testing ────────────────────────────────
-async function functionalTest(browser) {
+async function functionalTest(browser, options = {}) {
+  const mode = options.mode || 'deep';
   const results = { pages: [], clicks: [], forms: [], issues: [], screenshots: {} };
   const jsErrors = [];
   const detectedPages = detectPages();
-  logAction('functional', 'start', `Testing ${detectedPages.length} pages across ${VIEWPORTS.length} viewports`);
+  const pagesUnderTest = mode === 'primary'
+    ? detectedPages.filter(isLikelyPrimaryRoute).slice(0, PRIMARY_ROUTE_LIMIT)
+    : detectedPages;
+  logAction('functional', 'start', `Testing ${pagesUnderTest.length} pages across ${VIEWPORTS.length} viewports (${mode})`);
 
   let screenshotCount = 0;
 
@@ -325,7 +512,7 @@ async function functionalTest(browser) {
     await page.setViewport({ width: vp.width, height: vp.height });
     page.on('pageerror', err => jsErrors.push(err.message));
 
-    for (const pagePath of detectedPages) {
+    for (const pagePath of pagesUnderTest) {
       const url = `${BASE_URL}${pagePath}`;
       const pageResult = { path: pagePath, status: 0, errors: [], checks: {}, viewport: vp.name };
       jsErrors.length = 0;
@@ -387,7 +574,7 @@ async function functionalTest(browser) {
     // Click testing + form testing: only on mobile viewport (avoid tripling time)
     if (vp.name === 'mobile') {
       const testedClicks = new Set();
-      for (const testPage of detectedPages) {
+      for (const testPage of pagesUnderTest) {
         // Skip dynamic routes with [params] — they cause navigation issues
         if (testPage.includes('[')) continue;
 
@@ -399,8 +586,8 @@ async function functionalTest(browser) {
         if (actualPath !== testPage && actualPath !== testPage + '/') continue;
 
         // Clicks
-        const clickables = await getClickableElements(page).catch(() => []);
-        logAction('functional', 'click-scan', `${testPage}: ${clickables.length} clickables`);
+        const clickables = prioritizeClickables(await getClickableElements(page).catch(() => []), testPage, mode);
+        logAction('functional', 'click-scan', `${testPage}: ${clickables.length} clickables (${mode})`);
 
         for (const el of clickables) {
           const clickKey = `${testPage}:${el.type}:${el.text}`;
@@ -412,23 +599,56 @@ async function functionalTest(browser) {
             await new Promise(r => setTimeout(r, 500));
           }
 
-          const prevSnap = await takeDomSnapshot(page);
+          const refreshed = await refreshClickable(page, el);
+          if (!refreshed) {
+            logAction('functional', 'click-skip', `${testPage}: could not reacquire ${el.type} "${el.text}"`);
+            continue;
+          }
+          el.selector = refreshed.selector;
+          el.x = refreshed.x;
+          el.y = refreshed.y;
+          el.tag = refreshed.tag;
+          el.iconOnly = refreshed.iconOnly;
+          el.inHeader = refreshed.inHeader;
+          el.inNav = refreshed.inNav;
+          el.aboveFold = refreshed.aboveFold;
+
           jsErrors.length = 0;
           const clickResult = { element: { type: el.type, text: el.text, href: el.href }, fromPage: testPage, result: 'unknown', toPage: null, error: null };
 
           try {
+            // Click by selector first, fallback coordinates
+            let clicked = false;
+            if (el.selector) {
+              try {
+                await page.$eval(el.selector, (node) => {
+                  node.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+                });
+                await new Promise(r => setTimeout(r, 150));
+                clicked = true;
+              } catch {}
+            }
+
             let screenshotBefore = null;
             if (screenshotCount < MAX_SCREENSHOTS_TOTAL) {
               screenshotBefore = await page.screenshot({ type: 'png', encoding: 'base64' }).catch(() => null);
               if (screenshotBefore) screenshotCount++;
             }
 
-            // Click by selector first, fallback coordinates
-            let clicked = false;
-            if (el.selector) {
-              try { await page.click(el.selector); clicked = true; } catch {}
+            const prevSnap = await takeDomSnapshot(page);
+
+            if (clicked && el.selector) {
+              try {
+                await page.click(el.selector);
+              } catch {
+                clicked = false;
+              }
             }
             if (!clicked) {
+              await page.evaluate((x, y) => {
+                window.scrollTo({ top: Math.max(0, y - window.innerHeight / 2), behavior: 'instant' });
+              }, el.x, el.y).catch(() => {});
+              await new Promise(r => setTimeout(r, 150));
               await page.mouse.click(el.x, el.y);
             }
 
@@ -456,12 +676,20 @@ async function functionalTest(browser) {
               }
             } else {
               clickResult.result = 'no-change';
-              // Same-page nav links (current page link) and decorative elements are expected to do nothing
-              // Only CTA buttons that should navigate are truly broken
-              const isLikelySamePageLink = el.href === testPage || el.href === testPage + '/';
-              const severity = isLikelySamePageLink ? 'low' : (el.type === 'button' ? 'high' : 'medium');
+              const deadInteractive = classifyDeadInteractive(el, testPage);
               clickResult.error = `"${el.text}" (${el.type}) clicked but nothing happened`;
-              results.issues.push({ type: 'functional', severity, page: testPage, description: clickResult.error });
+              results.issues.push({
+                type: 'functional',
+                severity: deadInteractive.severity,
+                blocking: deadInteractive.blocking,
+                page: testPage,
+                description: clickResult.error,
+                meta: {
+                  elementType: el.type,
+                  href: el.href || null,
+                  reason: deadInteractive.reason,
+                },
+              });
             }
 
             let screenshotAfter = null;
@@ -756,17 +984,50 @@ async function main() {
     for (let cycle = 1; cycle <= MAX_QA_CYCLES; cycle++) {
       logAction('qa', 'cycle-start', `Attempt ${cycle}/${MAX_QA_CYCLES}`);
 
-      const functional = await functionalTest(browser);
-      const visual = await visualTest(functional.screenshots);
+      const primaryFunctional = await functionalTest(browser, { mode: 'primary' });
+      const primaryIssues = [...primaryFunctional.issues];
+      const primaryBlocking = primaryIssues.filter(i => i.severity === 'critical' || i.severity === 'high' || i.blocking);
+      const primaryDeadInteractives = primaryFunctional.issues.filter(i =>
+        i.type === 'functional' &&
+        typeof i.description === 'string' &&
+        i.description.includes('clicked but nothing happened')
+      );
 
-      const allIssues = [...functional.issues, ...(visual.issues || [])];
-      const criticalHigh = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high');
+      let functional = primaryFunctional;
+      let visual = { issues: [], skipped: true };
+      let allIssues = [...primaryIssues];
+      let criticalHigh = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high');
+      let blockingIssues = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high' || i.blocking);
+      let deadInteractiveIssues = primaryDeadInteractives;
+
+      if (primaryBlocking.length === 0) {
+        logAction('qa', 'primary-pass', `Primary gate passed, running deep verification`);
+        const deepFunctional = await functionalTest(browser, { mode: 'deep' });
+        visual = await visualTest(deepFunctional.screenshots);
+        functional = deepFunctional;
+        allIssues = [...deepFunctional.issues, ...(visual.issues || [])];
+        criticalHigh = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high');
+        blockingIssues = allIssues.filter(i => i.severity === 'critical' || i.severity === 'high' || i.blocking);
+        deadInteractiveIssues = deepFunctional.issues.filter(i =>
+          i.type === 'functional' &&
+          typeof i.description === 'string' &&
+          i.description.includes('clicked but nothing happened')
+        );
+      } else {
+        logAction('qa', 'primary-fail', `${primaryBlocking.length} blocking issues in primary gate — skipping deep verification`);
+      }
 
       const attempt = {
         cycle,
+        verificationMode: primaryBlocking.length === 0 ? 'deep' : 'primary-only',
+        primaryFunctionalIssues: primaryFunctional.issues.length,
+        primaryBlockingCount: primaryBlocking.length,
+        primaryDeadInteractiveCount: primaryDeadInteractives.length,
         functionalIssues: functional.issues.length,
         visualIssues: (visual.issues || []).length,
         criticalHighCount: criticalHigh.length,
+        blockingIssueCount: blockingIssues.length,
+        deadInteractiveCount: deadInteractiveIssues.length,
         pages: functional.pages,
         clicks: functional.clicks,
         forms: functional.forms,
@@ -774,7 +1035,7 @@ async function main() {
         visualSkipped: visual.skipped || false,
       };
 
-      if (criticalHigh.length === 0) {
+      if (blockingIssues.length === 0) {
         report.status = 'verified';
         report.qualityScore = visual.qualityScore || (10 - Math.min(5, allIssues.filter(i => i.severity === 'medium').length));
         attempt.fix = null;
@@ -783,7 +1044,7 @@ async function main() {
         break;
       }
 
-      logAction('qa', 'issues', `${criticalHigh.length} critical/high issues found`);
+      logAction('qa', 'issues', `${blockingIssues.length} blocking issues found (${deadInteractiveIssues.length} dead interactives)`);
 
       if (cycle < MAX_QA_CYCLES) {
         // Self-heal
@@ -810,14 +1071,15 @@ async function main() {
           logAction('qa', 'final-retest', 'Re-testing after regeneration');
           const finalFunctional = await functionalTest(browser);
           const finalVisual = await visualTest(finalFunctional.screenshots);
-          const finalCritical = [...finalFunctional.issues, ...(finalVisual.issues || [])].filter(i => i.severity === 'critical' || i.severity === 'high');
+          const finalIssues = [...finalFunctional.issues, ...(finalVisual.issues || [])];
+          const finalBlocking = finalIssues.filter(i => i.severity === 'critical' || i.severity === 'high' || i.blocking);
 
-          if (finalCritical.length === 0) {
+          if (finalBlocking.length === 0) {
             report.status = 'verified';
             report.qualityScore = finalVisual.qualityScore || 7;
             logAction('qa', 'verified', 'Passed after regeneration!');
           } else {
-            logAction('qa', 'failed', `${finalCritical.length} issues remain after regeneration`);
+            logAction('qa', 'failed', `${finalBlocking.length} blocking issues remain after regeneration`);
           }
         }
       }
@@ -901,6 +1163,8 @@ async function main() {
         functionalIssues: a.functionalIssues,
         visualIssues: a.visualIssues,
         criticalHighCount: a.criticalHighCount,
+        blockingIssueCount: a.blockingIssueCount,
+        deadInteractiveCount: a.deadInteractiveCount,
         visualAnalysis: a.visualAnalysis,
         visualSkipped: a.visualSkipped,
         fix: a.fix,

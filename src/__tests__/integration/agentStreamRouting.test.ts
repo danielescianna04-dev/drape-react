@@ -41,7 +41,7 @@ describe('agent stream routing edge cases', () => {
     expect(result.intent).toBe('chat');
   });
 
-  it('projectCreation=false does not trigger creation even with long prompt', () => {
+  it('long prompt without explicit projectCreation stays as chat', () => {
     const result = resolveAgentStreamRouting({
       path: '/stream',
       body: {
@@ -49,9 +49,7 @@ describe('agent stream routing edge cases', () => {
         prompt: 'a'.repeat(3000),
       },
     });
-    // Legacy heuristic still fires because projectCreation is false (not explicitly preventing it)
-    // The heuristic checks prompt length on /stream path
-    expect(result.intent).toBe('project_creation');
+    expect(result.intent).toBe('chat');
   });
 
   it('explicit projectCreation=true on /run/plan still uses project_creation intent', () => {

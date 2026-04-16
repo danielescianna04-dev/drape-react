@@ -31,7 +31,7 @@ describe('resolveAgentStreamRouting', () => {
     });
   });
 
-  it('preserves the legacy long-prompt fallback for older clients', () => {
+  it('long prompts without explicit projectCreation stay as chat', () => {
     expect(
       resolveAgentStreamRouting({
         path: '/stream',
@@ -41,7 +41,7 @@ describe('resolveAgentStreamRouting', () => {
       }),
     ).toEqual({
       mode: 'fast',
-      intent: 'project_creation',
+      intent: 'chat',
     });
   });
 

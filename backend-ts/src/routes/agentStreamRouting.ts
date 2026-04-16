@@ -7,7 +7,7 @@ interface ResolveAgentStreamRoutingParams {
   body?: {
     mode?: string | null;
     projectCreation?: boolean | null;
-    prompt?: unknown;
+    [key: string]: unknown;
   } | null;
 }
 
@@ -20,12 +20,8 @@ export const resolveAgentStreamRouting = ({
   path,
   body,
 }: ResolveAgentStreamRoutingParams): AgentStreamRoutingResult => {
-  const explicitProjectCreation = body?.projectCreation === true;
-  const prompt = typeof body?.prompt === 'string' ? body.prompt : '';
-  const legacyProjectCreationHeuristic = path === '/stream' && prompt.length > 2000;
-
   return {
     mode: getAgentModeFromPath(path),
-    intent: explicitProjectCreation || legacyProjectCreationHeuristic ? 'project_creation' : 'chat',
+    intent: body?.projectCreation === true ? 'project_creation' : 'chat',
   };
 };
