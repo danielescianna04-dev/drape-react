@@ -13,6 +13,7 @@ export type AgentMode = 'fast' | 'planning';
 
 export interface ToolEvent {
   type:
+    | 'tool_input'
     | 'tool_start'
     | 'tool_complete'
     | 'tool_error'
@@ -28,7 +29,14 @@ export interface ToolEvent {
     | 'fatal_error'
     | 'processing'
     | 'heartbeat'
-    | 'error';
+    | 'error'
+    | 'thinking_start'
+    | 'thinking_end'
+    | 'usage'
+    | 'budget_exceeded'
+    | 'budget_warning'
+    | 'sub_agent_start'
+    | 'sub_agent_complete';
   tool?: string;
   input?: any;
   success?: boolean;
@@ -37,6 +45,7 @@ export interface ToolEvent {
   content?: string;
   timestamp?: number;
   iteration?: number;
+  result?: any;
 }
 
 export interface UseAgentStreamOptions {
@@ -51,11 +60,22 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
   const [status, setStatus] = useState<'idle' | 'running' | 'complete' | 'error'>('idle');
   const [result, setResult] = useState<any>(null);
   const esRef = useRef<EventSource | null>(null);
+  const completionHandledRef = useRef(false);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
   const startStream = useCallback(
-    async (projectId: string, mode: AgentMode, prompt: string) => {
+    async (
+      projectId: string,
+      mode: AgentMode,
+      prompt: string,
+      streamOptions?: {
+        model?: string;
+        thinkingLevel?: string;
+        projectName?: string;
+        bodyExtras?: Record<string, unknown>;
+      },
+    ) => {
       if (isStreaming) {
         console.warn('[useAgentStream] Already streaming');
         return;
@@ -67,12 +87,13 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
       setCurrentTool(null);
       setStatus('running');
       setResult(null);
+      completionHandledRef.current = false;
 
       try {
         const token = await getAuthToken();
         const apiUrl = config.apiUrl;
 
-        const es = new EventSource(`${apiUrl}/agent/stream`, {
+        const es = new EventSource(`${apiUrl}/agent/create`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -81,8 +102,11 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
           body: JSON.stringify({
             projectId,
             mode,
-            projectCreation: true,
             prompt,
+            model: streamOptions?.model,
+            thinkingLevel: streamOptions?.thinkingLevel ?? null,
+            projectName: streamOptions?.projectName,
+            ...(streamOptions?.bodyExtras || {}),
           }),
           pollingInterval: 0,
         });
@@ -95,6 +119,7 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
           'message', 'text_delta', 'thinking', 'thinking_start', 'thinking_end',
           'iteration_start', 'status', 'complete', 'error', 'done',
           'processing', 'heartbeat', 'plan_ready', 'usage',
+          'budget_exceeded', 'budget_warning', 'sub_agent_start', 'sub_agent_complete',
         ];
 
         for (const eventType of eventTypes) {
@@ -113,25 +138,42 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
                 setCurrentTool(event.tool || null);
               } else if (eventType === 'tool_complete' || eventType === 'tool_error') {
                 setCurrentTool(null);
-              } else if (eventType === 'complete' || eventType === 'done') {
+              } else if (eventType === 'complete') {
                 setStatus('complete');
                 setCurrentTool(null);
                 setIsStreaming(false);
 
-                if (eventData.result || eventData.message) {
+                if (!completionHandledRef.current && (eventData.result || eventData.message)) {
+                  completionHandledRef.current = true;
                   const resultData = eventData.result || eventData;
                   setResult(resultData);
                   optionsRef.current.onComplete?.(resultData);
-                } else {
+                } else if (!completionHandledRef.current) {
+                  completionHandledRef.current = true;
                   optionsRef.current.onComplete?.({ success: true });
                 }
 
                 es.close();
                 esRef.current = null;
                 return;
+              } else if (eventType === 'done') {
+                setStatus((prev) => (prev === 'error' ? prev : 'complete'));
+                setCurrentTool(null);
+                setIsStreaming(false);
+                es.close();
+                esRef.current = null;
+                return;
               } else if (eventType === 'error') {
                 setStatus('error');
                 setIsStreaming(false);
+                optionsRef.current.onError?.(eventData.error || eventData.message || 'Agent error');
+                es.close();
+                esRef.current = null;
+                return;
+              } else if (eventType === 'fatal_error' || eventType === 'budget_exceeded') {
+                setStatus('error');
+                setIsStreaming(false);
+                setCurrentTool(null);
                 optionsRef.current.onError?.(eventData.error || eventData.message || 'Agent error');
                 es.close();
                 esRef.current = null;
@@ -189,6 +231,7 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
       esRef.current.close();
       esRef.current = null;
     }
+    completionHandledRef.current = false;
     setIsStreaming(false);
     setStatus('idle');
   }, []);
@@ -198,6 +241,7 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
       esRef.current.close();
       esRef.current = null;
     }
+    completionHandledRef.current = false;
     setIsStreaming(false);
     setEvents([]);
     setCurrentTool(null);

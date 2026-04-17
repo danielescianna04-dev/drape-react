@@ -24,7 +24,6 @@ import { useChatEngine } from '../../hooks/engine/useChatEngine';
 import { useAgentStore } from '../../core/agent/agentStore';
 import { useFileCacheStore } from '../../core/cache/fileCacheStore';
 import { useNavigationStore } from '../../core/navigation/navigationStore';
-import { ChatWelcomeOverlay } from '../../shared/components/ChatWelcomeOverlay';
 import { WorkspaceTabContent } from './WorkspaceTabContent';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatComposerArea } from './ChatComposerArea';
@@ -82,6 +81,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     medium: t('terminal:chat.reasoningLevels.medium'),
     high: t('terminal:chat.reasoningLevels.high'),
   }), [t]);
+  const debugEffectCountsRef = useRef<Record<string, number>>({});
+  const logChatDebug = useCallback((name: string, payload?: Record<string, unknown>) => {
+    const nextCount = (debugEffectCountsRef.current[name] || 0) + 1;
+    debugEffectCountsRef.current[name] = nextCount;
+    if (nextCount <= 25) {
+      console.log('[ChatDebug]', name, { count: nextCount, ...payload });
+    }
+  }, []);
   // Use custom hooks for state management and UI concerns
   const chatState = useChatState(isCardMode);
   const insets = useSafeAreaInsets();
@@ -210,6 +217,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const currentTab = useMemo(() => {
     return tab || tabs.find(t => t.id === activeTabId);
   }, [tab, tabs, activeTabId]);
+  const isCreationFlow = currentTab?.data?.creationFlow === true;
 
   // Always use tab-specific terminal items
   const tabTerminalItems = useMemo(() => currentTab?.terminalItems || [], [currentTab?.terminalItems]);
@@ -240,6 +248,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     // Only act if tab has actually changed
     if (previousTabIdRef.current !== currentTab.id) {
+      logChatDebug('tab_change_effect', {
+        tabId: currentTab.id,
+        previousTabId: previousTabIdRef.current ?? null,
+      });
       // Load input for new tab
       const savedInput = tabInputsRef.current[currentTab.id] || '';
       setInput(savedInput);
@@ -255,7 +267,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       // Update previous tab reference
       previousTabIdRef.current = currentTab.id;
     }
-  }, [currentTab?.id]); // ONLY depend on tab ID - NOT on input!
+  }, [currentTab?.id, logChatDebug]); // ONLY depend on tab ID - NOT on input!
 
   // Use specific selectors from focused stores to minimize re-renders
   const hasInteracted = useUIStore((state) => state.hasInteracted);
@@ -314,15 +326,26 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const hasUserMessaged = terminalItems.some(item => item.type === TerminalItemType.USER_MESSAGE);
 
   useLayoutEffect(() => {
+    logChatDebug('input_reveal_layout_effect', {
+      workstationId: currentWorkstation?.id ?? null,
+      tabId: currentTab?.id ?? null,
+      hasChatStarted,
+    });
     if (hasChatStarted) {
       inputRevealAnim.value = 1;
       return;
     }
 
     inputRevealAnim.value = 0;
-  }, [currentWorkstation?.id, currentTab?.id, hasChatStarted]);
+  }, [currentWorkstation?.id, currentTab?.id, hasChatStarted, logChatDebug]);
 
   useEffect(() => {
+    logChatDebug('input_reveal_effect', {
+      workstationId: currentWorkstation?.id ?? null,
+      tabId: currentTab?.id ?? null,
+      hasChatStarted,
+      inputMountDelay,
+    });
     if (hasChatStarted) {
       inputRevealAnim.value = 1;
       return;
@@ -335,7 +358,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         easing: Easing.out(Easing.cubic),
       })
     );
-  }, [currentWorkstation?.id, currentTab?.id, hasChatStarted, inputMountDelay]);
+  }, [currentWorkstation?.id, currentTab?.id, hasChatStarted, inputMountDelay, logChatDebug]);
 
   // Always add item to tab-specific storage
   const addTerminalItem = useCallback((item: Partial<TerminalItem> & { id: string; content: string }) => {
@@ -344,6 +367,131 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Use atomic function from store to avoid race conditions
     addTerminalItemToStore(currentTab.id, item);
   }, [currentTab, addTerminalItemToStore]);
+
+  const autoCreationLaunchRef = useRef<string | null>(null);
+  const creationCompleteHandledRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const autoStart = currentTab?.data?.autoStartAgent;
+    if (!isActiveTab || !currentTab?.id || !currentWorkstation?.id || !autoStart) return;
+    if (autoStart.kind !== 'project_creation' || !autoStart.prompt) return;
+    if (agentStreaming) return;
+
+    const requestId = String(autoStart.requestId || `${currentTab.id}:${currentWorkstation.id}`);
+    if (autoCreationLaunchRef.current === requestId) return;
+    autoCreationLaunchRef.current = requestId;
+
+    const chatId = String(currentTab.data?.chatId || `create-${currentWorkstation.id}`);
+    const displayPrompt = String(autoStart.displayPrompt || autoStart.prompt).trim();
+    const initialUserMessage = displayPrompt || `Crea la prima versione di ${currentWorkstation.name || 'questo progetto'}.`;
+    const creationChatTitle = currentWorkstation.name || currentTab.title || 'Nuovo progetto';
+
+    if (autoStart.model && autoStart.model !== selectedModel) {
+      setSelectedModel(autoStart.model);
+    }
+
+    const existingChat = useChatStore.getState().chatHistory.find((chat) => chat.id === chatId);
+    if (!existingChat) {
+      const chatSession = {
+        id: chatId,
+        title: creationChatTitle,
+        description: initialUserMessage.slice(0, 100),
+        createdAt: new Date(),
+        lastUsed: new Date(),
+        messages: [],
+        aiModel: autoStart.model || selectedModel,
+        repositoryId: currentWorkstation.id,
+        repositoryName: currentWorkstation.name,
+      };
+      useChatStore.getState().addChat(chatSession);
+    } else {
+      useChatStore.getState().updateChat(chatId, {
+        title: existingChat.title || creationChatTitle,
+        description: existingChat.description || initialUserMessage.slice(0, 100),
+        lastUsed: new Date(),
+        repositoryId: existingChat.repositoryId || currentWorkstation.id,
+        repositoryName: existingChat.repositoryName || currentWorkstation.name,
+      });
+    }
+
+    useChatStore.getState().setCurrentChat(
+      useChatStore.getState().chatHistory.find((chat) => chat.id === chatId) || null,
+    );
+
+    addTerminalItem({
+      id: `auto-create-user-${requestId}`,
+      content: initialUserMessage,
+      type: TerminalItemType.USER_MESSAGE,
+      timestamp: new Date(),
+    });
+
+    addTerminalItem({
+      id: `auto-create-assistant-${requestId}`,
+      content: `Perfetto, creo la prima versione di ${creationChatTitle}. Ti faccio vedere file, modifiche, preview e verify direttamente qui in chat.`,
+      type: TerminalItemType.OUTPUT,
+      timestamp: new Date(),
+    });
+
+    startAgent(
+      autoStart.prompt,
+      currentWorkstation.id,
+      autoStart.model || selectedModel,
+      [],
+      [],
+      autoStart.thinkingLevel || thinkingLevel,
+      undefined,
+      {
+        endpointPath: '/agent/create',
+        bodyExtras: {
+          projectName: autoStart.projectName || currentWorkstation.name,
+          mode: autoStart.mode || 'fast',
+        },
+      },
+    );
+
+    updateTab(currentTab.id, {
+      title: creationChatTitle,
+        data: {
+          ...currentTab.data,
+          creationFlow: true,
+          autoStartAgent: null,
+          projectId: currentWorkstation.projectId || currentWorkstation.id,
+        },
+    });
+  }, [
+    currentTab?.id,
+    currentTab?.data,
+    currentWorkstation?.id,
+    currentWorkstation?.name,
+    currentWorkstation?.projectId,
+    isActiveTab,
+    agentStreaming,
+    selectedModel,
+    setSelectedModel,
+    thinkingLevel,
+    startAgent,
+    updateTab,
+    addTerminalItem,
+  ]);
+
+  useEffect(() => {
+    if (!currentTab?.id) return;
+    const latestComplete = [...agentEvents].reverse().find((event) => event.type === 'complete') as (AgentToolEvent & { result?: { success?: boolean; projectId?: string; verificationFailed?: boolean } }) | undefined;
+    if (!latestComplete) return;
+
+    const success = latestComplete.result?.success === true;
+    const isProjectCreationCompletion = String(latestComplete.message || '').toLowerCase().includes('project created');
+    const completionKey = `${currentTab.id}:${latestComplete.id}`;
+    if (!success || !isProjectCreationCompletion || creationCompleteHandledRef.current === completionKey) return;
+    creationCompleteHandledRef.current = completionKey;
+
+    addTerminalItem({
+      id: `preview-ready-${Date.now()}`,
+      content: '__PREVIEW_READY__',
+      type: TerminalItemType.SYSTEM,
+      timestamp: new Date(),
+    });
+  }, [agentEventsVersion, currentTab?.id, addTerminalItem]);
 
   // ── Send handler hook (handleSend, handleStop, handleRetryTool, undo tracking, pending message) ──
   const {
@@ -406,6 +554,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // ── Auto-retry preview after AI fix completes ──────────────────
   const prevAgentStreamingRef = useRef(agentStreaming);
   useEffect(() => {
+    logChatDebug('agent_autoretry_effect', {
+      currentTabId: currentTab?.id ?? null,
+      agentStreaming,
+    });
     const wasStreaming = prevAgentStreamingRef.current;
     prevAgentStreamingRef.current = agentStreaming;
     // Agent just finished (was running, now stopped)
@@ -422,7 +574,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         });
       }
     }
-  }, [agentStreaming, currentTab?.id]);
+  }, [agentStreaming, currentTab?.id, logChatDebug]);
 
   // Load file history from storage on mount
   useEffect(() => {
@@ -431,6 +583,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Process agent events for sub-agents (todos + questions handled by engine)
   useEffect(() => {
+    logChatDebug('sub_agent_effect', {
+      agentEventsVersion,
+      agentEventsLength: agentEvents.length,
+    });
     if (!agentEvents || agentEvents.length === 0) return;
 
     // Extract latest sub_agent_start event
@@ -438,25 +594,41 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const subAgentCompleteEvents = agentEvents.filter(e => e.type === 'sub_agent_complete');
 
     if (subAgentCompleteEvents.length > subAgentStartEvents.length - 1) {
-      setCurrentSubAgent(null);
+      setCurrentSubAgent((prev) => (prev === null ? prev : null));
     } else if (subAgentStartEvents.length > 0) {
       const latestSubAgent = subAgentStartEvents[subAgentStartEvents.length - 1] as AgentToolEvent & {
         agentId?: string; agentType?: string; description?: string;
         iteration?: number; maxIterations?: number;
       };
-      setCurrentSubAgent({
+      const nextSubAgent = {
         id: latestSubAgent.agentId || '',
         type: latestSubAgent.agentType || '',
         description: latestSubAgent.description || '',
         iteration: latestSubAgent.iteration || 0,
         maxIterations: latestSubAgent.maxIterations || 50,
         status: 'running',
-      });
+      } as const;
+      setCurrentSubAgent((prev) => (
+        prev
+        && prev.id === nextSubAgent.id
+        && prev.type === nextSubAgent.type
+        && prev.description === nextSubAgent.description
+        && prev.iteration === nextSubAgent.iteration
+        && prev.maxIterations === nextSubAgent.maxIterations
+        && prev.status === nextSubAgent.status
+          ? prev
+          : nextSubAgent
+      ));
     }
-  }, [agentEvents]);
+  }, [agentEventsVersion, logChatDebug]);
 
   // Effect for cache invalidation and chat saving on agent completion
   useEffect(() => {
+    logChatDebug('agent_completion_effect', {
+      currentTabId: currentTab?.id ?? null,
+      agentStreaming,
+      agentEventsLength: agentEvents.length,
+    });
     if (!agentStreaming && agentEvents.length > 0 && currentTab?.id) {
       // Save chat messages when agent completes
       if (currentTab?.type === 'chat' && currentTab.data?.chatId) {
@@ -500,10 +672,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Defensive cleanup when entering/re-entering a tab with completed iteration.
   // If no stream is active, any leftover isThinking state is stale UI.
   useEffect(() => {
+    logChatDebug('dangling_cleanup_effect', {
+      currentTabId: currentTab?.id ?? null,
+      isActiveTab,
+      agentStreaming,
+      isLoading,
+    });
     if (!currentTab?.id || !isActiveTab) return;
     if (agentStreaming || isLoading) return;
     clearDanglingThinkingState(currentTab.id);
-  }, [currentTab?.id, isActiveTab, agentStreaming, isLoading, clearDanglingThinkingState]);
+  }, [currentTab?.id, isActiveTab, agentStreaming, isLoading, clearDanglingThinkingState, logChatDebug]);
 
   // Scroll to end when keyboard opens to show last messages
   useEffect(() => {
@@ -631,13 +809,21 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   useEffect(() => {
     // Aggiorna il toggle in tempo reale mentre scrivi (solo in auto mode)
+    logChatDebug('input_terminal_mode_effect', {
+      inputLength: input.length,
+      forcedMode: forcedMode ?? null,
+      nextTerminalMode: input.trim() && !forcedMode ? isCommand(input.trim()) : null,
+    });
     if (input.trim() && !forcedMode) {
       setIsTerminalMode(isCommand(input.trim()));
     }
-  }, [input, forcedMode]);
+  }, [input, forcedMode, logChatDebug]);
 
   useEffect(() => {
     // Animazione quando cambia il toggle
+    logChatDebug('terminal_mode_animation_effect', {
+      isTerminalMode,
+    });
     if (isTerminalMode) {
       scaleAnim.value = withSpring(1.2, { duration: 100 });
       scaleAnim.value = withSpring(1, { duration: 100 });
@@ -645,7 +831,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       scaleAnim.value = withSpring(1.2, { duration: 100 });
       scaleAnim.value = withSpring(1, { duration: 100 });
     }
-  }, [isTerminalMode]);
+  }, [isTerminalMode, logChatDebug]);
 
   const terminalModeAnimatedStyle = useAnimatedStyle(() => {
     return {
@@ -854,12 +1040,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // handleSend, handleStop, handleRetryTool are provided by useChatSendHandler above
   // Memoized filtered and processed terminal items for FlatList
   const processedTerminalItems = useMemo(() => (
-    getProcessedTerminalItems(terminalItems, {
+    getProcessedTerminalItems(
+      isCreationFlow
+        ? terminalItems.filter((item) => !(item.content || '').startsWith('__AGENT_STATUS__'))
+        : terminalItems,
+      {
       isLoading,
       agentStreaming,
       isCommand,
-    })
-  ), [terminalItems, isLoading, agentStreaming]);
+      }
+    )
+  ), [terminalItems, isLoading, agentStreaming, isCreationFlow]);
 
   const inputbarTodoRenderKey = useMemo(() => {
     if (!engine.currentTodos?.length) return 'no-todos';
@@ -869,7 +1060,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   }, [engine.currentTodos]);
 
   useEffect(() => {
-    if (processedTerminalItems.length === 0) {
+    if (processedTerminalItems.length === 0 && !isNearBottomRef.current) {
       setNearBottomState(true);
     }
   }, [processedTerminalItems.length, setNearBottomState]);
@@ -1075,7 +1266,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         }}
       />
 
-      <ChatWelcomeOverlay />
     </Animated.View >
   );
 };

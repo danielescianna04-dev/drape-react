@@ -14,7 +14,6 @@ import { runAgentProjectCreation } from '../services/agent-project-creation.serv
 import { verifyAndFixProject } from '../services/verify-project.service';
 import { getAgentModeFromPath, setupAgentSse } from './agentSse';
 import { clearPlan, getStoredPlan, storePlan, updateStoredPlan } from './agentPlanStore';
-import { resolveAgentStreamRouting } from './agentStreamRouting';
 import {
   ensureProjectOwnership,
   getAgentUserId,
@@ -40,72 +39,55 @@ agentRouter.get('/status', asyncHandler(async (req, res) => {
       streaming: true,
       tools: true,
       multimodal: true,
-      models: ['gemini-3-flash', 'gemini-3.1-pro', 'gemini-3.1-flash-lite'],
+      models: ['claude-4-7-opus', 'gemini-3-flash', 'gemini-3.1-pro', 'gemini-3.1-flash-lite'],
     },
     version: '1.0.0',
   });
 }));
 
-// POST /stream, /run/fast, /run/plan, /run/execute - SSE streaming endpoint
-agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHandler(async (req, res) => {
-  const {
-    prompt,
-    projectId,
-    model,
-    previewContext,
-  } = req.body;
+// ── POST /create ─ Dedicated project-creation endpoint ──────────────────
+// Chat routes will never run creation, and this route will never run chat.
+// The separation is hard: creation needs AgentLoop + the creation pipeline;
+// chat uses OpenCode inside the container. Different code paths, different
+// cost profiles, different failure modes — so different URLs.
+agentRouter.post('/create', asyncHandler(async (req, res) => {
+  const { prompt, projectId, projectName } = req.body;
 
   const userId = getAgentUserId(req);
   const promptPreview = String(prompt || '').replace(/\s+/g, ' ').trim().slice(0, 200);
-  log.info(`[Agent] Incoming prompt for ${projectId}: ${JSON.stringify(promptPreview)}`);
+  log.info(`[Agent/create] Incoming prompt for ${projectId}: ${JSON.stringify(promptPreview)}`);
 
   requireField(prompt, 'prompt is required');
   requireField(projectId, 'projectId is required');
 
-  // Parallelize Firebase calls to reduce latency
   const [userPlan, isOwner] = await Promise.all([
     getUserPlan(userId),
     verifyProjectOwnership(userId, projectId),
   ]);
 
   if (!isOwner) {
-    log.warn(`[AUTH] User ${userId} tried to access project ${projectId} without ownership`);
+    log.warn(`[AUTH] User ${userId} tried to create on project ${projectId} without ownership`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  const { mode, intent } = resolveAgentStreamRouting({
-    path: req.path,
-    body: req.body,
-  });
-
-  log.info(`[Agent] SSE headers flushed for project ${projectId}, mode: ${mode}`);
-
-  // Track if client is still connected
   let clientDisconnected = false;
   const { writeEvent: writeSseEvent, cleanup } = setupAgentSse({
     res,
     onDisconnect: () => {
       clientDisconnected = true;
-      log.info(`[Agent] Client disconnected for project ${projectId}`);
+      log.info(`[Agent/create] Client disconnected for project ${projectId}`);
     },
   });
 
-  // Handle client disconnect — use res.on('close'), NOT req.on('close')
-  // req.on('close') fires when the request body is consumed (after body-parser),
-  // NOT when the client TCP connection closes. res.on('close') fires on actual disconnect.
-
   try {
-    auditService.log({ userId, action: 'agent_stream_start', resource: projectId, details: `mode: ${mode}, model: ${model || 'gemini-3-flash'}`, ip: req.ip });
-    log.info(`[Agent] Starting OpenCode stream for project ${projectId}, model: ${model || 'gemini-3-flash'}`);
+    auditService.log({ userId, action: 'agent_create_start', resource: projectId, details: 'project_creation', ip: req.ip });
 
-    // Send initial processing event immediately
     writeSseEvent('processing', {
       type: 'processing',
       message: 'Connecting to AI agent...',
       elapsedSec: 0,
     });
 
-    // Get or create container for this project
     const session = await workspaceService.getOrCreateContainer(projectId, userId);
     if (!session?.containerId) {
       writeSseEvent('error', { type: 'error', error: 'Container not ready' });
@@ -114,46 +96,102 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
       return;
     }
 
-    // Get Docker container object
-    const container = await dockerService.getDockerContainer(session.containerId);
+    await runAgentProjectCreation({
+      projectId,
+      userId,
+      userPlan: userPlan || 'free',
+      prompt,
+      projectName,
+      sessionProjectType: session?.projectInfo?.type as string | undefined,
+      isClientConnected: () => !clientDisconnected && !res.writableEnded,
+      writeSseEvent,
+    });
 
-    // ── Route: project creation uses AgentLoop (direct Claude API), chat uses OpenCode ──
-    if (intent === 'project_creation') {
-      await runAgentProjectCreation({
-        projectId,
-        userId,
-        userPlan: userPlan || 'free',
-        prompt,
-        sessionProjectType: session?.projectInfo?.type as string | undefined,
-        isClientConnected: () => !clientDisconnected && !res.writableEnded,
-        writeSseEvent,
-      });
-    } else {
-      // ═══ CHAT: Use OpenCode via container (Gemini Flash for speed) ═══
-      await runAgentChatStream({
-        container,
-        projectId,
-        userId,
-        prompt,
-        model: model || 'gemini-3-flash',
-        previewContext,
-        isClientConnected: () => !clientDisconnected && !res.writableEnded,
-        writeSseEvent,
-      });
-    }
-
-    log.info(`[Agent] Stream completed for project ${projectId}`);
+    log.info(`[Agent/create] Creation completed for project ${projectId}`);
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
     const errStack = error instanceof Error ? error.stack : undefined;
-    log.error(`[Agent] Stream error for project ${projectId}:`, errMsg);
-    if (errStack) log.error(`[Agent] Stack:`, errStack);
+    log.error(`[Agent/create] Error for project ${projectId}:`, errMsg);
+    if (errStack) log.error(`[Agent/create] Stack:`, errStack);
 
     if (!res.writableEnded) {
-      writeSseEvent('error', {
-        type: 'error',
-        error: errMsg || 'Stream failed',
-      });
+      writeSseEvent('error', { type: 'error', error: errMsg || 'Creation failed' });
+    }
+  } finally {
+    cleanup();
+  }
+}));
+
+// ── POST /stream, /run/fast, /run/plan, /run/execute ─ Chat SSE endpoints ──
+// These NEVER run project creation. Any creation must go through /create.
+agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHandler(async (req, res) => {
+  const { prompt, projectId, model, previewContext } = req.body;
+
+  const userId = getAgentUserId(req);
+  const promptPreview = String(prompt || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  log.info(`[Agent/chat] Incoming prompt for ${projectId}: ${JSON.stringify(promptPreview)}`);
+
+  requireField(prompt, 'prompt is required');
+  requireField(projectId, 'projectId is required');
+
+  const isOwner = await verifyProjectOwnership(userId, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${userId} tried to access project ${projectId} without ownership`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
+  const mode = getAgentModeFromPath(req.path);
+  log.info(`[Agent/chat] SSE headers flushed for project ${projectId}, mode: ${mode}`);
+
+  let clientDisconnected = false;
+  const { writeEvent: writeSseEvent, cleanup } = setupAgentSse({
+    res,
+    onDisconnect: () => {
+      clientDisconnected = true;
+      log.info(`[Agent/chat] Client disconnected for project ${projectId}`);
+    },
+  });
+
+  try {
+    auditService.log({ userId, action: 'agent_chat_start', resource: projectId, details: `mode: ${mode}, model: ${model || 'gemini-3-flash'}`, ip: req.ip });
+    log.info(`[Agent/chat] Starting OpenCode stream for project ${projectId}, model: ${model || 'gemini-3-flash'}`);
+
+    writeSseEvent('processing', {
+      type: 'processing',
+      message: 'Connecting to AI agent...',
+      elapsedSec: 0,
+    });
+
+    const session = await workspaceService.getOrCreateContainer(projectId, userId);
+    if (!session?.containerId) {
+      writeSseEvent('error', { type: 'error', error: 'Container not ready' });
+      writeSseEvent('done', { type: 'done' });
+      cleanup();
+      return;
+    }
+
+    const container = await dockerService.getDockerContainer(session.containerId);
+
+    await runAgentChatStream({
+      container,
+      projectId,
+      userId,
+      prompt,
+      model: model || 'gemini-3-flash',
+      previewContext,
+      isClientConnected: () => !clientDisconnected && !res.writableEnded,
+      writeSseEvent,
+    });
+
+    log.info(`[Agent/chat] Stream completed for project ${projectId}`);
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const errStack = error instanceof Error ? error.stack : undefined;
+    log.error(`[Agent/chat] Stream error for project ${projectId}:`, errMsg);
+    if (errStack) log.error(`[Agent/chat] Stack:`, errStack);
+
+    if (!res.writableEnded) {
+      writeSseEvent('error', { type: 'error', error: errMsg || 'Stream failed' });
     }
   } finally {
     cleanup();
