@@ -10,11 +10,12 @@ import { log } from '../utils/logger';
 import { AgentEvent, AgentMode, AgentOptions, Session, ToolResult } from '../types';
 import path from 'path';
 import fs from 'fs';
-import { config } from '../config';
+import { config, planAiBudgets } from '../config';
 import { runPreHooks, runPostHooks } from './hooks.service';
 import { saveConversation } from './conversation-store';
 import { initMcpServers, getAllMcpTools, callMcpTool, disconnectAllMcp } from './mcp-client';
 import { conversationOptimizerService } from './conversation-optimizer.service';
+import { calculateAICostEur } from './ai-pricing.service';
 
 // Load the universal system prompt from file
 const SYSTEM_PROMPT_PATH = path.join(__dirname, 'claude-code-system-prompt.txt');
@@ -22,25 +23,6 @@ const BASE_SYSTEM_PROMPT = fs.readFileSync(SYSTEM_PROMPT_PATH, 'utf-8');
 
 const MAX_ITERATIONS = 50;
 const TOOL_TIMEOUT = 60000;
-
-// USD to EUR conversion
-const USD_TO_EUR = 0.92;
-
-// AI Model Pricing (USD per 1M tokens)
-const AI_PRICING: Record<string, { input: number; output: number; cachedInput: number }> = {
-  'gemini-2.5-flash':        { input: 0.15,  output: 0.60,  cachedInput: 0.0375 },
-  'gemini-3-flash':          { input: 0.50,  output: 3.00,  cachedInput: 0.125 },
-  'gemini-3.1-pro':          { input: 1.25,  output: 10.00, cachedInput: 0.3125 },
-  'claude-sonnet-4':         { input: 3.00,  output: 15.00, cachedInput: 0.30 },
-  'claude-4-6-sonnet':       { input: 3.00,  output: 15.00, cachedInput: 0.30 },
-  'claude-3.5-sonnet':       { input: 3.00,  output: 15.00, cachedInput: 0.30 },
-  'claude-4-6-opus':         { input: 15.00, output: 75.00, cachedInput: 1.50 },
-  'claude-3.5-haiku':        { input: 0.80,  output: 4.00,  cachedInput: 0.08 },
-  'gpt-5-3':                 { input: 2.00,  output: 8.00,  cachedInput: 0.50 },
-  'llama-3.3-70b':           { input: 0.59,  output: 0.79,  cachedInput: 0.15 },
-  'llama-3.1-8b':            { input: 0.05,  output: 0.08,  cachedInput: 0.01 },
-  'glm-5.1':                 { input: 0.95,  output: 3.15,  cachedInput: 0.24 },
-};
 
 type PreviewContext = {
   source?: 'preview';
@@ -52,13 +34,6 @@ type PreviewContext = {
   previousRequest?: string;
 } | null;
 
-function calculateCostEur(model: string, inputTokens: number, outputTokens: number, cachedTokens = 0): number {
-  const pricing = AI_PRICING[model] || AI_PRICING['gemini-3-flash'];
-  const nonCachedInput = Math.max(0, inputTokens - cachedTokens);
-  const costUsd = (nonCachedInput * pricing.input + cachedTokens * pricing.cachedInput + outputTokens * pricing.output) / 1_000_000;
-  return costUsd * USD_TO_EUR;
-}
-
 /**
  * ReAct-style agent loop
  * Implements the core agent reasoning loop with tool use
@@ -68,9 +43,12 @@ export class AgentLoop {
   private mode: AgentMode;
   private model: string;
   private thinkingLevel: string | null;
+  private taskBudgetTokens: number | null;
+  private systemPromptOverride: string | null;
   private conversationHistory: ChatMessage[];
   private userId: string | null;
   private userPlan: string;
+  private usagePhase: AgentOptions['usagePhase'];
   private executionPlan: any | null;
   private previewContext: PreviewContext = null;
   private filesCreated: string[] = [];
@@ -95,32 +73,23 @@ export class AgentLoop {
     this.pendingFileChanges.push({ type, path: filePath });
   }
 
-  // Budget limits per plan (monthly EUR)
-  private static readonly PLAN_BUDGETS: Record<string, number> = {
-    free: 1.00,
-    go: 7.50,
-    pro: 500.00,
-    team: 200.00,
-  };
-
   constructor(options: AgentOptions) {
     this.projectId = options.projectId;
     this.mode = options.mode || 'fast';
     this.model = options.model || 'gemini-3-flash';
-    // Thinking config: Claude causes multi-minute stalls with thinking enabled
-    // (no chunks streamed during thinking). Force disable for Claude regardless of client request.
+    this.systemPromptOverride = options.systemPromptOverride || null;
     const isClaude = (options.model || 'gemini-3-flash').startsWith('claude');
-    if (isClaude) {
-      this.thinkingLevel = null; // NEVER enable thinking for Claude — causes stalls
-    } else if (options.thinkingLevel) {
+    if (options.thinkingLevel) {
       this.thinkingLevel = options.thinkingLevel;
-    } else if (this.mode === 'fast') {
+    } else if (this.mode === 'fast' && !isClaude) {
       this.thinkingLevel = 'minimal';
     } else {
       this.thinkingLevel = null;
     }
+    this.taskBudgetTokens = typeof options.taskBudgetTokens === 'number' ? options.taskBudgetTokens : null;
     this.userId = options.userId || null;
     this.userPlan = options.userPlan || 'free';
+    this.usagePhase = options.usagePhase;
     this.executionPlan = options.executionPlan || null;
     this.previewContext = options.previewContext || null;
     this.conversationHistory = this.sanitizeConversationHistory(options.conversationHistory || []);
@@ -246,7 +215,8 @@ export class AgentLoop {
     monthStart.setHours(0, 0, 0, 0);
 
     const usage = metricsService.getAIUsageSummary(this.userId, monthStart.getTime());
-    const budget = AgentLoop.PLAN_BUDGETS[this.userPlan] || AgentLoop.PLAN_BUDGETS.free;
+    const budget = planAiBudgets[this.userPlan as keyof typeof planAiBudgets]?.monthlyBudgetEur
+      || planAiBudgets.free.monthlyBudgetEur;
     const percentUsed = budget > 0 ? Math.round((usage.totalCostEur / budget) * 100) : 0;
 
     return {
@@ -301,7 +271,8 @@ export class AgentLoop {
 
       // Emit budget warning at 75% and 90% thresholds
       if (budgetCheck.percentUsed >= 75) {
-        const budget = AgentLoop.PLAN_BUDGETS[this.userPlan] || AgentLoop.PLAN_BUDGETS.free;
+        const budget = planAiBudgets[this.userPlan as keyof typeof planAiBudgets]?.monthlyBudgetEur
+          || planAiBudgets.free.monthlyBudgetEur;
         yield {
           type: 'budget_warning',
           percentUsed: budgetCheck.percentUsed,
@@ -517,6 +488,7 @@ export class AgentLoop {
                 {
                   temperature: 0.7,
                   thinkingLevel: this.thinkingLevel,
+                  taskBudgetTokens: this.taskBudgetTokens || undefined,
                   abortSignal: abortController.signal,
                 }
               );
@@ -618,23 +590,30 @@ export class AgentLoop {
                       this.totalTokensUsed.input += chunk.usage.inputTokens;
                       this.totalTokensUsed.output += chunk.usage.outputTokens;
 
-                      // Track AI usage for budget monitoring
+                      // Track AI usage for budget monitoring.
+                      // Anthropic reports cache read + cache write as separate token counts.
+                      // cache_write costs 1.25× regular input, so undercounting it silently
+                      // underreports project cost by ~5-15% on Opus creation runs.
                       {
-                        const cachedTokens = (chunk.usage.cacheReadTokens || 0);
-                        const iterationCostEur = calculateCostEur(
+                        const cacheReadTokens = chunk.usage.cacheReadTokens || 0;
+                        const cacheWriteTokens = chunk.usage.cacheCreationTokens || 0;
+                        const iterationCostEur = calculateAICostEur(
                           this.model,
                           chunk.usage.inputTokens,
                           chunk.usage.outputTokens,
-                          cachedTokens
+                          cacheReadTokens,
+                          cacheWriteTokens,
                         );
                         this.totalCostEur += iterationCostEur;
 
                         metricsService.trackAIUsage({
                           userId: this.userId || 'anonymous',
+                          projectId: this.projectId,
+                          phase: this.usagePhase,
                           model: this.model,
                           inputTokens: chunk.usage.inputTokens,
                           outputTokens: chunk.usage.outputTokens,
-                          cachedTokens,
+                          cachedTokens: cacheReadTokens + cacheWriteTokens,
                           costEur: iterationCostEur,
                         });
 
@@ -647,7 +626,9 @@ export class AgentLoop {
                           type: 'usage',
                           inputTokens: chunk.usage.inputTokens,
                           outputTokens: chunk.usage.outputTokens,
-                          cachedTokens,
+                          cachedTokens: cacheReadTokens + cacheWriteTokens,
+                          cacheReadTokens,
+                          cacheWriteTokens,
                           iterationCostEur,
                           totalCostEur: this.totalCostEur,
                           totalInputTokens: this.totalTokensUsed.input,
@@ -1251,6 +1232,7 @@ export class AgentLoop {
       conversationHistory: [], // Isolated context
       userId: this.userId || undefined,
       userPlan: this.userPlan,
+      usagePhase: this.usagePhase,
     });
 
     // Configure sub-agent constraints
@@ -1414,8 +1396,8 @@ IMPORTANT: When the user asks about the database, its content, structure, or dat
    * Uses the universal system prompt from claude-code-system-prompt.txt for ALL models
    */
   private getBasePromptForMode(): string {
-    // Use the same prompt for ALL models (Claude, Gemini, etc.)
-    let prompt = BASE_SYSTEM_PROMPT;
+    // Allow special-purpose flows (project creation) to use a much smaller system prompt
+    let prompt = this.systemPromptOverride || BASE_SYSTEM_PROMPT;
 
     // Add mode-specific instructions
     switch (this.mode) {

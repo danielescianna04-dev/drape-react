@@ -97,11 +97,33 @@ class AIProviderService {
       costPerMInputToken: 3.0,
       costPerMOutputToken: 15.0,
     },
+    'claude-4-7-opus': {
+      provider: 'anthropic',
+      modelId: 'claude-opus-4-7',
+      maxTokens: 128000,
+      contextWindowTokens: 1000000,
+      supportsTools: true,
+      supportsStreaming: true,
+      supportsImages: true,
+      costPerMInputToken: 15.0,
+      costPerMOutputToken: 75.0,
+    },
+    'claude-opus-4-7': {
+      provider: 'anthropic',
+      modelId: 'claude-opus-4-7',
+      maxTokens: 128000,
+      contextWindowTokens: 1000000,
+      supportsTools: true,
+      supportsStreaming: true,
+      supportsImages: true,
+      costPerMInputToken: 15.0,
+      costPerMOutputToken: 75.0,
+    },
     'claude-4-6-opus': {
       provider: 'anthropic',
-      modelId: 'claude-opus-4-6',
-      maxTokens: 8192,
-      contextWindowTokens: 200000,
+      modelId: 'claude-opus-4-7',
+      maxTokens: 128000,
+      contextWindowTokens: 1000000,
       supportsTools: true,
       supportsStreaming: true,
       supportsImages: true,
@@ -173,6 +195,17 @@ class AIProviderService {
       supportsImages: true,
       costPerMInputToken: 1.25,
       costPerMOutputToken: 10.0,
+    },
+    'gpt-5-4': {
+      provider: 'openai',
+      modelId: 'gpt-5.4',
+      maxTokens: 16384,
+      contextWindowTokens: 128000,
+      supportsTools: true,
+      supportsStreaming: true,
+      supportsImages: true,
+      costPerMInputToken: 4.0,
+      costPerMOutputToken: 16.0,
     },
     'gpt-5-3': {
       provider: 'openai',
@@ -276,7 +309,14 @@ class AIProviderService {
     messages: ChatMessage[],
     tools?: ToolDefinition[],
     systemPrompt?: string,
-    options?: { temperature?: number; maxTokens?: number; thinkingLevel?: string | null }
+    options?: {
+      temperature?: number;
+      maxTokens?: number;
+      thinkingLevel?: string | null;
+      taskBudgetTokens?: number;
+      enablePromptCaching?: boolean;
+      promptCacheTtl?: '5m' | '1h';
+    }
   ): AsyncGenerator<StreamChunk> {
     const modelConfig = this.getModelConfig(model);
     if (!modelConfig) {
@@ -311,7 +351,14 @@ class AIProviderService {
     messages: ChatMessage[],
     tools?: ToolDefinition[],
     systemPrompt?: string,
-    options?: { temperature?: number; maxTokens?: number }
+    options?: {
+      temperature?: number;
+      maxTokens?: number;
+      thinkingLevel?: string | null;
+      taskBudgetTokens?: number;
+      enablePromptCaching?: boolean;
+      promptCacheTtl?: '5m' | '1h';
+    }
   ): AsyncGenerator<StreamChunk> {
     if (!this.anthropicClient) {
       throw new Error('Anthropic client not initialized. Check API key configuration.');
@@ -327,6 +374,10 @@ class AIProviderService {
         messages: formattedMessages,
         stream: true,
       };
+      const isClaudeOpus47 = modelConfig.modelId === 'claude-opus-4-7';
+      const enablePromptCaching =
+        isClaudeOpus47 && (options?.enablePromptCaching ?? config.projectOpusPromptCachingEnabled);
+      const promptCacheTtl = options?.promptCacheTtl || config.projectOpusPromptCacheTtl;
 
       if (systemMessages) {
         // Apply prompt caching to system prompt
@@ -334,16 +385,36 @@ class AIProviderService {
           {
             type: 'text',
             text: systemMessages,
-            cache_control: { type: 'ephemeral' },
+            ...(enablePromptCaching ? { cache_control: { type: 'ephemeral', ...(promptCacheTtl === '1h' ? { ttl: '1h' } : {}) } } : {}),
           },
         ];
+      }
+
+      if (enablePromptCaching) {
+        requestParams.cache_control = {
+          type: 'ephemeral',
+          ...(promptCacheTtl === '1h' ? { ttl: '1h' } : {}),
+        };
       }
 
       if (tools && tools.length > 0) {
         requestParams.tools = this.formatToolsForProvider(tools, 'anthropic');
       }
 
-      if (options?.temperature !== undefined) {
+      if (isClaudeOpus47) {
+        requestParams.thinking = { type: 'adaptive' };
+        requestParams.output_config = {
+          effort: 'medium',
+        };
+        if (options?.taskBudgetTokens) {
+          log.info(
+            `[Anthropic] Ignoring taskBudgetTokens=${options.taskBudgetTokens} for ${modelConfig.modelId}; ` +
+            'Messages API supports adaptive thinking + effort here, but not output_config.task_budget.',
+          );
+        }
+      }
+
+      if (!isClaudeOpus47 && options?.temperature !== undefined) {
         requestParams.temperature = options.temperature;
       }
 
@@ -1075,8 +1146,17 @@ class AIProviderService {
   ): any[] {
     switch (provider) {
       case 'anthropic':
-        // Claude format is already compatible
-        return tools;
+        return tools.map((tool, index) => ({
+          ...tool,
+          ...(config.projectOpusPromptCachingEnabled && index === tools.length - 1
+            ? {
+                cache_control: {
+                  type: 'ephemeral',
+                  ...(config.projectOpusPromptCacheTtl === '1h' ? { ttl: '1h' } : {}),
+                },
+              }
+            : {}),
+        }));
 
       case 'gemini':
         // Convert to Gemini function declaration format
