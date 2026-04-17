@@ -17,6 +17,8 @@ import { parseGitUrl, checkRepoAccess } from './gitProviders';
 import { config } from '../config/config';
 import type { WorkstationInfo } from '../shared/types';
 import i18n from '../i18n';
+import { useWorkstationStore } from '../core/terminal/workstationStore';
+import { useUIStore } from '../core/terminal/uiStore';
 
 interface UseAppProjectActionsParams {
   setCurrentScreen: (screen: Screen | ((prev: Screen) => Screen)) => void;
@@ -45,7 +47,10 @@ export function useAppProjectActions({
     previousWorkstationId: string | null;
   } | null>(null);
 
-  const { addWorkstation, setWorkstation, clearGlobalTerminalLog, currentWorkstation } = useTerminalStore();
+  const addWorkstation = useWorkstationStore((state) => state.addWorkstation);
+  const setWorkstation = useWorkstationStore((state) => state.setWorkstation);
+  const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
+  const clearGlobalTerminalLog = useUIStore((state) => state.clearGlobalTerminalLog);
   const { addTerminalItem: addTerminalItemToStore, clearTerminalItems, updateTerminalItemsByType } = useTabStore();
 
   // Track projects currently being cloned to prevent duplicates

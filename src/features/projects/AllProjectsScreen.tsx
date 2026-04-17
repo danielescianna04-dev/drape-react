@@ -4,8 +4,8 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTranslation } from 'react-i18next';
-import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useTabStore } from '../../core/tabs/tabStore';
+import { useWorkstationStore } from '../../core/terminal/workstationStore';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../shared/theme/colors';
@@ -82,7 +82,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const swipeableRefs = useRef<Map<string, Swipeable>>(new Map());
 
-  const { setWorkstation } = useTerminalStore();
+  const setWorkstation = useWorkstationStore((state) => state.setWorkstation);
   const { removeTabsByWorkstation } = useTabStore();
 
   useEffect(() => {

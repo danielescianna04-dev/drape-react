@@ -7,7 +7,7 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { AppColors } from '../../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../../../core/git/gitAccountService';
-import { useTerminalStore } from '../../../../core/terminal/terminalStore';
+import { useWorkstationStore } from '../../../../core/terminal/workstationStore';
 import { workstationService } from '../../../../core/workstation/workstationService-firebase';
 import { config } from '../../../../config/config';
 import { getAuthHeaders } from '../../../../core/api/getAuthToken';
@@ -62,8 +62,8 @@ export const GitHubView = ({ tab }: Props) => {
   const shimmerAnim = useRef(new RNAnimated.Value(0)).current;
   const insets = useSafeAreaInsets();
 
-  const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
-  const userId = useTerminalStore.getState().userId || 'anonymous';
+  const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
+  const userId = useWorkstationStore.getState().userId || 'anonymous';
 
   useEffect(() => {
     loadAccountInfo();

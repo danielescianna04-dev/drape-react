@@ -47,7 +47,7 @@ const mocks = vi.hoisted(() => {
     }
   );
 
-  const useTerminalStoreMock = ((selector?: (state: typeof terminalState) => any) =>
+  const useWorkstationStoreMock = ((selector?: (state: typeof terminalState) => any) =>
     selector ? selector(terminalState) : terminalState) as any;
 
   return {
@@ -62,7 +62,7 @@ const mocks = vi.hoisted(() => {
     useAuthStoreMock,
     useConsentStoreMock,
     useNavigationStoreMock,
-    useTerminalStoreMock,
+    useWorkstationStoreMock,
   };
 });
 
@@ -87,8 +87,8 @@ vi.mock('../../core/navigation/navigationStore', () => ({
   useNavigationStore: mocks.useNavigationStoreMock,
 }));
 
-vi.mock('../../core/terminal/terminalStore', () => ({
-  useTerminalStore: mocks.useTerminalStoreMock,
+vi.mock('../../core/terminal/workstationStore', () => ({
+  useWorkstationStore: mocks.useWorkstationStoreMock,
 }));
 
 import { useAppRouting } from '../../app/useAppRouting';

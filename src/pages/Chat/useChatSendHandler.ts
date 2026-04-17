@@ -162,6 +162,7 @@ export function useChatSendHandler(params: UseChatSendHandlerParams): UseChatSen
   const sendState = useChatSendStateMachine();
   const sendStateRef = useRef(sendState);
   sendStateRef.current = sendState;
+  const previousAgentStreamingRef = useRef(agentStreaming);
 
   // ── Bridge refs ─────────────────────────────────────────────────────────
   const preThinkingIdRef = useRef<string | null>(null);
@@ -219,6 +220,19 @@ export function useChatSendHandler(params: UseChatSendHandlerParams): UseChatSen
   useEffect(() => {
     processedUndoEventsRef.current.clear();
   }, [currentTab?.id]);
+
+  useEffect(() => {
+    const wasStreaming = previousAgentStreamingRef.current;
+    previousAgentStreamingRef.current = agentStreaming;
+
+    // Agent mode marks the machine as active when the stream starts,
+    // but the reset has to happen when the stream actually completes.
+    if (!wasStreaming || agentStreaming) return;
+
+    if (sendStateRef.current.isActive) {
+      sendState.reset();
+    }
+  }, [agentStreaming, sendState]);
 
   // ── setLoading helper ───────────────────────────────────────────────────
   const setLoading = useCallback((loading: boolean) => {
@@ -334,7 +348,8 @@ export function useChatSendHandler(params: UseChatSendHandlerParams): UseChatSen
       });
       sendState.markFailed();
     }
-  }, [currentTab?.id, currentWorkstation?.id, addTerminalItem, updateTerminalItemById, scrollToBottom, sendState]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- sendState actions are stable (useMemo with [])
+  }, [currentTab?.id, currentWorkstation?.id, addTerminalItem, updateTerminalItemById, scrollToBottom]);
 
   // ── handleStop ──────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {

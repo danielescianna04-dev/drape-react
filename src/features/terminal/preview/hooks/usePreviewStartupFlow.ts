@@ -421,7 +421,7 @@ export function usePreviewStartupFlow({
                   logError(parsed.message, 'preview');
                   setServerStatus('stopped');
                   startup.setIsStarting(false);
-                  startup.setPreviewError({ message: parsed.message, timestamp: new Date() });
+                  startup.setPreviewError({ message: parsed.message, timestamp: new Date(), recoverable: true });
                   tracciaErroreAnteprima(parsed.message);
                   reject(new Error(parsed.message));
                 }
@@ -505,7 +505,11 @@ export function usePreviewStartupFlow({
       logError(message || t('terminal:preview.errorDuringStartup'), 'preview');
       setServerStatus('stopped');
       startup.setIsStarting(false);
-      startup.setPreviewError({ message: message || t('terminal:preview.errorStartingPreview'), timestamp: new Date() });
+      startup.setPreviewError({
+        message: message || t('terminal:preview.errorStartingPreview'),
+        timestamp: new Date(),
+        recoverable: true,
+      });
       tracciaErroreAnteprima(message || 'Unknown preview error');
     }
   };

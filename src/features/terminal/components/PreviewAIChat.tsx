@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Pressable, Animated, TextInput, ScrollView, Keyboard, ActivityIndicator, LayoutAnimation } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Pressable, Animated, TextInput, ScrollView, Keyboard, ActivityIndicator, LayoutAnimation, PanResponder, Dimensions } from 'react-native';
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, Easing } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -18,9 +18,10 @@ import { useTranslation } from 'react-i18next';
 import { tracciaChatMinimizzata, tracciaModelloSelezionato, tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
 
 const AI_MODELS = [
-  { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, isPremium: true, thinkingLevels: [] as string[] },
+  { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, isPremium: true, thinkingLevels: ['medium'] },
   { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, isPremium: false, thinkingLevels: [] as string[] },
   { id: 'gpt-5-4', name: 'GPT 5.4', IconComponent: OpenAIIcon, isPremium: true, thinkingLevels: [] as string[] },
+  { id: 'glm-5.1', name: 'GLM 5.1', IconComponent: OpenAIIcon, isPremium: false, thinkingLevels: [] as string[] },
   { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, isPremium: true, thinkingLevels: ['low', 'high'] },
   { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, isPremium: false, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
 ];
@@ -128,6 +129,8 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
   const { t } = useTranslation();
   const [showContextInfo, setShowContextInfo] = React.useState(false);
   const [showModelSelector, setShowModelSelector] = React.useState(false);
+  const [showExpandedComposer, setShowExpandedComposer] = React.useState(isInputExpanded);
+  const [showExpandedContent, setShowExpandedContent] = React.useState(isInputExpanded);
   const dropdownAnim = useSharedValue(0);
 
   const storeSelectedModel = useUIStore((state) => state.selectedModel);
@@ -204,6 +207,130 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
     transform: [{ scale: inspectScale.value }],
   }));
 
+  const fabDrag = React.useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const fabDragOffsetRef = React.useRef({ x: 0, y: 0 });
+  const FAB_SIZE = 44;
+  const FAB_EXPANDED_WIDTH = Math.max(320, Dimensions.get('window').width - 24);
+  const FAB_SIDE_MARGIN = 12;
+  const FAB_TOP_CLEARANCE = 110;
+  const FAB_OPEN_DURATION = 170;
+  const FAB_CLOSE_DURATION = 130;
+  const FAB_CONTENT_REVEAL_DELAY = 72;
+  const fabWidthAnim = React.useRef(new Animated.Value(isInputExpanded ? FAB_EXPANDED_WIDTH : FAB_SIZE)).current;
+
+  const clampFabPosition = React.useCallback((x: number, y: number) => {
+    const { width, height } = Dimensions.get('window');
+    const baseBottom = keyboardHeight > 0 ? keyboardHeight + 6 : bottomInset + 8;
+    const minX = -(width - FAB_SIZE - FAB_SIDE_MARGIN * 2);
+    const maxX = 0;
+    const minY = -(height - baseBottom - FAB_SIZE - FAB_TOP_CLEARANCE);
+    const maxY = 0;
+
+    return {
+      x: Math.max(minX, Math.min(maxX, x)),
+      y: Math.max(minY, Math.min(maxY, y)),
+    };
+  }, [bottomInset, keyboardHeight]);
+
+  React.useEffect(() => {
+    if (isInputExpanded) {
+      fabDrag.stopAnimation(() => {
+        fabDragOffsetRef.current = { x: 0, y: 0 };
+        fabDrag.setValue({ x: 0, y: 0 });
+      });
+    }
+  }, [fabDrag, isInputExpanded]);
+
+  React.useEffect(() => {
+    if (isInputExpanded) {
+      setShowExpandedComposer(true);
+      setShowExpandedContent(false);
+      const timeoutId = setTimeout(() => {
+        setShowExpandedContent(true);
+      }, FAB_CONTENT_REVEAL_DELAY);
+      return () => clearTimeout(timeoutId);
+    }
+
+    setShowExpandedContent(false);
+    const timeoutId = setTimeout(() => {
+      setShowExpandedComposer(false);
+    }, FAB_CLOSE_DURATION);
+
+    return () => clearTimeout(timeoutId);
+  }, [FAB_CLOSE_DURATION, FAB_CONTENT_REVEAL_DELAY, isInputExpanded]);
+
+  React.useEffect(() => {
+    if (isInputExpanded) {
+      return;
+    }
+    setShowModelSelector(false);
+    setShowContextInfo(false);
+  }, [isInputExpanded]);
+
+  React.useEffect(() => {
+    if (showExpandedComposer) {
+      Animated.timing(fabWidthAnim, {
+        toValue: FAB_EXPANDED_WIDTH,
+        duration: FAB_OPEN_DURATION,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+      return;
+    }
+
+    Animated.timing(fabWidthAnim, {
+      toValue: FAB_SIZE,
+      duration: FAB_CLOSE_DURATION,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [FAB_CLOSE_DURATION, FAB_EXPANDED_WIDTH, FAB_OPEN_DURATION, FAB_SIZE, fabWidthAnim, showExpandedComposer]);
+
+  const fabPanResponder = React.useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      if (isInputExpanded) return false;
+      return Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4;
+    },
+    onPanResponderGrant: () => {
+      fabDrag.setOffset(fabDragOffsetRef.current);
+      fabDrag.setValue({ x: 0, y: 0 });
+    },
+    onPanResponderMove: Animated.event(
+      [null, { dx: fabDrag.x, dy: fabDrag.y }],
+      { useNativeDriver: false },
+    ),
+    onPanResponderRelease: (_, gestureState) => {
+      fabDrag.flattenOffset();
+      const next = clampFabPosition(
+        fabDragOffsetRef.current.x + gestureState.dx,
+        fabDragOffsetRef.current.y + gestureState.dy,
+      );
+      fabDragOffsetRef.current = next;
+      Animated.spring(fabDrag, {
+        toValue: next,
+        useNativeDriver: true,
+        tension: 120,
+        friction: 12,
+      }).start();
+    },
+    onPanResponderTerminate: () => {
+      fabDrag.flattenOffset();
+      Animated.spring(fabDrag, {
+        toValue: fabDragOffsetRef.current,
+        useNativeDriver: true,
+        tension: 120,
+        friction: 12,
+      }).start();
+    },
+  }), [clampFabPosition, fabDrag, isInputExpanded]);
+
+  const handleExpandFab = React.useCallback(() => {
+    fabDragOffsetRef.current = { x: 0, y: 0 };
+    fabDrag.setValue({ x: 0, y: 0 });
+    onExpandFab();
+  }, [fabDrag, onExpandFab]);
+
   const messagesAnimStyle = useAnimatedStyle(() => ({
     opacity: messagesOpacity.value,
     maxHeight: messagesHeight.value * 200,
@@ -217,7 +344,16 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
   }));
 
   return (
-    <Reanimated.View style={[styles.fabInputWrapper, { bottom: keyboardHeight > 0 ? keyboardHeight + 6 : bottomInset + 8, left: isInputExpanded ? 12 : undefined }]}>
+    <Animated.View
+      style={[
+        styles.fabInputWrapper,
+        {
+          bottom: keyboardHeight > 0 ? keyboardHeight + 6 : bottomInset + 8,
+        },
+        !showExpandedComposer ? { transform: fabDrag.getTranslateTransform() } : null,
+      ]}
+      {...(!showExpandedComposer ? fabPanResponder.panHandlers : {})}
+    >
 
       {/* Model selector dropdown - rendered outside overflow:hidden FAB */}
       {showModelSelector && (
@@ -316,9 +452,9 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
       {/* Context info tooltip - rendered outside overflow:hidden FAB */}
       {showContextInfo && contextUsagePercent > 0 && (() => {
         const contextWindows: Record<string, number> = {
-          'claude-4-6-opus': 200000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
+          'claude-4-7-opus': 1000000, 'claude-opus-4-7': 1000000, 'claude-4-6-opus': 1000000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
           'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3.1-pro': 1000000,
-          'gpt-5-4': 128000, 'llama-3.3-70b': 128000,
+          'gpt-5-4': 128000, 'glm-5.1': 202752, 'llama-3.3-70b': 128000,
         };
         const windowK = Math.round((contextWindows[selectedModel] || 200000) / 1000);
         const compactionAt = 90;
@@ -359,10 +495,11 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
       <Animated.View
         style={[
           styles.fabAnimated,
-          isInputExpanded ? { width: '100%' } : { width: 44, height: 44 },
+          { width: fabWidthAnim },
+          !showExpandedComposer ? { height: 44 } : null,
         ]}
       >
-        {isInputExpanded ? (
+        {showExpandedContent ? (
         <BlurView intensity={90} tint="dark" style={[styles.fabBlur, { alignItems: 'stretch', paddingHorizontal: 0 }]}>
             <Animated.View style={{ flex: 1, flexDirection: 'column', opacity: fabContentOpacity }}>
 
@@ -844,17 +981,21 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
             </Animated.View>
         </BlurView>
         ) : (
-          <TouchableOpacity
-            onPress={onExpandFab}
-            style={{ flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 22 }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="pencil" size={18} color="#fff" />
-          </TouchableOpacity>
+          showExpandedComposer ? (
+            <View style={styles.fabShellPlaceholder} pointerEvents="none" />
+          ) : (
+            <TouchableOpacity
+              onPress={handleExpandFab}
+              style={{ flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 22 }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="pencil" size={18} color="#fff" />
+            </TouchableOpacity>
+          )
         )
         }
       </Animated.View>
-    </Reanimated.View>
+    </Animated.View>
   );
 };
 
@@ -885,6 +1026,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.2)',
     paddingHorizontal: 4,
     overflow: 'hidden',
+  },
+  fabShellPlaceholder: {
+    flex: 1,
+    minHeight: 44,
   },
   previewInputButton: {
     width: 36,

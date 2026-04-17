@@ -29,6 +29,7 @@ export type AgentEventType =
   | 'thinking_start'
   | 'thinking'
   | 'thinking_end'
+  | 'status'
   | 'message'
   | 'text_delta'
   | 'plan_ready'
@@ -88,6 +89,11 @@ interface UseAgentStreamOptions {
   onError?: (error: string) => void;
 }
 
+export interface AgentStartOptions {
+  endpointPath?: string;
+  bodyExtras?: Record<string, unknown>;
+}
+
 // Hook Return Type
 interface UseAgentStreamReturn {
   events: AgentToolEvent[];
@@ -100,7 +106,16 @@ interface UseAgentStreamReturn {
   currentPrompt: string | null;
   currentProjectId: string | null;
   currentModel: string | null;
-  start: (prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string, previewContext?: any) => void;
+  start: (
+    prompt: string,
+    projectId: string,
+    model?: string,
+    conversationHistory?: any[],
+    images?: any[],
+    thinkingLevel?: string,
+    previewContext?: any,
+    startOptions?: AgentStartOptions,
+  ) => void;
   startExecuting: () => void;
   stop: () => void;
   reset: () => void;
@@ -109,6 +124,7 @@ interface UseAgentStreamReturn {
 interface StreamConnectOptions {
   authRetryCount?: number;
   forceRefreshToken?: boolean;
+  startOptions?: AgentStartOptions;
 }
 
 const isLikelyNetworkError = (error: any): boolean => {
@@ -191,6 +207,7 @@ export function useAgentStream(
   const [currentConversationHistory, setCurrentConversationHistory] = useState<any[]>([]);
   const [currentThinkingLevel, setCurrentThinkingLevel] = useState<string | null>(null);
   const [currentPreviewContext, setCurrentPreviewContext] = useState<any>(null);
+  const [currentStartOptions, setCurrentStartOptions] = useState<AgentStartOptions | null>(null);
 
   // Refs for connection management
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -207,6 +224,7 @@ export function useAgentStream(
     images?: any[];
     thinkingLevel?: string;
     previewContext?: any;
+    startOptions?: AgentStartOptions;
   } | null>(null);
   const maxReconnectAttempts = 5;
 
@@ -302,6 +320,13 @@ export function useAgentStream(
       onComplete?.(completeSummary);
     }
 
+    if (event.type === 'budget_exceeded') {
+      setCurrentTool(null);
+      setRunningState(false);
+      getAgentStore().setCurrentTool(null);
+      getAgentStore().stopAgent();
+    }
+
     // Handle errors
     if (event.type === 'error' || event.type === 'fatal_error') {
       const errorMessage = event.error || event.message || 'Unknown error occurred';
@@ -339,7 +364,7 @@ export function useAgentStream(
     if (!enabled) return;
     if (isConnectingRef.current) return;
 
-    const { authRetryCount = 0, forceRefreshToken = false } = connectionOptions;
+    const { authRetryCount = 0, forceRefreshToken = false, startOptions } = connectionOptions;
 
     // Prevent multiple simultaneous connections
     if (isRunningRef.current && eventSourceRef.current) {
@@ -355,6 +380,7 @@ export function useAgentStream(
       images: images || [],
       thinkingLevel,
       previewContext: previewContext || undefined,
+      startOptions: startOptions || undefined,
     };
     shouldResumeOnReconnectRef.current = false;
     if (reconnectTimeoutRef.current) {
@@ -376,7 +402,7 @@ export function useAgentStream(
         executing: '/agent/run/execute',
       };
 
-      const endpoint = endpointMap[mode];
+      const endpoint = startOptions?.endpointPath || endpointMap[mode];
       const url = `${config.apiUrl}${endpoint}`;
 
       // Streams are long-lived, so we prefer a fresh token on open/re-open.
@@ -400,6 +426,7 @@ export function useAgentStream(
           previewContext: previewContext || undefined,
           userId: useAuthStore.getState().user?.uid || useTerminalStore.getState().userId || null,
           userPlan: useAuthStore.getState().user?.plan || 'free',
+          ...(startOptions?.bodyExtras || {}),
         }),
       });
 
@@ -420,6 +447,7 @@ export function useAgentStream(
         'thinking_start',
         'thinking',
         'thinking_end',
+        'status',
         'message',
         'text_delta',
         'plan_ready',
@@ -444,7 +472,7 @@ export function useAgentStream(
           }
 
           // Handle stream end
-          if (eventType === 'done' || eventType === 'complete') {
+          if (eventType === 'done' || eventType === 'complete' || eventType === 'budget_exceeded') {
             es.close();
           }
         });
@@ -492,7 +520,11 @@ export function useAgentStream(
                 images,
                 thinkingLevel,
                 previewContext,
-                { authRetryCount: authRetryCount + 1, forceRefreshToken: true },
+                {
+                  authRetryCount: authRetryCount + 1,
+                  forceRefreshToken: true,
+                  startOptions,
+                },
               );
             }, authRetryCount === 0 ? 500 : 1500);
             return;
@@ -537,6 +569,7 @@ export function useAgentStream(
               reconnectAttemptsRef.current++;
               connect(prompt, projectId, model, conversationHistory, images, thinkingLevel, previewContext, {
                 forceRefreshToken: true,
+                startOptions,
               });
             }, delay);
           }
@@ -596,7 +629,16 @@ export function useAgentStream(
   /**
    * Start agent execution
    */
-  const start = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string, previewContext?: any) => {
+  const start = useCallback((
+    prompt: string,
+    projectId: string,
+    model?: string,
+    conversationHistory?: any[],
+    images?: any[],
+    thinkingLevel?: string,
+    previewContext?: any,
+    startOptions?: AgentStartOptions,
+  ) => {
     // Reset state
     eventsRef.current = [];
     setEventsVersion(0);
@@ -614,10 +656,13 @@ export function useAgentStream(
     setCurrentConversationHistory(conversationHistory || []);
     setCurrentThinkingLevel(thinkingLevel || null);
     setCurrentPreviewContext(previewContext || null);
+    setCurrentStartOptions(startOptions || null);
     shouldResumeOnReconnectRef.current = false;
 
     // Connect with selected model, conversation history, images, and thinking level
-    connect(prompt, projectId, model, conversationHistory, images, thinkingLevel, previewContext);
+    connect(prompt, projectId, model, conversationHistory, images, thinkingLevel, previewContext, {
+      startOptions,
+    });
   }, [mode, connect, getAgentStore]);
 
   /**
@@ -694,6 +739,7 @@ export function useAgentStream(
       'thinking_start',
       'thinking',
       'thinking_end',
+      'status',
       'message',
       'text_delta',
       'plan_ready',
@@ -715,7 +761,7 @@ export function useAgentStream(
         if (event.data && event.data !== '[DONE]') {
           handleEvent(eventType, event.data);
         }
-        if (eventType === 'done' || eventType === 'complete') {
+        if (eventType === 'done' || eventType === 'complete' || eventType === 'budget_exceeded') {
           es.close();
         }
       });
@@ -761,6 +807,7 @@ export function useAgentStream(
     setCurrentConversationHistory([]);
     setCurrentThinkingLevel(null);
     setCurrentPreviewContext(null);
+    setCurrentStartOptions(null);
     lastConnectPayloadRef.current = null;
     shouldResumeOnReconnectRef.current = false;
     isConnectingRef.current = false;
@@ -794,6 +841,7 @@ export function useAgentStream(
         payload.images,
         payload.thinkingLevel,
         payload.previewContext,
+        { startOptions: payload.startOptions },
       );
     });
 

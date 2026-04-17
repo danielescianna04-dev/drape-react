@@ -336,8 +336,19 @@ class LogWatcherService {
   }
 
   private hashError(title: string, context: string): string {
-    // Simple hash: first 100 chars of context + title
-    return `${title}::${context.substring(0, 100)}`;
+    const normalized = context
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line =>
+        line
+          .replace(/\/home\/coder\/project\/[^\s'"]+/g, '<project-file>')
+          .replace(/:\d+:\d+/g, ':L:C')
+          .replace(/\b\d+\b/g, '#')
+      )
+      .join(' ')
+      .substring(0, 180);
+    return `${title}::${normalized}`;
   }
 
   private isDuplicate(state: WatcherState, hash: string): boolean {

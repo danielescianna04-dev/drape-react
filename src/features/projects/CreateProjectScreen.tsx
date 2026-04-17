@@ -22,10 +22,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../shared/theme/colors';
-import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useAuthStore } from '../../core/auth/authStore';
-import { useTerminalStore } from '../../core/terminal/terminalStore';
-import { useUIStore } from '../../core/terminal/uiStore';
+import { useWorkstationStore } from '../../core/terminal/workstationStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 // DescriptionInput no longer used — step 1 uses inline textarea
 import { liveActivityService } from '../../core/services/liveActivityService';
@@ -43,7 +41,6 @@ import * as Haptics from 'expo-haptics';
 import { tracciaProgettoCreato, tracciaErrore, tracciaSchermata, tracciaOnboardingIdeaChip, tracciaErroreCreazioneProgetto, tracciaNavigazioneIndietro, tracciaContinuaPremuto, tracciaLinguaggioSelezionato, tracciaNomeProgetto, tracciaGenerazioneAvviata, tracciaEntrataNelProgetto, tracciaTemplateCancellato, tracciaCloudMode, tracciaDescrizionePersonalizzata } from '../../core/services/analyticsService';
 import { useAgentStream, AgentMode } from '../../core/ai/useAgentStream';
 import { useAgentStore } from '../../core/ai/agentStore';
-import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { AgentModeModal } from '../../shared/components/molecules/AgentModeModal';
 import { config } from '../../config/config';
 import { getAuthHeaders } from '../../core/api/getAuthToken';
@@ -77,6 +74,9 @@ const languages = [
 const languageCategories = [
   { id: 'all', labelKey: '', items: ['react', 'nextjs', 'html', 'vue', 'astro', 'expo'] },
 ];
+
+const PROJECT_CREATION_MODEL = 'claude-4-7-opus';
+const PROJECT_CREATION_THINKING_LEVEL = 'medium';
 
 const ideaChips = [
   { id: 'ai-chat', label: 'AI chat', icon: 'chatbubble-ellipses' as const, prompt: 'An AI chatbot with a clean conversational interface, message history, typing indicators, and the ability to switch between different AI personas. Include a sidebar for past conversations and a settings panel.' },
@@ -121,6 +121,222 @@ const faqStyles = StyleSheet.create({
   answer: { fontSize: 14, color: 'rgba(255,255,255,0.55)', lineHeight: 21, paddingBottom: 16 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.1)' },
 });
+
+const AGENT_DISCOVERY_TOOLS = new Set([
+  'read_file',
+  'list_directory',
+  'glob_search',
+  'grep_search',
+  'web_search',
+  'web_fetch',
+]);
+
+const AGENT_EDIT_TOOLS = new Set([
+  'edit_file',
+  'multi_edit_file',
+  'patch_file',
+]);
+
+const AGENT_COMMAND_TOOLS = new Set([
+  'run_command',
+  'execute_command',
+]);
+
+const estimateAgentCreationProgress = (
+  events: Array<{ type: string; tool?: string; input?: any }> | undefined,
+  status: 'idle' | 'running' | 'complete' | 'error',
+  isStreaming: boolean
+): number => {
+  if (status === 'complete' || events?.some((event) => event.type === 'complete' || event.type === 'done')) {
+    return 100;
+  }
+
+  if (!isStreaming || !events || events.length === 0) {
+    return isStreaming ? 4 : 0;
+  }
+
+  const discoveryTargets = new Set<string>();
+  const writtenFiles = new Set<string>();
+  let editCount = 0;
+  let commandCount = 0;
+  let sawPlanReady = false;
+  let sawSignalCompletion = false;
+
+  for (const event of events) {
+    if (event.type === 'plan_ready') {
+      sawPlanReady = true;
+      continue;
+    }
+
+    if (event.type !== 'tool_start' && event.type !== 'tool_complete') {
+      continue;
+    }
+
+    const tool = event.tool || '';
+    if (!tool) {
+      continue;
+    }
+
+    if (tool === 'signal_completion') {
+      sawSignalCompletion = true;
+      continue;
+    }
+
+    if (event.type === 'tool_complete') {
+      if (AGENT_DISCOVERY_TOOLS.has(tool)) {
+        const rawTarget =
+          event.input?.file_path ||
+          event.input?.path ||
+          event.input?.pattern ||
+          event.input?.url ||
+          event.input?.command ||
+          `${tool}:${discoveryTargets.size}`;
+        discoveryTargets.add(String(rawTarget));
+      }
+
+      if (tool === 'write_file') {
+        const filePath = event.input?.file_path || event.input?.path || `write:${writtenFiles.size}`;
+        writtenFiles.add(String(filePath));
+      } else if (AGENT_EDIT_TOOLS.has(tool)) {
+        editCount += 1;
+      } else if (AGENT_COMMAND_TOOLS.has(tool)) {
+        commandCount += 1;
+      }
+    }
+  }
+
+  const discoveryProgress = Math.min(14, discoveryTargets.size * 2 + (sawPlanReady ? 4 : 0));
+  const writingProgress = Math.min(36, writtenFiles.size * 4.5);
+  const refinementProgress = Math.min(14, editCount * 1.5 + commandCount * 2);
+
+  let estimated = 6 + discoveryProgress + writingProgress + refinementProgress;
+
+  if (writtenFiles.size >= 4) {
+    estimated = Math.max(estimated, 46);
+  }
+
+  if (writtenFiles.size >= 6) {
+    estimated = Math.max(estimated, 56);
+  }
+
+  if (commandCount > 0 && writtenFiles.size >= 5) {
+    estimated = Math.max(estimated, 64);
+  }
+
+  if (sawSignalCompletion) {
+    estimated = Math.max(estimated, 74);
+  }
+
+  const ceiling = sawSignalCompletion
+    ? 78
+    : commandCount > 0
+      ? 70
+      : writtenFiles.size >= 5
+        ? 64
+        : 58;
+
+  return Math.min(Math.round(estimated), ceiling);
+};
+
+const humanizeCreationTool = (tool: string | null | undefined, lang: 'it' | 'en'): string => {
+  const toolName = String(tool || '').trim();
+  if (!toolName) {
+    return lang === 'it' ? 'Sto preparando il progetto...' : 'Preparing the project...';
+  }
+
+  const labels: Record<string, { it: string; en: string }> = {
+    read_file: { it: 'Sto leggendo il progetto base...', en: 'Reading the starter project...' },
+    list_directory: { it: 'Sto esplorando la struttura...', en: 'Exploring the project structure...' },
+    glob_search: { it: 'Sto cercando i file giusti...', en: 'Finding the right files...' },
+    grep_search: { it: 'Sto cercando nel codice...', en: 'Searching through the code...' },
+    write_file: { it: 'Sto creando i file del progetto...', en: 'Creating the project files...' },
+    edit_file: { it: 'Sto rifinendo il codice...', en: 'Refining the code...' },
+    multi_edit_file: { it: 'Sto applicando le ultime modifiche...', en: 'Applying the final edits...' },
+    patch_file: { it: 'Sto sistemando alcuni dettagli...', en: 'Fixing a few details...' },
+    run_command: { it: 'Sto eseguendo i controlli...', en: 'Running the checks...' },
+    execute_command: { it: 'Sto eseguendo i controlli...', en: 'Running the checks...' },
+    signal_completion: { it: 'Sto passando alla verifica finale...', en: 'Handing off to final verification...' },
+  };
+
+  const exact = labels[toolName];
+  if (exact) return exact[lang];
+
+  const normalized = toolName.replace(/_/g, ' ');
+  return lang === 'it'
+    ? `Sto eseguendo ${normalized}...`
+    : `Running ${normalized}...`;
+};
+
+const deriveAgentCreationTask = (
+  events: Array<{ type: string; tool?: string; message?: string; error?: string; [key: string]: any }> | undefined,
+  status: 'idle' | 'running' | 'complete' | 'error',
+  isStreaming: boolean,
+  estimatedProgress: number,
+  lang: 'it' | 'en',
+) => {
+  const latestEvents = [...(events || [])].reverse();
+  const latestComplete = latestEvents.find((event) => event.type === 'complete');
+  if (latestComplete) {
+    return {
+      status: 'completed',
+      progress: 100,
+      message: String(latestComplete.message || (lang === 'it' ? 'Progetto creato e verificato.' : 'Project created and verified.')),
+      step: lang === 'it' ? 'Completato' : 'Completed',
+    };
+  }
+
+  const latestError = latestEvents.find((event) => event.type === 'error' || event.type === 'fatal_error' || event.type === 'budget_exceeded');
+  if (latestError) {
+    return {
+      status: 'failed',
+      progress: Math.max(estimatedProgress, 12),
+      message: String(latestError.error || latestError.message || (lang === 'it' ? 'Creazione interrotta.' : 'Creation stopped.')),
+      step: lang === 'it' ? 'Errore' : 'Error',
+    };
+  }
+
+  const latestStatus = latestEvents.find((event) => event.type === 'status' && typeof event.message === 'string' && event.message.trim().length > 0);
+  if (latestStatus) {
+    const phase = String(latestStatus.phase || '').toLowerCase();
+    const isVerifyPhase = phase === 'verify'
+      || /verif|preview|controll|runtime|route/i.test(String(latestStatus.message || ''));
+
+    return {
+      status: 'running',
+      progress: Math.max(estimatedProgress, isVerifyPhase ? 84 : 10),
+      message: String(latestStatus.message),
+      step: isVerifyPhase
+        ? (lang === 'it' ? 'Verifica' : 'Verification')
+        : (lang === 'it' ? 'Generazione' : 'Generation'),
+    };
+  }
+
+  const latestTool = latestEvents.find((event) => event.type === 'tool_start' && event.tool);
+  if (latestTool?.tool) {
+    return {
+      status: 'running',
+      progress: Math.max(estimatedProgress, 8),
+      message: humanizeCreationTool(latestTool.tool, lang),
+      step: lang === 'it' ? 'Generazione' : 'Generation',
+    };
+  }
+
+  if (isStreaming || status === 'running') {
+    return {
+      status: 'running',
+      progress: Math.max(estimatedProgress, 4),
+      message: lang === 'it' ? 'Sto preparando il progetto...' : 'Preparing the project...',
+      step: lang === 'it' ? 'Generazione' : 'Generation',
+    };
+  }
+
+  return {
+    status: status === 'error' ? 'failed' : 'idle',
+    progress: Math.max(estimatedProgress, 0),
+    message: lang === 'it' ? 'Sto iniziando...' : 'Getting started...',
+    step: lang === 'it' ? 'Preparazione' : 'Preparing',
+  };
+};
 
 export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, progressOffset = 0, progressTotal = 3 }: Props) => {
   const { t } = useTranslation('projects');
@@ -172,6 +388,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const cloudOverlayAnim = useRef(new Animated.Value(0)).current;
   const cloudSheetAnim = useRef(new Animated.Value(600)).current;
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
+  const creationLang: 'it' | 'en' = i18n.language?.toLowerCase().startsWith('it') ? 'it' : 'en';
 
   const openCloudInfo = () => {
     setCloudInfoVisible(true);
@@ -215,14 +432,19 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     events: agentEvents,
     currentTool: agentCurrentTool,
     status: agentStatus,
-    result: agentResult,
   } = useAgentStream({
     onComplete: handleAgentComplete,
     onError: handleAgentError,
   });
 
+  useEffect(() => {
+    return () => {
+      cancelStream();
+    };
+  }, [cancelStream]);
+
   // Get existing workstations to check for duplicate names
-  const { workstations } = useTerminalStore();
+  const workstations = useWorkstationStore((state) => state.workstations);
 
   // Animations
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT * 0.35)).current;
@@ -482,16 +704,23 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   async function handleAgentComplete(_result: any) {
     const pid = agentProjectIdRef.current || _result?.projectId || Date.now().toString();
     const pName = projectName.trim();
+    const verificationFailed = Boolean(_result?.verificationFailed || _result?.success === false);
 
-    // End Live Activity with success + notification
+    // End Live Activity with an honest status
     if (liveActivityService.isActivityActive()) {
-      liveActivityService.endWithSuccess(pName, t('alerts.projectCreated')).catch(() => {});
+      if (verificationFailed) {
+        liveActivityService.endPreviewActivity().catch(() => {});
+      } else {
+        liveActivityService.endWithSuccess(pName, t('alerts.projectCreated')).catch(() => {});
+      }
     }
-    liveActivityService.sendNotification(
-      t('alerts.projectCreated'),
-      t('alerts.projectReady', { name: pName }),
-      { type: 'project_created', projectId: pid }
-    ).catch(() => {});
+    if (!verificationFailed) {
+      liveActivityService.sendNotification(
+        t('alerts.projectCreated'),
+        t('alerts.projectReady', { name: pName }),
+        { type: 'project_created', projectId: pid }
+      ).catch(() => {});
+    }
 
     // Create workstation object using component state (not result, which may be empty)
     const workstation = {
@@ -536,6 +765,12 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           return;
         }
       } catch {}
+      if (verificationFailed) {
+        Alert.alert(
+          t('common:warning'),
+          'Il progetto e stato creato, ma la verifica automatica ha trovato problemi. Controlla Project History.'
+        );
+      }
       tracciaEntrataNelProgetto(workstation.name);
       onCreate(workstation);
     }, 800);
@@ -548,6 +783,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
     Alert.alert(t('common:error'), t('alerts.creationErrorWithMessage', { error }));
     setIsCreating(false);
+    setCreationTask(null);
+    agentProjectIdRef.current = null;
     resetStream();
   }
 
@@ -864,11 +1101,16 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     setShowModeModal(false);
     setAgentMode(mode);
     setIsCreating(true);
+    setCreationTask({
+      status: 'running',
+      progress: 0,
+      message: creationLang === 'it' ? 'Sto preparando il progetto...' : 'Preparing the project...',
+      step: creationLang === 'it' ? 'Preparazione' : 'Preparing',
+    });
 
-    // Start Live Activity (Dynamic Island)
     liveActivityService.startPreviewActivity(projectName.trim(), {
       remainingSeconds: 180,
-        currentStep: t('alerts.creatingWithAi'),
+      currentStep: t('alerts.creatingProject'),
       progress: 0,
     }, 'create').catch((err) => console.warn('[Project] Failed to start live activity:', err?.message || err));
 
@@ -877,6 +1119,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       if (!userId) {
         Alert.alert(t('common:error'), t('alerts.loginRequired'));
         setIsCreating(false);
+        setCreationTask(null);
+        liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
         return;
       }
 
@@ -906,6 +1150,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           setProjectLimit(result.limits?.maxProjects || 2);
           setShowUpgradeModal(true);
           setIsCreating(false);
+          setCreationTask(null);
           liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
           return;
         }
@@ -919,6 +1164,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             })
           );
           setIsCreating(false);
+          setCreationTask(null);
           liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
           return;
         }
@@ -927,6 +1173,12 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
       const projectId = result.taskId || result.projectId;
       agentProjectIdRef.current = projectId;
+      setCreationTask({
+        status: 'running',
+        progress: 6,
+        message: creationLang === 'it' ? 'Sto collegando l’agente di creazione...' : 'Connecting the creation agent...',
+        step: creationLang === 'it' ? 'Generazione' : 'Generation',
+      });
 
       // Fetch optimized prompt from backend (includes system prompt, stack instructions, template files list)
       let prompt: string;
@@ -949,16 +1201,21 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         prompt = `Create a ${selectedLanguage} project named "${projectName.trim()}". Description: ${getEnrichedDescription()}`;
       }
 
-      // Start agent stream
-      await startStream(projectId, mode, prompt);
       tracciaProgettoCreato(projectName.trim(), selectedLanguage, mode, description.trim());
+      await startStream(projectId, mode, prompt, {
+        model: PROJECT_CREATION_MODEL,
+        thinkingLevel: PROJECT_CREATION_THINKING_LEVEL,
+        projectName: projectName.trim(),
+      });
     } catch (error: any) {
       console.error('[CreateProject] Error starting agent:', error);
       tracciaErrore(error.message || 'Unknown error', 'project_create');
       tracciaErroreCreazioneProgetto(error.message || 'Unknown error');
-      liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
       Alert.alert(t('common:error'), t('alerts.unableToStartAgent'));
       setIsCreating(false);
+      setCreationTask(null);
+      agentProjectIdRef.current = null;
+      liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
       resetStream();
     }
   };
@@ -1059,6 +1316,40 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     : step === 2 ? (!questionsLoading && allQuestionsAnswered)
       : step === 3 ? selectedLanguage !== ''
         : projectName.trim().length > 0;
+
+  const estimatedAgentProgress = estimateAgentCreationProgress(agentEvents, agentStatus, isStreaming);
+
+  useEffect(() => {
+    if (!useAgentSystem || !isCreating) return;
+    const nextTask = deriveAgentCreationTask(
+      agentEvents as any,
+      agentStatus,
+      isStreaming,
+      estimatedAgentProgress,
+      creationLang,
+    );
+    setCreationTask((prev) => {
+      if (
+        prev?.status === nextTask.status &&
+        prev?.progress === nextTask.progress &&
+        prev?.message === nextTask.message &&
+        prev?.step === nextTask.step
+      ) {
+        return prev;
+      }
+      return nextTask;
+    });
+  }, [useAgentSystem, isCreating, agentEvents, agentStatus, isStreaming, estimatedAgentProgress, creationLang]);
+
+  useEffect(() => {
+    if (!isCreating || !creationTask || !liveActivityService.isActivityActive()) return;
+    if (creationTask.status !== 'running') return;
+    liveActivityService.updatePreviewActivity({
+      remainingSeconds: Math.max(0, Math.round(180 * (1 - (creationTask.progress || 0) / 100))),
+      currentStep: creationTask.step || creationTask.message || t('alerts.creatingProject'),
+      progress: Math.min(1, Math.max(0, (creationTask.progress || 0) / 100)),
+    }).catch(() => {});
+  }, [isCreating, creationTask?.status, creationTask?.progress, creationTask?.message, creationTask?.step, t]);
 
   const totalSteps = 4;
   const p1 = `${Math.round(((progressOffset + 1) / (progressOffset + totalSteps)) * 100)}%`;
@@ -1836,10 +2127,12 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       {/* Creation Progress */}
       <CreationProgressModal
         visible={isCreating}
-        progress={creationTask?.progress || (isStreaming ? Math.min(agentEvents.filter(e => e.type === 'tool_complete').length * 3, 90) : 0)}
+        progress={creationTask?.progress ?? estimatedAgentProgress}
         status={creationTask?.message || (agentCurrentTool ? `${agentCurrentTool}...` : (isStreaming ? 'Generating code...' : 'Preparing...'))}
         step={creationTask?.step || (agentStatus === 'running' ? 'AI Agent' : undefined)}
         agentEvents={useAgentSystem ? agentEvents : undefined}
+        agentStatus={agentStatus}
+        agentCurrentTool={agentCurrentTool}
       />
       {/* Upgrade Overlay (absolute positioned, no native Modal) */}
       {showUpgradeModal && (

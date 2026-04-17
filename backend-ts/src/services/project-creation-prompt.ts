@@ -391,6 +391,7 @@ export async function GET() {
   const data = await db.select().from(movies);
   return Response.json(data);
 }
+
 \`\`\``
   : `ALL mock data must be HARDCODED as const arrays at the top of each page. The page renders IMMEDIATELY with content.
 
@@ -521,6 +522,82 @@ Connect ALL UI to real API endpoints — no mock data.`
       : '';
 
   return base + stackInstr + templateNote + cloudNote;
+}
+
+/**
+ * Compact system prompt for agent-based project creation.
+ * Goal: preserve output quality while drastically reducing prompt tokens vs the universal coding prompt.
+ */
+export function getCompactAgentCreationSystemPrompt(
+  technology: string,
+  cloudMode: boolean,
+  supabase?: SupabaseCredentials | null,
+  neon?: NeonCredentials | null,
+): string {
+  const techDesc = TECH_DESCRIPTIONS[technology] || TECH_DESCRIPTIONS['nextjs'];
+  const stackInstructions = STACK_INSTRUCTIONS[technology] || STACK_INSTRUCTIONS['nextjs'];
+
+  let backendRules = 'Use only local hardcoded seed data. Do not add remote fetches for mock data.';
+  if (cloudMode && technology === 'nextjs' && neon) {
+    backendRules = `Use Neon PostgreSQL for persistence.
+- Database URL: ${neon.connectionUri}
+- Use Drizzle with postgres-js
+- Create real schema + seed where needed
+- Never use sqlite or better-sqlite3`;
+  } else if (cloudMode && supabase) {
+    backendRules = `Use Supabase for persistence and auth.
+- Use the existing env credentials
+- Build real tables and auth-aware flows
+- Do not fall back to local mock fetches`;
+  }
+
+  return `You are Drape, an AI that creates production-looking apps from a fresh template.
+
+Respond in the same language as the user.
+
+STACK
+- Build a ${techDesc} app.
+- Mobile-first on a 430px-wide phone.
+- Touch targets must be at least 44x44.
+
+QUALITY BAR
+- Build ONLY 3-5 pages.
+- Prefer fewer pages with zero broken UI.
+- Use existing template UI/components/blocks whenever possible.
+- Create small focused files and components.
+- Every import must resolve.
+- No placeholders, no coming soon, no dead links.
+
+INTERACTION CONTRACT
+- Every visible interactive element must do one of these:
+  1. navigate to a real page
+  2. open a real modal/sheet
+  3. mutate visible state
+  4. submit a real form with feedback
+  5. show a toast and visible UI update
+- If you cannot wire a control to a real outcome, remove it.
+
+WORKFLOW
+1. Read package/template files first.
+2. Plan routes and components briefly.
+3. Create all required files.
+4. Verify:
+   - Type/build sanity
+   - every route exists
+   - every CTA/nav/tab works
+   - no empty handlers or fake links
+5. Fix issues before signaling completion.
+
+EFFICIENCY
+- Minimize tool calls.
+- Prefer creating complete files cleanly over many tiny edits.
+- Avoid unnecessary dependencies.
+- Stop when the app is solid; do not keep polishing endlessly.
+
+${backendRules}
+
+STACK-SPECIFIC RULES
+${stackInstructions}`;
 }
 
 /** Build the user prompt for project creation */
@@ -705,14 +782,8 @@ export function getAgentCreationPrompt(
   supabase?: SupabaseCredentials | null,
   neon?: NeonCredentials | null,
 ): string {
-  const systemPrompt = getProjectCreationSystemPrompt(technology, cloudMode, supabase, neon);
   const techDesc = TECH_DESCRIPTIONS[technology] || TECH_DESCRIPTIONS['nextjs'];
   const templateFiles = TEMPLATE_FILES[technology] || [];
-
-  // Strip the JSON output format instruction from system prompt
-  const cleanSystem = systemPrompt
-    .replace(/=== OUTPUT FORMAT ===[\s\S]*?ONLY the JSON object\./, '')
-    .replace(/Return ONLY valid JSON[\s\S]*?No markdown fences.*$/m, '');
 
   // Build structured context from interview answers
   let answersContext = '';
@@ -725,114 +796,34 @@ export function getAgentCreationPrompt(
     }
   }
 
-  return `${cleanSystem}
+  return `Build "${projectName}" — a ${techDesc} app.
 
-=== HOW TO CREATE FILES ===
-You have tools available: write_file, read_file, run_command, glob_search, grep_search.
-Use write_file to create each file. Do NOT output JSON — use the tools.
+User request:
+${description}${answersContext}
 
-WORKFLOW (follow this EXACTLY):
+Use the available tools to create the app directly.
 
-PHASE 1 — PLAN (do NOT write files yet):
-1. Read package.json to see what dependencies are available
-2. Read the existing template files (main.tsx, layout, css)
-3. Decide: what pages will exist? What routes? What components? Write this plan as a comment to yourself.
+DO THIS:
+1. Read package.json plus the minimal template entry/layout files.
+2. Plan exactly 3-5 pages around one strong core journey.
+3. Create only the files needed for a polished first version.
+4. Wire every visible interactive element to a real outcome.
+5. Before finishing, verify routes, handlers, and build sanity, then fix issues.
 
-PHASE 2 — BUILD (create files one by one):
-4. Create the design system file first (colors, tokens)
-5. Create ALL page files (3-5 pages, no more). Each page = separate file with real content and working buttons.
-6. Create shared components (Navbar, Footer, cards, etc.) — the nav MUST have exactly as many items as you have pages
-7. Create App.tsx with ALL routes registered — every page must have a route, every route must have a page
-8. If you need new deps, run: npm install <package>
-
-PHASE 3 — VERIFY AND FIX (critical — do NOT skip):
-9. Run: grep -rn "onClick\|onPress\|href\|to=" src/pages/ src/components/ --include="*.tsx" — check every interactive element has a handler
-10. Run: grep -rn "Link to\|navigate(" src/ --include="*.tsx" — check all navigation targets match routes in App.tsx
-11. Read App.tsx and verify every <Route path="/..."> has a matching page file
-12. For each page: read it and verify every button/link does something. If a button has no handler or links to a non-existent page, FIX IT immediately.
-13. Run: npm run build 2>&1 | head -50 — check for build errors. If any, fix them.
-
-DO NOT consider your work done until Phase 3 is complete. The verification step is what separates working apps from broken ones.
-
-CRITICAL RULES:
-- NEVER overwrite main.tsx, index.html, vite.config.ts, or any config file
-- main.tsx is minimal — App.tsx must include <BrowserRouter>, <Routes>, <Route>, and <Toaster>
-- NEVER use useRoutes() hook
-- Every import must point to a file you created or that exists in the template
-
-=== EVERY BUTTON MUST WORK — #1 PRIORITY ===
-An app where buttons don't work is WORSE than an app with more features. 3 perfect pages > 7 broken pages.
-
-STEP 1: Plan your routes FIRST. Decide EXACTLY which pages you will create (3-5 pages MAX).
-STEP 2: Create ALL page files before creating components.
-STEP 3: Wire every interactive element to a real action.
-STEP 4: VERIFY — mentally click every button in every file. If clicking produces no visible change, fix or remove it.
-
-IMPORTANT: Before writing a custom button, check if a PRE-BUILT BLOCK exists in components/blocks/.
-These blocks are ALREADY TESTED and produce visible feedback:
-- Heart/like/bookmark → <LikeButton itemId="..." /> (from components/blocks/LikeButton)
-- Add to cart → <AddToCartButton item={...} /> (from components/blocks/AddToCartButton)
-- Share → <ShareButton /> (from components/blocks/ShareButton)
-- +/- quantity → <QuantitySelector value={n} onChange={...} /> (from components/blocks/QuantitySelector)
-- Delete/remove → <DeleteButton onDelete={...} /> (from components/blocks/DeleteButton)
-- Star rating → <RatingStars onRate={...} /> (from components/blocks/RatingStars)
-- Search input → <SearchBar onSearch={...} /> (from components/blocks/SearchBar)
-- Filter tags → <FilterChips chips={[...]} selected={[...]} onChange={...} /> (from components/blocks/FilterChips)
-- On/off switch → <ToggleSwitch onChange={...} label="..." /> (from components/blocks/ToggleSwitch)
-Custom buttons are ONLY needed for app-specific actions not covered above.
-
-ACTION MAP — for elements NOT covered by blocks:
-- Nav tabs / bottom bar → <Link to="/page"> where page EXISTS as a file you created
-- Cards / list items → <Link to="/detail/id"> where detail page EXISTS
-- Form submit → validate + add to state + toast("Saved!") — MUST show feedback
-- Modal open → setShowModal(true) — modal MUST be rendered in the same file
-- Close/X → set modal/sidebar state to false
-
-BUILD 3-5 POLISHED PAGES (not more):
-Pick the core journey for this app and implement it end-to-end:
-- Home/feed page (main content, cards linking to detail)
-- Detail page (full info + action buttons that work)
-- 1-3 supporting pages (cart, profile, search — only what the core journey needs)
-
-EACH PAGE should be 80-150 lines with:
-- Rich seed data (10+ items with realistic names, descriptions, images)
-- Interactive elements that ALL produce visible feedback
-- Proper layout sections (header, content, CTAs)
-
-DO NOT create pages just to fill the nav bar. If you have 3 pages, use 3 tabs. NOT 5 tabs pointing to 3 pages + 2 stubs.
-
-Each page is a separate file. Register ALL routes in App.tsx.
-If a button would navigate somewhere, that "somewhere" MUST exist as a page file.
-If you can't build the destination page, DON'T show the button.
+STRICT LIMITS:
+- Prefer 10-16 created files total
+- Prefer 3-4 pages unless the request truly needs 5
+- Prefer existing template UI/blocks over custom widgets
+- Do not overwrite template/config files
 
 FILES ALREADY IN TEMPLATE (do NOT overwrite):
 ${templateFiles.map(f => `- ${f}`).join('\n')}
 
----
-
-Build "${projectName}" — a ${techDesc} app.
-
-What the user wants: ${description}${answersContext}
-
-This is the first version. The codebase is a fresh template. Build a POLISHED app with 3-5 perfect pages where EVERY button works. Quality over quantity — fewer features, zero broken UI. The user will tap every button. If it doesn't do something visible, they will complain.
-
-QUALITY BAR:
-- 5-8 pages minimum, each 80-150 lines with rich content
-- 15-25 total files (pages + components + utilities)
-- 1500-2500 total lines of code (not counting template files)
-- Every page has seed data — NEVER empty states on first load
-- Professional visual design with consistent color palette and typography
-- Smooth transitions, hover effects, active states on all interactive elements
-- Bottom navigation bar or hamburger menu that works on mobile
-- At least one modal/dialog, one form with validation, one list with detail view
-
-Start by reading the existing files, then plan your pages and routes. After planning, create ALL files. Then you MUST complete Phase 3 verification — this is NOT optional:
-
-1. Run: npx tsc --noEmit 2>&1 | head -30 (for TypeScript projects) — fix ANY compile errors
-2. Run: grep -rn "onClick={() => {}" src/ --include="*.tsx" — find and fix empty handlers
-3. Read App.tsx and count routes — verify each route has a real page file
-4. Count your total files — if less than 15, you need to add more pages or components
-5. If any check fails, fix it BEFORE finishing
-
-The system will automatically verify your work after you finish. Any compile errors or empty handlers will be sent back to you for fixing. Get it right the first time.`;
+SUCCESS CRITERIA:
+- Mobile-first
+- Clean visual system
+- Zero dead buttons
+- Real navigation
+- Real visible feedback
+- No missing imports`;
 }

@@ -8,6 +8,8 @@ export type AgentSseEventType =
   | 'text_delta'
   | 'tool_start'
   | 'tool_complete'
+  | 'budget_exceeded'
+  | 'budget_warning'
   | 'plan'
   | 'plan_update'
   | 'heartbeat'

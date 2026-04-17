@@ -7,6 +7,7 @@ import { Session, ProjectInfo, ExecResult } from '../types';
 import { dockerService } from './docker.service';
 import { shellEscape } from '../utils/helpers';
 import { appendRuntimeAction } from './build-report.service';
+import { convertInstallCommandToNpm, getFrameworkIntegritySpec } from '../utils/install-integrity';
 
 const NODE_MODULES_CACHE_DIR = '/data/cache/node-modules';
 const HASH_FILE = '.package-json-hash';
@@ -15,6 +16,52 @@ type InstallLogCallback = (line: string) => void;
 
 class DependencyService {
   private installLocks = new Map<string, Promise<void>>();
+
+  private isNativeBinaryIntegrityFailure(message: string | null | undefined): boolean {
+    const normalized = String(message || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return false;
+    return /Native binary integrity check failed|TRUNCATED:node_modules|invalid ELF header|Exec format error/i.test(normalized);
+  }
+
+  async repairCorruptedInstall(
+    projectId: string,
+    session: Session,
+    info: ProjectInfo,
+    reason?: string,
+    onProgress?: InstallProgress,
+    onLog?: InstallLogCallback,
+  ): Promise<void> {
+    const projectDir = path.join(config.projectsRoot, projectId);
+    const subdir = this.extractSubdir(info.installCommand);
+    const effectiveDir = subdir ? path.join(projectDir, subdir) : projectDir;
+    const containerCwd = subdir ? `/home/coder/project/${subdir}` : '/home/coder/project';
+    const currentHash = await this.calculateHash(effectiveDir, info.packageManager);
+    const repairedInfo = this.buildReliableRepairInfo(info);
+
+    log.warn(`[Deps] Aggressive dependency repair for ${projectId}${reason ? `: ${reason.substring(0, 160)}` : ''}`);
+    onProgress?.('Corrupted dependency install detected, forcing a clean reinstall...');
+    onLog?.(`Detected corrupted install${reason ? `: ${reason}` : ''}`);
+
+    if (currentHash) {
+      await this.deleteCacheEntry(currentHash);
+    }
+    await this.saveHash(effectiveDir, '');
+    await this.cleanupBeforeRetry(session.agentUrl, {
+      clearBunCache: info.packageManager === 'bun',
+      removeLockfiles: false,
+    });
+    if (info.type === 'nextjs') {
+      await dockerService.exec(
+        session.agentUrl,
+        'find .next -mindepth 1 -delete 2>/dev/null || true',
+        containerCwd,
+        30000,
+        true,
+      ).catch(() => {});
+    }
+
+    await this.install(projectId, session, repairedInfo, onProgress, onLog);
+  }
 
   /**
    * Install dependencies inside a container.
@@ -83,7 +130,7 @@ class DependencyService {
 
       log.info(`[Deps] No package.json hash in ${subdir || 'root'} — running bootstrap install command`);
       onProgress?.('Running bootstrap dependency install...');
-      await this.runInstallWithRetry(agentUrl, info.installCommand, onProgress, onLog);
+      await this.runInstallWithRetry(agentUrl, info, info.installCommand, containerCwd, onProgress, onLog);
 
       // Recompute hash after bootstrap install; if still unavailable, just return.
       currentHash = await this.calculateHash(effectiveDir, info.packageManager);
@@ -110,15 +157,17 @@ class DependencyService {
       if (nmExists) {
         // Also verify native binaries aren't truncated (SIGBUS protection)
         const binariesOk = await this.verifyNativeBinaries(agentUrl);
-        if (binariesOk) {
+        const frameworkIntegrity = await this.verifyFrameworkIntegrity(agentUrl, info, containerCwd);
+        if (binariesOk && frameworkIntegrity.ok) {
           log.info(`[Deps] Hash match (${currentHash.substring(0, 8)}) — SKIP INSTALL`);
           onProgress?.('Dependencies already installed (cache hit), skipping install');
           return;
         }
-        log.warn(`[Deps] Hash match but native binaries are corrupt — reinstalling`);
-        onProgress?.('Corrupted native binaries detected, reinstalling...');
+        log.warn(`[Deps] Hash match but runtime install is corrupt — reinstalling (${frameworkIntegrity.reason || 'native binary integrity failed'})`);
+        onProgress?.('Corrupted framework install detected, reinstalling...');
         await this.cleanupBeforeRetry(agentUrl);
         await this.saveHash(effectiveDir, '');
+        if (currentHash) await this.deleteCacheEntry(currentHash);
       } else {
         log.info(`[Deps] Hash matches but node_modules missing — reinstalling`);
         onProgress?.('Dependencies hash matched, but node_modules is missing. Reinstalling...');
@@ -131,14 +180,15 @@ class DependencyService {
     if (cacheRestored) {
       // Verify restored cache isn't corrupt
       const restoredOk = await this.verifyNativeBinaries(agentUrl);
-      if (restoredOk) {
+      const restoredFramework = await this.verifyFrameworkIntegrity(agentUrl, info, containerCwd);
+      if (restoredOk && restoredFramework.ok) {
         log.info(`[Deps] Restored from NVMe cache in ${Date.now() - startTime}ms`);
         await this.saveHash(effectiveDir, currentHash);
         onProgress?.('Dependencies restored from NVMe cache');
         return;
       }
-      log.warn(`[Deps] Cache restored but native binaries are corrupt — fresh install needed`);
-      onProgress?.('Cache corrupted, performing fresh install...');
+      log.warn(`[Deps] Cache restored but runtime install is corrupt — fresh install needed (${restoredFramework.reason || 'native binary integrity failed'})`);
+      onProgress?.('Dependency cache is corrupted, performing a fresh install...');
       await this.cleanupBeforeRetry(agentUrl);
       await this.deleteCacheEntry(currentHash);
     }
@@ -153,7 +203,7 @@ class DependencyService {
     await this.cleanupBeforeRetry(agentUrl);
     const installCmd = info.installCommand || 'npm install';
     try {
-      await this.runInstallWithRetry(agentUrl, installCmd, onProgress, onLog);
+      await this.runInstallWithRetry(agentUrl, info, installCmd, containerCwd, onProgress, onLog);
     } catch (err: any) {
       await appendRuntimeAction(projectId, 'install', 'Dependency install failed', {
         status: 'failed',
@@ -182,9 +232,13 @@ class DependencyService {
       const lockFiles = [
         packageManager === 'pnpm' ? 'pnpm-lock.yaml' : null,
         packageManager === 'yarn' ? 'yarn.lock' : null,
+        packageManager === 'bun' ? 'bun.lockb' : null,
+        packageManager === 'bun' ? 'bun.lock' : null,
         'package-lock.json',
         'pnpm-lock.yaml',
         'yarn.lock',
+        'bun.lockb',
+        'bun.lock',
       ].filter(Boolean) as string[];
 
       for (const lockFile of lockFiles) {
@@ -332,7 +386,9 @@ class DependencyService {
 
   private async runInstallWithRetry(
     agentUrl: string,
+    info: ProjectInfo,
     installCmd: string,
+    containerCwd: string,
     onProgress?: InstallProgress,
     onLog?: InstallLogCallback,
   ): Promise<void> {
@@ -436,13 +492,15 @@ class DependencyService {
         // Verify native binaries aren't truncated (e.g. SWC for Next.js).
         // A truncated .node file causes SIGBUS when Node tries to dlopen it.
         const integrityOk = await this.verifyNativeBinaries(agentUrl);
-        if (integrityOk) return;
+        const frameworkIntegrity = await this.verifyFrameworkIntegrity(agentUrl, info, containerCwd);
+        if (integrityOk && frameworkIntegrity.ok) return;
 
-        log.warn(`[Deps] Install succeeded but native binaries are corrupt — treating as failure`);
-        onProgress?.('Native binaries are corrupted, will retry install...');
-        onLog?.('Warning: native binary integrity check failed after install');
+        const integrityReason = frameworkIntegrity.reason || 'Native binary integrity check failed';
+        log.warn(`[Deps] Install succeeded but runtime integrity check failed — treating as failure (${integrityReason})`);
+        onProgress?.('Installed dependencies look corrupted, retrying...');
+        onLog?.(`Warning: ${integrityReason}`);
         // Fall through to retry logic
-        result = { exitCode: 1, stdout: '', stderr: 'Native binary integrity check failed' };
+        result = { exitCode: 1, stdout: '', stderr: integrityReason };
       }
 
       const errOutput = ((result.stderr || '') + '\n' + (result.stdout || '')).trim();
@@ -490,25 +548,43 @@ class DependencyService {
         const isBunIntegrityError = errOutput.includes('IntegrityCheckFailed') ||
           errOutput.includes('Integrity check failed') ||
           errOutput.includes('migrated lockfile');
+        const isFrameworkIntegrityError = errOutput.includes('FRAMEWORK_INTEGRITY_FAIL');
+        const isNativeBinaryIntegrityError = this.isNativeBinaryIntegrityFailure(errOutput);
 
-        if (isBunIntegrityError && effectiveCmd.includes('bun')) {
+        if ((isBunIntegrityError || isFrameworkIntegrityError || isNativeBinaryIntegrityError) && effectiveCmd.includes('bun')) {
           if (attempt === 1) {
-            // Attempt 2: retry bun WITHOUT the npm lockfile (fresh resolve, no migration).
-            // The migration is what causes the integrity error — without package-lock.json,
-            // bun resolves fresh from package.json and generates its own bun.lockb.
-            log.warn(`[Deps] Bun integrity error on migration, will retry bun without npm lockfile`);
-            onProgress?.('Errore migrazione lockfile, riprovo senza lockfile npm...');
-            onLog?.(`Retrying bun install without package-lock.json (fresh resolve)`);
-            await this.cleanupBeforeRetry(agentUrl, { clearBunCache: true, removeLockfiles: true });
+            if ((isFrameworkIntegrityError || isNativeBinaryIntegrityError) && info.type === 'nextjs') {
+              effectiveCmd = convertInstallCommandToNpm(effectiveCmd);
+              log.warn(`[Deps] Native/framework install looks corrupt after bun install, switching to npm: ${effectiveCmd}`);
+              onProgress?.('Native dependencies look corrupted, switching to npm...');
+              onLog?.(`Switching package manager: bun -> npm (reason: corrupted runtime/native binaries, nextjs)`);
+              await this.cleanupBeforeRetry(agentUrl, { clearBunCache: true, removeLockfiles: true });
+            } else {
+              // Attempt 2: retry bun WITHOUT the npm lockfile (fresh resolve, no migration).
+              // The migration is what causes the integrity error — without package-lock.json,
+              // bun resolves fresh from package.json and generates its own bun.lockb.
+              log.warn(`[Deps] Bun integrity error on migration, will retry bun without npm lockfile`);
+              onProgress?.('Errore migrazione lockfile, riprovo senza lockfile npm...');
+              onLog?.(`Retrying bun install without package-lock.json (fresh resolve)`);
+              await this.cleanupBeforeRetry(agentUrl, { clearBunCache: true, removeLockfiles: true });
+            }
           } else {
             // Attempt 3: bun failed twice, fall back to npm as last resort.
-            effectiveCmd = effectiveCmd.replace(/\bbun\b/g, 'npm');
+            effectiveCmd = convertInstallCommandToNpm(effectiveCmd);
             log.warn(`[Deps] Bun failed twice, falling back to npm: ${effectiveCmd}`);
             onProgress?.('Bun incompatibile, fallback a npm...');
-            onLog?.(`Switching to npm due to repeated bun integrity error`);
+            onLog?.(`Switching package manager: bun -> npm (reason: repeated bun integrity failure)`);
             // Restore package-lock.json from git for npm, clean bun artifacts
             await this.cleanupBeforeRetry(agentUrl, { clearBunCache: true, restoreLockfile: true });
           }
+        } else if (isNativeBinaryIntegrityError) {
+          log.warn('[Deps] Native binary integrity failure detected — forcing aggressive cleanup before retry');
+          onProgress?.('Native binaries are corrupted, forcing a clean reinstall...');
+          onLog?.('Native binary integrity failed, wiping install artifacts and retrying cleanly');
+          await this.cleanupBeforeRetry(agentUrl, {
+            clearBunCache: true,
+            removeLockfiles: info.packageManager === 'bun',
+          });
         } else {
           // Non-bun error: standard cleanup
           await this.cleanupBeforeRetry(agentUrl, {});
@@ -572,6 +648,17 @@ class DependencyService {
       await fs.rm(cachePath, { force: true });
       log.info(`[Deps] Deleted corrupt cache entry: ${hash.substring(0, 8)}.tar.gz`);
     } catch { /* ignore */ }
+  }
+
+  private buildReliableRepairInfo(info: ProjectInfo): ProjectInfo {
+    if (info.type === 'nextjs' && info.packageManager === 'bun') {
+      return {
+        ...info,
+        packageManager: 'npm',
+        installCommand: convertInstallCommandToNpm(info.installCommand),
+      };
+    }
+    return info;
   }
 
   /**
@@ -674,6 +761,55 @@ process.exit(ok ? 0 : 1);
       log.warn(`[Deps] Native binary integrity check error: ${e.message}`);
       // On error, assume OK to avoid blocking installs
       return true;
+    }
+  }
+
+  private async verifyFrameworkIntegrity(
+    agentUrl: string,
+    info: ProjectInfo,
+    containerCwd = '/home/coder/project',
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const spec = getFrameworkIntegritySpec(info.type);
+    if (!spec) return { ok: true };
+
+    try {
+      const script = `
+const fs = require('fs');
+const spec = ${JSON.stringify(spec)};
+const missing = [];
+for (const rel of spec.files) {
+  if (!fs.existsSync(rel)) missing.push(rel);
+}
+for (const request of spec.resolves) {
+  try {
+    require.resolve(request, { paths: [process.cwd()] });
+  } catch {
+    missing.push('resolve:' + request);
+  }
+}
+if (missing.length) {
+  console.error('FRAMEWORK_INTEGRITY_FAIL:' + spec.label + ':' + missing.join(','));
+  process.exit(1);
+}
+`;
+      const result = await dockerService.exec(
+        agentUrl,
+        `node -e ${shellEscape(script)}`,
+        containerCwd,
+        15000,
+        true,
+      );
+
+      if (result.exitCode !== 0) {
+        const reason = (result.stderr || result.stdout || '').trim() || `${spec.label} integrity check failed`;
+        return { ok: false, reason };
+      }
+
+      return { ok: true };
+    } catch (error: any) {
+      const reason = error?.message || `${spec.label} integrity check failed`;
+      log.warn(`[Deps] Framework integrity check error: ${reason}`);
+      return { ok: false, reason };
     }
   }
 

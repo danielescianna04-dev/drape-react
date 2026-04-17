@@ -2,8 +2,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Animated, Dimensions } from 'react-native';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
-import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useAuthStore } from '../../core/auth/authStore';
+import { useWorkstationStore } from '../../core/terminal/workstationStore';
 import { liveActivityService } from '../../core/services/liveActivityService';
 import { pushNotificationService } from '../../core/services/pushNotificationService';
 import { useTranslation } from 'react-i18next';
@@ -12,7 +12,8 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export function useProjectsData() {
   const { user } = useAuthStore();
-  const { gitHubUser, loadWorkstations } = useTerminalStore();
+  const gitHubUser = useWorkstationStore((state) => state.gitHubUser);
+  const loadWorkstations = useWorkstationStore((state) => state.loadWorkstations);
   const { t } = useTranslation('projects');
 
   // Request push notification permission on home screen mount
@@ -66,7 +67,7 @@ export function useProjectsData() {
       const timer = setTimeout(() => {
         setFocusKey(k => k + 1);
       }, 100);
-      const cachedData = useTerminalStore.getState().workstations;
+      const cachedData = useWorkstationStore.getState().workstations;
       const hasCachedData = cachedData.length > 0;
 
       if (hasCachedData) {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { AppColors } from '../../../shared/theme/colors';
 import { GitSheetBody } from './GitSheetBody';
 import { GitSheetDialogs } from './GitSheetDialogs';
@@ -20,7 +20,7 @@ interface Props {
 }
 
 export const GitSheet = ({ visible, onClose, initialTab }: Props) => {
-  const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
+  const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
   const [showAddAccountModal, setShowAddAccountModal] = useState(false);
 
   // ─── Data hook ────────────────────────────────────────────────────────

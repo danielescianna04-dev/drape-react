@@ -14,6 +14,7 @@ import { caseSensitivityService } from './case-sensitivity.service';
 import { execShell, shellEscape } from '../utils/helpers';
 import { config } from '../config';
 import path from 'path';
+import { isLikelyDependencyCorruption } from '../utils/install-integrity';
 
 const HEALTH_CHECK_TTL = 30_000; // 30 seconds
 
@@ -179,6 +180,49 @@ class WorkspaceService {
     });
   }
 
+  async repairDependencyInstall(projectId: string, userId: string, reason?: string): Promise<void> {
+    const session = await this.getOrCreateContainer(projectId, userId);
+    const projectInfo = session.projectInfo || await projectDetectorService.detect(projectId);
+    session.projectInfo = projectInfo;
+    await sessionService.set(projectId, userId, session);
+
+    log.warn(`[Workspace] Repairing dependency install for ${projectId}${reason ? `: ${reason.substring(0, 160)}` : ''}`);
+    try {
+      await this.copySupportScripts(projectId);
+      await this.prepareWebProjectFiles(projectId, projectInfo);
+      await devServerService.stop(session).catch(() => {});
+      await dependencyService.repairCorruptedInstall(projectId, session, projectInfo, reason);
+      await this.ensureRuntimeDependencyInstalled(projectId, session, projectInfo);
+      await devServerService.start(session, projectInfo);
+      session.preparedAt = Date.now();
+      await sessionService.set(projectId, userId, session);
+      logWatcherService.start(projectId, session.agentUrl);
+      await appendRuntimeAction(projectId, 'install', 'Aggressive dependency repair', {
+        status: 'fixed',
+        details: 'Detected incomplete framework install — purging cache and reinstalling dependencies',
+        error: reason?.substring(0, 500),
+        fix: projectInfo.type === 'nextjs' && projectInfo.packageManager === 'bun'
+          ? 'Reinstalled dependencies with npm after removing cached bun artifacts'
+          : 'Reinstalled dependencies after removing cached artifacts',
+        metadata: {
+          projectType: projectInfo.type,
+          packageManager: projectInfo.packageManager,
+        },
+      }).catch(() => {});
+    } catch (error: any) {
+      await appendRuntimeAction(projectId, 'install', 'Aggressive dependency repair failed', {
+        status: 'failed',
+        details: 'Forced reinstall did not restore a healthy runtime',
+        error: (error?.message || 'unknown').substring(0, 500),
+        metadata: {
+          projectType: projectInfo.type,
+          packageManager: projectInfo.packageManager,
+        },
+      }).catch(() => {});
+      throw error;
+    }
+  }
+
   /**
    * Warm up a project: create container + install deps + start dev server in background.
    * Called by /fly/clone. Returns quickly, work continues in background.
@@ -213,6 +257,7 @@ class WorkspaceService {
 
     // Background: install + start dev server
     setImmediate(async () => {
+      let warmStage: 'prepare' | 'install' | 'start' = 'prepare';
       try {
         log.info(`[Workspace] Background warming ${projectId}...`);
         await this.copySupportScripts(projectId);
@@ -221,11 +266,13 @@ class WorkspaceService {
         // Install dependencies (skip for console projects without deps and static/unknown)
         const skipInstall = this.shouldSkipInstall(projectInfo);
         if (!skipInstall) {
+          warmStage = 'install';
           await dependencyService.install(projectId, session, projectInfo);
           await this.ensureRuntimeDependencyInstalled(projectId, session, projectInfo);
         }
 
         // Start dev server (or run console program)
+        warmStage = 'start';
         await devServerService.start(session, projectInfo);
         session.preparedAt = Date.now();
         await sessionService.set(projectId, userId, session);
@@ -238,10 +285,17 @@ class WorkspaceService {
         log.info(`[Workspace] Warming complete for ${projectId}`);
       } catch (e: any) {
         log.error(`[Workspace] Background warming failed for ${projectId}: ${e.message}`);
-        await appendRuntimeAction(projectId, 'warming', 'Warming failed', {
-          status: 'failed',
-          error: (e.message || 'unknown').substring(0, 500),
-        }).catch(() => {});
+        // If startup already emitted a concrete dev-server error, don't append a
+        // second generic "warming failed" entry that obscures the real cause.
+        if (warmStage !== 'start') {
+          await appendRuntimeAction(projectId, 'warming', 'Warming failed', {
+            status: 'failed',
+            error: (e.message || 'unknown').substring(0, 500),
+            details: warmStage === 'install'
+              ? 'Dependency install or runtime preparation failed'
+              : 'Project warmup preparation failed',
+          }).catch(() => {});
+        }
       }
     });
 
@@ -486,6 +540,19 @@ class WorkspaceService {
               await dockerService.exec(existingSession.agentUrl, 'find .next -mindepth 1 -delete 2>/dev/null || true', '/home/coder/project', 30000, true).catch(() => {});
               existingSession.projectInfo = freshInfo;
               // Fall through to slow path
+            } else if (isLikelyDependencyCorruption(appError, freshInfo.type)) {
+              await this.repairDependencyInstall(projectId, userId, appError);
+              const repairedSession = await sessionService.get(projectId, userId) || existingSession;
+              const repairedInfo = repairedSession.projectInfo || freshInfo;
+              return {
+                success: true,
+                previewUrl: repairedInfo.hasWebUI === false ? undefined : this.buildPreviewUrl(repairedSession),
+                agentUrl: repairedSession.agentUrl,
+                containerId: repairedSession.containerId,
+                previewToken: repairedSession.accessToken,
+                projectInfo: repairedInfo,
+                hasWebUI: repairedInfo.hasWebUI !== false,
+              };
             } else {
               throw new Error(appError);
             }

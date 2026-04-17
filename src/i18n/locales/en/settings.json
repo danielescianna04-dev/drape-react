@@ -54,7 +54,9 @@
     "loading": "Loading...",
     "resetsIn": "resets in",
     "days": "days",
-    "usage": "Usage"
+    "usage": "Usage",
+    "spent": "Spent",
+    "remaining": "Remaining"
   },
   "security": {
     "title": "Security",
@@ -145,7 +147,7 @@
     "pro": {
       "name": "Pro",
       "description": "Maximum power for developers.",
-      "features": ["50 projects + 25 cloned", "Unlimited previews", "Unlimited AI budget", "10GB Cloud Storage", "Priority support"]
+      "features": ["150 projects + 25 cloned", "Unlimited previews", "Unlimited AI budget", "90GB Cloud Storage", "Priority support"]
     },
     "monthly": "Monthly",
     "yearly": "Yearly",
@@ -190,11 +192,27 @@
   "resources": {
     "title": "System Resources",
     "usage": "Usage",
+    "tokens": "Tokens",
     "storage": "Storage",
     "previews": "Previews",
+    "aiProjects": "AI Project Spend",
+    "aiProjectsDesc": "Monthly breakdown across generated projects",
+    "aiTotal": "Total AI",
+    "aiAverage": "Avg / project",
+    "aiEscalations": "Premium fixes",
+    "aiGeneration": "Generation",
+    "aiVerify": "Verify",
+    "aiPremium": "Premium",
+    "aiPremiumShort": "Premium",
+    "topProjects": "Top projects",
+    "modelSpend": "Spend by model",
+    "thisMonth": "This month",
+    "lastActive": "Last active",
     "active": "active",
+    "live": "live",
     "projects": "Projects",
     "projectsActive": "active",
+    "used": "used",
     "perProject": "per project",
     "unlimited": "Unlimited"
   },

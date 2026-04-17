@@ -13,6 +13,12 @@ interface UsePreviewStartupParams {
   currentWorkstationName: string | undefined;
 }
 
+export interface PreviewErrorState {
+  message: string;
+  timestamp: Date;
+  recoverable?: boolean;
+}
+
 export function usePreviewStartup({
   projectId,
   previewAccessToken,
@@ -52,7 +58,7 @@ export function usePreviewStartup({
   const smoothProgressRef = useRef(persistedState?.smoothProgress ?? 0);
   const [targetProgress, setTargetProgressLocal] = useState(persistedState?.targetProgress ?? 0);
   const [displayedMessage, setDisplayedMessageLocal] = useState(persistedState?.displayedMessage ?? '');
-  const [previewError, setPreviewErrorLocal] = useState<{ message: string; timestamp: Date } | null>(persistedState?.previewError ?? null);
+  const [previewError, setPreviewErrorLocal] = useState<PreviewErrorState | null>(persistedState?.previewError ?? null);
 
   const [estimatedRemainingSeconds, setEstimatedRemainingSeconds] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -125,7 +131,7 @@ export function usePreviewStartup({
     if (projectId) setPreviewStartupState(projectId, { displayedMessage: value });
   };
 
-  const setPreviewError = (value: { message: string; timestamp: Date } | null) => {
+  const setPreviewError = (value: PreviewErrorState | null) => {
     setPreviewErrorLocal(value);
     if (projectId) setPreviewStartupState(projectId, { previewError: value });
   };
@@ -240,7 +246,7 @@ export function usePreviewStartup({
 
   // Clear persisted state when preview completes
   useEffect(() => {
-    if (serverStatus === 'running' && webViewReady && projectId) {
+    if (serverStatus === 'running' && webViewReady && projectId && !previewError) {
       clearPreviewStartupState(projectId);
       const name = currentWorkstationName || t('terminal:preview.project');
       if (liveActivityService.isActivityActive()) {
@@ -252,7 +258,7 @@ export function usePreviewStartup({
         { action: 'openPreview', projectId: projectId || '' }
       ).catch((err) => console.warn('[Preview] Failed to send notification:', err?.message || err));
     }
-  }, [serverStatus, webViewReady, projectId]);
+  }, [serverStatus, webViewReady, projectId, previewError, currentWorkstationName, t, clearPreviewStartupState]);
 
   // Live Activity refs for stable AppState callback
   const isStartingRef = useRef(isStarting);

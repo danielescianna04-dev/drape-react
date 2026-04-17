@@ -16,6 +16,46 @@ const BASE_URL = 'http://localhost:3000';
 const MAX_CLICKS = 999;      // no limit — test everything
 const CLICK_TIMEOUT = 3000;  // ms to wait after click
 const NAV_TIMEOUT = 12000;   // ms for page.goto
+const TRANSIENT_EXTERNAL_IMAGE_HOSTS = [
+  'picsum.photos',
+  'images.unsplash.com',
+  'source.unsplash.com',
+  'placehold.co',
+  'via.placeholder.com',
+  'dummyimage.com',
+  'placekitten.com',
+];
+
+function normalizeInteractiveLabel(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isInputDependentAction(el) {
+  const label = normalizeInteractiveLabel(el?.text);
+  return /(send|submit|search|filter|apply|reply|comment|message|chat)/i.test(label);
+}
+
+function isLikelyPrimaryInteractive(el) {
+  const label = normalizeInteractiveLabel(el?.text);
+  const href = normalizeInteractiveLabel(el?.href);
+
+  if (!label && !href && !el?.iconOnly) return false;
+  if (el?.type === 'button' || el?.type === 'interactive' || el?.type === 'broken-link') return true;
+  if (href && href !== '#' && href !== '/') return true;
+  if (el?.iconOnly && (el?.aboveFold || el?.inHeader || el?.inNav)) return true;
+
+  return /(home|chat|messages|status|settings|profile|search|explore|discover|feed|cart|checkout|shop|buy|subscribe|pricing|camera|reels|shorts|library|menu|account|orders|favorites|saved|notifications|inbox|calendar|book|schedule|next|continue|start|get started|view|open|export|download|share|play|watch|details)/i.test(label);
+}
+
+function isBlockingDeadInteractive(el, currentPath) {
+  const href = normalizeInteractiveLabel(el?.href);
+  const path = normalizeInteractiveLabel(currentPath);
+  const samePageHref = href && href !== '#' && (href === path || href === `${path}/`);
+  if (samePageHref && el?.type === 'link') return false;
+  if (el?.disabled || el?.ariaDisabled) return false;
+  if (el?.inputRequired && el?.inputEmpty && isInputDependentAction(el)) return false;
+  return isLikelyPrimaryInteractive(el);
+}
 
 // ── Page Detection ─────────────────────────────────────────────
 
@@ -80,7 +120,7 @@ function detectPages() {
 // ── Page Analysis ──────────────────────────────────────────────
 
 async function analyzePage(page) {
-  return page.evaluate(() => {
+  return page.evaluate((transientImageHosts) => {
     const body = document.body;
     const text = (body?.innerText?.trim() || '');
 
@@ -116,7 +156,18 @@ async function analyzePage(page) {
     // Images
     const images = document.querySelectorAll('img');
     let brokenImages = 0;
-    images.forEach(img => { if (!img.complete || img.naturalWidth === 0) brokenImages++; });
+    images.forEach((img) => {
+      if (img.complete && img.naturalWidth > 0) return;
+      const src = img.currentSrc || img.getAttribute('src') || '';
+      let host = '';
+      try {
+        host = new URL(src, window.location.href).hostname.toLowerCase();
+      } catch {}
+      const isTransientExternal =
+        !!host &&
+        transientImageHosts.some((allowedHost) => host === allowedHost || host.endsWith(`.${allowedHost}`));
+      if (!isTransientExternal) brokenImages++;
+    });
 
     // Interactive elements
     const buttons = document.querySelectorAll('button, [role="button"], a[href]');
@@ -133,7 +184,7 @@ async function analyzePage(page) {
       bodyBg,
       title: document.title,
     };
-  });
+  }, TRANSIENT_EXTERNAL_IMAGE_HOSTS);
 }
 
 // ── Get all clickable elements ─────────────────────────────────
@@ -143,6 +194,7 @@ async function getClickableElements(page) {
     const results = [];
     const seen = new Set();
     const rects = []; // For bounding box deduplication
+    let qaIdCounter = 0;
 
     // Helper: check if a rect is fully contained in an already-captured rect
     function isContainedByExisting(rect) {
@@ -159,23 +211,53 @@ async function getClickableElements(page) {
     function addElement(el, type, href) {
       const rect = el.getBoundingClientRect();
       if (rect.width < 10 || rect.height < 10) return; // Too small
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') return;
+      const disabled =
+        !!el.disabled ||
+        el.getAttribute('aria-disabled') === 'true' ||
+        el.getAttribute('data-disabled') === 'true';
+      if (disabled) return;
       if (isContainedByExisting(rect)) return; // Child of already-captured parent
+      const interactiveAncestor = el.parentElement?.closest(
+        'a[href], button, [role="button"], [onclick], nav a, nav button, [role="tab"], [role="menuitem"]',
+      );
+      if (interactiveAncestor && interactiveAncestor !== el) return;
 
-      const text = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().substring(0, 50);
-      if (!text) return; // No text = can't identify in report
+      let text = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().substring(0, 50);
+      const iconOnly = !text;
+      if (!text) text = `${el.tagName.toLowerCase()}@${Math.round(rect.x)},${Math.round(rect.y)}`;
 
       const key = `${type}:${text}:${Math.round(rect.x)}:${Math.round(rect.y)}`;
       if (seen.has(key)) return;
       seen.add(key);
 
       rects.push({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+      const qaId = el.getAttribute('data-drape-qa-id') || `qa-${++qaIdCounter}`;
+      el.setAttribute('data-drape-qa-id', qaId);
+      const scope =
+        el.closest('form, [role="search"], [class*="search"], [class*="chat"], [class*="message"], [class*="composer"], [data-chat], [data-search]') ||
+        el.parentElement ||
+        el;
+      const relatedField = scope?.querySelector?.(
+        'textarea, input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"])'
+      );
+      const relatedValue = typeof relatedField?.value === 'string' ? relatedField.value.trim() : '';
       results.push({
         type,
         href: href || null,
         text,
+        iconOnly,
+        disabled,
+        ariaDisabled: el.getAttribute('aria-disabled') === 'true',
+        inputRequired: !!relatedField,
+        inputEmpty: !!relatedField && relatedValue.length === 0,
+        inHeader: !!el.closest('header, [role="banner"]'),
+        inNav: !!el.closest('nav, [role="navigation"], [role="tablist"]'),
+        aboveFold: rect.top >= 0 && rect.top < (window.innerHeight * 1.1),
         x: Math.round(rect.x + rect.width / 2),
         y: Math.round(rect.y + rect.height / 2),
-        selector: null,
+        selector: `[data-drape-qa-id="${qaId}"]`,
       });
     }
 
@@ -204,17 +286,11 @@ async function getClickableElements(page) {
     }
 
     // 4. Elements with cursor: pointer (Tailwind cursor-pointer, inline styles, CSS)
-    const allViewportEls = document.querySelectorAll('div, span, li, td, th, label, [tabindex]');
-    const viewportEls = Array.from(allViewportEls).filter(el => {
-      const r = el.getBoundingClientRect();
-      return r.bottom > 0 && r.top < window.innerHeight && r.width >= 10 && r.height >= 10;
-    }).slice(0, 200);
-    for (const el of viewportEls) {
+    const allInteractiveEls = Array.from(document.querySelectorAll('div, span, li, td, th, label, [tabindex]')).slice(0, 400);
+    for (const el of allInteractiveEls) {
       if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' ||
           el.getAttribute('role') === 'button' || el.getAttribute('role') === 'tab' ||
           el.getAttribute('role') === 'menuitem') continue;
-
-      const rect = el.getBoundingClientRect();
 
       const style = window.getComputedStyle(el);
       const hasCursorPointer = style.cursor === 'pointer';
@@ -414,12 +490,18 @@ async function verify(pages) {
           await new Promise(r => setTimeout(r, 500));
           // Refresh element positions after re-navigation
           const refreshed = await getClickableElements(page).catch(() => []);
-          const match = refreshed.find(r => r.text === el.text && r.type === el.type);
-          if (match) { el.x = match.x; el.y = match.y; }
+          const match = refreshed.find((r) =>
+            r.text === el.text &&
+            r.type === el.type &&
+            (r.href || '') === (el.href || '')
+          );
+          if (match) {
+            el.x = match.x;
+            el.y = match.y;
+            el.selector = match.selector;
+          }
           else continue; // Element not found anymore — skip
         }
-
-        const prevSnapshot = await takeDomSnapshot(page);
         jsErrors.length = 0;
 
         const clickResult = {
@@ -431,11 +513,37 @@ async function verify(pages) {
         };
 
         try {
+          let clicked = false;
+          if (el.selector) {
+            try {
+              await page.$eval(el.selector, (node) => {
+                node.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+              });
+              await new Promise(r => setTimeout(r, 150));
+              clicked = true;
+            } catch {}
+          }
+
           // Capture "before" screenshot for every click
           let screenshotBefore = null;
           try { screenshotBefore = await page.screenshot({ type: 'png', encoding: 'base64' }); } catch {}
 
-          await page.mouse.click(el.x, el.y);
+          const prevSnapshot = await takeDomSnapshot(page);
+
+          if (clicked && el.selector) {
+            try {
+              await page.click(el.selector);
+            } catch {
+              clicked = false;
+            }
+          }
+          if (!clicked) {
+            await page.evaluate((x, y) => {
+              window.scrollTo({ top: Math.max(0, y - window.innerHeight / 2), behavior: 'instant' });
+            }, el.x, el.y).catch(() => {});
+            await new Promise(r => setTimeout(r, 150));
+            await page.mouse.click(el.x, el.y);
+          }
           clickCount++;
 
           const change = await waitForChange(page, prevSnapshot);
@@ -481,15 +589,13 @@ async function verify(pages) {
             }
           } else {
             clickResult.result = 'no-change';
-            // Same-page nav links are expected to do nothing — only flag buttons as high severity
-            const isLikelySamePageLink = el.href === new URL(page.url()).pathname || el.href === new URL(page.url()).pathname + '/';
-            if (!isLikelySamePageLink && el.type === 'button') {
+            const currentPath = new URL(page.url()).pathname;
+            if (isBlockingDeadInteractive(el, currentPath)) {
               clickResult.error = `"${el.text}" (${el.type}) clicked but nothing happened — non-functional button`;
               results.passed = false;
               results.errors.push(`[nav] "${el.text}" (${el.type}) clicked but nothing happened — broken button`);
             } else {
               clickResult.error = `"${el.text}" (${el.type}) clicked but nothing happened`;
-              // Don't fail the entire test for same-page links or nav items
             }
           }
 

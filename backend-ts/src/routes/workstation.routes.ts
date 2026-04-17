@@ -15,11 +15,13 @@ import { firebaseService } from '../services/firebase.service';
 import { config } from '../config';
 import { log } from '../utils/logger';
 import { auditService } from '../services/audit.service';
-import { getProjectCreationSystemPrompt, getProjectCreationUserPrompt, getExcludedFiles, getAgentCreationPrompt } from '../services/project-creation-prompt';
+import { getProjectCreationSystemPrompt, getProjectCreationUserPrompt, getExcludedFiles } from '../services/project-creation-prompt';
 import { buildPreviewContract, contractToPromptConstraint, ProductContract } from '../services/product-contract';
 import { supabaseManagementService, SupabaseCredentials } from '../services/supabase-management.service';
 import { neonManagementService, NeonCredentials } from '../services/neon-management.service';
 import { BuildReportTracker } from '../services/build-report.service';
+import { assessProjectComplexity } from '../services/project-complexity.service';
+import { refreshBatchFailureReview } from '../services/anthropic-batch-review.service';
 
 async function applyBoilerplateTemplate(projectId: string, technology: string, cloudMode: boolean = false): Promise<boolean> {
   // Templates are in the backend root directory (synced via deploy), NOT inside Docker containers
@@ -481,7 +483,9 @@ workstationRouter.get('/:projectId/project-history', asyncHandler(async (req, re
     return res.status(403).json({ error: 'Access denied' });
   }
 
-  const history: any = { projectId, buildReport: null, verificationReport: null, qaReport: null };
+  await refreshBatchFailureReview(projectId).catch(() => {});
+
+  const history: any = { projectId, buildReport: null, verificationReport: null, qaReport: null, batchReview: null };
 
   // Tolerant JSON parse — handles trailing garbage from race conditions
   const safeParseJSON = (raw: string): any => {
@@ -498,6 +502,7 @@ workstationRouter.get('/:projectId/project-history', asyncHandler(async (req, re
     { key: 'buildReport', path: '.drape/build-report.json' },
     { key: 'verificationReport', path: '.drape/verification-report.json' },
     { key: 'qaReport', path: '.drape/qa-report.json' },
+    { key: 'batchReview', path: '.drape/anthropic-batch-review.json' },
   ];
 
   for (const { key, path: filePath } of files) {
@@ -551,11 +556,121 @@ workstationRouter.get('/:projectId/project-history', asyncHandler(async (req, re
         aiModel: '', aiTokensUsed: 0,
       },
     };
-    // Populate from QA report
-    if (history.qaReport) {
-      const lastAttempt = history.qaReport.attempts?.[history.qaReport.attempts.length - 1];
-      history.buildReport.summary.pagesVerified = lastAttempt?.pages?.length || 0;
-      history.buildReport.summary.issuesFound = history.qaReport.totalIssues || 0;
+  }
+
+  // Backfill sparse reports from the real workspace and synthesize lightweight
+  // QA info so successful projects do not look "empty" in Project History.
+  if (history.buildReport) {
+    history.buildReport.summary = history.buildReport.summary || {
+      filesGenerated: 0,
+      filesProtected: 0,
+      tablesCreated: [],
+      seedRecords: 0,
+      pagesVerified: 0,
+      issuesFound: 0,
+      issuesFixed: 0,
+      aiModel: '',
+      aiTokensUsed: 0,
+      creationPrompt: '',
+      creationAnswers: {},
+    };
+
+    if (!history.buildReport.summary.creationPrompt || !history.buildReport.summary.creationAnswers) {
+      try {
+        const creationInputResult = await fileService.readFile(projectId, '.drape/creation-input.json');
+        if (creationInputResult.success && creationInputResult.data?.content) {
+          const creationInput = JSON.parse(creationInputResult.data.content);
+          if (!history.buildReport.summary.creationPrompt && typeof creationInput.description === 'string') {
+            history.buildReport.summary.creationPrompt = creationInput.description;
+          }
+          if (
+            (!history.buildReport.summary.creationAnswers || Object.keys(history.buildReport.summary.creationAnswers).length === 0) &&
+            creationInput.structuredAnswers &&
+            typeof creationInput.structuredAnswers === 'object'
+          ) {
+            history.buildReport.summary.creationAnswers = creationInput.structuredAnswers;
+          }
+        }
+      } catch {}
+    }
+
+    const backendAttempts = history.verificationReport?.backendVerification?.attempts || [];
+    const latestBackendAttempt = backendAttempts.length > 0
+      ? backendAttempts[backendAttempts.length - 1]
+      : null;
+    const qaAttempts = history.qaReport?.attempts || [];
+    const latestQaAttempt = qaAttempts.length > 0
+      ? qaAttempts[qaAttempts.length - 1]
+      : null;
+
+    if (!history.buildReport.summary.pagesVerified && latestBackendAttempt?.pages?.length) {
+      history.buildReport.summary.pagesVerified = latestBackendAttempt.pages.length;
+    }
+    if (!history.buildReport.summary.issuesFound) {
+      if (typeof history.qaReport?.totalIssues === 'number') {
+        history.buildReport.summary.issuesFound = history.qaReport.totalIssues;
+      } else if (history.verificationReport?.status === 'failed') {
+        history.buildReport.summary.issuesFound = 1;
+      }
+    }
+    if (!history.buildReport.summary.issuesFixed && history.verificationReport?.status === 'passed') {
+      history.buildReport.summary.issuesFixed = history.buildReport.summary.issuesFound || 0;
+    }
+
+    const needsGeneratedFilesBackfill =
+      (!Array.isArray(history.buildReport.summary.generatedFiles) || history.buildReport.summary.generatedFiles.length === 0) &&
+      (!history.buildReport.summary.filesGenerated || history.buildReport.summary.filesGenerated === 0);
+
+    if (needsGeneratedFilesBackfill) {
+      try {
+        const fileList = await fileService.listAllFiles(projectId);
+        if (fileList.success && fileList.data) {
+          const generatedFiles = fileList.data
+            .map((entry: any) => entry.path)
+            .filter((filePath: string) =>
+              !!filePath &&
+              !filePath.startsWith('.drape/') &&
+              filePath !== '.drape' &&
+              !filePath.startsWith('.git/')
+            );
+
+          history.buildReport.summary.generatedFiles = generatedFiles;
+          history.buildReport.summary.filesGenerated = generatedFiles.length;
+        }
+      } catch {}
+    }
+
+    const hasQaAction = Array.isArray(history.buildReport.actions) &&
+      history.buildReport.actions.some((action: any) => typeof action?.step === 'string' && action.step.startsWith('qa'));
+
+    if (!hasQaAction && (history.verificationReport || history.qaReport)) {
+      history.buildReport.actions = history.buildReport.actions || [];
+      history.buildReport.actions.push({
+        id: `qa-history-${projectId}`,
+        step: 'qa',
+        title: 'QA Verification — functional + visual testing',
+        status: history.verificationReport?.status === 'passed'
+          ? 'completed'
+          : history.verificationReport?.status === 'failed'
+            ? 'failed'
+            : history.qaReport?.status === 'verified'
+              ? 'completed'
+              : 'running',
+        startedAt: history.buildReport.createdAt || history.verificationReport?.createdAt || new Date().toISOString(),
+        completedAt: history.verificationReport?.completedAt || history.qaReport?.completedAt,
+        error: history.verificationReport?.status === 'failed'
+          ? 'La verifica finale ha trovato problemi ancora aperti.'
+          : undefined,
+        metadata: {
+          qaStatus: history.qaReport?.status || history.verificationReport?.status || 'unknown',
+          qualityScore: history.qaReport?.qualityScore,
+          attempts: backendAttempts.length || qaAttempts.length || 1,
+          totalIssues: history.qaReport?.totalIssues || history.buildReport.summary.issuesFound || 0,
+          pagesVerified: latestBackendAttempt?.pages?.length || 0,
+          functionalIssues: latestQaAttempt?.functionalIssues,
+          visualIssues: latestQaAttempt?.visualIssues,
+        },
+      });
     }
   }
 
@@ -572,6 +687,8 @@ workstationRouter.get('/:projectId/build-report', asyncHandler(async (req, res) 
   if (!isOwner) {
     return res.status(403).json({ error: 'Access denied' });
   }
+
+  await refreshBatchFailureReview(projectId).catch(() => {});
 
   const result = await fileService.readFile(projectId, '.drape/build-report.json');
   if (!result.success || !result.data) {
@@ -1179,6 +1296,17 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
 
   const id = projectId || `project-${Date.now()}`;
   await fileService.ensureProjectDir(id);
+  await fileService.writeFile(
+    id,
+    '.drape/creation-input.json',
+    JSON.stringify({
+      projectName: projectName || '',
+      technology: technology || 'nextjs',
+      description: description || '',
+      structuredAnswers: structuredAnswers || {},
+      createdAt: new Date().toISOString(),
+    }, null, 2),
+  );
 
   // Apply boilerplate template to give AI a foundation to work with
   await applyBoilerplateTemplate(id, technology || 'nextjs', cloudEnabled === true);
@@ -1286,12 +1414,11 @@ workstationRouter.post('/agent-prompt', asyncHandler(async (req, res) => {
     neonCreds = (task as any).neonCredentials;
   }
 
-  const prompt = getAgentCreationPrompt(
+  const prompt = getProjectCreationUserPrompt(
     technology || 'nextjs',
     projectName || 'My App',
     description || '',
     cloudEnabled === true,
-    structuredAnswers,
     null, // supabase — not used
     neonCreds,
   );
@@ -1336,6 +1463,18 @@ async function generateProject(
 
   // Initialize build report tracker
   const report = new BuildReportTracker(projectId, projectName, technology, cloudMode);
+  const complexity = assessProjectComplexity({
+    technology,
+    description: description || '',
+    answers: structuredAnswers || {},
+    cloudMode,
+  });
+  report.updateSummary({
+    creationPrompt: description || '',
+    creationAnswers: structuredAnswers || {},
+    projectComplexity: complexity.level,
+    projectComplexityScore: complexity.score,
+  });
 
   update(2, 'Initializing project...', 'Setup');
   const templateActionId = report.startAction('setup', 'Applying template', `Technology: ${technology}, Cloud: ${cloudMode}`);
@@ -1692,7 +1831,7 @@ Return ONLY the JSON, no markdown, no explanation.`;
         // - Chunk arrivals give a small forward boost
         // - Single ticker avoids competing progress emitters
         const AI_START = (neonCredentials || supabaseCredentials) ? 40 : 17;
-        const AI_CEILING = 80; // reserve 80-100 for review, build check, install
+        const AI_CEILING = 72; // reserve the 70s/80s/90s for processing, install, and verification
         const TAU = (neonCredentials || supabaseCredentials) ? 50 : 35;
 
         generationTicker = setInterval(() => {
@@ -1797,7 +1936,7 @@ Return ONLY the JSON, no markdown, no explanation.`;
           clearInterval(generationTicker);
           generationTicker = null;
         }
-        update(80, `${streamWrittenFiles.length} files written`, 'Processing');
+        update(74, `${streamWrittenFiles.length} files written`, 'Processing');
         log.info(`[CreateProject] Stream-wrote ${streamWrittenFiles.length} files during generation`);
         break; // Success — exit retry loop
       } catch (retryErr: any) {
@@ -1813,7 +1952,7 @@ Return ONLY the JSON, no markdown, no explanation.`;
     }
 
     // Parse any remaining files not caught by streaming extraction
-    update(82, 'Processing remaining files...', 'Processing');
+    update(76, 'Processing remaining files...', 'Processing');
     let cleanJson = fullText.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
 
     let parsed: { files: { path: string; content: string }[] } = { files: [] };
@@ -1892,7 +2031,7 @@ Return ONLY the JSON, no markdown, no explanation.`;
     }
 
     // Write only files NOT already written during streaming
-    update(84, 'Writing remaining files...', 'Processing');
+    update(80, 'Writing remaining files...', 'Processing');
     const writtenFiles: string[] = [...streamWrittenFiles];
 
     // Filter: skip protected, empty, already streamed
@@ -2056,7 +2195,7 @@ Return ONLY the JSON, no markdown, no explanation.`;
       }
     }
 
-    update(90, 'Starting workspace...', 'Building');
+    update(84, 'Starting workspace...', 'Building');
 
     // Collect env var names from .env.local
     let envVarNames: string[] = [];
@@ -2088,7 +2227,7 @@ Return ONLY the JSON, no markdown, no explanation.`;
 
     // Pre-warm: create container + install deps + start dev server
     // If npm install fails (bad deps in package.json), fix and retry
-    update(91, 'Installing dependencies...', 'Building');
+    update(88, 'Installing dependencies...', 'Building');
     for (let warmAttempt = 0; warmAttempt < 3; warmAttempt++) {
       try {
         // Timeout warmProject at 150s (Next.js build can take 60s + install 40s + start 10s)
@@ -2101,7 +2240,7 @@ Return ONLY the JSON, no markdown, no explanation.`;
 
         // Check if it's a dependency resolution error
         if (errMsg.includes('failed to resolve') || errMsg.includes('404') || errMsg.includes('ERESOLVE')) {
-          update(91, `Fixing dependencies (attempt ${warmAttempt + 1})...`, 'Fixing');
+          update(89, `Fixing dependencies (attempt ${warmAttempt + 1})...`, 'Fixing');
           try {
             // Read current package.json and remove bad deps
             const pkgResult = await fileService.readFile(projectId, 'package.json');
@@ -2142,7 +2281,7 @@ Return ONLY the JSON, no markdown, no explanation.`;
     // A second build would race with the running server and cause CSS/asset corruption.
 
     // === VERIFY + AUTO-FIX (blocking — preview NOT available until this completes) ===
-    update(92, 'Verifying preview...', 'Verify');
+    update(94, 'Verifying preview...', 'Verify');
     const qaActionId = report.startAction('qa', 'QA Verification — functional + visual testing');
 
     const verifyResult = await verifyAndFixProject({

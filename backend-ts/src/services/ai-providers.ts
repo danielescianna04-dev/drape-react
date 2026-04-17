@@ -10,6 +10,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { config } from '../config';
 import { log } from '../utils/logger';
+import { aiProviderService } from './ai-provider.service';
 import type { ChatMessage, ContentBlock, ToolDefinition, StreamChunk, UsageInfo, ToolCall } from './ai-provider.service';
 
 // ── Provider Instances ──────────────────────────────────────────────────────
@@ -46,12 +47,15 @@ interface ModelEntry {
 const MODEL_REGISTRY: Record<string, ModelEntry> = {
   'claude-sonnet-4':    { provider: 'anthropic', modelId: 'claude-sonnet-4-20250514', maxTokens: 8192, contextWindowTokens: 200000 },
   'claude-4-6-sonnet':  { provider: 'anthropic', modelId: 'claude-sonnet-4-6', maxTokens: 8192, contextWindowTokens: 200000 },
-  'claude-4-6-opus':    { provider: 'anthropic', modelId: 'claude-opus-4-6', maxTokens: 8192, contextWindowTokens: 200000 },
+  'claude-4-7-opus':    { provider: 'anthropic', modelId: 'claude-opus-4-7', maxTokens: 128000, contextWindowTokens: 1000000 },
+  'claude-opus-4-7':    { provider: 'anthropic', modelId: 'claude-opus-4-7', maxTokens: 128000, contextWindowTokens: 1000000 },
+  'claude-4-6-opus':    { provider: 'anthropic', modelId: 'claude-opus-4-7', maxTokens: 128000, contextWindowTokens: 1000000 },
   'claude-3.5-haiku':   { provider: 'anthropic', modelId: 'claude-haiku-4-5-20251001', maxTokens: 8192, contextWindowTokens: 200000 },
   'gemini-2.5-flash':   { provider: 'google', modelId: 'gemini-2.5-flash', maxTokens: 65536, contextWindowTokens: 1000000 },
   'gemini-3.1-flash-lite': { provider: 'google', modelId: 'gemini-3.1-flash-lite-preview', maxTokens: 65536, contextWindowTokens: 1048576 },
   'gemini-3-flash':     { provider: 'google', modelId: 'gemini-3-flash-preview', maxTokens: 65536, contextWindowTokens: 1000000 },
   'gemini-3.1-pro':     { provider: 'google', modelId: 'gemini-3.1-pro-preview', maxTokens: 65536, contextWindowTokens: 1000000 },
+  'gpt-5-4':            { provider: 'openai', modelId: 'gpt-5.4', maxTokens: 16384, contextWindowTokens: 128000 },
   'gpt-5-3':            { provider: 'openai', modelId: 'gpt-5.3', maxTokens: 16384, contextWindowTokens: 128000 },
   'llama-3.3-70b':      { provider: 'groq', modelId: 'llama-3.3-70b-versatile', maxTokens: 8192, contextWindowTokens: 128000 },
   'glm-5.1':            { provider: 'openrouter', modelId: 'z-ai/glm-5.1', maxTokens: 12000, contextWindowTokens: 202752 },
@@ -206,11 +210,22 @@ function convertTools(tools: ToolDefinition[]): Record<string, any> {
 
 function getProviderOptions(modelName: string, thinkingLevel: string | null): Record<string, any> | undefined {
   const entry = MODEL_REGISTRY[modelName];
-  if (!entry || !thinkingLevel || thinkingLevel === 'none') return undefined;
+  if (!entry) return undefined;
 
   if (entry.provider === 'anthropic') {
+    if (entry.modelId === 'claude-opus-4-7') {
+      return {
+        anthropic: {
+          thinking: { type: 'adaptive' },
+          effort: 'medium',
+        },
+      };
+    }
+
+    if (!thinkingLevel || thinkingLevel === 'none') return undefined;
+
     const budgetMap: Record<string, number> = {
-      minimal: 1024, low: 2048, medium: 4096, high: 8192,
+      minimal: 1024, low: 2048, medium: 4096, high: 8192, max: 12288,
     };
     return {
       anthropic: {
@@ -220,6 +235,7 @@ function getProviderOptions(modelName: string, thinkingLevel: string | null): Re
   }
 
   if (entry.provider === 'google') {
+    if (!thinkingLevel || thinkingLevel === 'none') return undefined;
     const budgetMap: Record<string, number> = {
       minimal: 128, low: 1024, medium: 4096, high: 8192,
     };
@@ -249,10 +265,28 @@ export async function* vercelChatStream(
   messages: ChatMessage[],
   tools?: ToolDefinition[],
   systemPrompt?: string,
-  options?: { temperature?: number; maxTokens?: number; thinkingLevel?: string | null; abortSignal?: AbortSignal }
+  options?: {
+    temperature?: number;
+    maxTokens?: number;
+    thinkingLevel?: string | null;
+    taskBudgetTokens?: number;
+    abortSignal?: AbortSignal;
+  }
 ): AsyncGenerator<StreamChunk> {
-  const model = getVercelModel(modelName);
   const entry = MODEL_REGISTRY[modelName];
+  if (entry?.provider === 'anthropic' && entry.modelId === 'claude-opus-4-7') {
+    yield* aiProviderService.chatStream(modelName, messages, tools, systemPrompt, {
+      temperature: options?.temperature,
+      maxTokens: options?.maxTokens,
+      thinkingLevel: options?.thinkingLevel,
+      taskBudgetTokens: options?.taskBudgetTokens,
+      enablePromptCaching: config.projectOpusPromptCachingEnabled,
+      promptCacheTtl: config.projectOpusPromptCacheTtl,
+    });
+    return;
+  }
+
+  const model = getVercelModel(modelName);
   const coreMessages = convertMessages(messages);
 
   const maxTokens = options?.maxTokens || entry?.maxTokens || 8192;
@@ -279,7 +313,8 @@ export async function* vercelChatStream(
   }
 
   // Don't pass temperature when Anthropic thinking is enabled (SDK warning + potential stall)
-  const isAnthropicThinking = entry?.provider === 'anthropic' && providerOptions;
+  const omitAnthropicTemperature =
+    entry?.provider === 'anthropic' && (!!providerOptions || entry?.modelId === 'claude-opus-4-7');
 
   const result = streamText({
     model,
@@ -289,7 +324,7 @@ export async function* vercelChatStream(
     // No stopWhen / no execute on tools = single step only.
     // The agent loop handles iteration externally.
     maxOutputTokens: maxTokens,
-    ...(isAnthropicThinking ? {} : { temperature: options?.temperature ?? 0.7 }),
+    ...(omitAnthropicTemperature ? {} : { temperature: options?.temperature ?? 0.7 }),
     providerOptions: providerOptions as any,
     abortSignal: options?.abortSignal,
   });

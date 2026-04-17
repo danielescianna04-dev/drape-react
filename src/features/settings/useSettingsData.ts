@@ -29,10 +29,16 @@ export interface SystemStatus {
   };
   previews: {
     limit: number;
-    byProject?: { name: string; used: number; limit: number }[];
+    limitPerProject?: number;
+    totalStarts?: number;
+    maxUsedOnProject?: number;
+    activeSessions?: number;
+    activeProjects?: number;
+    byProject?: { name: string; used: number; limit: number; isActive?: boolean }[];
   };
   projects: {
     active: number;
+    used?: number;
     limit: number;
     percent: number;
   };
@@ -59,6 +65,41 @@ export interface BudgetStatus {
     remainingEur: number;
     percentUsed: number;
   };
+}
+
+export interface ProjectAIAnalytics {
+  period: {
+    start: string;
+    end: string;
+  };
+  overview: {
+    projectCount: number;
+    totalCostEur: number;
+    averageCostPerProjectEur: number;
+    totalTokens: number;
+    generationCostEur: number;
+    verifyCostEur: number;
+    verifyEscalationCostEur: number;
+    premiumEscalationProjects: number;
+  };
+  byModel: Array<{
+    model: string;
+    costEur: number;
+    inputTokens: number;
+    outputTokens: number;
+    count: number;
+  }>;
+  topProjects: Array<{
+    projectId: string;
+    projectName: string | null;
+    totalCostEur: number;
+    totalTokens: number;
+    requestCount: number;
+    generationCostEur: number;
+    verifyCostEur: number;
+    verifyEscalationCostEur: number;
+    lastActivityAt: string;
+  }>;
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -113,6 +154,7 @@ export const useSettingsData = (onClose: () => void, initialShowPlans: boolean, 
 
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus | null>(null);
+  const [projectAiAnalytics, setProjectAiAnalytics] = useState<ProjectAIAnalytics | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
 
@@ -277,7 +319,7 @@ export const useSettingsData = (onClose: () => void, initialShowPlans: boolean, 
       const authHeaders = await getAuthHeaders();
 
       // Fetch system status (per-user)
-      const response = await fetch(`${apiUrl}/stats/system-status?userId=${encodeURIComponent(userId)}`, {
+      const response = await fetch(`${apiUrl}/stats/system-status`, {
         headers: authHeaders,
       });
       if (response.ok) {
@@ -289,17 +331,51 @@ export const useSettingsData = (onClose: () => void, initialShowPlans: boolean, 
         console.warn('[Settings] system-status returned', response.status);
       }
 
-      // Fetch budget status
-      const budgetResponse = await fetch(`${apiUrl}/ai/budget/${userId}`, {
-        headers: authHeaders,
-      });
-      if (budgetResponse.ok) {
+      // Fetch budget status.
+      // Try the authenticated canonical route first, then fall back to the legacy path
+      // for backends that haven't been redeployed yet.
+      const budgetUrls = [
+        `${apiUrl}/ai/budget`,
+        `${apiUrl}/ai/budget/${encodeURIComponent(userId)}`,
+      ];
+
+      let budgetLoaded = false;
+      let lastBudgetStatus: number | null = null;
+
+      for (const budgetUrl of budgetUrls) {
+        const budgetResponse = await fetch(budgetUrl, {
+          headers: authHeaders,
+        });
+
+        lastBudgetStatus = budgetResponse.status;
+
+        if (!budgetResponse.ok) {
+          if (budgetResponse.status === 404) continue;
+          break;
+        }
+
         const budgetData = await budgetResponse.json();
         if (budgetData.success) {
           setBudgetStatus(budgetData);
+          budgetLoaded = true;
+          break;
+        }
+      }
+
+      if (!budgetLoaded && lastBudgetStatus !== null) {
+        console.warn('[Settings] budget returned', lastBudgetStatus);
+      }
+
+      const analyticsResponse = await fetch(`${apiUrl}/stats/project-ai-analytics`, {
+        headers: authHeaders,
+      });
+      if (analyticsResponse.ok) {
+        const analyticsData = await analyticsResponse.json();
+        if (analyticsData?.success && analyticsData?.overview) {
+          setProjectAiAnalytics(analyticsData);
         }
       } else {
-        console.warn('[Settings] budget returned', budgetResponse.status);
+        console.warn('[Settings] project-ai-analytics returned', analyticsResponse.status);
       }
     } catch (error) {
       console.warn('[Settings] Network error fetching system status');
@@ -416,6 +492,7 @@ export const useSettingsData = (onClose: () => void, initialShowPlans: boolean, 
     deviceModelName,
     systemStatus,
     budgetStatus,
+    projectAiAnalytics,
     statusLoading,
     shimmerAnim,
     swipeX,

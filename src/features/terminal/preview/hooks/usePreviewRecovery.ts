@@ -71,6 +71,7 @@ export interface PreviewRecoveryReturn {
   setSessionExpiredMessage: React.Dispatch<React.SetStateAction<string>>;
   preflightDoneRef: React.MutableRefObject<boolean>;
   autoFixTriggeredRef: React.MutableRefObject<boolean>;
+  autoFixPending: boolean;
   handleRetryPreview: () => void;
   handleStopPreview: () => void;
   handleClose: () => void;
@@ -121,6 +122,7 @@ export function usePreviewRecovery({
   const setSessionExpiredMessage = sessionExpiredState?.setMessage ?? setLocalSessionExpiredMessage;
   const preflightDoneRef = useRef(false);
   const autoFixTriggeredRef = useRef(false);
+  const [autoFixPending, setAutoFixPending] = useState(false);
   const logsXhrRef = useRef<XMLHttpRequest | null>(null);
 
   // ── Retry ────────────────────────────────────────────────────
@@ -402,7 +404,7 @@ export function usePreviewRecovery({
     if (errorLines.length >= 2) {
       errorDetectedRef.current = true;
       const errorSummary = errorLines.slice(0, 3).join('\n');
-      startup.setPreviewError({ message: errorSummary, timestamp: new Date() });
+      startup.setPreviewError({ message: errorSummary, timestamp: new Date(), recoverable: true });
       tracciaErroreAnteprima(errorSummary);
       setServerStatus('stopped');
       startup.setIsStarting(false);
@@ -412,8 +414,13 @@ export function usePreviewRecovery({
   // ── Auto-fix: when fatal preview error occurs, fix in-place ──
 
   useEffect(() => {
-    if (startup.previewError && !autoFixTriggeredRef.current) {
+    if (
+      startup.previewError?.recoverable &&
+      !autoFixTriggeredRef.current &&
+      autoFix.state !== 'exhausted'
+    ) {
       autoFixTriggeredRef.current = true;
+      setAutoFixPending(true);
       const timer = setTimeout(() => {
         console.log('[PreviewAutoFix] Fatal error detected, fixing in-place');
         const errorLines = terminalOutput
@@ -428,10 +435,33 @@ export function usePreviewRecovery({
       return () => clearTimeout(timer);
     }
     if (!startup.previewError) {
+      setAutoFixPending(false);
       autoFixTriggeredRef.current = false;
       errorDetectedRef.current = false;
     }
-  }, [startup.previewError]);
+  }, [startup.previewError, autoFix.state, terminalOutput, autoFix.reportCheckResult]);
+
+  useEffect(() => {
+    if (autoFix.state === 'fixing' || autoFix.state === 'rechecking') {
+      setAutoFixPending(false);
+      return;
+    }
+
+    if (autoFix.state === 'verified') {
+      setAutoFixPending(false);
+      autoFixTriggeredRef.current = false;
+      errorDetectedRef.current = false;
+      if (startup.previewError?.recoverable) {
+        startup.setPreviewError(null);
+      }
+      return;
+    }
+
+    if (autoFix.state === 'exhausted') {
+      setAutoFixPending(false);
+      autoFixTriggeredRef.current = false;
+    }
+  }, [autoFix.state, startup.previewError, startup.setPreviewError]);
 
   return {
     sessionExpired,
@@ -440,6 +470,7 @@ export function usePreviewRecovery({
     setSessionExpiredMessage,
     preflightDoneRef,
     autoFixTriggeredRef,
+    autoFixPending,
     handleRetryPreview,
     handleStopPreview,
     handleClose,

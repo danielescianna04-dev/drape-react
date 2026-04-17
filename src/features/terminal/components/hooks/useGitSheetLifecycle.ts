@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { tracciaAccountGitCollegato, tracciaConnettiRepo, tracciaTabGitCambiato } from '../../../../core/services/analyticsService';
 
 export function useGitSheetLifecycle({
@@ -16,17 +16,22 @@ export function useGitSheetLifecycle({
   currentWorkstationName?: string;
   setShowAddAccountModal: (value: boolean) => void;
 }) {
-  useEffect(() => {
-    if (visible && initialTab) actions.setActiveSection(initialTab);
-  }, [visible, initialTab, actions]);
+  const previousVisibleRef = useRef(visible);
 
   useEffect(() => {
-    if (!visible) {
+    if (visible && initialTab) actions.setActiveSection(initialTab);
+  }, [visible, initialTab]);
+
+  useEffect(() => {
+    const wasVisible = previousVisibleRef.current;
+    previousVisibleRef.current = visible;
+
+    if (wasVisible && !visible) {
       actions.resetActionState();
       data.setDiffFile(null);
       data.setDiffContent(null);
     }
-  }, [visible, actions, data]);
+  }, [visible]);
 
   const callbacks = useMemo(() => ({
     onSelectSection: (section: 'commits' | 'branches' | 'changes') => {

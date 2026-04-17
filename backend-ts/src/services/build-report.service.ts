@@ -9,6 +9,7 @@
 
 import { fileService } from './file.service';
 import { log } from '../utils/logger';
+import type { ProjectComplexity } from './project-complexity.service';
 
 export interface BuildAction {
   id: string;
@@ -46,9 +47,20 @@ export interface BuildReport {
     issuesFixed: number;
     aiModel: string;
     aiTokensUsed: number;
+    aiGenerationCostEur?: number;
+    aiGenerationTokensUsed?: number;
+    aiVerifyCostEur?: number;
+    aiVerifyTokensUsed?: number;
+    aiVerifyEscalationCostEur?: number;
+    aiVerifyEscalationTokensUsed?: number;
+    aiTotalCostEur?: number;
     generatedFiles?: string[];
     envVars?: string[];
     sqlExecuted?: string;
+    creationPrompt?: string;
+    creationAnswers?: Record<string, string | string[]>;
+    projectComplexity?: ProjectComplexity;
+    projectComplexityScore?: number;
   };
 }
 
@@ -65,7 +77,7 @@ export async function appendRuntimeAction(
   step: string,
   title: string,
   opts: {
-    status?: 'running' | 'completed' | 'failed' | 'fixed';
+    status?: 'running' | 'completed' | 'failed' | 'fixed' | 'skipped';
     details?: string;
     error?: string;
     fix?: string;
@@ -100,6 +112,17 @@ export async function appendRuntimeAction(
           issuesFixed: 0,
           aiModel: '',
           aiTokensUsed: 0,
+          aiGenerationCostEur: 0,
+          aiGenerationTokensUsed: 0,
+          aiVerifyCostEur: 0,
+          aiVerifyTokensUsed: 0,
+          aiVerifyEscalationCostEur: 0,
+          aiVerifyEscalationTokensUsed: 0,
+          aiTotalCostEur: 0,
+          creationPrompt: '',
+          creationAnswers: {},
+          projectComplexity: 'medium',
+          projectComplexityScore: 0,
         },
       };
     }
@@ -155,6 +178,17 @@ export class BuildReportTracker {
         issuesFixed: 0,
         aiModel: '',
         aiTokensUsed: 0,
+        aiGenerationCostEur: 0,
+        aiGenerationTokensUsed: 0,
+        aiVerifyCostEur: 0,
+        aiVerifyTokensUsed: 0,
+        aiVerifyEscalationCostEur: 0,
+        aiVerifyEscalationTokensUsed: 0,
+        aiTotalCostEur: 0,
+        creationPrompt: '',
+        creationAnswers: {},
+        projectComplexity: 'medium',
+        projectComplexityScore: 0,
       },
     };
   }
@@ -308,5 +342,27 @@ export class BuildReportTracker {
         log.warn(`[BuildReport] Failed to save report for ${this.projectId}: ${err.message}`);
       });
     await this.savePromise;
+  }
+}
+
+export async function mergeBuildReportSummary(
+  projectId: string,
+  partial: Partial<BuildReport['summary']>,
+): Promise<void> {
+  try {
+    const read = await fileService.readFile(projectId, '.drape/build-report.json');
+    if (!read.success || !read.data?.content) return;
+    const report = JSON.parse(read.data.content) as BuildReport;
+    report.summary = {
+      ...report.summary,
+      ...partial,
+    };
+    report.summary.aiTotalCostEur =
+      (report.summary.aiGenerationCostEur || 0) +
+      (report.summary.aiVerifyCostEur || 0) +
+      (report.summary.aiVerifyEscalationCostEur || 0);
+    await fileService.writeFile(projectId, '.drape/build-report.json', JSON.stringify(report, null, 2));
+  } catch (err: any) {
+    log.warn(`[BuildReport] mergeBuildReportSummary failed for ${projectId}: ${err.message}`);
   }
 }

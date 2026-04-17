@@ -11,6 +11,7 @@
  *   import { useUIStore } from './uiStore';
  */
 
+import { useSyncExternalStore } from 'react';
 import { useChatStore, ChatState } from './chatStore';
 import { useWorkstationStore, WorkstationState } from './workstationStore';
 import { useUIStore, UIState } from './uiStore';
@@ -25,6 +26,8 @@ export { useUIStore } from './uiStore';
 
 // Combined state type (union of all three stores)
 type TerminalState = ChatState & WorkstationState & UIState;
+
+let cachedMergedState: TerminalState | null = null;
 
 /**
  * Helper to get the merged state from all three stores.
@@ -109,21 +112,18 @@ function routeSetState(partial: Partial<TerminalState> | ((state: TerminalState)
 function useTerminalStore(): TerminalState;
 function useTerminalStore<T>(selector: (state: TerminalState) => T): T;
 function useTerminalStore<T>(selector?: (state: TerminalState) => T): T | TerminalState {
-  // Subscribe to all three stores so React re-renders on any change
-  const chatState = useChatStore();
-  const workstationState = useWorkstationStore();
-  const uiState = useUIStore();
-
-  const merged: TerminalState = {
-    ...chatState,
-    ...workstationState,
-    ...uiState,
+  const getSnapshot = () => {
+    if (!cachedMergedState) {
+      cachedMergedState = getMergedState();
+    }
+    return selector ? selector(cachedMergedState) : cachedMergedState;
   };
 
-  if (selector) {
-    return selector(merged);
-  }
-  return merged;
+  return useSyncExternalStore(
+    useTerminalStore.subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
 }
 
 // Attach static methods for compatibility with useTerminalStore.getState() and .setState()
@@ -132,10 +132,12 @@ useTerminalStore.setState = routeSetState;
 
 // Subscribe method - subscribes to all three stores
 useTerminalStore.subscribe = (listener: (state: TerminalState, prevState: TerminalState) => void) => {
-  let prevState = getMergedState();
+  let prevState = cachedMergedState || getMergedState();
+  cachedMergedState = prevState;
 
   const handleChange = () => {
     const nextState = getMergedState();
+    cachedMergedState = nextState;
     listener(nextState, prevState);
     prevState = nextState;
   };

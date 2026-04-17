@@ -76,6 +76,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
     deviceModelName,
     systemStatus,
     budgetStatus,
+    projectAiAnalytics,
     shimmerAnim,
     swipeX,
     panResponder,
@@ -123,6 +124,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       t={t}
       budgetStatus={budgetStatus}
       systemStatus={systemStatus}
+      projectAiAnalytics={projectAiAnalytics}
       currentPlan={currentPlan}
       setShowResourceUsage={setShowResourceUsage}
       fetchSystemStatus={fetchSystemStatus}

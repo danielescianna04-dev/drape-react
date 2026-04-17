@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { websocketService } from '../../core/websocket/websocketService';
 import { useFileCacheStore } from '../../core/cache/fileCacheStore';
-import { useTerminalStore } from '../../core/terminal/terminalStore';
+import { useWorkstationStore } from '../../core/terminal/workstationStore';
 
 /**
  * Hook to handle global file synchronization.
@@ -9,7 +9,7 @@ import { useTerminalStore } from '../../core/terminal/terminalStore';
  * This ensures the File Explorer is updated even if it's currently unmounted.
  */
 export const useFileSync = () => {
-    const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
+    const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
     const projectId = currentWorkstation?.id;
     const subscriptionTimeRef = useRef<number>(0);
     const burstCountRef = useRef<number>(0);

@@ -20,7 +20,7 @@ import { ProjectAICostSummary } from '../project-ai-policy';
 import { assessProjectComplexity, ProjectComplexity } from '../project-complexity.service';
 import { PROTECTED_CONFIG_FILES } from '../../utils/protected-files';
 import type { AutoFixOptions, AutoFixResult, VerifyResult } from './types';
-import { trimErrorForPrompt, trimFileContentForPrompt } from './error-classifier';
+import { extractDeadLinkHrefs, trimErrorForPrompt, trimFileContentForPrompt } from './error-classifier';
 
 const PROJECT_FIX_MAX_CONTEXT_FILES = config.projectVerifyFixMaxContextFiles;
 const PROJECT_FIX_ESCALATION_MAX_CONTEXT_FILES = config.projectVerifyEscalationMaxContextFiles;
@@ -175,6 +175,46 @@ export async function autoFix(
     // need to load everything to give the AI enough context.
     const hasNavErrors = result.errors.some(e => e.includes('[nav]'));
     const hasDeadClicks = result.errors.some(e => e.includes('Dead interactive element'));
+
+    // Dead-link targets: pull [href=/x] out of dead-click errors so we can
+    // (a) load the real target page into context if it exists, or
+    // (b) tell the prompt the route is missing and must be created.
+    // This is the key missing signal — without it the AI often "fixes" the
+    // source page and leaves the missing destination page untouched, making
+    // the next verify attempt fail with the identical error cluster.
+    const deadLinkTargets: { href: string; page: string; exists: boolean }[] = [];
+    if (hasDeadClicks) {
+      for (const href of extractDeadLinkHrefs(result.errors)) {
+        const route = href.replace(/^\//, '').replace(/\/$/, '');
+        const candidates = [
+          `app/${route}/page.tsx`,
+          `app/${route}/page.jsx`,
+          `src/app/${route}/page.tsx`,
+          `src/app/${route}/page.jsx`,
+          `src/pages/${route}.tsx`,
+          `src/pages/${route}.jsx`,
+          `src/pages/${route}/index.tsx`,
+          `src/pages/${route}/index.jsx`,
+        ];
+        let foundPath: string | null = null;
+        for (const cand of candidates) {
+          try {
+            const content = await readProjectFile(cand);
+            if (content && content.trim()) {
+              foundPath = cand;
+              if (canAddMoreContext(brokenFiles)) pushContextFile(brokenFiles, cand, content);
+              break;
+            }
+          } catch {}
+        }
+        if (foundPath) {
+          deadLinkTargets.push({ href, page: foundPath, exists: true });
+        } else {
+          deadLinkTargets.push({ href, page: candidates[0], exists: false });
+        }
+      }
+    }
+
     const hasRouteErrors = result.errors.some(e => e.match(/\[route \//));
     const hasModuleErrors = result.errors.some(e =>
       /Can't resolve|Cannot find module|Module not found|Module not resolved|next\/dist\/pages|next-flight-client-entry-loader/.test(e),
@@ -323,6 +363,16 @@ export async function autoFix(
       screenshotContext += '\nAnalyze the screenshots. Fix ALL visual issues: blank pages, missing CSS, wrong layout, 404 errors, missing content.\n';
     }
 
+    const deadLinkSection = deadLinkTargets.length > 0
+      ? `DEAD LINK TARGETS (parsed from [href=...] in errors):\n${deadLinkTargets
+          .map((t) =>
+            t.exists
+              ? `- ${t.href} → target page EXISTS at ${t.page} (check why the click doesn't navigate; maybe client-side Link usage or disabled nav)`
+              : `- ${t.href} → target page MISSING — CREATE ${t.page} with real visible content (heading + cards/sections), do NOT just change the link's href`,
+          )
+          .join('\n')}\n`
+      : '';
+
     const fixPrompt = `Fix these ${technology} project errors:
 
 ERRORS:
@@ -330,7 +380,7 @@ ${summarizedErrors.join('\n')}
 ${screenshotContext}
 ${routeFailures ? `FAILING ROUTES:\n${routeFailures}\n` : ''}
 ${navigationFailures ? `BROKEN INTERACTIONS:\n${navigationFailures}\n` : ''}
-${fileContext ? `CURRENT FILES:\n${fileContext}\n` : ''}
+${deadLinkSection}${fileContext ? `CURRENT FILES:\n${fileContext}\n` : ''}
 Return a JSON array of fixed files: [{"path": "file/path", "content": "complete fixed content"}]
 
 Rules:
@@ -353,12 +403,13 @@ Rules:
 - All data must be hardcoded const arrays — NEVER use fetch() for mock data
 - For "Dead interactive element" / "nothing happened" errors: the button/link has no working handler. RULE: every visible clickable element MUST do something visible when tapped. Fixes:
   • Empty or missing onClick → add a real handler: useState toggle, router.push(), open modal via state, show toast, filter/sort state update
-  • Link to nonexistent route → EITHER create the destination page file OR change the link to a real route
+  • Link to nonexistent route → PREFER creating the destination page file (app/<route>/page.tsx) with real visible content over silently changing the href. Only change the href if another real route already exists and makes sense
+  • Placeholder href ("[href=#]", "[href=none]", "[href=]") → this is a stub link; wire it to a real route (creating it if needed) or replace with a button + onClick
   • Card/div with cursor-pointer → add onClick that navigates or opens details
   • Icon button (heart/star/share/bell) → toggle local state, show toast, or open a panel
   • Tab/nav item → use router.push() or setActiveTab state
   NEVER leave onClick={() => {}} or onClick={()=>console.log()} — if you can't wire it, REMOVE the element from JSX entirely
-- The error message format is: "Dead interactive element: <type> \"<text>\" on page <path> — ..." — read that page file and FIX the specific element by its text label
+- The error message format is: "Dead interactive element: <type> \"<text>\" [href=<target>] on page <path> — ..." — the href bracket tells you the exact link target. If a "DEAD LINK TARGETS" section is included above, follow it literally: when it says "target page MISSING — CREATE <path>", your fix MUST include a new file at that exact path with real content (do NOT just tweak the source page). When it says "target page EXISTS", fix whatever in that page prevents the click from doing something visible.
 - For redirect loops (page X redirects to page Y): the guard/redirect logic doesn't persist state. Fix by using localStorage or cookies to persist auth/profile state across navigations, not just React state
 - For "[route /xxx] HTTP 500" or "[route /xxx] Module not found": a sub-route page is broken. Common fix: the relative import path is wrong. If app/page.tsx uses './components/ui/button' (works from root), app/contatti/page.tsx needs '../components/ui/button' (go up one level) OR use the absolute alias '@/components/ui/button'. PREFER absolute imports with @/ for all pages — never mix relative paths across directory depths.
 - For "FiCalendar is not defined" or any icon ReferenceError: the JSX uses a react-icons component that isn't in the import statement. Add it to the import: import { FiArrowRight, FiCalendar, ... } from 'react-icons/fi'

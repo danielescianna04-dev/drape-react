@@ -953,7 +953,13 @@ async function main() {
     .map(c => {
       const elDesc = c.element ? `${c.element.type || 'element'} "${c.element.text || ''}"`.trim() : 'element';
       const pageDesc = c.fromPage ? ` on page ${c.fromPage}` : '';
-      return `Dead interactive element: ${elDesc}${pageDesc} — ${c.error}`;
+      // Surface href so the AI auto-fix can see the target route and decide
+      // whether to create the missing page or rewire the link.
+      const rawHref = c.element?.href;
+      const hrefDesc = typeof rawHref === 'string' && rawHref.length > 0
+        ? ` [href=${rawHref}]`
+        : (c.element?.type === 'link' ? ' [href=none]' : '');
+      return `Dead interactive element: ${elDesc}${hrefDesc}${pageDesc} — ${c.error}`;
     });
   const backcompat = {
     passed: report.status === 'verified',

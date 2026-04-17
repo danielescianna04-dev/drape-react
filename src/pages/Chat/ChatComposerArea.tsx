@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Alert, Image, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { withTiming } from 'react-native-reanimated';
@@ -106,6 +106,9 @@ export const ChatComposerArea: React.FC<ComposerProps> = ({
   onOpenEnvVars,
   labels,
 }) => {
+  const lastMeasuredHeightRef = useRef<number | null>(null);
+  const lastGlassApplyKeyRef = useRef<string | null>(null);
+  const layoutLogCountRef = useRef(0);
   const repoName = (() => {
     if (!currentWorkstationRepoUrl) return undefined;
     const match = currentWorkstationRepoUrl.match(/\/([^/]+?)(?:\.git)?$/);
@@ -209,8 +212,29 @@ export const ChatComposerArea: React.FC<ComposerProps> = ({
         inputBarGlassId={inputBarGlassId}
         glassApplied={glassApplied}
         onLayout={(event) => {
-          widgetHeight.value = withTiming(event.nativeEvent.layout.height, { duration: 100 });
+          const nextHeight = event.nativeEvent.layout.height;
+          layoutLogCountRef.current += 1;
+          if (layoutLogCountRef.current <= 25) {
+            console.log('[ChatComposerDebug] input_layout', {
+              count: layoutLogCountRef.current,
+              nextHeight,
+              previousHeight: lastMeasuredHeightRef.current,
+              isActiveTab,
+              isSidebarOpen,
+              glassApplied,
+              hasChatStarted,
+              inputBarGlassId,
+            });
+          }
+          if (lastMeasuredHeightRef.current !== nextHeight) {
+            lastMeasuredHeightRef.current = nextHeight;
+            widgetHeight.value = withTiming(nextHeight, { duration: 100 });
+          }
+
           if (Platform.OS === 'ios' && isActiveTab && !isSidebarOpen && !glassApplied) {
+            const layoutApplyKey = `${inputBarGlassId}:${hasChatStarted ? 'started' : 'welcome'}`;
+            if (lastGlassApplyKeyRef.current === layoutApplyKey) return;
+            lastGlassApplyKeyRef.current = layoutApplyKey;
             const delay = hasChatStarted ? 0 : inputGlassRevealDelay;
             setTimeout(() => { applyInputGlass(); }, delay);
           }

@@ -9,6 +9,7 @@ export const previewStyles = StyleSheet.create({
   },
   container: {
     position: 'absolute',
+    left: 0,
     right: 0, top: 0, bottom: 0,
     zIndex: 1000,
     overflow: 'hidden',

@@ -14,9 +14,10 @@ import type { Tab } from '../../core/tabs/tabStore';
 
 interface Props {
   tab: Tab;
+  isActive?: boolean;
 }
 
-export const WorkspaceTabContent: React.FC<Props> = ({ tab }) => {
+export const WorkspaceTabContent: React.FC<Props> = ({ tab, isActive = true }) => {
   switch (tab.type) {
     case 'file':
       return (
@@ -48,7 +49,7 @@ export const WorkspaceTabContent: React.FC<Props> = ({ tab }) => {
           previewUrl={tab.data?.previewUrl || ''}
           projectName={tab.data?.projectName}
           projectPath={tab.data?.projectPath}
-          isVisible={true}
+          isVisible={isActive}
         />
       );
     case 'shell':

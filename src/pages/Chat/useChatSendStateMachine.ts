@@ -76,11 +76,11 @@ export const useChatSendStateMachine = () => {
     reset: () => dispatch({ type: 'RESET' }),
   }), []);
 
-  return {
+  return useMemo(() => ({
     phase,
     getPhase: () => phaseRef.current,
     isActive: isActivePhase(phase),
     isTerminal: isTerminalPhase(phase),
     ...actions,
-  };
+  }), [phase, actions]);
 };

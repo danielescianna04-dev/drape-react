@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -73,6 +73,37 @@ export const ChatMessageList: React.FC<Props> = ({
   onOpenPlans,
 }) => {
   const { t } = useTranslation(['terminal', 'chat', 'common']);
+  const parseAgentStatus = (content?: string | null): { phase?: string; message?: string } | null => {
+    if (!content?.startsWith('__AGENT_STATUS__')) return null;
+    try {
+      return JSON.parse(content.slice('__AGENT_STATUS__'.length));
+    } catch {
+      return { message: content.replace('__AGENT_STATUS__', '').trim() };
+    }
+  };
+  const renderCountRef = useRef(0);
+  const lastContentHeightRef = useRef<number | null>(null);
+  renderCountRef.current += 1;
+  if (renderCountRef.current <= 25) {
+    console.log('[ChatMessageListDebug] render', {
+      count: renderCountRef.current,
+      terminalItemsLength,
+      processedLength: processedTerminalItems.length,
+      isLoading,
+      agentStreaming,
+    });
+  }
+
+  if (terminalItemsLength === 0) {
+    return (
+      <View style={[styles.output, isCardMode && styles.outputCardMode]}>
+        <WelcomeScreen
+          keyboardHeight={keyboardHeight}
+          onSuggestionPress={onSuggestionPress}
+        />
+      </View>
+    );
+  }
 
   return (
     <FlatList
@@ -84,7 +115,10 @@ export const ChatMessageList: React.FC<Props> = ({
       data={processedTerminalItems}
       keyExtractor={(processed, index) => processed.item.id || `item-${index}`}
       onContentSizeChange={(_w, h) => {
+        if (lastContentHeightRef.current === h) return;
+        lastContentHeightRef.current = h;
         contentHeightRef.current = h;
+        if (terminalItemsLength === 0) return;
         if (isNearBottomRef.current) {
           onScrollToBottom(!(isLoading || agentStreaming));
         }
@@ -146,6 +180,72 @@ export const ChatMessageList: React.FC<Props> = ({
               <Ionicons name="play" size={18} color="#A78BFA" />
               <Text style={{ fontSize: 15, fontWeight: '600', color: '#A78BFA' }}>Avvia preview</Text>
             </TouchableOpacity>
+          );
+        }
+
+        if (item.content === '__PREVIEW_READY__') {
+          return (
+            <TouchableOpacity
+              onPress={() => { useUIStore.getState().requestOpenPreview(); }}
+              activeOpacity={0.88}
+              style={{
+                marginHorizontal: 16,
+                marginVertical: 12,
+                padding: 16,
+                borderRadius: 24,
+                backgroundColor: 'rgba(63, 185, 80, 0.12)',
+                borderWidth: 1,
+                borderColor: 'rgba(63, 185, 80, 0.24)',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <Ionicons name="sparkles" size={18} color="#3FB950" />
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#E6EDF3' }}>Preview pronta</Text>
+              </View>
+              <Text style={{ fontSize: 13, lineHeight: 19, color: 'rgba(230,237,243,0.72)', marginBottom: 12 }}>
+                La prima versione del progetto e pronta da aprire. Puoi entrare subito e continuare a rifinirla dalla chat.
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 12, borderRadius: 18, backgroundColor: 'rgba(63, 185, 80, 0.16)' }}>
+                <Ionicons name="play" size={16} color="#3FB950" />
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#3FB950' }}>Apri preview</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        }
+
+        const agentStatus = parseAgentStatus(item.content);
+        if (agentStatus?.message) {
+          const phaseLabelMap: Record<string, string> = {
+            generation: 'Creazione',
+            warmup: 'Preview',
+            fix: 'Auto-fix',
+            verify: 'Verify',
+          };
+          const phaseLabel = phaseLabelMap[String(agentStatus.phase || '')] || 'Stato';
+          return (
+            <View
+              style={{
+                marginHorizontal: 16,
+                marginVertical: 8,
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                borderRadius: 18,
+                backgroundColor: 'rgba(167, 139, 250, 0.10)',
+                borderWidth: 1,
+                borderColor: 'rgba(167, 139, 250, 0.18)',
+                gap: 6,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="flash" size={14} color="#A78BFA" />
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#A78BFA', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  {phaseLabel}
+                </Text>
+              </View>
+              <Text style={{ fontSize: 14, lineHeight: 20, color: 'rgba(230,237,243,0.88)' }}>
+                {agentStatus.message}
+              </Text>
+            </View>
           );
         }
 
@@ -269,12 +369,6 @@ export const ChatMessageList: React.FC<Props> = ({
           />
         );
       }}
-      ListEmptyComponent={terminalItemsLength === 0 ? (
-        <WelcomeScreen
-          keyboardHeight={keyboardHeight}
-          onSuggestionPress={onSuggestionPress}
-        />
-      ) : null}
       ListFooterComponent={terminalItemsLength > 0 ? (
         <>
           {(isLoading || agentStreaming) &&

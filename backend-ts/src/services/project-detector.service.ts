@@ -27,13 +27,14 @@ class ProjectDetectorService {
 
   private async detectInternal(projectDir: string): Promise<ProjectInfo> {
 
-    const [hasPackageJson, hasNextConfig, hasViteConfig, hasPnpmLock, hasYarnLock, hasBunLock, packageJson, hasSvelteConfig, hasAstroConfig, hasAngularJson, hasGoMod, hasGemfile, hasRailsRoutes, hasNuxtConfig, hasPubspec, hasManagePy, hasComposerJson, hasArtisan] =
+    const [hasPackageJson, hasNextConfig, hasViteConfig, hasPnpmLock, hasYarnLock, hasNpmLock, hasBunLock, packageJson, hasSvelteConfig, hasAstroConfig, hasAngularJson, hasGoMod, hasGemfile, hasRailsRoutes, hasNuxtConfig, hasPubspec, hasManagePy, hasComposerJson, hasArtisan] =
       await Promise.all([
         this.fileExists(projectDir, 'package.json'),
         this.hasAnyFile(projectDir, ['next.config.js', 'next.config.mjs', 'next.config.ts']),
         this.hasAnyFile(projectDir, ['vite.config.js', 'vite.config.ts', 'vite.config.mjs']),
         this.fileExists(projectDir, 'pnpm-lock.yaml'),
         this.fileExists(projectDir, 'yarn.lock'),
+        this.fileExists(projectDir, 'package-lock.json'),
         this.hasAnyFile(projectDir, ['bun.lockb', 'bun.lock']),
         this.readJsonSafe(projectDir, 'package.json'),
         this.hasAnyFile(projectDir, ['svelte.config.js', 'svelte.config.ts']),
@@ -49,7 +50,7 @@ class ProjectDetectorService {
         this.fileExists(projectDir, 'artisan'),
       ]);
 
-    const packageManager = this.detectPackageManager(hasPnpmLock, hasYarnLock, hasBunLock);
+    const packageManager = this.detectPackageManager(hasPnpmLock, hasYarnLock, hasNpmLock, hasBunLock);
 
     // Detect project type
 
@@ -131,12 +132,13 @@ class ProjectDetectorService {
         const subPm = this.detectPackageManager(
           await this.fileExists(projectDir, `${subdir}/pnpm-lock.yaml`) || hasPnpmLock,
           await this.fileExists(projectDir, `${subdir}/yarn.lock`) || hasYarnLock,
+          await this.fileExists(projectDir, `${subdir}/package-lock.json`) || hasNpmLock,
           await this.hasAnyFile(projectDir, [`${subdir}/bun.lockb`, `${subdir}/bun.lock`]) || hasBunLock,
         );
 
         // For workspaces, install from root; otherwise install in subdir
         const rootInstall = isWorkspace
-          ? (subPm === 'pnpm' ? 'pnpm install' : subPm === 'yarn' ? 'yarn install' : 'bun install')
+          ? this.installCommandForPackageManager(subPm)
           : null;
 
         if (subHasNext) {
@@ -154,7 +156,7 @@ class ProjectDetectorService {
             const setup = [
               'for f in app/postcss.config.* app/tailwind.config.* app/next.config.*; do [ -f "$f" ] && ln -sf "$f" . 2>/dev/null; done',
             ].join('; ');
-            const installCmd = info.installCommand || 'bun install';
+            const installCmd = info.installCommand || this.installCommandForPackageManager(subPm, { frozenLockfile: true });
             info.startCommand = `${setup}; ${info.startCommand}`;
             info.installCommand = `cp app/package.json . 2>/dev/null; [ -f app/package-lock.json ] && cp app/package-lock.json . 2>/dev/null; ${installCmd}; rm -rf app/node_modules 2>/dev/null`;
             return info;
@@ -162,21 +164,21 @@ class ProjectDetectorService {
           const info = this.nextjsProject(subPkg, subPm);
           info.description = `Next.js monorepo (${subdir}/)`;
           info.startCommand = `cd ${subdir} && ${info.startCommand}`;
-          info.installCommand = rootInstall || `cd ${subdir} && ${info.installCommand || 'bun install'}`;
+          info.installCommand = rootInstall || `cd ${subdir} && ${info.installCommand || this.installCommandForPackageManager(subPm)}`;
           return info;
         }
         if (subHasVite) {
           const info = this.viteProject(subPkg, subPm);
           info.description = `Vite monorepo (${subdir}/)`;
           info.startCommand = `cd ${subdir} && ${info.startCommand}`;
-          info.installCommand = rootInstall || `cd ${subdir} && ${info.installCommand || 'bun install'}`;
+          info.installCommand = rootInstall || `cd ${subdir} && ${info.installCommand || this.installCommandForPackageManager(subPm)}`;
           return info;
         }
         if (this.hasExpoDep(subPkg)) {
           const info = this.expoProject(subPkg, subPm);
           info.description = `Expo monorepo (${subdir}/)`;
           info.startCommand = `cd ${subdir} && ${info.startCommand}`;
-          info.installCommand = rootInstall || `cd ${subdir} && ${info.installCommand || 'bun install'}`;
+          info.installCommand = rootInstall || `cd ${subdir} && ${info.installCommand || this.installCommandForPackageManager(subPm)}`;
           return info;
         }
 
@@ -184,7 +186,7 @@ class ProjectDetectorService {
         const info = this.nodejsProject(subPkg, subPm);
         info.description = `Node.js monorepo (${subdir}/)`;
         info.startCommand = `cd ${subdir} && ${info.startCommand}`;
-        info.installCommand = rootInstall || `cd ${subdir} && ${info.installCommand || 'bun install'}`;
+        info.installCommand = rootInstall || `cd ${subdir} && ${info.installCommand || this.installCommandForPackageManager(subPm)}`;
         return info;
       }
     }
@@ -369,9 +371,7 @@ class ProjectDetectorService {
     // Use stable webpack instead — slower but reliable.
     const useTurbopack = false;
 
-    const installCmd = pm === 'pnpm' ? 'pnpm install --frozen-lockfile' :
-      pm === 'yarn' ? 'yarn install --frozen-lockfile' :
-        'bun install';
+    const installCmd = this.installCommandForPackageManager(pm, { frozenLockfile: true });
 
     // Always use the next binary directly instead of `npm run dev`.
     // npm's exit-handler calls process.exit(0) after stdout flush in non-TTY
@@ -402,9 +402,7 @@ class ProjectDetectorService {
   }
 
   private viteProject(pkg: any, pm: PackageManager): ProjectInfo {
-    const installCmd = pm === 'pnpm' ? 'pnpm install' :
-      pm === 'yarn' ? 'yarn install' :
-        'bun install';
+    const installCmd = this.installCommandForPackageManager(pm);
 
     return {
       type: 'vite',
@@ -418,14 +416,14 @@ class ProjectDetectorService {
 
   private nodejsProject(pkg: any, pm: PackageManager): ProjectInfo {
     const scripts = pkg?.scripts || {};
-    const installCmd = pm === 'pnpm' ? 'pnpm install' :
-      pm === 'yarn' ? 'yarn install' :
-        'bun install';
+    const installCmd = this.installCommandForPackageManager(pm);
     const runDevCmd = pm === 'pnpm' ? 'pnpm run dev' :
       pm === 'yarn' ? 'yarn dev' :
+      pm === 'npm' ? 'npm run dev' :
         'bun run dev';
     const runStartCmd = pm === 'pnpm' ? 'pnpm run start' :
       pm === 'yarn' ? 'yarn start' :
+      pm === 'npm' ? 'npm run start' :
         'bun run start';
 
     let startCommand = 'npx serve -s . -l 3000';
@@ -442,11 +440,29 @@ class ProjectDetectorService {
     };
   }
 
-  private detectPackageManager(hasPnpm: boolean, hasYarn: boolean, hasBun = false): PackageManager {
+  private detectPackageManager(hasPnpm: boolean, hasYarn: boolean, hasNpm = false, hasBun = false): PackageManager {
     if (hasPnpm) return 'pnpm';
     if (hasYarn) return 'yarn';
+    if (hasBun) return 'bun';
+    if (hasNpm) return 'npm';
     // Default to bun — 5-10x faster than npm for cold installs
     return 'bun';
+  }
+
+  private installCommandForPackageManager(
+    pm: PackageManager,
+    opts: { frozenLockfile?: boolean } = {},
+  ): string {
+    if (pm === 'pnpm') {
+      return opts.frozenLockfile ? 'pnpm install --frozen-lockfile' : 'pnpm install';
+    }
+    if (pm === 'yarn') {
+      return opts.frozenLockfile ? 'yarn install --frozen-lockfile' : 'yarn install';
+    }
+    if (pm === 'npm') {
+      return 'npm install';
+    }
+    return opts.frozenLockfile ? 'bun install --frozen-lockfile' : 'bun install';
   }
 
   private hasNextDep(pkg: any): boolean {
@@ -463,9 +479,7 @@ class ProjectDetectorService {
 
   private expoProject(pkg: any, pm: PackageManager): ProjectInfo {
     // Expo/RN projects almost always have peer dep conflicts
-    const installCmd = pm === 'pnpm' ? 'pnpm install' :
-      pm === 'yarn' ? 'yarn install' :
-        'bun install';
+    const installCmd = this.installCommandForPackageManager(pm);
 
     // Always force --port 3000 so isRunning/preview checks work correctly.
     // Don't use custom scripts (e.g. "npm run web") because they may not include --port.
@@ -484,7 +498,7 @@ class ProjectDetectorService {
   }
 
   private svelteProject(pkg: any, pm: PackageManager): ProjectInfo {
-    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'bun install';
+    const installCmd = this.installCommandForPackageManager(pm);
     return {
       type: 'svelte',
       description: 'SvelteKit project',
@@ -496,7 +510,7 @@ class ProjectDetectorService {
   }
 
   private astroProject(pkg: any, pm: PackageManager): ProjectInfo {
-    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'bun install';
+    const installCmd = this.installCommandForPackageManager(pm);
     return {
       type: 'astro',
       description: 'Astro project',
@@ -508,7 +522,7 @@ class ProjectDetectorService {
   }
 
   private remixProject(pkg: any, pm: PackageManager): ProjectInfo {
-    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'bun install';
+    const installCmd = this.installCommandForPackageManager(pm);
     return {
       type: 'remix',
       description: 'Remix project',
@@ -520,7 +534,7 @@ class ProjectDetectorService {
   }
 
   private angularProject(pkg: any, pm: PackageManager): ProjectInfo {
-    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'bun install';
+    const installCmd = this.installCommandForPackageManager(pm);
     return {
       type: 'angular',
       description: 'Angular project',
@@ -532,7 +546,7 @@ class ProjectDetectorService {
   }
 
   private nuxtProject(pkg: any, pm: PackageManager): ProjectInfo {
-    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'bun install';
+    const installCmd = this.installCommandForPackageManager(pm);
 
     // Use nuxi binary directly — npm run dev exits prematurely in non-TTY containers.
     const startCommand = './node_modules/.bin/nuxi dev --host 0.0.0.0 --port 3000';
@@ -548,7 +562,7 @@ class ProjectDetectorService {
   }
 
   private solidProject(pkg: any, pm: PackageManager): ProjectInfo {
-    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'bun install';
+    const installCmd = this.installCommandForPackageManager(pm);
     return {
       type: 'solid',
       description: 'Solid.js project',

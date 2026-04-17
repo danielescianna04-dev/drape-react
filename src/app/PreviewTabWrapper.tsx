@@ -9,6 +9,13 @@ export const PreviewTabWrapper: React.FC = () => {
   const ws = useWorkstationStore((state) => state.currentWorkstation);
   const previewServerUrl = useUIStore((state) => state.previewServerUrl);
   const projectPreviewUrls = useUIStore((state) => state.projectPreviewUrls);
+  const activeTabId = useTabStore((state) => state.activeTabId);
+  const tabs = useTabStore((state) => state.tabs);
+
+  const isPreviewActive = React.useMemo(() => {
+    const activeTab = tabs.find((tab) => tab.id === activeTabId);
+    return activeTab?.type === 'preview';
+  }, [activeTabId, tabs]);
 
   const previewUrl = (ws?.id ? projectPreviewUrls[ws.id] : null)
     || (previewServerUrl && ws?.id && previewServerUrl.includes(`/preview/${ws.id}`) ? previewServerUrl : '')
@@ -29,7 +36,7 @@ export const PreviewTabWrapper: React.FC = () => {
       onClose={handleClose}
       previewUrl={previewUrl}
       projectName="Project Preview"
-      isVisible={true}
+      isVisible={isPreviewActive}
     />
   );
 };

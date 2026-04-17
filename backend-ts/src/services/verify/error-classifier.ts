@@ -145,6 +145,34 @@ export function shouldStopLostProject(result: VerifyResult, attempt: number, pre
   return true;
 }
 
+/**
+ * Pull unique target hrefs from "Dead interactive element" errors.
+ *
+ * The qa-agent formats dead clicks as:
+ *   Dead interactive element: link "Progetti" [href=/progetti] on page / — ...
+ *
+ * We extract the href so the auto-fix can check whether the target route
+ * exists and surface that to the model. Only absolute app paths are returned:
+ * "#", placeholders ("none", empty), root "/", protocol-relative URLs, and
+ * anything with unsafe characters are filtered out.
+ */
+export function extractDeadLinkHrefs(errors: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const err of errors) {
+    if (!err.includes('Dead interactive element')) continue;
+    const match = err.match(/\[href=([^\]]+)\]/);
+    if (!match) continue;
+    const href = match[1].trim();
+    if (!href || seen.has(href)) continue;
+    if (!href.startsWith('/') || href === '/' || href.startsWith('//')) continue;
+    if (!/^\/[a-zA-Z0-9_\-/]+$/.test(href)) continue;
+    seen.add(href);
+    result.push(href);
+  }
+  return result;
+}
+
 export function trimErrorForPrompt(error: string): string {
   return error.replace(/\s+/g, ' ').trim().substring(0, 260);
 }

@@ -514,6 +514,7 @@ export function usePreviewServerLifecycle({
     flyMachineIdRef: session.flyMachineIdRef,
     preflightDoneRef: recovery.preflightDoneRef,
     autoFixTriggeredRef: recovery.autoFixTriggeredRef,
+    autoFixPending: recovery.autoFixPending,
 
     // Setters
     setServerStatus,

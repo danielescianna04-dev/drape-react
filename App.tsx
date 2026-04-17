@@ -23,9 +23,11 @@ import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
 import { OfflineOverlay } from './src/shared/components/OfflineOverlay';
 import { InAppToast } from './src/shared/components/InAppToast';
 import { workstationService } from './src/core/workstation/workstationService-firebase';
-import { useTerminalStore } from './src/core/terminal/terminalStore';
+import { useUIStore } from './src/core/terminal/uiStore';
+import { useWorkstationStore } from './src/core/terminal/workstationStore';
 import { useTabStore } from './src/core/tabs/tabStore';
 import { useAuthStore } from './src/core/auth/authStore';
+import { useChatStore } from './src/core/terminal/chatStore';
 import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
 import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
 import { liveActivityService } from './src/core/services/liveActivityService';
@@ -140,7 +142,8 @@ export default function App() {
     referralSource: null,
   });
 
-  const { setWorkstation, clearGlobalTerminalLog } = useTerminalStore();
+  const setWorkstation = useWorkstationStore((state) => state.setWorkstation);
+  const clearGlobalTerminalLog = useUIStore((state) => state.clearGlobalTerminalLog);
   const { clearTerminalItems, addTerminalItem: addTerminalItemToStore } = useTabStore();
   const { initialize } = useAuthStore();
   const consent = useConsentStore((state) => state.consent);
@@ -225,7 +228,7 @@ export default function App() {
   // Run migration on app startup to sync old accounts to new storage
   useEffect(() => {
     const runMigration = async () => {
-      const userId = useTerminalStore.getState().userId || 'anonymous';
+      const userId = useWorkstationStore.getState().userId || 'anonymous';
       await migrateGitAccounts(userId);
     };
     runMigration();
@@ -234,7 +237,7 @@ export default function App() {
   // Load chat history from AsyncStorage on app startup
   useEffect(() => {
     const loadChatHistory = async () => {
-      await useTerminalStore.getState().loadChats();
+      await useChatStore.getState().loadChats();
     };
     loadChatHistory();
   }, []);
@@ -429,10 +432,13 @@ export default function App() {
                 }}
                 onCreateOpenPlans={() => setCurrentScreen('plans')}
                 onCreateComplete={async (workstation) => {
+                  const projectId = workstation.projectId || workstation.id;
+                  const creationAgentRequest = (workstation as any).creationAgentRequest;
+                  const creationChatId = creationAgentRequest ? `create-${projectId}` : null;
                   const userId = useAuthStore.getState().user?.uid;
                   if (userId) {
                     workstationService.saveProjectWithId(
-                      workstation.projectId || workstation.id,
+                      projectId,
                       workstation.name,
                       userId,
                       workstation.technology || workstation.language,
@@ -441,14 +447,64 @@ export default function App() {
 
                   finalizeFirstProjectSetup();
                   setWorkstation(workstation);
-                  useTabStore.getState().clearTabs();
+                  useTabStore.getState().resetTabs();
+
+                  if (creationChatId) {
+                    const existingChat = useChatStore.getState().chatHistory.find((chat) => chat.id === creationChatId);
+                    const creationPromptPreview = String(
+                      creationAgentRequest?.displayPrompt ||
+                      (workstation as any).templateDescription ||
+                      ''
+                    ).trim();
+
+                    if (!existingChat) {
+                      useChatStore.getState().addChat({
+                        id: creationChatId,
+                        title: workstation.name,
+                        description: creationPromptPreview.slice(0, 100),
+                        createdAt: new Date(),
+                        lastUsed: new Date(),
+                        messages: [],
+                        aiModel: creationAgentRequest?.model || 'gemini-3-flash',
+                        repositoryId: projectId,
+                        repositoryName: workstation.name,
+                      });
+                    } else {
+                      useChatStore.getState().updateChat(creationChatId, {
+                        title: workstation.name,
+                        description: existingChat.description || creationPromptPreview.slice(0, 100),
+                        lastUsed: new Date(),
+                        repositoryId: existingChat.repositoryId || projectId,
+                        repositoryName: existingChat.repositoryName || workstation.name,
+                      });
+                    }
+
+                    useChatStore.getState().setCurrentChat(
+                      useChatStore.getState().chatHistory.find((chat) => chat.id === creationChatId) || null,
+                    );
+
+                    useTabStore.getState().updateTab('chat-main', {
+                      title: workstation.name,
+                      workstationId: projectId,
+                      data: {
+                        chatId: creationChatId,
+                        projectId,
+                        creationFlow: true,
+                        autoStartAgent: creationAgentRequest,
+                      },
+                      terminalItems: [],
+                    });
+                    useTabStore.getState().setActiveTab('chat-main');
+                  } else {
+                    useChatStore.getState().setCurrentChat(null);
+                  }
 
                   if (workstation.files && workstation.files.length > 0) {
                     const filePaths = workstation.files.map((f: any) =>
                       typeof f === 'string' ? f : f.path
                     );
                     useFileCacheStore.getState().setFiles(
-                      workstation.projectId || workstation.id,
+                      projectId,
                       filePaths
                     );
                   }
@@ -459,13 +515,15 @@ export default function App() {
                     const currentTab = tabs.find(t => t.id === activeTabId);
 
                     if (currentTab) {
-                      clearTerminalItems(currentTab.id);
-                      addTerminalItemToStore(currentTab.id, {
-                        id: `welcome-${Date.now()}`,
-                        type: 'system',
-                        content: `__PROJECT_CREATED__${JSON.stringify({ name: workstation.name, language: workstation.language || 'html' })}`,
-                        timestamp: new Date(),
-                      });
+                      if (!creationAgentRequest) {
+                        clearTerminalItems(currentTab.id);
+                        addTerminalItemToStore(currentTab.id, {
+                          id: `welcome-${Date.now()}`,
+                          type: 'system',
+                          content: `__PROJECT_CREATED__${JSON.stringify({ name: workstation.name, language: workstation.language || 'html' })}`,
+                          timestamp: new Date(),
+                        });
+                      }
                     }
                   }, 100);
                 }}

@@ -7,12 +7,15 @@ import {
     Animated,
     Easing,
     Dimensions,
+    ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppColors } from '../../theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle, Line } from 'react-native-svg';
 import { useTranslation } from 'react-i18next';
+import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 
 interface ToolEvent {
     id?: string;
@@ -118,6 +121,16 @@ interface Props {
     agentStatus?: 'idle' | 'running' | 'complete' | 'error';
     agentCurrentTool?: string | null;
 }
+
+type ToolTimelineItem = {
+    key: string;
+    tool: string;
+    label: string;
+    detail?: string;
+    state: 'running' | 'complete' | 'error';
+    icon: keyof typeof Ionicons.glyphMap;
+    color: string;
+};
 
 type PhraseBank = Record<string, { it: string[]; en: string[] }>;
 
@@ -348,6 +361,134 @@ const pickPhrase = (tool: string, counter: number, lang: 'it' | 'en'): string =>
     const bank = PHRASES[tool] || PHRASES._default;
     const list = bank[lang];
     return list[counter % list.length];
+};
+
+const TOOL_META: Record<string, { icon: keyof typeof Ionicons.glyphMap; it: string; en: string; color: string }> = {
+    read_file: { icon: 'document-text-outline', it: 'Leggo file', en: 'Reading file', color: '#7DD3FC' },
+    write_file: { icon: 'document-outline', it: 'Creo file', en: 'Creating file', color: '#86EFAC' },
+    edit_file: { icon: 'create-outline', it: 'Modifico file', en: 'Editing file', color: '#C4B5FD' },
+    multi_edit_file: { icon: 'layers-outline', it: 'Applico modifiche', en: 'Applying edits', color: '#C4B5FD' },
+    patch_file: { icon: 'build-outline', it: 'Correggo file', en: 'Patching file', color: '#F9A8D4' },
+    list_directory: { icon: 'folder-open-outline', it: 'Esploro cartelle', en: 'Exploring folders', color: '#93C5FD' },
+    glob_search: { icon: 'search-outline', it: 'Cerco file', en: 'Searching files', color: '#A78BFA' },
+    grep_search: { icon: 'code-slash-outline', it: 'Cerco nel codice', en: 'Searching code', color: '#FDE68A' },
+    run_command: { icon: 'terminal-outline', it: 'Eseguo comando', en: 'Running command', color: '#FCD34D' },
+    execute_command: { icon: 'terminal-outline', it: 'Eseguo comando', en: 'Running command', color: '#FCD34D' },
+    web_search: { icon: 'globe-outline', it: 'Cerco sul web', en: 'Searching the web', color: '#7DD3FC' },
+    web_fetch: { icon: 'cloud-download-outline', it: 'Recupero contenuti', en: 'Fetching content', color: '#7DD3FC' },
+    signal_completion: { icon: 'checkmark-done-outline', it: 'Chiudo il giro', en: 'Wrapping up', color: '#A7F3D0' },
+};
+
+const humanizeToolName = (tool: string, lang: 'it' | 'en') => {
+    const meta = TOOL_META[tool];
+    if (meta) return { icon: meta.icon, label: meta[lang], color: meta.color };
+
+    const cleaned = tool.replace(/_/g, ' ').trim();
+    const label = cleaned.length > 0
+        ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
+        : (lang === 'it' ? 'Tool' : 'Tool');
+    return {
+        icon: 'hardware-chip-outline' as const,
+        label,
+        color: '#A78BFA',
+    };
+};
+
+const stringifyToolDetail = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const short = trimmed.split('/').pop() || trimmed;
+    return short.length > 80 ? `${short.slice(0, 77)}...` : short;
+};
+
+const extractToolDetail = (tool: string, input: any, lang: 'it' | 'en'): string | undefined => {
+    if (!input || typeof input !== 'object') return undefined;
+
+    const candidate =
+        stringifyToolDetail(input.file_path) ||
+        stringifyToolDetail(input.path) ||
+        stringifyToolDetail(input.target_file) ||
+        stringifyToolDetail(input.targetFile) ||
+        stringifyToolDetail(input.pattern) ||
+        stringifyToolDetail(input.query) ||
+        stringifyToolDetail(input.url) ||
+        stringifyToolDetail(input.command) ||
+        stringifyToolDetail(input.cmd);
+
+    if (candidate) return candidate;
+
+    if (tool === 'signal_completion') {
+        return lang === 'it' ? 'Passaggio a preview e verifica' : 'Handing off to preview and verification';
+    }
+
+    return undefined;
+};
+
+const buildToolTimeline = (events: ToolEvent[] | undefined, lang: 'it' | 'en'): ToolTimelineItem[] => {
+    if (!events?.length) return [];
+
+    const timeline: ToolTimelineItem[] = [];
+    const openIndexesByTool = new Map<string, number[]>();
+
+    const pushOpenIndex = (tool: string, index: number) => {
+        const stack = openIndexesByTool.get(tool) || [];
+        stack.push(index);
+        openIndexesByTool.set(tool, stack);
+    };
+
+    const popOpenIndex = (tool: string) => {
+        const stack = openIndexesByTool.get(tool);
+        if (!stack?.length) return undefined;
+        const value = stack.pop();
+        if (!stack.length) openIndexesByTool.delete(tool);
+        return value;
+    };
+
+    events.forEach((event, eventIndex) => {
+        if (!event.tool) return;
+        const tool = event.tool;
+        const meta = humanizeToolName(tool, lang);
+
+        if (event.type === 'tool_start') {
+            const itemIndex = timeline.length;
+            timeline.push({
+                key: `${tool}-${eventIndex}`,
+                tool,
+                label: meta.label,
+                detail: extractToolDetail(tool, event.input, lang),
+                state: 'running',
+                icon: meta.icon,
+                color: meta.color,
+            });
+            pushOpenIndex(tool, itemIndex);
+            return;
+        }
+
+        if (event.type === 'tool_input') {
+            const stack = openIndexesByTool.get(tool);
+            const itemIndex = stack?.[stack.length - 1];
+            if (itemIndex === undefined) return;
+            const nextDetail = extractToolDetail(tool, event.input, lang);
+            if (nextDetail) {
+                timeline[itemIndex] = { ...timeline[itemIndex], detail: nextDetail };
+            }
+            return;
+        }
+
+        if (event.type === 'tool_complete' || event.type === 'tool_error') {
+            const itemIndex = popOpenIndex(tool);
+            if (itemIndex === undefined) return;
+            const nextDetail = extractToolDetail(tool, event.input, lang);
+            timeline[itemIndex] = {
+                ...timeline[itemIndex],
+                detail: nextDetail || timeline[itemIndex].detail,
+                state: event.type === 'tool_error' ? 'error' : 'complete',
+            };
+        }
+    });
+
+    return timeline;
 };
 
 // Animated SVG Circle wrapper
@@ -662,6 +803,8 @@ export const CreationProgressModal = ({ visible, progress, status, step, agentEv
     const [fileCount, setFileCount] = useState(0);
     const phraseCounterRef = useRef(0);
     const currentBankRef = useRef<string>('_default');
+    const toolScrollRef = useRef<ScrollView | null>(null);
+    const toolTimeline = useMemo(() => buildToolTimeline(agentEvents, lang), [agentEvents, lang]);
 
     // Entrance animation
     useEffect(() => {
@@ -686,6 +829,7 @@ export const CreationProgressModal = ({ visible, progress, status, step, agentEv
 
     // Track current action from agent events
     useEffect(() => {
+        if (status?.trim()) return;
         if (!agentEvents || agentEvents.length === 0) return;
         const last = agentEvents[agentEvents.length - 1];
 
@@ -706,17 +850,17 @@ export const CreationProgressModal = ({ visible, progress, status, step, agentEv
         // Count files written
         const writes = agentEvents.filter(e => e.type === 'tool_complete' && e.tool === 'write_file').length;
         if (writes > fileCount) setFileCount(writes);
-    }, [agentEvents?.length]);
+    }, [agentEvents?.length, status]);
 
     // Auto-rotate phrases even when no new events arrive — keeps the UI alive
     useEffect(() => {
-        if (!visible) return;
+        if (!visible || status?.trim()) return;
         const interval = setInterval(() => {
             phraseCounterRef.current += 1;
             setCurrentAction(pickPhrase(currentBankRef.current, phraseCounterRef.current, lang));
         }, 2500);
         return () => clearInterval(interval);
-    }, [visible, lang]);
+    }, [visible, lang, status]);
 
     // Smooth progress
     useEffect(() => {
@@ -731,16 +875,101 @@ export const CreationProgressModal = ({ visible, progress, status, step, agentEv
             setDisplayProgress(prev => {
                 const target = targetProgressRef.current;
                 if (prev >= target) return target;
-                const delta = Math.max(0.3, (target - prev) * 0.15);
+                const remaining = target - prev;
+                const maxStep = target >= 100 ? 3.2 : target >= 90 ? 0.8 : target >= 75 ? 1.0 : 1.25;
+                const minStep = target >= 100 ? 0.45 : 0.18;
+                const delta = Math.min(maxStep, Math.max(minStep, remaining * 0.07));
                 return Math.min(target, prev + delta);
             });
-        }, 50);
+        }, 70);
         return () => { mounted = false; clearInterval(interval); };
     }, [visible]);
+
+    useEffect(() => {
+        if (!visible || !toolTimeline.length) return;
+        const id = setTimeout(() => {
+            toolScrollRef.current?.scrollToEnd({ animated: true });
+        }, 120);
+        return () => clearTimeout(id);
+    }, [visible, toolTimeline.length]);
 
     if (!visible) return null;
 
     const progressPercent = Math.round(displayProgress);
+    const displayedAction = status?.trim() || currentAction;
+    const displayedStep = step?.trim();
+    const renderToolTimeline = () => (
+        <View style={styles.activityCardInner}>
+            <ScrollView
+                ref={toolScrollRef}
+                style={styles.activityScroll}
+                contentContainerStyle={styles.activityScrollContent}
+                showsVerticalScrollIndicator={false}
+            >
+                {toolTimeline.length === 0 ? (
+                    <View style={styles.emptyToolState}>
+                        <Ionicons name="sparkles-outline" size={18} color="rgba(196, 181, 253, 0.9)" />
+                        <Text style={styles.emptyToolStateText}>
+                            {lang === 'it'
+                                ? 'Appena parte l’agente, vedrai qui ogni operazione in tempo reale.'
+                                : 'As soon as the agent starts, each tool call will appear here live.'}
+                        </Text>
+                    </View>
+                ) : (
+                    toolTimeline.map((item, index) => {
+                        const stateIcon =
+                            item.state === 'running'
+                                ? 'ellipse'
+                                : item.state === 'error'
+                                    ? 'alert-circle'
+                                    : 'checkmark-circle';
+                        const stateColor =
+                            item.state === 'running'
+                                ? '#A78BFA'
+                                : item.state === 'error'
+                                    ? '#FCA5A5'
+                                    : '#86EFAC';
+                        return (
+                            <View
+                                key={item.key}
+                                style={[
+                                    styles.toolRow,
+                                    index === toolTimeline.length - 1 && styles.toolRowLast,
+                                    item.state === 'running' && styles.toolRowActive,
+                                ]}
+                            >
+                                <View style={styles.toolRail}>
+                                    <View style={[styles.toolRailDot, { backgroundColor: stateColor }]} />
+                                    {index !== toolTimeline.length - 1 && <View style={styles.toolRailLine} />}
+                                </View>
+                                <View style={[styles.toolIconWrap, { backgroundColor: `${item.color}18`, borderColor: `${item.color}36` }]}>
+                                    <Ionicons
+                                        name={item.icon}
+                                        size={15}
+                                        color={item.color}
+                                    />
+                                </View>
+                                <View style={styles.toolTextWrap}>
+                                    <View style={styles.toolLabelRow}>
+                                        <Text style={styles.toolLabel} numberOfLines={1}>{item.label}</Text>
+                                        {item.state === 'running' && (
+                                            <Text style={styles.toolInlineLive}>
+                                                {lang === 'it' ? 'live' : 'live'}
+                                            </Text>
+                                        )}
+                                    </View>
+                                    {!!item.detail && (
+                                        <Text style={styles.toolDetail} numberOfLines={1}>{item.detail}</Text>
+                                    )}
+                                </View>
+                                <Ionicons name={stateIcon} size={16} color={stateColor} style={styles.toolStateIcon} />
+                            </View>
+                        );
+                    })
+                )}
+            </ScrollView>
+        </View>
+    );
 
     return (
         <Modal visible={visible} transparent animationType="none" statusBarTranslucent>
@@ -754,15 +983,37 @@ export const CreationProgressModal = ({ visible, progress, status, step, agentEv
 
                 <Animated.View style={[styles.content, { opacity: fadeAnim, paddingTop: insets.top + 40 }]}>
                     {/* Particle Sphere */}
-                    <View style={styles.sphereContainer}>
+                    <View style={styles.sphereSection}>
+                        <View style={styles.sphereContainer}>
                         <ParticleSphere isActive={visible} progress={displayProgress} />
+                        </View>
+                    </View>
+
+                    <View style={styles.activityCardWrap}>
+                        {isLiquidGlassSupported ? (
+                            <LiquidGlassView
+                                style={styles.activityCardGlass}
+                                interactive={true}
+                                effect="regular"
+                                colorScheme="dark"
+                            >
+                                {renderToolTimeline()}
+                            </LiquidGlassView>
+                        ) : (
+                            <View style={styles.activityCardFallback}>
+                                {renderToolTimeline()}
+                            </View>
+                        )}
                     </View>
 
                     {/* Status text */}
                     <View style={styles.statusContainer}>
-                        <ShimmerText text={currentAction} style={styles.actionText} />
+                        {!!displayedStep && <Text style={styles.stepText}>{displayedStep}</Text>}
+                        <ShimmerText text={displayedAction} style={styles.actionText} />
                         {fileCount > 0 && (
-                            <Text style={styles.fileCount}>{fileCount} files created</Text>
+                            <Text style={styles.fileCount}>
+                                {lang === 'it' ? `${fileCount} file creati` : `${fileCount} files created`}
+                            </Text>
                         )}
                     </View>
 
@@ -805,30 +1056,175 @@ const styles = StyleSheet.create({
     content: {
         flex: 1,
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: 'flex-start',
         paddingHorizontal: 32,
     },
+    sphereSection: {
+        width: '100%',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        marginTop: -6,
+        marginBottom: -70,
+    },
     sphereContainer: {
-        flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
+        transform: [{ translateY: -42 }],
+    },
+    activityCardWrap: {
+        width: '100%',
+        maxWidth: 352,
+        alignSelf: 'center',
+        marginBottom: 26,
+        // Card takes all remaining vertical space — pushes status + progress
+        // to the bottom and gives the activity list its full height from the
+        // start, so it doesn't "grow" as tool events arrive.
+        flex: 1,
+    },
+    activityCardGlass: {
+        borderRadius: 24,
+        overflow: 'hidden',
+        flex: 1,
+    },
+    activityCardFallback: {
+        borderRadius: 24,
+        overflow: 'hidden',
+        backgroundColor: 'rgba(17, 11, 31, 0.72)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 14 },
+        shadowOpacity: 0.18,
+        shadowRadius: 20,
+        elevation: 10,
+        flex: 1,
+    },
+    activityCardInner: {
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: 12,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        flex: 1,
+    },
+    activityScroll: {
+        flex: 1,
+    },
+    activityScrollContent: {
+        paddingBottom: 4,
+        flexGrow: 1,
+    },
+    emptyToolState: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        borderRadius: 16,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
+    },
+    emptyToolStateText: {
+        flex: 1,
+        fontSize: 12,
+        lineHeight: 17,
+        color: 'rgba(255,255,255,0.62)',
+    },
+    toolRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        minHeight: 48,
+        paddingVertical: 8,
+    },
+    toolRowActive: {
+        backgroundColor: 'rgba(139, 92, 246, 0.04)',
+        borderRadius: 14,
+    },
+    toolRowLast: {
+        marginBottom: 0,
+    },
+    toolRail: {
+        width: 10,
+        alignItems: 'center',
+        alignSelf: 'stretch',
+    },
+    toolRailDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        marginTop: 4,
+    },
+    toolRailLine: {
+        width: 1,
+        flex: 1,
+        marginTop: 4,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+    },
+    toolIconWrap: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+    },
+    toolTextWrap: {
+        flex: 1,
+        minWidth: 0,
+        paddingRight: 8,
+    },
+    toolLabelRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    toolLabel: {
+        flexShrink: 1,
+        fontSize: 12.5,
+        fontWeight: '700',
+        color: 'rgba(255,255,255,0.9)',
+    },
+    toolInlineLive: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#C4B5FD',
+        textTransform: 'uppercase',
+        letterSpacing: 0.8,
+    },
+    toolDetail: {
+        fontSize: 11,
+        color: 'rgba(255,255,255,0.46)',
+        marginTop: 2,
+    },
+    toolStateIcon: {
+        opacity: 0.9,
     },
     statusContainer: {
         alignItems: 'center',
-        marginBottom: 40,
+        marginBottom: 22,
+        paddingHorizontal: 18,
+    },
+    stepText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: 'rgba(167, 139, 250, 0.88)',
+        textTransform: 'uppercase',
+        letterSpacing: 1.1,
+        marginBottom: 10,
     },
     actionText: {
-        fontSize: 17,
+        fontSize: 16,
         fontWeight: '500',
-        color: 'rgba(255, 255, 255, 0.7)',
+        color: 'rgba(255, 255, 255, 0.68)',
         textAlign: 'center',
         letterSpacing: 0.3,
     },
     fileCount: {
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: '400',
-        color: 'rgba(255, 255, 255, 0.35)',
-        marginTop: 8,
+        color: 'rgba(255, 255, 255, 0.3)',
+        marginTop: 6,
     },
     bottomSection: {
         width: '100%',

@@ -1,10 +1,14 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
-import { optionalAuth, requireAuth, getUserPlan, getPlanProjectLimits, getUserStorageMb } from '../middleware/auth';
+import { optionalAuth, requireAuth, getUserPlan, getPlanProjectLimits, getUserStorageMb, countUserProjects } from '../middleware/auth';
 import { log } from '../utils/logger';
 import { dockerService } from '../services/docker.service';
 import { metricsService } from '../services/metrics.service';
 import { firebaseService } from '../services/firebase.service';
+import { sessionService } from '../services/session.service';
+import { buildProjectAIAnalytics } from '../services/project-ai-analytics.service';
+import { fileService } from '../services/file.service';
+import { planAiBudgets } from '../config';
 
 export const healthRouter = Router();
 
@@ -107,21 +111,28 @@ healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, r
     }
 
     // Total projects from Firestore (real count, not in-memory sessions)
-    let totalProjects = 0;
-    const previewsByProject: { name: string; used: number; limit: number }[] = [];
+    const projectCounts = await countUserProjects(userId);
+    const totalProjects = projectCounts.created + projectCounts.cloned + projectCounts.local;
+    const userSessions = await sessionService.getByUserId(userId);
+    const activePreviewProjectIds = new Set(userSessions.map((session) => session.projectId));
+    const previewsByProject: { name: string; used: number; limit: number; isActive: boolean }[] = [];
     const fbDb = firebaseService.getFirestore();
     if (fbDb) {
       const projSnap = await fbDb.collection('user_projects').where('userId', '==', userId).get();
-      totalProjects = projSnap.size;
       projSnap.docs.forEach(d => {
         const data = d.data();
         previewsByProject.push({
           name: data.name || d.id.substring(0, 15),
           used: data.previewCount || 0,
           limit: limits.previews,
+          isActive: activePreviewProjectIds.has(d.id),
         });
       });
     }
+
+    const totalPreviewStarts = previewsByProject.reduce((sum, project) => sum + (project.used || 0), 0);
+    const maxPreviewStartsOnProject = previewsByProject.reduce((max, project) => Math.max(max, project.used || 0), 0);
+    const activePreviewSessions = userSessions.length;
 
     // Search usage (tracked as operation)
     const searchOps = metricsService.getOperationEntries('web_search', 10000)
@@ -140,10 +151,16 @@ healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, r
       },
       previews: {
         limit: limits.previews,
+        limitPerProject: limits.previews,
+        totalStarts: totalPreviewStarts,
+        maxUsedOnProject: maxPreviewStartsOnProject,
+        activeSessions: activePreviewSessions,
+        activeProjects: activePreviewProjectIds.size,
         byProject: previewsByProject,
       },
       projects: {
         active: totalProjects,
+        used: totalProjects,
         limit: limits.projects,
         percent: limits.projects > 0 ? Math.round((totalProjects / limits.projects) * 100) : 0,
       },
@@ -164,21 +181,13 @@ healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, r
   }
 }));
 
-// GET /ai/budget/:userId — AI budget status for iOS SettingsScreen
-healthRouter.get('/ai/budget/:userId', optionalAuth, asyncHandler(async (req, res) => {
+const handleAiBudgetStatus = asyncHandler(async (req, res) => {
   try {
-    const userId = req.params.userId;
+    const userId = req.userId!;
     // Always read plan from Firestore — never trust client-provided planId
     const planId = await getUserPlan(userId);
 
-    const planBudgets: Record<string, { name: string; monthlyBudgetEur: number }> = {
-      free:    { name: 'Free', monthlyBudgetEur: 1.00 },
-      go:      { name: 'Go', monthlyBudgetEur: 7.50 },
-      pro:     { name: 'Pro', monthlyBudgetEur: 50.00 },
-      team:    { name: 'Team', monthlyBudgetEur: 200.00 },
-    };
-
-    const plan = planBudgets[planId] || planBudgets.free;
+    const plan = planAiBudgets[planId as keyof typeof planAiBudgets] || planAiBudgets.free;
 
     // Get this month's AI spending from metrics
     const monthStart = new Date();
@@ -210,7 +219,13 @@ healthRouter.get('/ai/budget/:userId', optionalAuth, asyncHandler(async (req, re
     log.error('[Budget] error:', error);
     res.status(500).json({ success: false, error: 'Failed to retrieve budget status' });
   }
-}));
+});
+
+// GET /ai/budget — AI budget status for the authenticated user
+healthRouter.get('/ai/budget', requireAuth, handleAiBudgetStatus);
+
+// GET /ai/budget/:userId — backward-compatible alias; ignores the path userId
+healthRouter.get('/ai/budget/:userId', requireAuth, handleAiBudgetStatus);
 
 // GET /stats/opencode-optimizer — OpenCode context optimization metrics
 healthRouter.get('/stats/opencode-optimizer', requireAuth, asyncHandler(async (req, res) => {
@@ -273,6 +288,76 @@ healthRouter.get('/stats/conversation-optimizer', requireAuth, asyncHandler(asyn
   }
 }));
 
+// GET /stats/project-ai-analytics — Monthly per-project AI spend analytics
+healthRouter.get('/stats/project-ai-analytics', requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const userId = req.userId!;
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const sinceTs = monthStart.getTime();
+
+    const entries = metricsService.getAIUsageEntries(userId, 10000)
+      .filter((entry) => entry.timestamp >= sinceTs)
+      .filter((entry) => Boolean(entry.projectId));
+
+    const uniqueProjectIds = [...new Set(entries.map((entry) => entry.projectId).filter(Boolean) as string[])];
+    const projectComplexityById: Record<string, 'simple' | 'medium' | 'complex' | 'unknown'> = {};
+    await Promise.all(uniqueProjectIds.map(async (projectId) => {
+      try {
+        const read = await fileService.readFile(projectId, '.drape/build-report.json');
+        if (!read.success || !read.data?.content) return;
+        const parsed = JSON.parse(read.data.content);
+        const complexity = parsed?.summary?.projectComplexity;
+        projectComplexityById[projectId] =
+          complexity === 'simple' || complexity === 'medium' || complexity === 'complex'
+            ? complexity
+            : 'unknown';
+      } catch {}
+    }));
+
+    const analytics = buildProjectAIAnalytics(entries, { projectComplexityById });
+    const topProjects = analytics.projects.slice(0, 5);
+
+    const projectNamesById: Record<string, string> = {};
+    const fbDb = firebaseService.getFirestore();
+    if (fbDb && topProjects.length > 0) {
+      const topProjectIds = [...new Set(topProjects.map((project) => project.projectId))];
+      await Promise.all(topProjectIds.map(async (projectId) => {
+        try {
+          const doc = await fbDb.collection('user_projects').doc(projectId).get();
+          if (!doc.exists) return;
+          const data = doc.data();
+          if (data?.userId !== userId) return;
+          if (typeof data.name === 'string' && data.name.trim()) {
+            projectNamesById[projectId] = data.name.trim();
+          }
+        } catch (error: any) {
+          log.warn(`[Stats] Failed loading project name for AI analytics ${projectId}: ${error.message}`);
+        }
+      }));
+    }
+
+    res.json({
+      success: true,
+      period: {
+        start: new Date(sinceTs).toISOString(),
+        end: new Date().toISOString(),
+      },
+      overview: analytics.summary,
+      byModel: analytics.byModel.slice(0, 6),
+      byComplexity: analytics.byComplexity,
+      topProjects: topProjects.map((project) => ({
+        ...project,
+        projectName: projectNamesById[project.projectId] || null,
+      })),
+    });
+  } catch (error: any) {
+    log.error('[Stats] project-ai-analytics error:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve project AI analytics' });
+  }
+}));
+
 // POST /ai/budgets — Batch AI budget status (for admin dashboard)
 healthRouter.post('/ai/budgets', optionalAuth, asyncHandler(async (req, res) => {
   try {
@@ -282,13 +367,6 @@ healthRouter.post('/ai/budgets', optionalAuth, asyncHandler(async (req, res) => 
     }
     // Cap at 500 to prevent abuse
     const limitedUids = uids.slice(0, 500);
-
-    const planBudgets: Record<string, { name: string; monthlyBudgetEur: number }> = {
-      free:    { name: 'Free', monthlyBudgetEur: 1.00 },
-      go:      { name: 'Go', monthlyBudgetEur: 7.50 },
-      pro:     { name: 'Pro', monthlyBudgetEur: 50.00 },
-      team:    { name: 'Team', monthlyBudgetEur: 200.00 },
-    };
 
     const monthStart = new Date();
     monthStart.setDate(1);
@@ -300,7 +378,7 @@ healthRouter.post('/ai/budgets', optionalAuth, asyncHandler(async (req, res) => 
     await Promise.all(limitedUids.map(async (uid: string) => {
       try {
         const planId = await getUserPlan(uid);
-        const plan = planBudgets[planId] || planBudgets.free;
+        const plan = planAiBudgets[planId as keyof typeof planAiBudgets] || planAiBudgets.free;
         const aiSummary = metricsService.getAIUsageSummary(uid, sinceTs);
 
         const spentEur = aiSummary.totalCostEur;

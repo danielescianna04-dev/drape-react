@@ -26,14 +26,39 @@ export const useChatInputGlass = ({
   }, [tabId, activeTabId]);
 
   const lastGlassIdRef = useRef<string | null>(null);
+  const lastApplyKeyRef = useRef<string | null>(null);
   const removeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [glassApplied, setGlassApplied] = useState(false);
+  const glassAppliedRef = useRef(false);
+  const debugCountsRef = useRef<Record<string, number>>({});
+  const logGlassDebug = useCallback((name: string, payload?: Record<string, unknown>) => {
+    const nextCount = (debugCountsRef.current[name] || 0) + 1;
+    debugCountsRef.current[name] = nextCount;
+    if (nextCount <= 25) {
+      console.log('[ChatGlassDebug]', name, { count: nextCount, ...payload });
+    }
+  }, []);
+
+  useEffect(() => {
+    glassAppliedRef.current = glassApplied;
+  }, [glassApplied]);
 
   const applyInputGlass = useCallback(async (prevId?: string | null) => {
     if (Platform.OS !== 'ios' || !isActiveTab) return;
+    const applyKey = `${inputBarGlassId}:${prevId ?? 'none'}`;
+    if (lastApplyKeyRef.current === applyKey && glassAppliedRef.current) {
+      logGlassDebug('apply_skip_same_key', { applyKey, glassApplied: glassAppliedRef.current });
+      return;
+    }
+    logGlassDebug('apply_start', { applyKey, prevId: prevId ?? null, glassApplied: glassAppliedRef.current });
     const ok = await applyGlassEffect(inputBarGlassId, 28);
     if (ok) {
-      setGlassApplied(true);
+      lastApplyKeyRef.current = applyKey;
+      if (!glassAppliedRef.current) {
+        glassAppliedRef.current = true;
+        setGlassApplied(true);
+      }
+      logGlassDebug('apply_success', { applyKey });
       if (prevId && prevId !== inputBarGlassId) {
         if (removeTimerRef.current) {
           clearTimeout(removeTimerRef.current);
@@ -44,16 +69,28 @@ export const useChatInputGlass = ({
         }, 32);
       }
     }
-  }, [inputBarGlassId, isActiveTab]);
+  }, [inputBarGlassId, isActiveTab, logGlassDebug]);
 
   useEffect(() => {
+    logGlassDebug('effect_main', {
+      inputBarGlassId,
+      isActiveTab,
+      hasChatStarted,
+      inputGlassRevealDelay,
+      chatWelcomeVisible,
+      glassApplied: glassAppliedRef.current,
+    });
     if (Platform.OS !== 'ios' || !isActiveTab) return;
     if (chatWelcomeVisible) {
       if (removeTimerRef.current) {
         clearTimeout(removeTimerRef.current);
         removeTimerRef.current = null;
       }
-      setGlassApplied(false);
+      lastApplyKeyRef.current = null;
+      if (glassAppliedRef.current) {
+        glassAppliedRef.current = false;
+        setGlassApplied(false);
+      }
       removeGlassEffect(inputBarGlassId);
       return;
     }
@@ -65,19 +102,24 @@ export const useChatInputGlass = ({
       removeTimerRef.current = null;
     }
 
-    setGlassApplied(false);
+    lastApplyKeyRef.current = null;
+    if (glassAppliedRef.current) {
+      glassAppliedRef.current = false;
+      setGlassApplied(false);
+    }
     lastGlassIdRef.current = inputBarGlassId;
 
     const delays = hasChatStarted ? [0, 80, 200] : [inputGlassRevealDelay, inputGlassRevealDelay + 120];
     const timers = delays.map((ms) =>
       setTimeout(async () => {
         if (cancelled) return;
-        const ok = await applyGlassEffect(inputBarGlassId, 28);
-        if (ok && !cancelled) {
-          setGlassApplied(true);
-          if (prevId && prevId !== inputBarGlassId) {
-            removeGlassEffect(prevId);
-          }
+        await applyInputGlass(prevId);
+        if (!cancelled) {
+          logGlassDebug('effect_apply_success', {
+            inputBarGlassId,
+            prevId: prevId ?? null,
+            delay: ms,
+          });
         }
       }, ms),
     );
@@ -94,17 +136,28 @@ export const useChatInputGlass = ({
         removeGlassEffect(idToRemove);
       }, 180);
     };
-  }, [applyInputGlass, chatWelcomeVisible, hasChatStarted, inputBarGlassId, inputGlassRevealDelay, isActiveTab]);
+  }, [applyInputGlass, chatWelcomeVisible, hasChatStarted, inputBarGlassId, inputGlassRevealDelay, isActiveTab, logGlassDebug]);
 
   useEffect(() => {
+    logGlassDebug('effect_inactive_cleanup', {
+      isActiveTab,
+      glassApplied: glassAppliedRef.current,
+    });
     if (!isActiveTab && Platform.OS === 'ios') {
+      lastApplyKeyRef.current = null;
       removeAllGlassEffects();
-      setGlassApplied(false);
+      if (glassAppliedRef.current) {
+        glassAppliedRef.current = false;
+        setGlassApplied(false);
+      }
     }
     return () => {
-      if (Platform.OS === 'ios') removeAllGlassEffects();
+      if (Platform.OS === 'ios') {
+        lastApplyKeyRef.current = null;
+        removeAllGlassEffects();
+      }
     };
-  }, [isActiveTab]);
+  }, [isActiveTab, logGlassDebug]);
 
   return {
     inputBarGlassId,

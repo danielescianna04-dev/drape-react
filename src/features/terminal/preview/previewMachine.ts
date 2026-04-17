@@ -37,8 +37,8 @@ export function previewReducer(state: PreviewState, event: PreviewEvent): Previe
   // ── Global events (valid from any phase) ──────────────────
 
   switch (event.type) {
-    case 'SYNC_EXTERNAL_STATE':
-      return {
+    case 'SYNC_EXTERNAL_STATE': {
+      const nextState: PreviewState = {
         ...state,
         phase: event.phase,
         previewUrl: 'previewUrl' in event ? event.previewUrl ?? null : state.previewUrl,
@@ -56,6 +56,29 @@ export function previewReducer(state: PreviewState, event: PreviewEvent): Previe
         startupLogs: 'startupLogs' in event ? event.startupLogs ?? [] : state.startupLogs,
         autoFix: event.autoFix ? { ...state.autoFix, ...event.autoFix } : state.autoFix,
       };
+
+      const unchanged =
+        nextState.phase === state.phase &&
+        nextState.previewUrl === state.previewUrl &&
+        nextState.envVarsRequired === state.envVarsRequired &&
+        nextState.error === state.error &&
+        nextState.sessionExpiredMessage === state.sessionExpiredMessage &&
+        nextState.webViewReady === state.webViewReady &&
+        nextState.canGoBack === state.canGoBack &&
+        nextState.canGoForward === state.canGoForward &&
+        nextState.viewportMode === state.viewportMode &&
+        nextState.displayedMessage === state.displayedMessage &&
+        nextState.progress === state.progress &&
+        nextState.hasWebUi === state.hasWebUi &&
+        nextState.terminalOutput === state.terminalOutput &&
+        nextState.startupLogs === state.startupLogs &&
+        nextState.autoFix.active === state.autoFix.active &&
+        nextState.autoFix.attempt === state.autoFix.attempt &&
+        nextState.autoFix.maxAttempts === state.autoFix.maxAttempts &&
+        nextState.autoFix.statusMessage === state.autoFix.statusMessage;
+
+      return unchanged ? state : nextState;
+    }
 
     case 'RESET':
       return { ...INITIAL_PREVIEW_STATE };

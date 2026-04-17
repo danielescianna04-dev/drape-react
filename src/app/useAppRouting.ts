@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useAuthStore, clearPendingNewUser, peekPendingNewUser } from '../core/auth/authStore';
 import { useConsentStore } from '../core/services/consentService';
 import { useNavigationStore, type Screen } from '../core/navigation/navigationStore';
-import { useTerminalStore } from '../core/terminal/terminalStore';
+import { useWorkstationStore } from '../core/terminal/workstationStore';
 import { resolveAuthenticatedAppFlow } from './authFlowState';
 
 interface UseAppRoutingParams {
@@ -32,7 +32,7 @@ export function useAppRouting({
   const consent = useConsentStore((state) => state.consent);
   const consentLoaded = useConsentStore((state) => state.hasLoaded);
   const pendingNavigation = useNavigationStore((state) => state.pendingNavigation);
-  const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
+  const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
 
   // Navigate after login: new users -> onboarding flow, free users -> plans, paid -> home
   useEffect(() => {

@@ -49,6 +49,20 @@ export interface AgentLoopCompleteEvent {
   result?: unknown;
 }
 
+export interface AgentLoopBudgetExceededEvent {
+  type: 'budget_exceeded';
+  message?: string;
+  percentUsed?: number;
+  plan?: string;
+}
+
+export interface AgentLoopBudgetWarningEvent {
+  type: 'budget_warning';
+  percentUsed?: number;
+  plan?: string;
+  budgetEur?: number;
+}
+
 export interface AgentLoopErrorEvent {
   type: 'error';
   error?: string;
@@ -73,6 +87,8 @@ export type AgentLoopStreamEvent =
   | AgentLoopToolErrorEvent
   | AgentLoopUsageEvent
   | AgentLoopCompleteEvent
+  | AgentLoopBudgetExceededEvent
+  | AgentLoopBudgetWarningEvent
   | AgentLoopErrorEvent
   | AgentLoopIterationStartEvent
   | AgentLoopThinkingEvent;
@@ -92,9 +108,11 @@ interface StreamAgentLoopToSseParams {
   writeSseEvent: (eventType: string, payload: { type: string; [key: string]: unknown }) => void;
   onUsage?: (event: AgentLoopUsageEvent) => void;
   onToolStart?: (event: AgentLoopToolStartEvent) => void;
+  onToolInput?: (event: AgentLoopToolInputEvent) => void;
   onComplete?: (event: AgentLoopCompleteEvent) => void;
   onIterationStart?: (event: AgentLoopIterationStartEvent) => void;
   onError?: (event: AgentLoopErrorEvent) => void;
+  suppressErrorEvent?: boolean;
 }
 
 export const streamAgentLoopToSse = async ({
@@ -103,9 +121,11 @@ export const streamAgentLoopToSse = async ({
   writeSseEvent,
   onUsage,
   onToolStart,
+  onToolInput,
   onComplete,
   onIterationStart,
   onError,
+  suppressErrorEvent = false,
 }: StreamAgentLoopToSseParams) => {
   for await (const event of stream) {
     if (!isClientConnected()) break;
@@ -119,6 +139,7 @@ export const streamAgentLoopToSse = async ({
         writeSseEvent('tool_start', { type: 'tool_start', tool: event.tool, id: event.id });
         break;
       case 'tool_input':
+        onToolInput?.(event as unknown as AgentLoopToolInputEvent);
         writeSseEvent('tool_input', { type: 'tool_input', tool: event.tool, id: event.id, input: event.input });
         break;
       case 'tool_complete':
@@ -130,12 +151,30 @@ export const streamAgentLoopToSse = async ({
       case 'usage':
         onUsage?.(event as AgentLoopUsageEvent);
         break;
+      case 'budget_exceeded':
+        writeSseEvent('budget_exceeded', {
+          type: 'budget_exceeded',
+          message: event.message,
+          percentUsed: event.percentUsed,
+          plan: event.plan,
+        });
+        break;
+      case 'budget_warning':
+        writeSseEvent('budget_warning', {
+          type: 'budget_warning',
+          percentUsed: event.percentUsed,
+          plan: event.plan,
+          budgetEur: event.budgetEur,
+        });
+        break;
       case 'complete':
         onComplete?.(event as AgentLoopCompleteEvent);
         break;
       case 'error':
         onError?.(event as AgentLoopErrorEvent);
-        writeSseEvent('error', { type: 'error', error: event.error || event.message });
+        if (!suppressErrorEvent) {
+          writeSseEvent('error', { type: 'error', error: event.error || event.message });
+        }
         break;
       case 'iteration_start':
         onIterationStart?.(event as unknown as AgentLoopIterationStartEvent);

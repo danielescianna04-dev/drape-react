@@ -6,6 +6,11 @@ import type { ChatEngineMessage } from '../../hooks/engine/useChatEngine';
 /** Loosely-typed bag for tool input/result payloads from the agent stream */
 type ToolPayload = Record<string, unknown>;
 
+const PROJECT_ROOT_PREFIXES = [
+  '/home/coder/project/',
+  '/Users/daniele/drape-react/',
+];
+
 /** Safely parse a tool input that may be a string or object */
 const parseToolPayload = (raw: unknown): ToolPayload => {
   if (raw == null) return {};
@@ -16,10 +21,25 @@ const parseToolPayload = (raw: unknown): ToolPayload => {
   return {};
 };
 
-/** Extract a file name from various tool payload conventions */
+const normalizeDisplayPath = (rawPath: string): string => {
+  if (!rawPath) return '';
+  let normalized = rawPath.replace(/\\/g, '/');
+  for (const prefix of PROJECT_ROOT_PREFIXES) {
+    if (normalized.startsWith(prefix)) {
+      normalized = normalized.slice(prefix.length);
+      break;
+    }
+  }
+  normalized = normalized.replace(/^\/+/, '');
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length <= 3) return normalized || rawPath;
+  return parts.slice(-3).join('/');
+};
+
+/** Extract a display path from various tool payload conventions */
 const getFileName = (payload: ToolPayload): string => {
   const path = String(payload?.path ?? payload?.filePath ?? payload?.file_path ?? '');
-  return path ? path.split('/').pop() || path : '';
+  return path ? normalizeDisplayPath(path) : '';
 };
 
 /**
@@ -422,6 +442,15 @@ export const formatEngineMessage = (
         isAgentMessage: true,
         isCompletion: true,
       };
+    case 'status':
+      return {
+        content: `__AGENT_STATUS__${JSON.stringify({
+          phase: (message as ChatEngineMessage & { phase?: string }).phase || '',
+          message: message.content || '',
+        })}`,
+        type: TerminalItemType.OUTPUT,
+        timestamp: message.timestamp,
+      };
     default:
       return { content: message.content || '', type: TerminalItemType.OUTPUT, timestamp: message.timestamp };
   }
@@ -479,11 +508,14 @@ export const estimateContextUsage = (
   const contextWindows: Record<string, number> = {
     'claude-sonnet-4': 200000,
     'claude-4-6-sonnet': 200000,
-    'claude-4-6-opus': 200000,
+    'claude-4-7-opus': 1000000,
+    'claude-opus-4-7': 1000000,
+    'claude-4-6-opus': 1000000,
     'claude-haiku-3.5': 200000,
     'gemini-3-flash': 1000000,
     'gemini-3.1-pro': 1000000,
     'gpt-5-4': 128000,
+    'glm-5.1': 202752,
     'llama-3.3-70b': 128000,
   };
 

@@ -298,6 +298,7 @@ export const SettingsResourceUsageView = ({
   t,
   budgetStatus,
   systemStatus,
+  projectAiAnalytics,
   currentPlan,
   setShowResourceUsage,
   fetchSystemStatus,
@@ -314,10 +315,35 @@ export const SettingsResourceUsageView = ({
   const tokensUsed = systemStatus?.tokens.used || 0;
   const tokensLimit = systemStatus?.tokens.limit || 50000;
   const tokensPercent = systemStatus?.tokens.percent || 0;
+  const projectsUsed = systemStatus?.projects.used ?? systemStatus?.projects.active ?? 0;
+  const projectsLimit = systemStatus?.projects.limit || 0;
+  const projectsPercent = systemStatus?.projects.percent || 0;
+  const previewProjects = systemStatus?.previews.byProject || [];
+  const previewsLive = systemStatus?.previews.activeSessions ?? previewProjects.filter((project) => project.isActive).length;
+  const previewsMostUsed = systemStatus?.previews.maxUsedOnProject ?? previewProjects.reduce((max, project) => Math.max(max, project.used || 0), 0);
+  const previewsLimitRaw = systemStatus?.previews.limitPerProject ?? systemStatus?.previews.limit;
+  const previewsUnlimited = typeof previewsLimitRaw === 'number' && previewsLimitRaw < 0;
+  const previewsLimit = previewsUnlimited ? 0 : previewsLimitRaw || 0;
+  const previewsPercent = previewsUnlimited || previewsLimit <= 0 ? 0 : Math.min((previewsMostUsed / previewsLimit) * 100, 100);
+  const aiOverview = projectAiAnalytics?.overview;
+  const aiTopProjects = projectAiAnalytics?.topProjects || [];
+  const aiModels = projectAiAnalytics?.byModel || [];
   const formatTokens = (n: number) => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
     return `${n}`;
+  };
+  const formatEur = (n: number) => `€${n.toFixed(n >= 10 ? 0 : 2)}`;
+  const compactProjectId = (projectId: string) => {
+    if (projectId.length <= 18) return projectId;
+    return `${projectId.slice(0, 10)}...${projectId.slice(-4)}`;
+  };
+  const formatDate = (iso: string) => {
+    try {
+      return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(iso));
+    } catch {
+      return iso;
+    }
   };
 
   return (
@@ -359,16 +385,6 @@ export const SettingsResourceUsageView = ({
               </Text>
             </View>
           </View>
-          <View style={styles.monitorGrid}>
-            <View style={styles.monitorStat}>
-              <Text style={styles.monitorLabel}>{t('subscription.spent')}</Text>
-              <Text style={styles.monitorValue}>€{budgetStatus?.usage.spentEur?.toFixed(2) || '0.00'}</Text>
-            </View>
-            <View style={styles.monitorStat}>
-              <Text style={styles.monitorLabel}>{t('subscription.remaining')}</Text>
-              <Text style={styles.monitorValue}>€{budgetStatus?.usage.remainingEur?.toFixed(2) || '0.00'}</Text>
-            </View>
-          </View>
         </BlurView>
 
         <View style={styles.usageCards}>
@@ -379,7 +395,128 @@ export const SettingsResourceUsageView = ({
               <View style={[styles.usageMiniFill, { width: `${Math.min(tokensPercent, 100)}%`, backgroundColor: '#8B5CF6' }]} />
             </View>
           </BlurView>
+          <View style={styles.usageGridRow}>
+            <BlurView intensity={25} tint="dark" style={styles.usageCardRefinedHalf}>
+              <View style={styles.usageTextRow}>
+                <Text style={styles.usageNameMini}>{t('resources.projects')}</Text>
+                <Text style={styles.usagePercent}>{Math.min(projectsPercent, 100)}%</Text>
+              </View>
+              <View style={styles.miniBarBg}>
+                <View style={[styles.miniBarFill, { width: `${Math.min(projectsPercent, 100)}%`, backgroundColor: '#60A5FA' }]} />
+              </View>
+              <Text style={styles.usageSubtext}>
+                {projectsUsed} / {projectsLimit} {t('resources.used')}
+              </Text>
+            </BlurView>
+
+            <BlurView intensity={25} tint="dark" style={styles.usageCardRefinedHalf}>
+              <View style={styles.usageTextRow}>
+                <Text style={styles.usageNameMini}>{t('resources.previews')}</Text>
+                <Text style={styles.usagePercent}>{previewsUnlimited ? t('resources.unlimited') : `${Math.round(previewsPercent)}%`}</Text>
+              </View>
+              <View style={styles.miniBarBg}>
+                <View style={[styles.miniBarFill, { width: `${previewsUnlimited ? 100 : previewsPercent}%`, backgroundColor: '#A78BFA' }]} />
+              </View>
+              <Text style={styles.usageSubtext}>
+                {previewsUnlimited
+                  ? `${previewsLive} ${t('resources.live')}`
+                  : `${previewsLive} ${t('resources.live')} · ${previewsMostUsed} / ${previewsLimit} ${t('resources.perProject')}`}
+              </Text>
+            </BlurView>
+          </View>
         </View>
+
+        <BlurView intensity={25} tint="dark" style={styles.usageCard}>
+          <View style={styles.analyticsHeaderRow}>
+            <View>
+              <Text style={styles.usageCardTitle}>{t('resources.aiProjects')}</Text>
+              <Text style={styles.analyticsSubtext}>{t('resources.aiProjectsDesc')}</Text>
+            </View>
+            <View style={styles.analyticsPill}>
+              <Text style={styles.analyticsPillText}>{aiOverview?.projectCount ?? 0}</Text>
+            </View>
+          </View>
+
+          <View style={styles.analyticsSummaryGrid}>
+            <View style={styles.analyticsSummaryItem}>
+              <Text style={styles.analyticsSummaryLabel}>{t('resources.aiTotal')}</Text>
+              <Text style={styles.analyticsSummaryValue}>{formatEur(aiOverview?.totalCostEur ?? 0)}</Text>
+            </View>
+            <View style={styles.analyticsSummaryItem}>
+              <Text style={styles.analyticsSummaryLabel}>{t('resources.aiAverage')}</Text>
+              <Text style={styles.analyticsSummaryValue}>{formatEur(aiOverview?.averageCostPerProjectEur ?? 0)}</Text>
+            </View>
+            <View style={styles.analyticsSummaryItem}>
+              <Text style={styles.analyticsSummaryLabel}>{t('resources.aiEscalations')}</Text>
+              <Text style={styles.analyticsSummaryValue}>{aiOverview?.premiumEscalationProjects ?? 0}</Text>
+            </View>
+          </View>
+
+          <View style={styles.analyticsBreakdownRow}>
+            <Text style={styles.analyticsBreakdownText}>{t('resources.aiGeneration')} {formatEur(aiOverview?.generationCostEur ?? 0)}</Text>
+            <Text style={styles.analyticsBreakdownText}>{t('resources.aiVerify')} {formatEur(aiOverview?.verifyCostEur ?? 0)}</Text>
+            <Text style={styles.analyticsBreakdownText}>{t('resources.aiPremium')} {formatEur(aiOverview?.verifyEscalationCostEur ?? 0)}</Text>
+          </View>
+        </BlurView>
+
+        {aiTopProjects.length > 0 && (
+          <BlurView intensity={25} tint="dark" style={styles.usageCard}>
+            <View style={styles.analyticsHeaderRow}>
+              <Text style={styles.usageCardTitle}>{t('resources.topProjects')}</Text>
+              <Text style={styles.analyticsSubtext}>{t('resources.thisMonth')}</Text>
+            </View>
+
+            <View style={styles.analyticsProjectList}>
+              {aiTopProjects.map((project: any, index: number) => (
+                <View
+                  key={`${project.projectId}-${index}`}
+                  style={[
+                    styles.analyticsProjectRow,
+                    index === aiTopProjects.length - 1 && { marginBottom: 0, borderBottomWidth: 0, paddingBottom: 0 },
+                  ]}
+                >
+                  <View style={styles.analyticsProjectMain}>
+                    <Text style={styles.analyticsProjectName}>
+                      {project.projectName || compactProjectId(project.projectId)}
+                    </Text>
+                    <Text style={styles.analyticsProjectMeta}>
+                      {formatTokens(project.totalTokens)} tok · {t('resources.lastActive')} {formatDate(project.lastActivityAt)}
+                    </Text>
+                  </View>
+                  <View style={styles.analyticsProjectSide}>
+                    <Text style={styles.analyticsProjectCost}>{formatEur(project.totalCostEur)}</Text>
+                    <Text style={styles.analyticsProjectMeta}>
+                      {t('resources.aiPremiumShort')} {formatEur(project.verifyEscalationCostEur || 0)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </BlurView>
+        )}
+
+        {aiModels.length > 0 && (
+          <BlurView intensity={25} tint="dark" style={styles.usageCard}>
+            <View style={styles.analyticsHeaderRow}>
+              <Text style={styles.usageCardTitle}>{t('resources.modelSpend')}</Text>
+              <Text style={styles.analyticsSubtext}>{t('resources.thisMonth')}</Text>
+            </View>
+            <View style={styles.analyticsModelList}>
+              {aiModels.slice(0, 3).map((model: any, index: number) => (
+                <View
+                  key={`${model.model}-${index}`}
+                  style={[
+                    styles.analyticsModelRow,
+                    index === Math.min(aiModels.length, 3) - 1 && { marginBottom: 0 },
+                  ]}
+                >
+                  <Text style={styles.analyticsModelName}>{model.model}</Text>
+                  <Text style={styles.analyticsModelCost}>{formatEur(model.costEur)}</Text>
+                </View>
+              ))}
+            </View>
+          </BlurView>
+        )}
 
         {currentPlan === 'free' && (
           <TouchableOpacity style={styles.upgradeCtaCard} onPress={onOpenPlans}>

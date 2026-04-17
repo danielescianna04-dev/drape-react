@@ -18,14 +18,34 @@ function optionalInt(key: string, fallback: number): number {
   return v ? parseInt(v, 10) : fallback;
 }
 
+function optionalFloat(key: string, fallback: number): number {
+  const v = process.env[key];
+  return v ? parseFloat(v) : fallback;
+}
+
 function optionalBool(key: string, fallback: boolean): boolean {
   const v = process.env[key];
   if (v === undefined) return fallback;
   return ['1', 'true', 'yes', 'on'].includes(v.toLowerCase());
 }
 
+function optionalEnum<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  const value = process.env[key];
+  if (!value) return fallback;
+  return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
 const nodeEnv = optional('NODE_ENV', 'development');
 const isProduction = nodeEnv === 'production';
+const AI_THINKING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'max'] as const;
+const PROMPT_CACHE_TTLS = ['5m', '1h'] as const;
+
+export const planAiBudgets = {
+  free: { name: 'Free', monthlyBudgetEur: optionalFloat('AI_BUDGET_FREE_EUR', 1.0) },
+  go: { name: 'Go', monthlyBudgetEur: optionalFloat('AI_BUDGET_GO_EUR', 7.5) },
+  pro: { name: 'Pro', monthlyBudgetEur: optionalFloat('AI_BUDGET_PRO_EUR', 1000.0) },
+  team: { name: 'Team', monthlyBudgetEur: optionalFloat('AI_BUDGET_TEAM_EUR', 5000.0) },
+} as const;
 
 export const config = {
   port: optionalInt('PORT', 3001),
@@ -53,6 +73,29 @@ export const config = {
   groqApiKey: optional('GROQ_API_KEY', ''),
   openaiApiKey: optional('OPENAI_API_KEY', ''),
   openrouterApiKey: optional('OPENROUTER_API_KEY', ''),
+  projectGenerationModel: optional('PROJECT_GENERATION_MODEL', 'claude-4-7-opus'),
+  projectGenerationThinkingLevel: optionalEnum('PROJECT_GENERATION_THINKING_LEVEL', AI_THINKING_LEVELS, 'medium'),
+  projectOpusPromptCachingEnabled: optionalBool('PROJECT_OPUS_PROMPT_CACHING_ENABLED', true),
+  projectOpusPromptCacheTtl: optionalEnum('PROJECT_OPUS_PROMPT_CACHE_TTL', PROMPT_CACHE_TTLS, '5m'),
+  projectGenerationTaskBudgetEnabled: optionalBool('PROJECT_GENERATION_TASK_BUDGET_ENABLED', true),
+  projectGenerationTaskBudgetSimpleTokens: optionalInt('PROJECT_GENERATION_TASK_BUDGET_SIMPLE_TOKENS', 24000),
+  projectGenerationTaskBudgetMediumTokens: optionalInt('PROJECT_GENERATION_TASK_BUDGET_MEDIUM_TOKENS', 32000),
+  projectGenerationTaskBudgetComplexTokens: optionalInt('PROJECT_GENERATION_TASK_BUDGET_COMPLEX_TOKENS', 40000),
+  projectVerifyFixModel: optional('PROJECT_VERIFY_FIX_MODEL', 'gemini-3-flash'),
+  projectVerifyFixThinkingLevel: optionalEnum('PROJECT_VERIFY_FIX_THINKING_LEVEL', AI_THINKING_LEVELS, 'low'),
+  projectVerifyEscalationModel: optional('PROJECT_VERIFY_ESCALATION_MODEL', 'claude-4-7-opus'),
+  projectVerifyEscalationThinkingLevel: optionalEnum('PROJECT_VERIFY_ESCALATION_THINKING_LEVEL', AI_THINKING_LEVELS, 'medium'),
+  projectVerifyEscalationTaskBudgetEnabled: optionalBool('PROJECT_VERIFY_ESCALATION_TASK_BUDGET_ENABLED', true),
+  projectVerifyEscalationTaskBudgetTokens: optionalInt('PROJECT_VERIFY_ESCALATION_TASK_BUDGET_TOKENS', 16000),
+  projectVerifyEscalationMaxCostEur: optionalFloat('PROJECT_VERIFY_ESCALATION_MAX_COST_EUR', 0.35),
+  projectAiMaxCostEur: optionalFloat('PROJECT_AI_MAX_COST_EUR', 2.5),
+  projectVerifyEscalationMaxImpactedFiles: optionalInt('PROJECT_VERIFY_ESCALATION_MAX_IMPACTED_FILES', 4),
+  projectVerifyFixMaxContextFiles: optionalInt('PROJECT_VERIFY_FIX_MAX_CONTEXT_FILES', 8),
+  projectVerifyEscalationMaxContextFiles: optionalInt('PROJECT_VERIFY_ESCALATION_MAX_CONTEXT_FILES', 4),
+  projectVerifyFixMaxContextCharsPerFile: optionalInt('PROJECT_VERIFY_FIX_MAX_CONTEXT_CHARS_PER_FILE', 6000),
+  projectBatchFailureReviewEnabled: optionalBool('PROJECT_BATCH_FAILURE_REVIEW_ENABLED', true),
+  projectBatchFailureReviewModel: optional('PROJECT_BATCH_FAILURE_REVIEW_MODEL', 'claude-4-6-sonnet'),
+  projectBatchFailureReviewMaxTokens: optionalInt('PROJECT_BATCH_FAILURE_REVIEW_MAX_TOKENS', 1400),
 
   // GitHub
   githubClientId: optional('GITHUB_CLIENT_ID', ''),
@@ -100,6 +143,10 @@ export const config = {
   neonApiKey: optional('NEON_API_KEY', ''),
   neonOrgId: optional('NEON_ORG_ID', ''),
   neonRegion: optional('NEON_REGION', 'aws-eu-central-1'),
+  aiBudgetFreeEur: planAiBudgets.free.monthlyBudgetEur,
+  aiBudgetGoEur: planAiBudgets.go.monthlyBudgetEur,
+  aiBudgetProEur: planAiBudgets.pro.monthlyBudgetEur,
+  aiBudgetTeamEur: planAiBudgets.team.monthlyBudgetEur,
 } as const;
 
 export type Config = typeof config;

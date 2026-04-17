@@ -152,10 +152,30 @@ export const useUIStore = create<UIState>((set, get) => ({
     previewHandlers: { refresh: null, publish: null, setViewportMode: null, setUrl: null, goBack: null, goForward: null },
     databaseBackHandler: null,
     previewPublishInfo: null,
-    setPreviewCurrentUrl: (url: string) => set({ previewCurrentUrl: url }),
-    setPreviewViewportMode: (mode: 'mobile' | 'desktop') => set({ previewViewportMode: mode }),
-    setPreviewHandlers: (handlers) => set((state) => ({ previewHandlers: { ...state.previewHandlers, ...handlers } })),
-    setPreviewPublishInfo: (info) => set({ previewPublishInfo: info }),
+    setPreviewCurrentUrl: (url: string) => set((state) => (
+      state.previewCurrentUrl === url ? state : { previewCurrentUrl: url }
+    )),
+    setPreviewViewportMode: (mode: 'mobile' | 'desktop') => set((state) => (
+      state.previewViewportMode === mode ? state : { previewViewportMode: mode }
+    )),
+    setPreviewHandlers: (handlers) => set((state) => {
+      const nextHandlers = { ...state.previewHandlers, ...handlers };
+      const unchanged =
+        state.previewHandlers.refresh === nextHandlers.refresh &&
+        state.previewHandlers.publish === nextHandlers.publish &&
+        state.previewHandlers.setViewportMode === nextHandlers.setViewportMode &&
+        state.previewHandlers.setUrl === nextHandlers.setUrl &&
+        state.previewHandlers.goBack === nextHandlers.goBack &&
+        state.previewHandlers.goForward === nextHandlers.goForward;
+      return unchanged ? state : { previewHandlers: nextHandlers };
+    }),
+    setPreviewPublishInfo: (info) => set((state) => {
+      const current = state.previewPublishInfo;
+      const unchanged =
+        current?.slug === info?.slug &&
+        current?.url === info?.url;
+      return unchanged ? state : { previewPublishInfo: info };
+    }),
 
     // Pending chat message
     pendingChatMessage: null,
@@ -213,7 +233,9 @@ export const useUIStore = create<UIState>((set, get) => ({
     setAutoApprove: (value) => set({ autoApprove: value }),
     setIsRecording: (value) => set({ isRecording: value }),
     setPreviewUrl: (url) => set({ previewUrl: url }),
-    setPreviewServerStatus: (status) => set({ previewServerStatus: status }),
+    setPreviewServerStatus: (status) => set((state) => (
+      state.previewServerStatus === status ? state : { previewServerStatus: status }
+    )),
     setPreviewServerUrl: (url, projectId) => set((state) => {
       if (url && projectId) {
         return {
@@ -286,7 +308,9 @@ export const useUIStore = create<UIState>((set, get) => ({
       return { previewStartupStates: newStates };
     }),
     setIsToolsExpanded: (value) => set({ isToolsExpanded: value }),
-    setIsSidebarOpen: (value) => set({ isSidebarOpen: value }),
+    setIsSidebarOpen: (value) => set((state) => (
+      state.isSidebarOpen === value ? state : { isSidebarOpen: value }
+    )),
     setAutocompleteOptions: (options) => set({ autocompleteOptions: options }),
     setShowAutocomplete: (show) => set({ showAutocomplete: show }),
     setPendingChatMessage: (message) => set({ pendingChatMessage: message }),

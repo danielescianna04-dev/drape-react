@@ -70,8 +70,19 @@ export function usePreviewNavigation({
 
   // ── Sync to uiStore ──────────────────────────────────────────
 
-  useEffect(() => { setPreviewCurrentUrl(session.currentPreviewUrl); }, [session.currentPreviewUrl]);
-  useEffect(() => { setPreviewViewportMode(viewportMode); }, [viewportMode]);
+  useEffect(() => {
+    const currentGlobalUrl = useUIStore.getState().previewCurrentUrl;
+    if (currentGlobalUrl !== session.currentPreviewUrl) {
+      setPreviewCurrentUrl(session.currentPreviewUrl);
+    }
+  }, [session.currentPreviewUrl, setPreviewCurrentUrl]);
+
+  useEffect(() => {
+    const currentGlobalViewport = useUIStore.getState().previewViewportMode;
+    if (currentGlobalViewport !== viewportMode) {
+      setPreviewViewportMode(viewportMode);
+    }
+  }, [viewportMode, setPreviewViewportMode]);
 
   // ── Ref-stable handlers for toolbar ──────────────────────────
 

@@ -44,14 +44,15 @@ export const useChatModelSelector = (
     };
   }, [showModelSelector]);
 
+  useEffect(() => {
+    if (AI_MODELS.some((item) => item.id === selectedModel)) return;
+    setSelectedModel(AI_MODELS[1].id);
+  }, [selectedModel, setSelectedModel]);
+
   const currentModelName = useMemo(() => {
     const model = AI_MODELS.find((item) => item.id === selectedModel);
-    if (!model) {
-      setSelectedModel(AI_MODELS[1].id);
-      return AI_MODELS[1].name;
-    }
-    return model.name;
-  }, [selectedModel, setSelectedModel]);
+    return model?.name || AI_MODELS[1].name;
+  }, [selectedModel]);
 
   return {
     showModelSelector,

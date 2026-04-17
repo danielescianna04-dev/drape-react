@@ -7,7 +7,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { config } from '../../config/config';
 import { getAuthToken } from '../../core/api/getAuthToken';
-import { useTerminalStore } from '../../core/terminal/terminalStore';
+import { useUIStore } from '../../core/terminal/uiStore';
 import { TerminalItemType } from '../../shared/types';
 
 export interface BackendLog {
@@ -28,7 +28,7 @@ interface UseBackendLogsOptions {
 export function useBackendLogs(options: UseBackendLogsOptions = {}) {
     const { enabled = true } = options;
 
-    const addGlobalTerminalLog = useTerminalStore((state) => state.addGlobalTerminalLog);
+    const addGlobalTerminalLog = useUIStore((state) => state.addGlobalTerminalLog);
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const lastLogIdRef = useRef<number>(0);

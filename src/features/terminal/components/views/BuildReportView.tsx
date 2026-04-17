@@ -62,9 +62,20 @@ interface BuildReport {
     issuesFixed: number;
     aiModel: string;
     aiTokensUsed: number;
+    aiGenerationCostEur?: number;
+    aiGenerationTokensUsed?: number;
+    aiVerifyCostEur?: number;
+    aiVerifyTokensUsed?: number;
+    aiVerifyEscalationCostEur?: number;
+    aiVerifyEscalationTokensUsed?: number;
+    aiTotalCostEur?: number;
     envVars?: string[];
     generatedFiles?: string[];
     sqlExecuted?: string;
+    creationPrompt?: string;
+    creationAnswers?: Record<string, string | string[]>;
+    projectComplexity?: 'simple' | 'medium' | 'complex';
+    projectComplexityScore?: number;
   };
 }
 
@@ -82,6 +93,158 @@ const formatDate = (iso: string) => {
 const formatTime = (iso: string) => {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+const formatCostEur = (value: number) => `€${value.toFixed(value >= 1 ? 2 : 4)}`;
+
+const prettifyAnswerKey = (key: string) =>
+  key
+    .replace(/^q\d+$/i, (match) => `Domanda ${match.slice(1)}`)
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const formatAnswerValue = (value: string | string[]) => {
+  if (Array.isArray(value)) {
+    const clean = value.filter(Boolean);
+    return clean.length > 0 ? clean.join(', ') : 'Nessuna risposta';
+  }
+  return value?.trim() ? value : 'Nessuna risposta';
+};
+
+const RUNTIME_STEPS = ['runtime', 'dev-server', 'compile', 'install', 'warming', 'verify', 'database'] as const;
+const CREATION_ONLY_ERROR_STEPS = ['verify', 'runtime', 'compile', 'install', 'warming', 'dev-server'] as const;
+const VERIFY_FAILED_ATTEMPT_RE = /^Verification attempt (\d+) failed$/i;
+const VERIFY_FIXED_ATTEMPT_RE = /^(Auto-fix applied|Cache cleared \+ restart) \(attempt (\d+)\)$/i;
+const RECOVERABLE_RUNTIME_STEPS = ['runtime', 'compile', 'dev-server', 'warming'] as const;
+const CACHE_CORRUPTION_TITLES = [
+  'Next.js routes-manifest.json missing',
+  'Next.js middleware-manifest.json missing',
+  'Stale webpack chunk',
+] as const;
+
+type DerivedBuildAction = BuildAction & {
+  displayStatus: BuildAction['status'];
+};
+
+const getVerifyAttemptNumber = (action: BuildAction): number | null => {
+  const failedMatch = action.title.match(VERIFY_FAILED_ATTEMPT_RE);
+  if (failedMatch) return Number(failedMatch[1]);
+  const fixedMatch = action.title.match(VERIFY_FIXED_ATTEMPT_RE);
+  if (fixedMatch) return Number(fixedMatch[2]);
+  return null;
+};
+
+const normalizeActionErrorKey = (action: BuildAction): string => {
+  const raw = `${action.step}|${action.title}|${action.error || ''}|${action.fix || ''}`;
+  return raw
+    .replace(/\d+/g, '#')
+    .replace(/\/home\/coder\/project\/[^\s'"]+/g, '<project-file>')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .substring(0, 240);
+};
+
+const deriveActionStatuses = (
+  actions: BuildAction[],
+  verificationReport: any
+): DerivedBuildAction[] => {
+  const verificationPassed = verificationReport?.status === 'passed';
+  const resolvedVerifyAttempts = new Set<number>();
+  const fixedActionTimesByKey = new Map<string, number>();
+  let latestVerifyRecoveryTime = 0;
+  let latestRuntimeRecoveryTime = 0;
+
+  for (const action of actions) {
+    if (action.status !== 'fixed') continue;
+    const completedAt = action.completedAt
+      ? new Date(action.completedAt).getTime()
+      : (action.startedAt ? new Date(action.startedAt).getTime() : 0);
+    fixedActionTimesByKey.set(
+      normalizeActionErrorKey(action),
+      Math.max(fixedActionTimesByKey.get(normalizeActionErrorKey(action)) || 0, completedAt),
+    );
+
+    if (action.step === 'verify') {
+      const attempt = getVerifyAttemptNumber(action);
+      if (attempt != null) resolvedVerifyAttempts.add(attempt);
+      latestVerifyRecoveryTime = Math.max(latestVerifyRecoveryTime, completedAt);
+    }
+  }
+
+  for (const action of actions) {
+    if (action.step !== 'dev-server') continue;
+    if (action.status !== 'fixed') continue;
+    if (!/Runtime recovery applied|Next\.js cache corruption/i.test(action.title)) continue;
+    const completedAt = action.completedAt ? new Date(action.completedAt).getTime() : 0;
+    latestRuntimeRecoveryTime = Math.max(latestRuntimeRecoveryTime, completedAt);
+  }
+
+  return actions.map((action) => {
+    let displayStatus = action.status;
+
+    if (action.step === 'verify' && action.status === 'failed') {
+      const attempt = getVerifyAttemptNumber(action);
+      const isAttemptFailure = attempt != null && VERIFY_FAILED_ATTEMPT_RE.test(action.title);
+      const isExhausted = /Verification exhausted all attempts/i.test(action.title);
+
+      if ((isAttemptFailure && resolvedVerifyAttempts.has(attempt!)) || (isExhausted && verificationPassed)) {
+        displayStatus = 'fixed';
+      }
+    }
+
+    if (
+      action.status === 'failed' &&
+      RECOVERABLE_RUNTIME_STEPS.includes(action.step as any)
+    ) {
+      const actionTime = action.completedAt
+        ? new Date(action.completedAt).getTime()
+        : new Date(action.startedAt).getTime();
+      if (
+        latestVerifyRecoveryTime > 0 &&
+        actionTime <= latestVerifyRecoveryTime &&
+        (verificationPassed || action.step !== 'verify')
+      ) {
+        displayStatus = 'fixed';
+      }
+    }
+
+    if (
+      action.status === 'failed' &&
+      ['compile', 'runtime', 'dev-server', 'warming'].includes(action.step)
+    ) {
+      const actionTime = action.completedAt
+        ? new Date(action.completedAt).getTime()
+        : new Date(action.startedAt).getTime();
+      if (latestVerifyRecoveryTime > 0 && actionTime <= latestVerifyRecoveryTime) {
+        displayStatus = 'fixed';
+      }
+    }
+
+    if (
+      action.status === 'failed' &&
+      action.step === 'runtime' &&
+      CACHE_CORRUPTION_TITLES.includes(action.title as any)
+    ) {
+      const actionTime = action.completedAt
+        ? new Date(action.completedAt).getTime()
+        : new Date(action.startedAt).getTime();
+      if (latestRuntimeRecoveryTime > 0 && actionTime <= latestRuntimeRecoveryTime) {
+        displayStatus = 'fixed';
+      }
+    }
+
+    if (action.status === 'failed') {
+      const actionTime = action.completedAt
+        ? new Date(action.completedAt).getTime()
+        : new Date(action.startedAt).getTime();
+      const recoveredAt = fixedActionTimesByKey.get(normalizeActionErrorKey(action)) || 0;
+      if (recoveredAt > 0 && actionTime <= recoveredAt) {
+        displayStatus = 'fixed';
+      }
+    }
+
+    return { ...action, displayStatus };
+  });
 };
 
 // ── Expandable Card ──
@@ -223,6 +386,30 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
   const totalChanges = (report?.chatSessions || []).reduce((sum, chat) =>
     sum + chat.messages.reduce((ms, m) =>
       ms + (m.filesCreated?.length || 0) + (m.filesModified?.length || 0) + (m.filesDeleted?.length || 0), 0), 0);
+  const allActions = report?.actions || [];
+  const derivedActions = deriveActionStatuses(allActions, verificationReport);
+  const creationErrors = derivedActions.filter(a =>
+    a.displayStatus === 'failed' && !CREATION_ONLY_ERROR_STEPS.includes(a.step as any)
+  );
+  const runtimeActions = derivedActions.filter(a =>
+    RUNTIME_STEPS.includes(a.step as any) && a.displayStatus !== 'completed'
+  );
+  const runtimeErrorCount = runtimeActions.filter(a => a.displayStatus === 'failed').length;
+  const runtimeFixedCount = runtimeActions.filter(a => a.displayStatus === 'fixed').length;
+  const runtimeWarningCount = runtimeActions.filter(a => a.displayStatus === 'skipped').length;
+  const generatedFilesCount = report?.summary?.filesGenerated
+    || report?.summary?.generatedFiles?.length
+    || 0;
+  const hasSparseCreationData =
+    !!report &&
+    generatedFilesCount === 0 &&
+    !(report.actions || []).some(a => a.step?.startsWith('qa')) &&
+    !report.summary?.tablesCreated?.length &&
+    !!verificationReport;
+  const showProjectCreatedSuccess =
+    report?.status === 'completed' &&
+    verificationReport?.status !== 'failed' &&
+    !derivedActions.some(a => a.displayStatus === 'failed');
 
   return (
     <ScrollView style={st.container} contentContainerStyle={[st.content, { paddingTop: insets.top + 48 }]}>
@@ -236,7 +423,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
       {/* Stats */}
       <View style={st.statsRow}>
         <View style={st.statItem}>
-          <Text style={st.statValue}>{report?.summary?.filesGenerated ?? 0}</Text>
+          <Text style={st.statValue}>{generatedFilesCount}</Text>
           <Text style={st.statLabel}>Files</Text>
         </View>
         <View style={st.statDivider} />
@@ -256,6 +443,46 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         </View>
       </View>
 
+      {report && (
+        <View style={st.costSummaryCard}>
+          <View style={st.costSummaryHeader}>
+            <Ionicons name="wallet-outline" size={16} color="#F59E0B" />
+            <Text style={st.costSummaryTitle}>Costo progetto</Text>
+          </View>
+          <Text style={st.costSummarySubtitle}>Spesa AI totale per questo progetto</Text>
+          <View style={st.costSummaryHeroRow}>
+            <View>
+              <Text style={st.costSummaryHeroLabel}>Totale</Text>
+              <Text style={st.costSummaryHeroValue}>{formatCostEur(report.summary?.aiTotalCostEur ?? 0)}</Text>
+            </View>
+            <View style={st.costSummaryBadgeColumn}>
+              <View style={st.costSummaryBadge}>
+                <Text style={st.costSummaryBadgeText}>{report.summary?.aiModel || 'AI'}</Text>
+              </View>
+              <View style={[st.costSummaryBadge, st.costSummaryComplexityBadge]}>
+                <Text style={st.costSummaryBadgeText}>
+                  {(report.summary?.projectComplexity || 'medium').toUpperCase()}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View style={st.costSummaryBreakdown}>
+            <View style={st.costBreakdownItem}>
+              <Text style={st.costBreakdownLabel}>Generation</Text>
+              <Text style={st.costBreakdownValue}>{formatCostEur(report.summary?.aiGenerationCostEur ?? 0)}</Text>
+            </View>
+            <View style={st.costBreakdownItem}>
+              <Text style={st.costBreakdownLabel}>Verify</Text>
+              <Text style={st.costBreakdownValue}>{formatCostEur(report.summary?.aiVerifyCostEur ?? 0)}</Text>
+            </View>
+            <View style={st.costBreakdownItem}>
+              <Text style={st.costBreakdownLabel}>Premium fix</Text>
+              <Text style={st.costBreakdownValue}>{formatCostEur(report.summary?.aiVerifyEscalationCostEur ?? 0)}</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* ═══ CREAZIONE ═══ */}
       {report && (
       <SectionHeader
@@ -270,6 +497,28 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
           <ExpandableCard icon="document-outline" iconColor="#3B82F6" title="File generati" count={report.summary.generatedFiles.length}>
             {report.summary.generatedFiles.map(f => (
               <Text key={f} style={st.monoItem}>{f}</Text>
+            ))}
+          </ExpandableCard>
+        )}
+
+        {report.summary?.creationPrompt?.trim() && (
+          <ExpandableCard icon="chatbox-ellipses-outline" iconColor="#A855F7" title="Prompt iniziale">
+            <Text style={st.promptText}>{report.summary.creationPrompt.trim()}</Text>
+          </ExpandableCard>
+        )}
+
+        {report.summary?.creationAnswers && Object.keys(report.summary.creationAnswers).length > 0 && (
+          <ExpandableCard
+            icon="list-outline"
+            iconColor="#8B5CF6"
+            title="Risposte del questionario"
+            count={Object.keys(report.summary.creationAnswers).length}
+          >
+            {Object.entries(report.summary.creationAnswers).map(([key, value]) => (
+              <View key={key} style={st.answerItem}>
+                <Text style={st.answerLabel}>{prettifyAnswerKey(key)}</Text>
+                <Text style={st.answerValue}>{formatAnswerValue(value)}</Text>
+              </View>
             ))}
           </ExpandableCard>
         )}
@@ -301,7 +550,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         )}
 
         {/* Errors */}
-        {(report.actions || []).filter(a => a.status === 'failed').map(a => (
+        {creationErrors.map(a => (
           <View key={a.id} style={st.errorItem}>
             <Ionicons name="warning-outline" size={14} color="#EF4444" />
             <Text style={st.errorItemText}>{a.error || a.title}</Text>
@@ -309,7 +558,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
         ))}
 
         {/* Success indicator */}
-        {report.status === 'completed' && (report.actions || []).every(a => a.status !== 'failed') && (
+        {showProjectCreatedSuccess && (
           <View style={st.successItem}>
             <Ionicons name="checkmark-circle" size={14} color="#22C55E" />
             <Text style={st.successItemText}>Progetto creato con successo</Text>
@@ -340,6 +589,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
           iconColor="#22C55E"
           title="Verifica & Test QA"
           time={verificationReport.completedAt ? `${formatDate(verificationReport.completedAt)}, ${formatTime(verificationReport.completedAt)}` : undefined}
+          defaultOpen={hasSparseCreationData}
         >
           <VerificationSection report={verificationReport} />
         </SectionHeader>
@@ -347,46 +597,39 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
 
       {/* ═══ RUNTIME & ERRORI ═══ */}
       {(() => {
-        const runtimeActions = (report?.actions || []).filter(a =>
-          ['runtime', 'dev-server', 'compile', 'install', 'warming', 'verify', 'database'].includes(a.step || '')
-          && a.status !== 'completed'
-        );
         if (runtimeActions.length === 0) return null;
-        const errorCount = runtimeActions.filter(a => a.status === 'failed').length;
-        const fixedCount = runtimeActions.filter(a => a.status === 'fixed').length;
-        const warningCount = runtimeActions.filter(a => a.status === 'skipped').length;
         return (
           <SectionHeader
             icon="pulse-outline"
-            iconColor={errorCount > 0 ? '#EF4444' : fixedCount > 0 ? '#22C55E' : '#F59E0B'}
+            iconColor={runtimeErrorCount > 0 ? '#EF4444' : runtimeFixedCount > 0 ? '#22C55E' : '#F59E0B'}
             title={`Runtime & Errori (${runtimeActions.length})`}
-            time={`${errorCount} non risolti, ${fixedCount} risolti${warningCount > 0 ? `, ${warningCount} warning` : ''}`}
+            time={`${runtimeErrorCount} non risolti, ${runtimeFixedCount} risolti${runtimeWarningCount > 0 ? `, ${runtimeWarningCount} warning` : ''}`}
           >
             {/* Summary bar */}
             <View style={st.errorSummaryBar}>
-              {errorCount > 0 && (
+              {runtimeErrorCount > 0 && (
                 <View style={st.errorSummaryItem}>
                   <View style={[st.errorSummaryDot, { backgroundColor: '#EF4444' }]} />
-                  <Text style={[st.errorSummaryText, { color: '#EF4444' }]}>{errorCount} non risolti</Text>
+                  <Text style={[st.errorSummaryText, { color: '#EF4444' }]}>{runtimeErrorCount} non risolti</Text>
                 </View>
               )}
-              {fixedCount > 0 && (
+              {runtimeFixedCount > 0 && (
                 <View style={st.errorSummaryItem}>
                   <View style={[st.errorSummaryDot, { backgroundColor: '#22C55E' }]} />
-                  <Text style={[st.errorSummaryText, { color: '#22C55E' }]}>{fixedCount} risolti</Text>
+                  <Text style={[st.errorSummaryText, { color: '#22C55E' }]}>{runtimeFixedCount} risolti</Text>
                 </View>
               )}
-              {warningCount > 0 && (
+              {runtimeWarningCount > 0 && (
                 <View style={st.errorSummaryItem}>
                   <View style={[st.errorSummaryDot, { backgroundColor: '#F59E0B' }]} />
-                  <Text style={[st.errorSummaryText, { color: '#F59E0B' }]}>{warningCount} warning</Text>
+                  <Text style={[st.errorSummaryText, { color: '#F59E0B' }]}>{runtimeWarningCount} warning</Text>
                 </View>
               )}
             </View>
 
             {runtimeActions.map(a => {
-              const isFailed = a.status === 'failed';
-              const isFixed = a.status === 'fixed';
+              const isFailed = a.displayStatus === 'failed';
+              const isFixed = a.displayStatus === 'fixed';
               const bgColor = isFailed ? '#EF444410' : isFixed ? '#22C55E10' : '#F59E0B10';
               const iconName = isFailed ? 'close-circle' : isFixed ? 'checkmark-circle' : 'warning-outline';
               const iconColor = isFailed ? '#EF4444' : isFixed ? '#22C55E' : '#F59E0B';
@@ -427,6 +670,10 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
                 <Text style={st.debugTitle}>Debug Info</Text>
                 <Text style={st.debugText}>Modello: {report.summary?.aiModel || 'gemini-3-flash'}</Text>
                 <Text style={st.debugText}>Token: {report.summary?.aiTokensUsed?.toLocaleString() ?? '?'}</Text>
+                <Text style={st.debugText}>Costo generation: €{(report.summary?.aiGenerationCostEur ?? 0).toFixed(4)}</Text>
+                <Text style={st.debugText}>Costo verify cheap: €{(report.summary?.aiVerifyCostEur ?? 0).toFixed(4)}</Text>
+                <Text style={st.debugText}>Costo verify premium: €{(report.summary?.aiVerifyEscalationCostEur ?? 0).toFixed(4)}</Text>
+                <Text style={st.debugText}>Costo AI totale: €{(report.summary?.aiTotalCostEur ?? 0).toFixed(4)}</Text>
                 <Text style={st.debugText}>File generati: {report.summary?.filesGenerated ?? 0}</Text>
                 <Text style={st.debugText}>Durata: {report.totalDurationMs ? (report.totalDurationMs / 1000).toFixed(1) + 's' : '?'}</Text>
               </View>
@@ -498,17 +745,29 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
           lines.push(`Tech: ${report?.technology || '?'} | Cloud: ${report?.cloudMode ? 'yes' : 'no'} | Status: ${report?.status || '?'}`);
           lines.push(`Created: ${report?.createdAt || '?'} | Duration: ${report?.totalDurationMs ? (report.totalDurationMs / 1000).toFixed(1) + 's' : '?'}`);
           lines.push(`Files: ${report?.summary?.filesGenerated ?? 0} | Model: ${report?.summary?.aiModel || '?'} | Tokens: ${report?.summary?.aiTokensUsed ?? 0}`);
+          lines.push(`AI Cost Total: €${(report?.summary?.aiTotalCostEur ?? 0).toFixed(4)} | Generation: €${(report?.summary?.aiGenerationCostEur ?? 0).toFixed(4)} | Verify: €${(report?.summary?.aiVerifyCostEur ?? 0).toFixed(4)} | Premium: €${(report?.summary?.aiVerifyEscalationCostEur ?? 0).toFixed(4)}`);
           lines.push(`Issues found: ${report?.summary?.issuesFound ?? 0} | Fixed: ${report?.summary?.issuesFixed ?? 0}`);
           lines.push('');
 
+          if (report?.summary?.creationPrompt?.trim()) {
+            lines.push('--- PROMPT INIZIALE ---');
+            lines.push(report.summary.creationPrompt.trim());
+            lines.push('');
+          }
+
+          if (report?.summary?.creationAnswers && Object.keys(report.summary.creationAnswers).length > 0) {
+            lines.push('--- RISPOSTE QUESTIONARIO ---');
+            for (const [key, value] of Object.entries(report.summary.creationAnswers)) {
+              lines.push(`${prettifyAnswerKey(key)}: ${formatAnswerValue(value)}`);
+            }
+            lines.push('');
+          }
+
           // Runtime actions
-          const runtimeActions = (report?.actions || []).filter(a =>
-            ['runtime', 'dev-server', 'compile', 'install', 'warming', 'verify', 'database'].includes(a.step || '')
-          );
           if (runtimeActions.length > 0) {
             lines.push('--- RUNTIME & ERRORS ---');
             for (const a of runtimeActions) {
-              const icon = a.status === 'failed' ? '[FAIL]' : a.status === 'fixed' ? '[FIXED]' : '[OK]';
+              const icon = a.displayStatus === 'failed' ? '[FAIL]' : a.displayStatus === 'fixed' ? '[FIXED]' : '[OK]';
               lines.push(`${icon} [${a.step}] ${a.title}`);
               if (a.error) lines.push(`  Error: ${a.error}`);
               if (a.fix) lines.push(`  Fix: ${a.fix}`);
@@ -577,6 +836,21 @@ const st = StyleSheet.create({
   statValue: { color: '#fff', fontSize: 18, fontWeight: '700' },
   statLabel: { color: '#555', fontSize: 10, marginTop: 1 },
   statDivider: { width: 1, height: 24, backgroundColor: '#222' },
+  costSummaryCard: { backgroundColor: '#111', borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: '#3a2a07' },
+  costSummaryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  costSummaryTitle: { color: '#fef3c7', fontSize: 13, fontWeight: '700' },
+  costSummarySubtitle: { color: '#a1a1aa', fontSize: 11, marginBottom: 12 },
+  costSummaryHeroRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  costSummaryHeroLabel: { color: '#a1a1aa', fontSize: 11, marginBottom: 4 },
+  costSummaryHeroValue: { color: '#fbbf24', fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
+  costSummaryBadgeColumn: { alignItems: 'flex-end', gap: 8 },
+  costSummaryBadge: { backgroundColor: '#F59E0B18', borderWidth: 1, borderColor: '#F59E0B30', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
+  costSummaryComplexityBadge: { backgroundColor: '#8B5CF618', borderColor: '#8B5CF630' },
+  costSummaryBadgeText: { color: '#fcd34d', fontSize: 10, fontWeight: '700' },
+  costSummaryBreakdown: { flexDirection: 'row', gap: 8 },
+  costBreakdownItem: { flex: 1, backgroundColor: '#0d0d0d', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 10, borderWidth: 1, borderColor: '#1f1f1f' },
+  costBreakdownLabel: { color: '#71717a', fontSize: 10, fontWeight: '600', marginBottom: 4 },
+  costBreakdownValue: { color: '#e4e4e7', fontSize: 12, fontWeight: '700' },
 
   // Section
   section: { marginBottom: 10 },
@@ -602,6 +876,10 @@ const st = StyleSheet.create({
   tableDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#22C55E' },
   sqlBox: { backgroundColor: '#0a0a0a', borderRadius: 6, padding: 8, marginTop: 6 },
   sqlText: { color: '#666', fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  promptText: { color: '#d4d4d8', fontSize: 12, lineHeight: 18 },
+  answerItem: { gap: 4, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
+  answerLabel: { color: '#a1a1aa', fontSize: 11, fontWeight: '600' },
+  answerValue: { color: '#e4e4e7', fontSize: 12, lineHeight: 18 },
 
   // Errors / Success
   errorItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: '#EF444410', padding: 8, borderRadius: 8, marginBottom: 4 },

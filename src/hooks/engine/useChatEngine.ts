@@ -17,9 +17,10 @@ import { sanitizeAgentText } from '../../shared/utils/sanitizeAgentText';
 
 export interface ChatEngineMessage {
   id: string;
-  type: 'thinking' | 'text' | 'tool_start' | 'tool_complete' | 'tool_error' | 'error' | 'budget_exceeded' | 'budget_warning' | 'completion' | 'context_compacted';
+  type: 'thinking' | 'text' | 'tool_start' | 'tool_complete' | 'tool_error' | 'error' | 'budget_exceeded' | 'budget_warning' | 'completion' | 'context_compacted' | 'status';
   isCompacting?: boolean;
   content: string;
+  phase?: string;
 
   // Thinking
   isThinking?: boolean;
@@ -255,6 +256,20 @@ export function useChatEngine(
       // These events keep the SSE connection alive. Don't create new UI elements —
       // the gap timer already handles the "thinking" indicator. Just skip them.
       if ((event as any).type === 'processing' || (event as any).type === 'heartbeat') {
+        continue;
+      }
+
+      // ── STATUS ────────────────────────────────────────────────────────
+      if ((event as any).type === 'status') {
+        const statusMessage = String((event as any).message || '').trim();
+        if (!statusMessage) continue;
+        setMessages(prev => [...prev, {
+          id: `engine-status-${Date.now()}-${i}`,
+          type: 'status',
+          content: statusMessage,
+          phase: String((event as any).phase || ''),
+          timestamp: new Date(),
+        }]);
         continue;
       }
 
@@ -621,14 +636,16 @@ export function useChatEngine(
 
       if (event.type === 'budget_exceeded') {
         setIsLoading(false);
-        // Remove empty thinking, close others
+        currentMessageIdRef.current = null;
+        streamingContentRef.current = '';
+        thinkingContentRef.current = '';
+        // Remove all thinking placeholders and show the budget stop explicitly
         setMessages(prev => [
           ...prev
-            .filter(m => !(m.isThinking && !m.content?.trim() && !m.thinkingContent?.trim()))
+            .filter(m => !m.isThinking)
             .map(m => m.isThinking ? { ...m, isThinking: false } : m),
           { id: `budget-${Date.now()}`, type: 'budget_exceeded' as const, content: '__BUDGET_EXCEEDED__', timestamp: new Date() },
         ]);
-        currentMessageIdRef.current = null;
         continue;
       }
 
@@ -744,13 +761,14 @@ export function useChatEngine(
       gapTimerRef.current = setTimeout(() => {
         setMessages(prev => {
           if (prev.length === 0) return prev;
+          if (prev.some(m => m.isThinking)) return prev;
           const last = prev[prev.length - 1];
-          // Already showing thinking? Skip
-          if (last.isThinking) return prev;
           // Don't add while tools are actively executing
           if (last.type === 'tool_start' && last.isExecuting) return prev;
           // Show thinking if last message is idle (completed text, completed tool, error, etc.)
           const newId = `engine-thinking-gap-${Date.now()}`;
+          currentMessageIdRef.current = newId;
+          thinkingContentRef.current = '';
           return [...prev, {
             id: newId,
             type: 'thinking' as const,

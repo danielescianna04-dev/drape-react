@@ -1,4 +1,4 @@
-import React, { ReactNode, useCallback, useEffect, useState } from 'react';
+import React, { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Dimensions, View, LayoutChangeEvent } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, {
@@ -37,14 +37,27 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
   swipeEnabled = true,
 }) => {
   const [containerWidth, setContainerWidth] = useState(SCREEN_WIDTH);
+  const previousIndexRef = useRef(currentIndex);
   
   // Single translateX that controls the entire track position
   const translateX = useSharedValue(-currentIndex * containerWidth);
 
   // Sync translateX when currentIndex or containerWidth changes
   useEffect(() => {
-    translateX.value = withSpring(-currentIndex * containerWidth, SPRING_CONFIG);
-  }, [currentIndex, containerWidth]);
+    const previousIndex = previousIndexRef.current;
+    const previousTabType = tabs[previousIndex] && (tabs[previousIndex] as any).type;
+    const currentTabType = tabs[currentIndex] && (tabs[currentIndex] as any).type;
+    const touchesPreview = previousTabType === 'preview' || currentTabType === 'preview';
+    const nextTranslateX = -currentIndex * containerWidth;
+
+    if (touchesPreview) {
+      translateX.value = nextTranslateX;
+    } else {
+      translateX.value = withSpring(nextTranslateX, SPRING_CONFIG);
+    }
+
+    previousIndexRef.current = currentIndex;
+  }, [currentIndex, containerWidth, tabs]);
 
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     const { width } = event.nativeEvent.layout;
@@ -175,8 +188,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   hiddenTab: {
-    // Keep mounted but visually hidden and non-interactive
-    opacity: 0,
-    pointerEvents: 'none',
+    // Keep mounted, but fully remove hidden preview tabs from drawing/layout.
+    display: 'none',
   },
 });

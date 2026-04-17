@@ -10,13 +10,16 @@ export interface AgentOptions {
   mode?: AgentMode;
   model?: string;
   prompt?: string;
+  systemPromptOverride?: string;
   userId?: string;
   userPlan?: string;
   conversationHistory?: ChatMessage[];
   images?: string[];
   thinkingLevel?: string; // Gemini 3 thinking level: minimal, low, medium, high
+  taskBudgetTokens?: number;
   executionPlan?: any;
   previewContext?: any;
+  usagePhase?: 'generation' | 'verify' | 'verify_escalation' | 'other';
 }
 
 export interface ToolDefinition {

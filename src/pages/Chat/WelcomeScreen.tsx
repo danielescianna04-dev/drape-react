@@ -1,10 +1,8 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import Animated, { useAnimatedStyle, interpolate, Extrapolate, SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
-import { GlassCard } from '../../features/settings/components/GlassCard';
 
 const { height: SH } = Dimensions.get('window');
 const AVAILABLE = SH - 88 - 130 - 34;
@@ -23,6 +21,11 @@ const ITEMS = [
 
 export const WelcomeScreen = ({ keyboardHeight, onSuggestionPress }: WelcomeScreenProps) => {
   const { t } = useTranslation('chat');
+  const renderCountRef = useRef(0);
+  renderCountRef.current += 1;
+  if (renderCountRef.current <= 25) {
+    console.log('[WelcomeScreenDebug] render', { count: renderCountRef.current });
+  }
 
   const animStyle = useAnimatedStyle(() => {
     'worklet';
@@ -39,21 +42,12 @@ export const WelcomeScreen = ({ keyboardHeight, onSuggestionPress }: WelcomeScre
       <View style={styles.grid}>
         {ITEMS.map((it, i) => (
           <TouchableOpacity key={i} activeOpacity={0.7} style={styles.chip} onPress={() => onSuggestionPress(t(it.key))}>
-            {isLiquidGlassSupported ? (
-              <LiquidGlassView style={styles.chipGlass} interactive={true} effect="regular" colorScheme="dark">
-                <View style={styles.chipInner}>
-                  <Ionicons name={it.icon} size={15} color="rgba(255,255,255,0.45)" />
-                  <Text style={styles.chipText} numberOfLines={1}>{t(it.key)}</Text>
-                </View>
-              </LiquidGlassView>
-            ) : (
-              <GlassCard style={styles.chipGlass}>
-                <View style={styles.chipInner}>
-                  <Ionicons name={it.icon} size={15} color="rgba(255,255,255,0.45)" />
-                  <Text style={styles.chipText} numberOfLines={1}>{t(it.key)}</Text>
-                </View>
-              </GlassCard>
-            )}
+            <View style={styles.chipGlassFallback}>
+              <View style={styles.chipInner}>
+                <Ionicons name={it.icon} size={15} color="rgba(255,255,255,0.45)" />
+                <Text style={styles.chipText} numberOfLines={1}>{t(it.key)}</Text>
+              </View>
+            </View>
           </TouchableOpacity>
         ))}
       </View>
@@ -91,6 +85,13 @@ const styles = StyleSheet.create({
   chipGlass: {
     borderRadius: 22,
     overflow: 'hidden',
+  },
+  chipGlassFallback: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   chipInner: {
     flexDirection: 'row',

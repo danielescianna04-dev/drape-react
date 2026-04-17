@@ -34,6 +34,7 @@ type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'preview' | 'g
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const PILL_HEIGHT = 64;
 const PILL_VERTICAL_PADDING = 80;
+const PREVIEW_OPEN_DELAY_MS = 280;
 
 interface Props {
   onOpenAllProjects?: () => void;
@@ -42,6 +43,8 @@ interface Props {
 }
 
 export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) => {
+  const VSCODE_SIDEBAR_RENDER_ISOLATION = false;
+  const VSCODE_SIDEBAR_CHILD_TEST = 'all' as 'all' | 'content-only' | 'header-only' | 'chat-only' | 'git-only';
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [isVerticalPanelMounted, setIsVerticalPanelMounted] = useState(false);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
@@ -129,16 +132,37 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       title: 'Preview',
     });
   }, [tabs, setActiveTab, addTab]);
+
+  const openPreviewTabAfterSidebarClose = useCallback(() => {
+    const hadOpenPanel = activePanel === 'chat';
+    if (hadOpenPanel) {
+      setActivePanel(null);
+    }
+
+    const run = () => {
+      const task = InteractionManager.runAfterInteractions(() => {
+        openPreviewTab();
+      });
+      return () => task.cancel();
+    };
+
+    if (hadOpenPanel) {
+      const timeoutId = setTimeout(run, PREVIEW_OPEN_DELAY_MS);
+      return () => clearTimeout(timeoutId);
+    }
+
+    return run();
+  }, [activePanel, openPreviewTab]);
+
   // Auto-open preview when requested (e.g. after AI fix) — opens as a tab
   // Respects preview gate: if blocked, don't auto-open
   React.useEffect(() => {
     const consumedRequestId = useUIStore.getState().consumeOpenPreviewRequest(lastHandledPreviewRequestId.current);
     if (consumedRequestId > lastHandledPreviewRequestId.current) {
       lastHandledPreviewRequestId.current = consumedRequestId;
-      openPreviewTab();
-      setActivePanel(null);
+      return openPreviewTabAfterSidebarClose();
     }
-  }, [openPreviewRequestId, openPreviewTab]);
+  }, [openPreviewRequestId, openPreviewTabAfterSidebarClose]);
 
   React.useEffect(() => {
     const consumedRequestId = useUIStore.getState().consumeOpenGitSheetRequest(lastHandledGitRequestId.current);
@@ -340,8 +364,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     Keyboard.dismiss();
     if (panel === 'preview') {
       tracciaPannelloAperto('preview');
-      openPreviewTab();
-      setActivePanel(null);
+      openPreviewTabAfterSidebarClose();
       return;
     } else {
       setActivePanel(prev => {
@@ -350,7 +373,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         return panel;
       });
     }
-  }, []);
+  }, [openPreviewTabAfterSidebarClose]);
 
   const handleGitClick = useCallback(() => {
     tracciaPannelloAperto('git');
@@ -516,6 +539,14 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     lastNonRootPathRef.current = currentPreviewPath;
   }
 
+  if (VSCODE_SIDEBAR_RENDER_ISOLATION) {
+    return (
+      <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden, hideSidebar, showSidebar, forceHideToggle, setForceHideToggle }}>
+        <View style={{ flex: 1, backgroundColor: '#000' }} />
+      </SidebarProvider>
+    );
+  }
+
   return (
     <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden, hideSidebar, showSidebar, forceHideToggle, setForceHideToggle }}>
       {/* ─── DRAPEMOB: Sidebar, TabBar, Panels — COMMENTED OUT ─── */}
@@ -527,63 +558,67 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
       <View style={{ flex: 1, backgroundColor: '#000' }}>
         {/* Chat drawer — always mounted behind main content */}
-        <View style={styles.drawerPanel} pointerEvents={activePanel === 'chat' ? 'auto' : 'none'}>
-          {memoizedChatPanel}
-        </View>
+        {(VSCODE_SIDEBAR_CHILD_TEST === 'all' || VSCODE_SIDEBAR_CHILD_TEST === 'chat-only') && (
+          <View style={styles.drawerPanel} pointerEvents={activePanel === 'chat' ? 'auto' : 'none'}>
+            {memoizedChatPanel}
+          </View>
+        )}
 
         {/* Main content — outer: GPU translateX only; inner: fixed borderRadius clip */}
         <Animated.View style={[StyleSheet.absoluteFillObject, mainContentSlide]}>
         {/* Border decoration — OUTSIDE overflow:hidden so border is visible */}
         <Animated.View style={[StyleSheet.absoluteFillObject, borderDecorationStyle, { borderRadius: 40, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' }]} pointerEvents="none" />
         <View style={[StyleSheet.absoluteFillObject, { borderRadius: 40, overflow: 'hidden', backgroundColor: AppColors.dark.backgroundAlt }]}>
-          <VSCodeSidebarHeader
-            styles={styles}
-            isPreviewShowing={isPreviewShowing}
-            activeTabType={activeTab?.type}
-            databaseBackHandler={databaseBackHandler}
-            tabs={tabs}
-            setActiveTab={setActiveTab}
-            togglePanel={togglePanel}
-            previewCurrentUrl={previewCurrentUrl}
-            previewHandlers={previewHandlers}
-            previewPublishInfo={previewPublishInfo}
-            previewViewportMode={previewViewportMode}
-            currentPreviewPath={currentPreviewPath}
-            showHeaderMenu={showHeaderMenu}
-            closeMenu={closeMenu}
-            openMenu={openMenu}
-            morphStyle={morphStyle}
-            dotsOpacity={dotsOpacity}
-            menuItemsOpacity={menuItemsOpacity}
-            backdropAnimatedStyle={backdropAnimatedStyle}
-            hamburgerTopStyle={hamburgerTopStyle}
-            hamburgerMidStyle={hamburgerMidStyle}
-            hamburgerBotStyle={hamburgerBotStyle}
+          {(VSCODE_SIDEBAR_CHILD_TEST === 'all' || VSCODE_SIDEBAR_CHILD_TEST === 'header-only') && (
+            <VSCodeSidebarHeader
+              styles={styles}
+              isPreviewShowing={isPreviewShowing}
+              activeTabType={activeTab?.type}
+              databaseBackHandler={databaseBackHandler}
+              tabs={tabs}
+              setActiveTab={setActiveTab}
+              togglePanel={togglePanel}
+              previewCurrentUrl={previewCurrentUrl}
+              previewHandlers={previewHandlers}
+              previewPublishInfo={previewPublishInfo}
+              previewViewportMode={previewViewportMode}
+              currentPreviewPath={currentPreviewPath}
+              showHeaderMenu={showHeaderMenu}
+              closeMenu={closeMenu}
+              openMenu={openMenu}
+              morphStyle={morphStyle}
+              dotsOpacity={dotsOpacity}
+              menuItemsOpacity={menuItemsOpacity}
+              backdropAnimatedStyle={backdropAnimatedStyle}
+              hamburgerTopStyle={hamburgerTopStyle}
+              hamburgerMidStyle={hamburgerMidStyle}
+              hamburgerBotStyle={hamburgerBotStyle}
             onOpenPreview={() => {
               closeMenu();
-              setTimeout(() => openPreviewTab(), 280);
+              openPreviewTabAfterSidebarClose();
             }}
-            onRefreshPreview={() => {
-              closeMenu();
-              setTimeout(() => previewHandlers.refresh?.(), 280);
-            }}
-            onToggleViewport={() => {
-              closeMenu();
-              const next = previewViewportMode === 'mobile' ? 'desktop' : 'mobile';
-              previewHandlers.setViewportMode?.(next);
-            }}
-            onPublishPreview={() => {
-              closeMenu();
-              setTimeout(() => previewHandlers.publish?.(), 280);
-            }}
-            onOpenProjectHistory={() => {
-              closeMenu();
-              setTimeout(() => handleBuildReportClick(), 280);
-            }}
-          />
+              onRefreshPreview={() => {
+                closeMenu();
+                setTimeout(() => previewHandlers.refresh?.(), 280);
+              }}
+              onToggleViewport={() => {
+                closeMenu();
+                const next = previewViewportMode === 'mobile' ? 'desktop' : 'mobile';
+                previewHandlers.setViewportMode?.(next);
+              }}
+              onPublishPreview={() => {
+                closeMenu();
+                setTimeout(() => previewHandlers.publish?.(), 280);
+              }}
+              onOpenProjectHistory={() => {
+                closeMenu();
+                setTimeout(() => handleBuildReportClick(), 280);
+              }}
+            />
+          )}
 
           {/* Content — memoized to avoid re-render when drawer state changes */}
-          {memoizedContent}
+          {(VSCODE_SIDEBAR_CHILD_TEST === 'all' || VSCODE_SIDEBAR_CHILD_TEST === 'content-only') && memoizedContent}
 
           {/* Preview is now rendered as a tab via ContentRenderer */}
 
@@ -600,7 +635,9 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         </Animated.View>
       </View>
 
-      <GitSheet visible={isGitSheetVisible} onClose={() => { setIsGitSheetVisible(false); useUIStore.setState({ openGitSheetTab: null }); }} initialTab={openGitSheetTab || undefined} />
+      {(VSCODE_SIDEBAR_CHILD_TEST === 'all' || VSCODE_SIDEBAR_CHILD_TEST === 'git-only') && (
+        <GitSheet visible={isGitSheetVisible} onClose={() => { setIsGitSheetVisible(false); useUIStore.setState({ openGitSheetTab: null }); }} initialTab={openGitSheetTab || undefined} />
+      )}
     </SidebarProvider>
   );
 };

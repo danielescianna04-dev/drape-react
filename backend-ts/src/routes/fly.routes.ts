@@ -87,20 +87,37 @@ flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response
   const fbDb = firebaseService.getFirestore();
   if (fbDb) {
     const projectRef = fbDb.collection('user_projects').doc(projectId as string);
-    const projectDoc = await projectRef.get();
-    const currentCount = projectDoc.exists ? (projectDoc.data()?.previewCount || 0) : 0;
-    log.info(`[Fly] Preview count for ${projectId}: ${currentCount}/${maxPreviews < 0 ? 'unlimited' : maxPreviews} (plan: ${userPlan})`);
-    if (maxPreviews >= 0 && currentCount >= maxPreviews) {
-      log.warn(`[Fly] Preview limit reached for project ${projectId}: ${currentCount}/${maxPreviews}`);
-      return res.status(403).json({
-        error: 'PREVIEW_LIMIT_EXCEEDED',
-        message: `Hai raggiunto il limite di ${maxPreviews} preview per questo progetto.`,
-        limits: { current: currentCount, max: maxPreviews },
+    let nextCount = 0;
+
+    try {
+      await fbDb.runTransaction(async (tx) => {
+        const projectDoc = await tx.get(projectRef);
+        const currentCount = projectDoc.exists ? (projectDoc.data()?.previewCount || 0) : 0;
+        log.info(`[Fly] Preview count for ${projectId}: ${currentCount}/${maxPreviews < 0 ? 'unlimited' : maxPreviews} (plan: ${userPlan})`);
+
+        if (maxPreviews >= 0 && currentCount >= maxPreviews) {
+          const error = new Error('PREVIEW_LIMIT_EXCEEDED');
+          (error as any).current = currentCount;
+          throw error;
+        }
+
+        nextCount = currentCount + 1;
+        tx.set(projectRef, { previewCount: nextCount }, { merge: true });
       });
+    } catch (error: any) {
+      if (error?.message === 'PREVIEW_LIMIT_EXCEEDED') {
+        const currentCount = Number(error?.current || 0);
+        log.warn(`[Fly] Preview limit reached for project ${projectId}: ${currentCount}/${maxPreviews}`);
+        return res.status(403).json({
+          error: 'PREVIEW_LIMIT_EXCEEDED',
+          message: `Hai raggiunto il limite di ${maxPreviews} preview per questo progetto.`,
+          limits: { current: currentCount, max: maxPreviews },
+        });
+      }
+      throw error;
     }
-    // Increment — use set with merge to handle both existing and new docs
-    await projectRef.set({ previewCount: currentCount + 1 }, { merge: true });
-    log.info(`[Fly] Preview count incremented to ${currentCount + 1} for ${projectId}`);
+
+    log.info(`[Fly] Preview count incremented to ${nextCount} for ${projectId}`);
   }
 
   // SSE headers

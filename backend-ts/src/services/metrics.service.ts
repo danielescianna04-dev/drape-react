@@ -3,8 +3,12 @@ import { config } from '../config';
 import fs from 'fs';
 import path from 'path';
 
-interface AIUsageEntry {
+export type AIUsagePhase = 'generation' | 'verify' | 'verify_escalation' | 'other';
+
+export interface AIUsageEntry {
   userId: string;
+  projectId?: string;
+  phase?: AIUsagePhase;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -133,7 +137,7 @@ class MetricsService {
 
     const cachedInfo = entry.cachedTokens ? ` cached=${entry.cachedTokens}` : '';
     log.info(
-      `[Metrics] AI: ${entry.model} in=${entry.inputTokens} out=${entry.outputTokens}${cachedInfo} cost=€${entry.costEur.toFixed(4)}`
+      `[Metrics] AI: ${entry.model}${entry.phase ? ` phase=${entry.phase}` : ''} in=${entry.inputTokens} out=${entry.outputTokens}${cachedInfo} cost=€${entry.costEur.toFixed(4)}`
     );
 
     this.saveToDisk();
@@ -235,6 +239,14 @@ class MetricsService {
       totalCachedTokens: totalCached,
       byModel,
     };
+  }
+
+  getProjectAIUsageSummary(projectId: string, since?: number): AIUsageSummary {
+    let entries = this.aiUsage.filter((entry) => entry.projectId === projectId);
+    if (since) {
+      entries = entries.filter((entry) => entry.timestamp >= since);
+    }
+    return this.summarizeAIEntries(entries);
   }
 
   /**

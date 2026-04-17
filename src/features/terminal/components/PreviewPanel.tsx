@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue } from 'react-native-reanimated';
+import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue, interpolate, Extrapolate } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
 import { useTranslation } from 'react-i18next';
@@ -77,6 +77,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const setPreviewViewportMode = useUIStore((state) => state.setPreviewViewportMode);
   const setPreviewHandlers = useUIStore((state) => state.setPreviewHandlers);
   const setPreviewPublishInfo = useUIStore((state) => state.setPreviewPublishInfo);
+  const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
   const globalFlyMachineId = useUIStore((state) => state.flyMachineId);
   const setGlobalFlyMachineId = useUIStore((state) => state.setFlyMachineId);
   const setPreviewAccessToken = useUIStore((state) => state.setPreviewAccessToken);
@@ -93,7 +94,16 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   // Animated container position
   const containerAnimatedStyle = useAnimatedStyle(() => {
     'worklet';
-    return { left: 44 + sidebarTranslateX.value };
+    return {
+      transform: [{
+        translateX: interpolate(
+          sidebarTranslateX.value,
+          [-50, 0],
+          [0, 44],
+          Extrapolate.CLAMP
+        ),
+      }],
+    };
   });
 
   const isExpandedShared = useSharedValue(false);
@@ -166,7 +176,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     terminalOutput, viewportMode, hasWebUI, webViewReady, isLoading, canGoBack, canGoForward,
     requiredEnvVars, envVarValues, isSavingEnv, sessionExpired, sessionExpiredMessage,
     showReloadBanner, projectInfo, terminalAuthToken,
-    flyMachineIdRef, preflightDoneRef, autoFixTriggeredRef,
+    flyMachineIdRef, preflightDoneRef,
     setServerStatus, setCurrentPreviewUrl, setWebViewReady, setIsLoading,
     setCanGoBack, setCanGoForward, setViewportMode, setEnvVarValues, setRequiredEnvVars,
     handleStartServer, handleStartWithTransition, handleRetryPreview, handleStopPreview,
@@ -225,7 +235,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         } else if (rawMsg.includes('ENOTFOUND') || rawMsg.includes('EHOSTUNREACH')) {
           userMsg = t('terminal:preview.errorContainerUnreachable');
         }
-        startup.setPreviewError({ message: userMsg, timestamp: new Date() });
+        startup.setPreviewError({ message: userMsg, timestamp: new Date(), recoverable: true });
         tracciaErroreAnteprima(userMsg);
         setServerStatus('stopped');
         startup.setIsStarting(false);
@@ -239,7 +249,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           redirectToEnvVarsWithError(buildMsg);
           return;
         }
-        startup.setPreviewError({ message: buildMsg, timestamp: new Date() });
+        startup.setPreviewError({ message: buildMsg, timestamp: new Date(), recoverable: true });
         tracciaErroreAnteprima(buildMsg);
         setServerStatus('stopped');
         startup.setIsStarting(false);
@@ -285,8 +295,20 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     }
   }, [serverStatus, lifecycle.webViewReady, setWebViewReady, setCanGoBack, setCanGoForward, setServerStatus, startup, redirectToEnvVarsWithError, handleRefresh, chat, t, preflightDoneRef, jsErrorsRef]);
 
-  // Sync publish info to uiStore
-  React.useEffect(() => { setPreviewPublishInfo(publish.existingPublish); }, [publish.existingPublish]);
+  // Sync publish info to uiStore only when the published target actually changed.
+  const lastPublishInfoRef = React.useRef<{ slug: string; url: string } | null>(null);
+  React.useEffect(() => {
+    const nextPublishInfo = publish.existingPublish;
+    const previousPublishInfo = lastPublishInfoRef.current;
+    const unchanged =
+      previousPublishInfo?.slug === nextPublishInfo?.slug &&
+      previousPublishInfo?.url === nextPublishInfo?.url;
+
+    if (unchanged) return;
+
+    lastPublishInfoRef.current = nextPublishInfo ? { ...nextPublishInfo } : null;
+    setPreviewPublishInfo(nextPublishInfo);
+  }, [publish.existingPublish, setPreviewPublishInfo]);
 
   // Keep toolbar hidden during the initial loading mask to avoid the black strip.
   // If WEBVIEW_READY doesn't arrive, reveal it when loading settles.
@@ -298,6 +320,21 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const previewCapability = getPreviewCapability(detectedTech);
   const isPreviewSupported = previewCapability !== 'unsupported';
   const { state: previewState, dispatch: dispatchPreview } = usePreviewMachine();
+  const hasRecoverablePreviewError = !!startup.previewError?.recoverable;
+  const autoFixPending = lifecycle.autoFixPending;
+  const autoFixActive = autoFix.isFixing;
+  const autoFixExhausted = autoFix.state === 'exhausted';
+  const blockingPreviewError =
+    startup.previewError && (!hasRecoverablePreviewError || autoFixExhausted)
+      ? startup.previewError
+      : null;
+
+  React.useEffect(() => {
+    if (!startup.previewError?.recoverable) return;
+    if (autoFixExhausted) return;
+    if (serverStatus !== 'running' || !webViewReady) return;
+    startup.setPreviewError(null);
+  }, [startup.previewError, autoFixExhausted, serverStatus, webViewReady, startup.setPreviewError]);
 
   React.useEffect(() => {
     const phase = derivePreviewPhase({
@@ -305,7 +342,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       serverStatus,
       hasRequiredEnvVars: !!requiredEnvVars,
       hasPreviewError: !!startup.previewError,
-      isFixing: autoFix.isFixing || autoFixTriggeredRef.current,
+      hasRecoverablePreviewError,
+      autoFixPending,
+      autoFixActive,
+      autoFixExhausted,
       previewCapability,
       webViewReady,
     });
@@ -315,12 +355,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       phase,
       previewUrl: currentPreviewUrl || null,
       envVarsRequired: requiredEnvVars,
-      error: startup.previewError
+      error: blockingPreviewError
         ? {
             kind: sessionExpired ? 'session_expired' : 'unknown',
-            message: startup.previewError.message,
-            recoverable: !!(autoFix.isFixing || autoFixTriggeredRef.current),
-            raw: startup.previewError.message,
+            message: blockingPreviewError.message,
+            recoverable: false,
+            raw: blockingPreviewError.message,
           }
         : null,
       sessionExpiredMessage: sessionExpiredMessage || null,
@@ -328,7 +368,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       canGoBack,
       canGoForward,
       viewportMode,
-      displayedMessage: autoFix.isFixing ? autoFix.statusMessage || startup.displayedMessage : startup.displayedMessage,
+      displayedMessage:
+        autoFixActive || autoFixPending
+          ? autoFix.statusMessage || 'Risolvo il problema...'
+          : startup.displayedMessage,
       progress: startup.smoothProgress,
       hasWebUi: hasWebUI,
       terminalOutput,
@@ -338,7 +381,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         type: 'info' as const,
       })),
       autoFix: {
-        active: autoFix.isFixing || autoFixTriggeredRef.current,
+        active: autoFixActive || autoFixPending,
         attempt: autoFix.fixAttempt,
         statusMessage: autoFix.statusMessage || null,
       },
@@ -351,10 +394,13 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     startup.previewError,
     startup.displayedMessage,
     startup.smoothProgress,
-    autoFix.isFixing,
+    hasRecoverablePreviewError,
+    autoFixPending,
+    autoFixActive,
+    autoFixExhausted,
     autoFix.fixAttempt,
     autoFix.statusMessage,
-    autoFixTriggeredRef.current,
+    blockingPreviewError,
     currentPreviewUrl,
     webViewReady,
     canGoBack,
@@ -377,6 +423,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const previewErrorMessage = previewState.error?.message ?? null;
   const previewEnvVars = previewState.envVarsRequired;
   const previewSessionMessage = previewState.sessionExpiredMessage;
+
+  if (!isVisible) {
+    return null;
+  }
 
   // ---- Render ----
   if (!isPreviewSupported) {
@@ -569,7 +619,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             </View>
           </View>
 
-          {previewState.phase === 'ready' && webViewReady && (
+          {previewState.phase === 'ready' && webViewReady && !isSidebarOpen && (
             <PreviewAIChat
               isInputExpanded={chat.isInputExpanded}
               isMessagesCollapsed={chat.isMessagesCollapsed}

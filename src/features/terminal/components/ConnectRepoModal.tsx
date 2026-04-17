@@ -22,7 +22,7 @@ import { Button } from '../../../shared/components/atoms/Button';
 import { Input } from '../../../shared/components/atoms/Input';
 import { githubService, GitHubRepository } from '../../../core/github/githubService';
 import { gitAccountService, GitAccount } from '../../../core/git/gitAccountService';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { config } from '../../../config/config';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
 import { db, auth } from '../../../config/firebase';
@@ -57,8 +57,8 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
   const [gitAccounts, setGitAccounts] = useState<GitAccount[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<GitAccount | null>(null);
 
-  const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
-  const userId = useTerminalStore.getState().userId || 'anonymous';
+  const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
+  const userId = useWorkstationStore.getState().userId || 'anonymous';
 
   useEffect(() => {
     if (visible) {
@@ -198,7 +198,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
     }, { merge: true });
 
     // Update local state
-    useTerminalStore.getState().setWorkstation({
+    useWorkstationStore.getState().setWorkstation({
       ...currentWorkstation,
       repositoryUrl: repoUrl,
       githubUrl: repoUrl,

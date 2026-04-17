@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { LayoutAnimation, TextInput, Keyboard, Platform, Animated } from 'react-native';
+import { LayoutAnimation, TextInput, Keyboard, Platform, Animated, Easing } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useAgentStream } from '../../../hooks/api/useAgentStream';
 import { useChatEngine, type ChatEngineMessage } from '../../../hooks/engine/useChatEngine';
@@ -266,9 +266,9 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
       totalChars += String(m.content ?? '').length;
     }
     const windows: Record<string, number> = {
-      'claude-4-6-sonnet': 200000, 'claude-4-6-opus': 200000, 'claude-haiku-3.5': 200000,
+      'claude-4-7-opus': 1000000, 'claude-opus-4-7': 1000000, 'claude-4-6-sonnet': 200000, 'claude-4-6-opus': 1000000, 'claude-haiku-3.5': 200000,
       'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3.1-pro': 1000000,
-      'gpt-5-4': 128000, 'llama-3.3-70b': 128000,
+      'gpt-5-4': 128000, 'glm-5.1': 202752, 'llama-3.3-70b': 128000,
     };
     const windowTokens = windows[selectedModel] || 200000;
     const pct = Math.min(100, Math.round((Math.ceil(totalChars / 3.5) / windowTokens) * 100));
@@ -483,32 +483,29 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
   // ── FAB expand/collapse ─────────────────────────────────────────────────
   const expandFab = () => {
     tracciaAnteprimaDaChat();
-    LayoutAnimation.configureNext({
-      duration: 300,
-      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-      update: { type: LayoutAnimation.Types.easeInEaseOut },
-    });
     setIsInputExpanded(true);
     fabContentOpacity.setValue(0);
-    Animated.timing(fabContentOpacity, {
-      toValue: 1, duration: 200, delay: 100, useNativeDriver: false,
-    }).start(() => {
+    setTimeout(() => {
       inputRef.current?.focus();
-    });
+    }, 90);
+    Animated.timing(fabContentOpacity, {
+      toValue: 1,
+      duration: 150,
+      delay: 72,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
   };
 
   const collapseFab = () => {
-    LayoutAnimation.configureNext({
-      duration: 300,
-      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-      update: { type: LayoutAnimation.Types.easeInEaseOut },
-      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-    });
+    Keyboard.dismiss();
     Animated.timing(fabContentOpacity, {
-      toValue: 0, duration: 150, useNativeDriver: false,
-    }).start(() => {
-      setIsInputExpanded(false);
-    });
+      toValue: 0,
+      duration: 100,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    setIsInputExpanded(false);
   };
 
   // ── Question answers ────────────────────────────────────────────────────

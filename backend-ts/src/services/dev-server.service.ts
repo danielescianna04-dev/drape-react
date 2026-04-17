@@ -2,9 +2,11 @@ import axios from 'axios';
 import { Session, ProjectInfo } from '../types';
 import { log } from '../utils/logger';
 import { dockerService } from './docker.service';
+import { dependencyService } from './dependency.service';
 import { shellEscape, sleep } from '../utils/helpers';
 import { DEV_SERVER_PORT } from '../utils/constants';
 import { appendRuntimeAction } from './build-report.service';
+import { isLikelyDependencyCorruption } from '../utils/install-integrity';
 
 class DevServerService {
   private startLocks = new Map<string, Promise<boolean>>();
@@ -29,7 +31,11 @@ class DevServerService {
     }
   }
 
-  private async doStart(session: Session, info: ProjectInfo): Promise<boolean> {
+  private async doStart(
+    session: Session,
+    info: ProjectInfo,
+    opts: { dependencyRepairAttempted?: boolean } = {},
+  ): Promise<boolean> {
     const { agentUrl } = session;
     const startTime = Date.now();
 
@@ -100,6 +106,17 @@ class DevServerService {
       const appError = await this.checkResponseForErrors(agentUrl);
       if (appError) {
         log.warn(`[DevServer] Server running but app broken for ${session.projectId}: ${appError.substring(0, 100)}`);
+        if (!opts.dependencyRepairAttempted && isLikelyDependencyCorruption(appError, info.type)) {
+          log.warn(`[DevServer] Dependency corruption detected for ${session.projectId}, forcing reinstall before failing...`);
+          await this.stop(session).catch(() => {});
+          await dependencyService.repairCorruptedInstall(
+            session.projectId,
+            session,
+            info,
+            appError,
+          );
+          return this.doStart(session, info, { dependencyRepairAttempted: true });
+        }
         throw new Error(appError);
       }
       log.info(`[DevServer] Ready in ${elapsed}ms for ${session.projectId}`);
@@ -131,6 +148,18 @@ class DevServerService {
         error: (retryResult.error || 'unknown').substring(0, 500),
       });
       throw new Error(retryResult.error || 'Il dev server non è riuscito ad avviarsi.');
+    }
+
+    if (result.error && !opts.dependencyRepairAttempted && isLikelyDependencyCorruption(result.error, info.type)) {
+      log.warn(`[DevServer] Dependency corruption detected before readiness for ${session.projectId}, forcing reinstall...`);
+      await this.stop(session).catch(() => {});
+      await dependencyService.repairCorruptedInstall(
+        session.projectId,
+        session,
+        info,
+        result.error,
+      );
+      return this.doStart(session, info, { dependencyRepairAttempted: true });
     }
 
     log.warn(`[DevServer] Not ready after ${elapsed}ms for ${session.projectId}`);
@@ -472,6 +501,33 @@ class DevServerService {
   }
 
   /**
+   * Try to infer a concrete startup/build issue from recent logs even when the
+   * process has not emitted an explicit "exited with code" marker yet.
+   */
+  private async detectStartupIssue(agentUrl: string): Promise<string | null> {
+    const rawLines = await this.getRecentLogs(agentUrl, 120);
+    if (rawLines.length === 0) return null;
+
+    const normalized = rawLines
+      .map(l => {
+        let clean = this.stripAnsi(l);
+        clean = clean.replace(/^\[[\dT:.Z-]+\]\s*\[\w+\]\s*/, '');
+        clean = clean.replace(/^\d{4}\s+/, '');
+        return clean.trim();
+      })
+      .filter(Boolean);
+    const fullLog = normalized.join('\n');
+
+    const actionablePattern = /Invalid environment variables|MODULE_NOT_FOUND|Cannot find module|Module not found:.*Can't resolve|Failed to compile|error TS\d+|SyntaxError:|EADDRINUSE|routes-manifest\.json|middleware-manifest\.json|vendor-chunks|Loading chunk \d+ failed|couldn't find the next\.js package|inferred your workspace root/i;
+    if (!actionablePattern.test(fullLog)) return null;
+
+    const parsed = this.parseCrashReason(rawLines);
+    return parsed === 'Il dev server è crashato. Controlla i log per maggiori dettagli.'
+      ? null
+      : parsed;
+  }
+
+  /**
    * Strip ANSI escape codes from text
    */
   private stripAnsi(text: string): string {
@@ -513,6 +569,11 @@ class DevServerService {
       const moduleName = moduleMatch ? moduleMatch[1] : 'sconosciuto';
       return `Modulo non trovato: ${moduleName}\n\nProva a reinstallare le dipendenze.`;
     }
+    if (/Module not found:.*Can't resolve/i.test(fullLog)) {
+      const resolveMatch = fullLog.match(/Module not found:.*Can't resolve ['"]([^'"]+)['"]/i);
+      const moduleName = resolveMatch ? resolveMatch[1] : 'sconosciuto';
+      return `Import non risolto: ${moduleName}\n\nControlla path, alias e file esportati.`;
+    }
     if (fullLog.includes('ModuleNotFoundError') || fullLog.includes('No module named')) {
       const pyMatch = fullLog.match(/No module named ['"]?([^\s'"]+)/);
       const moduleName = pyMatch ? pyMatch[1] : 'sconosciuto';
@@ -531,6 +592,21 @@ class DevServerService {
     }
 
     // Check for syntax/build errors
+    if (/Failed to compile/.test(fullLog)) {
+      const relevantLines = lines
+        .filter(l =>
+          /Failed to compile|Module not found|Can't resolve|error TS\d+|SyntaxError:|ReferenceError:|TypeError:/.test(l),
+        )
+        .slice(0, 5);
+      if (relevantLines.length > 0) {
+        return `Build fallita:\n\n${relevantLines.join('\n')}`;
+      }
+      return 'Build fallita durante l’avvio del dev server.';
+    }
+    if (/error TS\d+:/.test(fullLog)) {
+      const tsLine = lines.find(l => /error TS\d+:/.test(l));
+      return `Errore TypeScript in avvio:\n${tsLine || 'Controlla i file TypeScript del progetto.'}`;
+    }
     if (fullLog.includes('SyntaxError:')) {
       const syntaxMatch = fullLog.match(/SyntaxError:\s*(.+)/);
       return `Errore di sintassi nel codice:\n${syntaxMatch ? syntaxMatch[1] : 'Controlla il codice sorgente.'}`;
@@ -578,12 +654,19 @@ class DevServerService {
           log.warn(`[DevServer] Crash loop detected after ${elapsed}ms`);
           return { ready: false, error: crashReason };
         }
+
+        const startupIssue = await this.detectStartupIssue(agentUrl);
+        if (startupIssue) {
+          const elapsed = Date.now() - start;
+          log.warn(`[DevServer] Startup issue detected after ${elapsed}ms`);
+          return { ready: false, error: startupIssue };
+        }
       }
 
       await sleep(2000);
     }
     // Timeout — try to get crash reason from logs anyway
-    const reason = await this.detectCrash(agentUrl);
+    const reason = await this.detectCrash(agentUrl) || await this.detectStartupIssue(agentUrl);
     return {
       ready: false,
       error: reason || 'Il dev server non ha risposto entro il timeout. Potrebbe esserci un errore di build o dipendenze mancanti.',

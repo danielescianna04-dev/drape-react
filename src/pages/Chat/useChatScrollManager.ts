@@ -11,6 +11,13 @@ export const useChatScrollManager = () => {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const setNearBottomState = useCallback((nearBottom: boolean) => {
+    if (isNearBottomRef.current === nearBottom) {
+      setShowScrollToBottom((prev) => {
+        const next = !nearBottom;
+        return prev === next ? prev : next;
+      });
+      return;
+    }
     isNearBottomRef.current = nearBottom;
     setShowScrollToBottom((prev) => {
       const next = !nearBottom;
