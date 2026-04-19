@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, TextInput, Alert, Modal, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Clipboard from 'expo-clipboard';
 
 interface Props {
   projectId: string;
@@ -16,6 +17,7 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
   const [rows, setRows] = useState<Record<string, any>[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
+  const [totalAll, setTotalAll] = useState<number | null>(null);
   const [page, setPage] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -23,6 +25,8 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
   const [selectedRow, setSelectedRow] = useState<{ data: Record<string, any>; index: number } | null>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [showAnonymous, setShowAnonymous] = useState(false);
+  const isUsersTable = dbPath === '__drape__' && table === 'users';
 
   const apiRef = React.useRef(api);
   apiRef.current = api;
@@ -31,9 +35,10 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
     try {
       if (append) setIsLoadingMore(true);
       else setIsLoading(true);
-      const data = await apiRef.current.getRows(dbPath, table, pageNum);
+      const data = await apiRef.current.getRows(dbPath, table, pageNum, 50, undefined, isUsersTable ? { includeAnonymous: showAnonymous } : undefined);
       setColumns((data.columns || []).filter((c: string) => c !== 'rowid'));
       setTotal(data.total || 0);
+      setTotalAll(typeof data.totalAll === 'number' ? data.totalAll : null);
       if (append) setRows(prev => [...prev, ...data.rows]);
       else setRows(data.rows || []);
       setError(null);
@@ -43,9 +48,9 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
       setIsLoading(false);
       setIsLoadingMore(false);
     }
-  }, [dbPath, table]);
+  }, [dbPath, table, isUsersTable, showAnonymous]);
 
-  useEffect(() => { loadRows(0); }, [dbPath, table]);
+  useEffect(() => { setPage(0); loadRows(0); }, [dbPath, table, showAnonymous]);
 
   const handleLoadMore = () => {
     if (isLoadingMore || rows.length >= total) return;
@@ -88,9 +93,9 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
   const fmt = (v: any): string => v == null ? 'NULL' : typeof v === 'object' ? JSON.stringify(v) : String(v);
   const fmtShort = (v: any): string => { const s = fmt(v); return s.length > 28 ? s.slice(0, 26) + '…' : s; };
 
-  // Determine which columns to show in the compact grid (max 3)
-  const gridCols = columns.slice(0, 3);
-  const hasMore = columns.length > 3;
+  // All columns are rendered — the user scrolls horizontally through
+  // the shared header+body scroll wrapper below. A row tap still
+  // opens the detail modal for read/edit.
 
   if (isLoading) {
     return (
@@ -112,98 +117,380 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
     );
   }
 
+  const hiddenAnonymous = isUsersTable && !showAnonymous && totalAll != null ? Math.max(0, totalAll - total) : 0;
+
   return (
     <View style={s.container}>
       <View style={{ height: insets.top + 50 }} />
 
-      {/* Column Header Row — scrollable */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.colHeaderScroll} contentContainerStyle={s.colHeaderContent}>
-        <View style={s.colHeaderIdx}><Text style={s.colHeaderText}>#</Text></View>
-        {columns.map(col => (
-          <View key={col} style={s.colHeaderCell}><Text style={s.colHeaderText} numberOfLines={1}>{col}</Text></View>
-        ))}
-      </ScrollView>
+      {isUsersTable && (
+        <TouchableOpacity
+          style={s.anonToggle}
+          onPress={() => setShowAnonymous(v => !v)}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name={showAnonymous ? 'eye' : 'eye-off-outline'}
+            size={14}
+            color={showAnonymous ? '#A78BFA' : 'rgba(255,255,255,0.4)'}
+          />
+          <Text style={s.anonToggleText}>
+            {showAnonymous
+              ? 'Showing all users (anonymous included)'
+              : hiddenAnonymous > 0
+                ? `Hiding ${hiddenAnonymous} anonymous visitor${hiddenAnonymous === 1 ? '' : 's'}`
+                : 'Anonymous visitors hidden'}
+          </Text>
+        </TouchableOpacity>
+      )}
 
-      {/* Data Grid */}
-      <FlatList
-        data={rows}
-        keyExtractor={(item, i) => String(item.id ?? item.rowid ?? i)}
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.3}
-        renderItem={({ item, index }) => (
-          <TouchableOpacity style={[s.row, index % 2 === 0 && s.rowAlt]} onPress={() => setSelectedRow({ data: item, index })} activeOpacity={0.6}>
-            <View style={s.rowIdx}><Text style={s.rowIdxText}>{index + 1}</Text></View>
-            {gridCols.map(col => (
-              <View key={col} style={s.rowCell}>
-                <Text style={[s.rowCellText, item[col] == null && s.nullText]} numberOfLines={1}>{fmtShort(item[col])}</Text>
+      {/* Shared horizontal scroll for header + rows so they stay
+          aligned and every column is visible on a 430px screen. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={true}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexDirection: 'column' }}
+        nestedScrollEnabled
+      >
+        <View>
+          {/* Header */}
+          <View style={[s.colHeaderContent, { flexDirection: 'row' }]}>
+            <View style={s.colHeaderIdx}><Text style={s.colHeaderText}>#</Text></View>
+            {columns.map(col => (
+              <View key={col} style={s.colHeaderCell}>
+                <Text style={s.colHeaderText} numberOfLines={1}>{col}</Text>
               </View>
             ))}
-            {hasMore && (
-              <View style={s.rowMore}><Ionicons name="ellipsis-horizontal" size={14} color="rgba(255,255,255,0.2)" /></View>
-            )}
-          </TouchableOpacity>
-        )}
-        ListFooterComponent={
-          isLoadingMore ? <ActivityIndicator color="#8B5CF6" style={{ padding: 16 }} />
-          : rows.length > 0 && rows.length < total ? (
-            <TouchableOpacity style={s.loadMore} onPress={handleLoadMore}>
-              <Text style={s.loadMoreText}>Load more ({total - rows.length} left)</Text>
-            </TouchableOpacity>
-          ) : null
-        }
-        ListEmptyComponent={
-          <View style={s.empty}>
-            <Text style={s.emptyTitle}>Empty table</Text>
           </View>
-        }
-      />
+
+          {/* Rows */}
+          <FlatList
+            data={rows}
+            keyExtractor={(item, i) => String(item.id ?? item.rowid ?? i)}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.3}
+            nestedScrollEnabled
+            renderItem={({ item, index }) => (
+              <TouchableOpacity
+                style={[s.row, index % 2 === 0 && s.rowAlt, { flexDirection: 'row' }]}
+                onPress={() => setSelectedRow({ data: item, index })}
+                activeOpacity={0.6}
+              >
+                <View style={s.rowIdx}><Text style={s.rowIdxText}>{index + 1}</Text></View>
+                {columns.map(col => (
+                  <View key={col} style={s.rowCell}>
+                    <Text style={[s.rowCellText, item[col] == null && s.nullText]} numberOfLines={1}>
+                      {fmtShort(item[col])}
+                    </Text>
+                  </View>
+                ))}
+              </TouchableOpacity>
+            )}
+            ListFooterComponent={
+              isLoadingMore ? <ActivityIndicator color="#8B5CF6" style={{ padding: 16 }} />
+              : rows.length > 0 && rows.length < total ? (
+                <TouchableOpacity style={s.loadMore} onPress={handleLoadMore}>
+                  <Text style={s.loadMoreText}>Load more ({total - rows.length} left)</Text>
+                </TouchableOpacity>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={s.empty}>
+                <Text style={s.emptyTitle}>Empty table</Text>
+              </View>
+            }
+          />
+        </View>
+      </ScrollView>
 
       {/* Row Detail Modal */}
       <Modal visible={selectedRow !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setSelectedRow(null); setEditingField(null); }}>
         {selectedRow && (
-          <View style={s.modal}>
-            <View style={s.modalBar}>
-              <TouchableOpacity onPress={() => { setSelectedRow(null); setEditingField(null); }}><Text style={s.modalBarBtn}>Close</Text></TouchableOpacity>
-              <Text style={s.modalBarTitle}>Row #{selectedRow.data.id ?? selectedRow.data.rowid ?? selectedRow.index}</Text>
-              <TouchableOpacity onPress={() => handleDeleteRow(selectedRow.index)}><Ionicons name="trash-outline" size={18} color="#EF4444" /></TouchableOpacity>
-            </View>
-            <ScrollView contentContainerStyle={s.modalContent}>
-              {columns.map(col => {
-                const val = selectedRow.data[col];
-                const isEditing = editingField === col;
-                const isId = col === 'id' || col === 'rowid';
-                return (
-                  <View key={col} style={s.field}>
-                    <View style={s.fieldHeader}>
-                      <Text style={s.fieldName}>{col}</Text>
-                      {!isId && !isEditing && (
-                        <TouchableOpacity onPress={() => { setEditingField(col); setEditValue(val == null ? '' : String(val)); }}>
-                          <Ionicons name="pencil" size={14} color="rgba(255,255,255,0.25)" />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                    {isEditing ? (
-                      <View style={s.fieldEdit}>
-                        <TextInput style={s.fieldInput} value={editValue} onChangeText={setEditValue} autoFocus multiline />
-                        <View style={s.fieldEditBtns}>
-                          <TouchableOpacity style={s.saveBtn} onPress={() => handleFieldSave(selectedRow.index, col, editValue)}>
-                            <Text style={s.saveBtnText}>Save</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => setEditingField(null)}>
-                            <Text style={s.cancelText}>Cancel</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ) : (
-                      <Text style={[s.fieldVal, val == null && s.nullText, typeof val === 'number' && s.numText]}>{fmt(val)}</Text>
-                    )}
-                  </View>
-                );
-              })}
-            </ScrollView>
-          </View>
+          <RowDetailModal
+            row={selectedRow.data}
+            rowIndex={selectedRow.index}
+            columns={columns}
+            editingField={editingField}
+            editValue={editValue}
+            onClose={() => { setSelectedRow(null); setEditingField(null); }}
+            onStartEdit={(col, initial) => { setEditingField(col); setEditValue(initial); }}
+            onEditChange={setEditValue}
+            onCancelEdit={() => setEditingField(null)}
+            onSave={(col) => handleFieldSave(selectedRow.index, col, editValue)}
+            onDelete={() => handleDeleteRow(selectedRow.index)}
+          />
         )}
       </Modal>
+    </View>
+  );
+};
+
+// ─── Row detail modal ──────────────────────────────────────────────────────
+interface RowDetailProps {
+  row: Record<string, any>;
+  rowIndex: number;
+  columns: string[];
+  editingField: string | null;
+  editValue: string;
+  onClose: () => void;
+  onStartEdit: (col: string, initial: string) => void;
+  onEditChange: (v: string) => void;
+  onCancelEdit: () => void;
+  onSave: (col: string) => void;
+  onDelete: () => void;
+}
+
+const ID_COLUMNS = new Set(['id', 'rowid', 'project_id', 'end_user_id', 'title_id', 'user_id', 'anonymous_id']);
+const DATE_COLUMNS = new Set(['created_at', 'updated_at', 'expires_at', 'deleted_at']);
+
+function tryParseJson(value: any): { pretty: string; parsed: any } | null {
+  if (value == null) return null;
+  if (typeof value === 'object') {
+    try { return { pretty: JSON.stringify(value, null, 2), parsed: value }; }
+    catch { return null; }
+  }
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object') {
+      return { pretty: JSON.stringify(parsed, null, 2), parsed };
+    }
+    return null;
+  } catch { return null; }
+}
+
+function formatRelativeTime(iso: string): string | null {
+  const ts = Date.parse(iso);
+  if (isNaN(ts)) return null;
+  const diffMs = Date.now() - ts;
+  const absSec = Math.abs(diffMs) / 1000;
+  const sign = diffMs >= 0 ? 'ago' : 'from now';
+  if (absSec < 45) return `just now`;
+  if (absSec < 90) return `1 min ${sign}`;
+  const absMin = absSec / 60;
+  if (absMin < 45) return `${Math.round(absMin)} min ${sign}`;
+  if (absMin < 90) return `1 hour ${sign}`;
+  const absHr = absMin / 60;
+  if (absHr < 22) return `${Math.round(absHr)} hours ${sign}`;
+  if (absHr < 36) return `1 day ${sign}`;
+  const absDay = absHr / 24;
+  if (absDay < 26) return `${Math.round(absDay)} days ${sign}`;
+  if (absDay < 45) return `1 month ${sign}`;
+  const absMo = absDay / 30;
+  if (absMo < 11) return `${Math.round(absMo)} months ${sign}`;
+  return `${Math.round(absMo / 12)} years ${sign}`;
+}
+
+function formatDateShort(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * Render a JSON primitive (string/number/boolean/null) with sensible styling.
+ * Long strings wrap; URLs and dates get subtle formatting.
+ */
+const PrimitiveValue: React.FC<{ value: any }> = ({ value }) => {
+  if (value === null || value === undefined) {
+    return <Text style={[s.subVal, s.nullText]}>null</Text>;
+  }
+  if (typeof value === 'boolean') {
+    return (
+      <View style={[s.boolPill, value ? s.boolTrue : s.boolFalse, { alignSelf: 'flex-start' }]}>
+        <Text style={[s.boolText, value ? s.boolTrueText : s.boolFalseText]}>{value ? 'true' : 'false'}</Text>
+      </View>
+    );
+  }
+  if (typeof value === 'number') {
+    return <Text style={[s.subVal, s.numText]}>{String(value)}</Text>;
+  }
+  return <Text style={s.subVal}>{String(value)}</Text>;
+};
+
+const ArrayView: React.FC<{ arr: any[]; raw: string }> = ({ arr, raw }) => {
+  // Array of primitives → compact comma list with chips
+  const allPrimitive = arr.every((x) => x === null || ['string', 'number', 'boolean'].includes(typeof x));
+  if (allPrimitive && arr.length > 0) {
+    return (
+      <View style={s.chipRow}>
+        {arr.map((item, i) => (
+          <View key={i} style={s.chip}>
+            <Text style={s.chipText}>{item == null ? 'null' : String(item)}</Text>
+          </View>
+        ))}
+      </View>
+    );
+  }
+  if (arr.length === 0) return <Text style={[s.subVal, s.nullText]}>empty array</Text>;
+  // Array of objects → fall back to pretty JSON
+  return (
+    <View style={s.jsonWrap}>
+      <Text style={s.jsonText} selectable>{raw}</Text>
+    </View>
+  );
+};
+
+const NestedObjectView: React.FC<{ obj: Record<string, any>; depth?: number }> = ({ obj, depth = 0 }) => {
+  const entries = Object.entries(obj);
+  if (entries.length === 0) {
+    return <Text style={[s.subVal, s.nullText]}>empty object</Text>;
+  }
+  return (
+    <View style={[s.nestedWrap, depth > 0 && s.nestedWrapDeep]}>
+      {entries.map(([k, v], i) => {
+        const isObject = v !== null && typeof v === 'object' && !Array.isArray(v);
+        const isArray = Array.isArray(v);
+        const isLong = typeof v === 'string' && v.length > 60;
+        return (
+          <View key={k} style={[s.subField, i === entries.length - 1 && s.subFieldLast]}>
+            <Text style={s.subKey}>{k}</Text>
+            {isObject ? (
+              depth < 2
+                ? <NestedObjectView obj={v} depth={depth + 1} />
+                : <Text style={[s.subVal, s.mono]} selectable>{JSON.stringify(v)}</Text>
+            ) : isArray ? (
+              <ArrayView arr={v} raw={JSON.stringify(v, null, 2)} />
+            ) : isLong ? (
+              <Text style={[s.subVal, s.subValLong]} selectable>{String(v)}</Text>
+            ) : (
+              <PrimitiveValue value={v} />
+            )}
+          </View>
+        );
+      })}
+    </View>
+  );
+};
+
+const RowDetailModal: React.FC<RowDetailProps> = ({
+  row, rowIndex, columns, editingField, editValue,
+  onClose, onStartEdit, onEditChange, onCancelEdit, onSave, onDelete,
+}) => {
+  const insets = useSafeAreaInsets();
+  const [copiedCol, setCopiedCol] = useState<string | null>(null);
+  const rowId = row.id ?? row.rowid ?? rowIndex;
+  const shortRowId = useMemo(() => {
+    const s = String(rowId);
+    return s.length > 14 ? `${s.slice(0, 8)}…${s.slice(-4)}` : s;
+  }, [rowId]);
+
+  const copy = useCallback(async (col: string, value: string) => {
+    try {
+      await Clipboard.setStringAsync(value);
+      setCopiedCol(col);
+      setTimeout(() => setCopiedCol((c) => (c === col ? null : c)), 1400);
+    } catch {}
+  }, []);
+
+  return (
+    <View style={s.modal}>
+      {/* Header */}
+      <View style={[s.modalBar, { paddingTop: insets.top + 8 }]}>
+        <TouchableOpacity onPress={onClose} style={s.modalBarSide} hitSlop={8}>
+          <Ionicons name="close" size={22} color="rgba(255,255,255,0.7)" />
+        </TouchableOpacity>
+        <View style={s.modalBarCenter}>
+          <Text style={s.modalBarSub}>ROW</Text>
+          <Text style={s.modalBarTitle} numberOfLines={1}>{shortRowId}</Text>
+        </View>
+        <TouchableOpacity onPress={onDelete} style={s.modalBarSide} hitSlop={8}>
+          <Ionicons name="trash-outline" size={18} color="#EF4444" />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView contentContainerStyle={s.modalContent} keyboardShouldPersistTaps="handled">
+        {columns.map((col) => {
+          const val = row[col];
+          const isEditing = editingField === col;
+          const isId = ID_COLUMNS.has(col);
+          const isDate = DATE_COLUMNS.has(col);
+          const isReadOnly = col === 'id' || col === 'rowid';
+          const json = tryParseJson(val);
+          const isCopied = copiedCol === col;
+
+          return (
+            <View key={col} style={s.field}>
+              <View style={s.fieldHeader}>
+                <Text style={s.fieldName}>{col}</Text>
+                <View style={s.fieldHeaderActions}>
+                  {val != null && (isId || json) && !isEditing && (
+                    <TouchableOpacity
+                      onPress={() => copy(col, json ? json.pretty : String(val))}
+                      hitSlop={8}
+                      style={s.fieldHeaderBtn}
+                    >
+                      <Ionicons
+                        name={isCopied ? 'checkmark' : 'copy-outline'}
+                        size={14}
+                        color={isCopied ? '#34D399' : 'rgba(255,255,255,0.5)'}
+                      />
+                    </TouchableOpacity>
+                  )}
+                  {!isReadOnly && !isEditing && (
+                    <TouchableOpacity
+                      onPress={() => onStartEdit(col, val == null ? '' : typeof val === 'object' ? JSON.stringify(val) : String(val))}
+                      hitSlop={8}
+                      style={s.fieldHeaderBtn}
+                    >
+                      <Ionicons name="pencil" size={14} color="rgba(255,255,255,0.5)" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              {isEditing ? (
+                <View style={s.fieldEdit}>
+                  <TextInput
+                    style={s.fieldInput}
+                    value={editValue}
+                    onChangeText={onEditChange}
+                    autoFocus
+                    multiline
+                    placeholder={val == null ? 'null' : ''}
+                    placeholderTextColor="rgba(255,255,255,0.25)"
+                  />
+                  <View style={s.fieldEditBtns}>
+                    <TouchableOpacity style={s.saveBtn} onPress={() => onSave(col)}>
+                      <Text style={s.saveBtnText}>Save</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={onCancelEdit} hitSlop={8}>
+                      <Text style={s.cancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : val == null ? (
+                <Text style={[s.fieldVal, s.nullValText]}>null</Text>
+              ) : json && json.parsed && typeof json.parsed === 'object' && !Array.isArray(json.parsed) ? (
+                <NestedObjectView obj={json.parsed} />
+              ) : json && Array.isArray(json.parsed) ? (
+                <ArrayView arr={json.parsed} raw={json.pretty} />
+              ) : isDate && typeof val === 'string' ? (
+                <TouchableOpacity activeOpacity={0.8} onPress={() => copy(col, val)}>
+                  <Text style={s.fieldVal}>{formatDateShort(val)}</Text>
+                  {formatRelativeTime(val) && (
+                    <Text style={s.fieldValSub}>{formatRelativeTime(val)}</Text>
+                  )}
+                </TouchableOpacity>
+              ) : isId ? (
+                <TouchableOpacity activeOpacity={0.8} onPress={() => copy(col, String(val))}>
+                  <Text style={[s.fieldVal, s.monoVal]} numberOfLines={1} ellipsizeMode="middle">{String(val)}</Text>
+                </TouchableOpacity>
+              ) : typeof val === 'boolean' ? (
+                <View style={[s.boolPill, val ? s.boolTrue : s.boolFalse]}>
+                  <Text style={[s.boolText, val ? s.boolTrueText : s.boolFalseText]}>{val ? 'true' : 'false'}</Text>
+                </View>
+              ) : (
+                <Text style={[s.fieldVal, typeof val === 'number' && s.numText]}>{typeof val === 'object' ? JSON.stringify(val) : String(val)}</Text>
+              )}
+            </View>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 };
@@ -220,11 +507,28 @@ const s = StyleSheet.create({
   toolbarTitle: { color: '#fff', fontSize: 15, fontWeight: '700' },
   toolbarSub: { color: 'rgba(255,255,255,0.35)', fontSize: 11, marginTop: 1 },
 
+  // Anonymous-user filter toggle (users table only)
+  anonToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginHorizontal: 12,
+    marginBottom: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: 'rgba(139,92,246,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(139,92,246,0.2)',
+    gap: 6,
+  },
+  anonToggleText: { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: '600' },
+
   // Column header
   colHeaderScroll: { backgroundColor: 'rgba(139,92,246,0.08)', borderTopWidth: 1, borderBottomWidth: 1, borderColor: 'rgba(139,92,246,0.12)', maxHeight: 34 },
   colHeaderContent: { flexDirection: 'row', alignItems: 'center' },
   colHeaderIdx: { width: 36, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: 'rgba(255,255,255,0.05)' },
-  colHeaderCell: { paddingVertical: 8, paddingHorizontal: 12, borderRightWidth: 1, borderRightColor: 'rgba(255,255,255,0.05)', justifyContent: 'center', minWidth: 90 },
+  colHeaderCell: { width: 150, paddingVertical: 8, paddingHorizontal: 10, borderRightWidth: 1, borderRightColor: 'rgba(255,255,255,0.05)', justifyContent: 'center' },
   colHeaderText: { color: '#A78BFA', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
 
   // Data rows
@@ -232,7 +536,7 @@ const s = StyleSheet.create({
   rowAlt: { backgroundColor: 'rgba(255,255,255,0.015)' },
   rowIdx: { width: 36, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: 'rgba(255,255,255,0.04)' },
   rowIdxText: { color: 'rgba(255,255,255,0.2)', fontSize: 10, fontFamily: 'monospace' },
-  rowCell: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: 'rgba(255,255,255,0.03)', justifyContent: 'center' },
+  rowCell: { width: 150, paddingVertical: 10, paddingHorizontal: 10, borderRightWidth: 1, borderRightColor: 'rgba(255,255,255,0.03)', justifyContent: 'center' },
   rowCellText: { color: 'rgba(255,255,255,0.75)', fontSize: 12, fontFamily: 'monospace' },
   rowMore: { width: 40, alignItems: 'center', justifyContent: 'center' },
   nullText: { color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' },
@@ -253,18 +557,128 @@ const s = StyleSheet.create({
 
   // Modal
   modal: { flex: 1, backgroundColor: '#0D0B14' },
-  modalBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
-  modalBarBtn: { color: '#8B5CF6', fontSize: 15, fontWeight: '600' },
-  modalBarTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  modalContent: { padding: 16 },
-  field: { marginBottom: 16 },
-  fieldHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  fieldName: { color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  fieldVal: { color: 'rgba(255,255,255,0.85)', fontSize: 15, lineHeight: 22, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 10, overflow: 'hidden' },
+  modalBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    gap: 8,
+  },
+  modalBarSide: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  modalBarCenter: { flex: 1, alignItems: 'center' },
+  modalBarSub: { color: 'rgba(255,255,255,0.35)', fontSize: 9, fontWeight: '700', letterSpacing: 1, marginBottom: 2 },
+  modalBarTitle: { color: '#fff', fontSize: 15, fontWeight: '600', fontFamily: 'monospace' },
+
+  modalContent: { padding: 16, paddingBottom: 40 },
+  field: { marginBottom: 18 },
+  fieldHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  fieldHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  fieldHeaderBtn: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.04)' },
+  fieldName: { color: 'rgba(167,139,250,0.75)', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
+
+  fieldVal: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 15,
+    lineHeight: 22,
+    backgroundColor: 'rgba(255,255,255,0.035)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
+  },
+  fieldValSub: { color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4, paddingHorizontal: 12 },
+  monoVal: { fontFamily: 'monospace', fontSize: 13 },
+  nullValText: {
+    color: 'rgba(255,255,255,0.3)',
+    fontStyle: 'italic',
+    fontSize: 14,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
+  },
+
+  jsonWrap: {
+    backgroundColor: 'rgba(139,92,246,0.06)',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(139,92,246,0.15)',
+  },
+  jsonText: { color: 'rgba(255,255,255,0.9)', fontSize: 12, lineHeight: 18, fontFamily: 'monospace' },
+
+  // Nested object expanded as sub-fields
+  nestedWrap: {
+    backgroundColor: 'rgba(255,255,255,0.025)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
+  nestedWrapDeep: {
+    backgroundColor: 'rgba(139,92,246,0.05)',
+    borderColor: 'rgba(139,92,246,0.12)',
+  },
+  subField: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  subFieldLast: { borderBottomWidth: 0 },
+  subKey: {
+    color: 'rgba(167,139,250,0.7)',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+    marginBottom: 4,
+  },
+  subVal: { color: 'rgba(255,255,255,0.92)', fontSize: 14, lineHeight: 20 },
+  subValLong: { fontSize: 14, lineHeight: 20 },
+  mono: { fontFamily: 'monospace', fontSize: 12 },
+
+  // Array chips
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
+  chip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: 'rgba(139,92,246,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(139,92,246,0.25)',
+  },
+  chipText: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '500' },
+
+  boolPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  boolTrue: { backgroundColor: 'rgba(52,211,153,0.1)', borderColor: 'rgba(52,211,153,0.3)' },
+  boolFalse: { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' },
+  boolText: { fontSize: 12, fontWeight: '700', fontFamily: 'monospace' },
+  boolTrueText: { color: '#34D399' },
+  boolFalseText: { color: 'rgba(255,255,255,0.45)' },
+
   fieldEdit: { gap: 8 },
-  fieldInput: { color: '#fff', fontSize: 15, backgroundColor: 'rgba(139,92,246,0.08)', borderWidth: 1, borderColor: 'rgba(139,92,246,0.25)', borderRadius: 8, padding: 10, minHeight: 44 },
+  fieldInput: { color: '#fff', fontSize: 15, backgroundColor: 'rgba(139,92,246,0.08)', borderWidth: 1, borderColor: 'rgba(139,92,246,0.3)', borderRadius: 10, padding: 12, minHeight: 44 },
   fieldEditBtns: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  saveBtn: { backgroundColor: '#8B5CF6', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  saveBtn: { backgroundColor: '#8B5CF6', paddingHorizontal: 18, paddingVertical: 9, borderRadius: 10 },
   saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  cancelText: { color: 'rgba(255,255,255,0.4)', fontSize: 14 },
+  cancelText: { color: 'rgba(255,255,255,0.5)', fontSize: 14 },
 });

@@ -5,8 +5,76 @@ import { sessionService } from '../services/session.service';
 import { dockerService } from '../services/docker.service';
 import { config } from '../config';
 import { log } from '../utils/logger';
+import { fileService } from '../services/file.service';
+import { isDrapeCloudConfigured, getSql as getDrapeCloudSql } from '../services/drape-cloud/client';
+import { ScopedRowStore } from '../services/drape-cloud/scoped-query';
 
 export const dbRouter = Router();
+
+/**
+ * A project is on Drape Cloud when its creation-input.json explicitly
+ * opted in. We never guess from env files — the opt-in is the single
+ * source of truth to avoid misclassifying legacy projects that still
+ * have stray cloud env vars lying around.
+ */
+async function isDrapeCloudProject(projectId: string): Promise<boolean> {
+  if (!config.drapeCloudEnabled || !isDrapeCloudConfigured()) return false;
+  try {
+    const read = await fileService.readFile(projectId, '.drape/creation-input.json');
+    if (!read.success || !read.data?.content) return false;
+    const parsed = JSON.parse(read.data.content);
+    return parsed?.useDrapeCloud === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Flatten a DrapeRow record into the columns-row shape the existing
+ * DatabaseView UI expects: id + timestamps + every jsonb key pulled
+ * up to the top level. `rowid` is aliased to `id` so the update/
+ * delete flow (which passes { rowid }) works unchanged.
+ */
+function flattenDrapeRow(row: any): Record<string, any> {
+  const flat: Record<string, any> = {
+    rowid: row.id,
+    id: row.id,
+    end_user_id: row.end_user_id,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+  if (row.data && typeof row.data === 'object') {
+    for (const [k, v] of Object.entries(row.data)) {
+      if (k in flat) continue; // don't let payload overwrite id/timestamps
+      flat[k] = v;
+    }
+  }
+  return flat;
+}
+
+/**
+ * Derive columns from a set of drape_rows. Order optimises for
+ * at-a-glance readability in the mobile DB viewer: the grid only
+ * shows the first 3 columns in each row, so payload keys must come
+ * BEFORE meta (end_user_id, timestamps) — otherwise the user sees
+ * three meta columns and has to open the row modal to read anything.
+ *
+ * Final order: id, ...payload keys (first-seen), end_user_id,
+ * created_at, updated_at.
+ */
+function deriveDrapeColumns(rows: any[]): string[] {
+  const payload: string[] = [];
+  const seen = new Set<string>(['id', 'end_user_id', 'created_at', 'updated_at']);
+  for (const r of rows) {
+    if (!r.data || typeof r.data !== 'object') continue;
+    for (const k of Object.keys(r.data)) {
+      if (seen.has(k)) continue;
+      seen.add(k);
+      payload.push(k);
+    }
+  }
+  return ['id', ...payload, 'end_user_id', 'created_at', 'updated_at'];
+}
 
 /** Helper: get active session's agentUrl for a project */
 async function getAgentUrl(projectId: string, userId: string): Promise<string> {
@@ -51,6 +119,20 @@ dbRouter.get('/discover/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
   const uid = req.userId!;
   log.info(`[DB] Discover request for project=${projectId} user=${uid}`);
+
+  // Drape Cloud short-circuit: no container needed, data lives in our
+  // central Postgres. Surface a pseudo-database so the existing UI
+  // flow (pick DB → see tables) works unchanged.
+  const drapeCloudActive = await isDrapeCloudProject(projectId);
+  if (drapeCloudActive) {
+    log.info(`[DB] Project ${projectId} is on Drape Cloud — skipping container probe`);
+    return res.json({
+      databases: [{ path: '__drape__', fullPath: 'drape-cloud' }],
+      drapeCloudDetected: true,
+      pgDetected: false,
+      containerReady: true,
+    });
+  }
 
   // Graceful: if no container session, return empty instead of 404
   let agentUrl: string;
@@ -216,6 +298,47 @@ dbRouter.get('/tables/:projectId', asyncHandler(async (req, res) => {
   const dbPath = req.query.db as string;
   if (!dbPath) return res.status(400).json({ error: 'db query param required' });
 
+  // Drape Cloud tables — query our central Postgres directly. "Tables"
+  // here are the logical table_name values the generated app has
+  // inserted into. No container needed. Plus two virtual system
+  // tables (users, sessions) sourced from drape_end_users /
+  // drape_sessions so the project owner can see their auth data.
+  if (dbPath === '__drape__') {
+    if (!(await isDrapeCloudProject(projectId))) {
+      return res.status(400).json({ error: 'Project is not on Drape Cloud' });
+    }
+    try {
+      const sql = getDrapeCloudSql();
+      const [dataTables, usersCount, sessionsCount] = await Promise.all([
+        sql<{ name: string; rowcount: string }[]>`
+          SELECT table_name AS name, COUNT(*)::text AS rowcount
+          FROM drape_rows
+          WHERE project_id = ${projectId}
+          GROUP BY table_name
+          ORDER BY table_name
+        `,
+        sql<{ c: string }[]>`
+          SELECT COUNT(*)::text AS c FROM drape_end_users WHERE project_id = ${projectId}
+        `,
+        sql<{ c: string }[]>`
+          SELECT COUNT(*)::text AS c FROM drape_sessions WHERE project_id = ${projectId}
+        `,
+      ]);
+      const tables = dataTables.map((r) => ({
+        name: r.name,
+        rowCount: Number(r.rowcount) || 0,
+        system: false,
+      }));
+      // System tables: read-only, always present, auth-managed.
+      tables.push({ name: 'users', rowCount: Number(usersCount[0]?.c || 0), system: true });
+      tables.push({ name: 'sessions', rowCount: Number(sessionsCount[0]?.c || 0), system: true });
+      return res.json({ tables });
+    } catch (err: any) {
+      log.warn(`[DB] Drape Cloud tables query failed for ${projectId}: ${err.message}`);
+      return res.status(500).json({ error: `Drape Cloud query failed: ${err.message}` });
+    }
+  }
+
   // Neon tables — query via pg inside container
   if (dbPath === '__neon__') {
     const uid = req.userId!;
@@ -298,6 +421,119 @@ dbRouter.get('/rows/:projectId', asyncHandler(async (req, res) => {
   const filterVal = req.query.filterVal as string;
 
   if (!dbPath || !table) return res.status(400).json({ error: 'db and table query params required' });
+
+  // Drape Cloud rows — paginated list from drape_rows. Columns are
+  // inferred from the jsonb payload keys; each row is flattened so
+  // existing update/delete flows (which pass rowid=id) work without
+  // UI changes.
+  if (dbPath === '__drape__') {
+    if (!(await isDrapeCloudProject(projectId))) {
+      return res.status(400).json({ error: 'Project is not on Drape Cloud' });
+    }
+
+    // Virtual system tables — read-only view on auth data.
+    if (table === 'users' || table === 'sessions') {
+      try {
+        const sql = getDrapeCloudSql();
+        const offset = page * limit;
+        if (table === 'users') {
+          // Hide anonymous visitors by default — the SDK creates a row on every
+          // preview load (QA agent, device visits), cluttering the viewer.
+          const includeAnonymous = req.query.includeAnonymous === 'true';
+          const [rows, count] = await Promise.all([
+            includeAnonymous
+              ? sql<any[]>`
+                  SELECT id, email, display_name, is_anonymous, anonymous_id, created_at, updated_at
+                  FROM drape_end_users
+                  WHERE project_id = ${projectId}
+                  ORDER BY created_at DESC
+                  LIMIT ${limit} OFFSET ${offset}
+                `
+              : sql<any[]>`
+                  SELECT id, email, display_name, is_anonymous, anonymous_id, created_at, updated_at
+                  FROM drape_end_users
+                  WHERE project_id = ${projectId} AND is_anonymous = false
+                  ORDER BY created_at DESC
+                  LIMIT ${limit} OFFSET ${offset}
+                `,
+            includeAnonymous
+              ? sql<{ c: string }[]>`SELECT COUNT(*)::text AS c FROM drape_end_users WHERE project_id = ${projectId}`
+              : sql<{ c: string }[]>`SELECT COUNT(*)::text AS c FROM drape_end_users WHERE project_id = ${projectId} AND is_anonymous = false`,
+          ]);
+          // Always report the full count so the UI can show how many are hidden.
+          const totalAll = includeAnonymous
+            ? Number(count[0]?.c || 0)
+            : Number(
+                (await sql<{ c: string }[]>`SELECT COUNT(*)::text AS c FROM drape_end_users WHERE project_id = ${projectId}`)[0]?.c || 0,
+              );
+          return res.json({
+            rows: rows.map((r: any) => ({ rowid: r.id, ...r })),
+            columns: ['id', 'email', 'display_name', 'is_anonymous', 'anonymous_id', 'created_at', 'updated_at'],
+            total: Number(count[0]?.c || 0),
+            totalAll,
+            readOnly: true,
+            anonymousFilterApplied: !includeAnonymous,
+          });
+        }
+        // sessions
+        const [rows, count] = await Promise.all([
+          sql<any[]>`
+            SELECT token, end_user_id, created_at, expires_at
+            FROM drape_sessions
+            WHERE project_id = ${projectId}
+            ORDER BY created_at DESC
+            LIMIT ${limit} OFFSET ${offset}
+          `,
+          sql<{ c: string }[]>`SELECT COUNT(*)::text AS c FROM drape_sessions WHERE project_id = ${projectId}`,
+        ]);
+        return res.json({
+          rows: rows.map((r: any) => ({
+            rowid: r.token,
+            // Mask the session token (security) — only first 12 chars visible.
+            token: typeof r.token === 'string' ? `${r.token.slice(0, 12)}...` : r.token,
+            end_user_id: r.end_user_id,
+            created_at: r.created_at,
+            expires_at: r.expires_at,
+          })),
+          columns: ['token', 'end_user_id', 'created_at', 'expires_at'],
+          total: Number(count[0]?.c || 0),
+          readOnly: true,
+        });
+      } catch (err: any) {
+        return res.status(500).json({ error: `Drape Cloud ${table} query failed: ${err.message}` });
+      }
+    }
+
+    try {
+      const store = new ScopedRowStore(projectId);
+      const where: Record<string, unknown> | undefined =
+        filterCol && filterOp && filterVal !== undefined
+          ? { [filterCol]: filterOp === 'like' ? { ilike: `%${filterVal}%` } : { [filterOp]: filterVal } }
+          : undefined;
+      const { rows } = await store.list({
+        tableName: table,
+        where,
+        orderBy: '-created_at',
+        limit,
+        offset: page * limit,
+      });
+      const sql = getDrapeCloudSql();
+      const countRows = await sql<{ c: string }[]>`
+        SELECT COUNT(*)::text AS c FROM drape_rows
+        WHERE project_id = ${projectId} AND table_name = ${table}
+      `;
+      const total = Number(countRows[0]?.c || 0);
+      const columns = deriveDrapeColumns(rows);
+      return res.json({
+        rows: rows.map(flattenDrapeRow),
+        columns,
+        total,
+      });
+    } catch (err: any) {
+      log.warn(`[DB] Drape Cloud rows query failed: ${err.message}`);
+      return res.status(500).json({ error: `Drape Cloud query failed: ${err.message}` });
+    }
+  }
 
   // Neon rows — single combined query via pg inside container
   if (dbPath === '__neon__') {
@@ -416,6 +652,51 @@ dbRouter.get('/schema/:projectId', asyncHandler(async (req, res) => {
   const dbPath = req.query.db as string;
   if (!dbPath) return res.status(400).json({ error: 'db query param required' });
 
+  // Drape Cloud schema — inferred from the jsonb keys. Each logical
+  // table becomes one entry; columns are the union of keys across
+  // the first 200 rows of that table (cheap sample).
+  if (dbPath === '__drape__') {
+    if (!(await isDrapeCloudProject(projectId))) {
+      return res.status(400).json({ error: 'Project is not on Drape Cloud' });
+    }
+    try {
+      const sql = getDrapeCloudSql();
+      const tables = await sql<{ name: string; rowcount: string }[]>`
+        SELECT table_name AS name, COUNT(*)::text AS rowcount
+        FROM drape_rows
+        WHERE project_id = ${projectId}
+        GROUP BY table_name
+        ORDER BY table_name
+      `;
+      const schema: any[] = [];
+      for (const t of tables) {
+        const sample = await sql<any[]>`
+          SELECT data FROM drape_rows
+          WHERE project_id = ${projectId} AND table_name = ${t.name}
+          ORDER BY created_at DESC LIMIT 200
+        `;
+        const keys = deriveDrapeColumns(sample.map((r) => ({ data: r.data })));
+        schema.push({
+          name: t.name,
+          sql: `-- Drape Cloud jsonb-backed table\n-- Rows live in drape_rows with table_name='${t.name}'`,
+          columns: keys.map((k, i) => ({
+            cid: i,
+            name: k,
+            type: k === 'id' || k === 'end_user_id' ? 'uuid' : k.endsWith('_at') ? 'timestamptz' : 'jsonb',
+            notnull: k === 'id' ? 1 : 0,
+            dflt_value: null,
+            pk: k === 'id' ? 1 : 0,
+          })),
+          foreignKeys: [],
+          rowCount: Number(t.rowcount) || 0,
+        });
+      }
+      return res.json({ schema });
+    } catch (err: any) {
+      return res.status(500).json({ error: `Drape Cloud schema query failed: ${err.message}` });
+    }
+  }
+
   const uid = req.userId!;
   const agentUrl = await getAgentUrl(projectId, uid);
 
@@ -468,6 +749,32 @@ dbRouter.post('/update/:projectId', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'db, table, rowid, and column are required' });
   }
 
+  if (dbPath === '__drape__') {
+    if (!(await isDrapeCloudProject(projectId))) {
+      return res.status(400).json({ error: 'Project is not on Drape Cloud' });
+    }
+    if (table === 'users' || table === 'sessions') {
+      return res.status(400).json({ error: `'${table}' is a Drape Cloud system table and is read-only` });
+    }
+    // Meta columns (id/timestamps/end_user_id) are not editable via
+    // the database viewer — they're managed by the SDK.
+    if (['id', 'rowid', 'created_at', 'updated_at', 'end_user_id'].includes(column)) {
+      return res.status(400).json({ error: `Column '${column}' is managed by Drape Cloud and cannot be edited` });
+    }
+    try {
+      const store = new ScopedRowStore(projectId);
+      const updated = await store.update({
+        tableName: table,
+        id: String(rowid),
+        data: { [column]: value },
+      });
+      if (!updated) return res.status(404).json({ error: 'Row not found' });
+      return res.json({ changes: 1 });
+    } catch (err: any) {
+      return res.status(500).json({ error: `Drape Cloud update failed: ${err.message}` });
+    }
+  }
+
   const uid = req.userId!;
   const agentUrl = await getAgentUrl(projectId, uid);
 
@@ -491,6 +798,28 @@ dbRouter.post('/insert/:projectId', asyncHandler(async (req, res) => {
   const { db: dbPath, table, values } = req.body;
   if (!dbPath || !table || !values || typeof values !== 'object') {
     return res.status(400).json({ error: 'db, table, and values are required' });
+  }
+
+  if (dbPath === '__drape__') {
+    if (!(await isDrapeCloudProject(projectId))) {
+      return res.status(400).json({ error: 'Project is not on Drape Cloud' });
+    }
+    if (table === 'users' || table === 'sessions') {
+      return res.status(400).json({ error: `'${table}' is a Drape Cloud system table and is read-only` });
+    }
+    try {
+      // Strip meta columns from payload — they're DB-assigned.
+      const clean: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(values)) {
+        if (['id', 'rowid', 'created_at', 'updated_at', 'end_user_id'].includes(k)) continue;
+        clean[k] = v;
+      }
+      const store = new ScopedRowStore(projectId);
+      const row = await store.insert({ tableName: table, data: clean });
+      return res.json({ lastInsertRowid: row.id, changes: 1 });
+    } catch (err: any) {
+      return res.status(500).json({ error: `Drape Cloud insert failed: ${err.message}` });
+    }
   }
 
   const uid = req.userId!;
@@ -524,6 +853,22 @@ dbRouter.post('/delete/:projectId', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'db, table, and rowid are required' });
   }
 
+  if (dbPath === '__drape__') {
+    if (!(await isDrapeCloudProject(projectId))) {
+      return res.status(400).json({ error: 'Project is not on Drape Cloud' });
+    }
+    if (table === 'users' || table === 'sessions') {
+      return res.status(400).json({ error: `'${table}' is a Drape Cloud system table and is read-only` });
+    }
+    try {
+      const store = new ScopedRowStore(projectId);
+      const deleted = await store.delete(table, String(rowid));
+      return res.json({ changes: deleted ? 1 : 0 });
+    } catch (err: any) {
+      return res.status(500).json({ error: `Drape Cloud delete failed: ${err.message}` });
+    }
+  }
+
   const uid = req.userId!;
   const agentUrl = await getAgentUrl(projectId, uid);
 
@@ -545,6 +890,12 @@ dbRouter.post('/query/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
   const { db: dbPath, sql } = req.body;
   if (!dbPath || !sql) return res.status(400).json({ error: 'db and sql are required' });
+
+  if (dbPath === '__drape__') {
+    return res.status(400).json({
+      error: 'Raw SQL is not available on Drape Cloud — data lives in a shared jsonb-backed store. Use the Rows tab or the drape SDK instead.',
+    });
+  }
 
   const uid = req.userId!;
   const agentUrl = await getAgentUrl(projectId, uid);
@@ -582,6 +933,32 @@ dbRouter.get('/export/:projectId', asyncHandler(async (req, res) => {
   const dbPath = req.query.db as string;
   const table = req.query.table as string;
   if (!dbPath || !table) return res.status(400).json({ error: 'db and table required' });
+
+  if (dbPath === '__drape__') {
+    if (!(await isDrapeCloudProject(projectId))) {
+      return res.status(400).send('Project is not on Drape Cloud');
+    }
+    const store = new ScopedRowStore(projectId);
+    const { rows } = await store.list({ tableName: table, limit: 10000, orderBy: '-created_at' });
+    if (rows.length === 0) {
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${table}.csv"`);
+      return res.send('');
+    }
+    const flat = rows.map(flattenDrapeRow);
+    const cols = deriveDrapeColumns(rows);
+    const esc = (v: unknown) => {
+      const s = String(v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : v);
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? '"' + s.replace(/"/g, '""') + '"'
+        : s;
+    };
+    const lines = [cols.join(',')];
+    for (const r of flat) lines.push(cols.map((c) => esc(r[c])).join(','));
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${table}.csv"`);
+    return res.send(lines.join('\n'));
+  }
 
   const uid = req.userId!;
   const agentUrl = await getAgentUrl(projectId, uid);

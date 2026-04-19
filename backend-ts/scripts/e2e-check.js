@@ -565,13 +565,22 @@ async function verify(pages) {
                 results.errors.push(`[nav] "${el.text}" → ${newPath} → redirect loop back to ${afterPath}`);
               }
 
-              // Check destination page for errors
+              // Check destination page for errors. Capture the visible error
+              // text so the auto-fix model knows WHAT broke on the destination
+              // page, not just THAT something broke.
               const newAnalysis = await analyzePage(page).catch(() => null);
               if (newAnalysis) {
                 if (newAnalysis.hasError) {
-                  clickResult.error = `Error screen after clicking "${el.text}"`;
+                  const errDetail = await page
+                    .evaluate(() => {
+                      const bodyText = (document.body?.innerText || '').trim();
+                      const line = bodyText.split('\n').map(s => s.trim()).find(s => s.length > 8) || '';
+                      return line.substring(0, 200);
+                    })
+                    .catch(() => '');
+                  clickResult.error = `Error screen after clicking "${el.text}"${errDetail ? ` — ${errDetail}` : ''}`;
                   results.passed = false;
-                  results.errors.push(`[nav] "${el.text}" → ${newPath} → error screen`);
+                  results.errors.push(`[nav] "${el.text}" → ${newPath} → error screen${errDetail ? ` — ${errDetail}` : ''}`);
                 }
                 if (newAnalysis.isBlank) {
                   clickResult.error = `Blank page after clicking "${el.text}"`;

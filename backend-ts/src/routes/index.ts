@@ -15,6 +15,7 @@ import { iapRouter } from './iap.routes';
 import { authRouter } from './auth.routes';
 import { dbRouter } from './db.routes';
 import { dataExportRouter } from './data-export.routes';
+import { createDrapeCloudRouter } from './drape-cloud.routes';
 import { filesBrowseRouter } from './files-browse.routes';
 import { createPreviewProxy, createAssetProxy, createSubdomainPreviewProxy } from '../middleware/vm-router';
 import { config } from '../config';
@@ -55,6 +56,10 @@ export function mountRoutes(app: Express): void {
   app.all(/^\/.+\.(css|js|mjs|jsx|tsx|ts|map|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|otf|eot|webp|json|wasm)$/i, createAssetProxy());
 
   // --- Public routes (no auth required) ---
+
+  // Drape Cloud — public multi-tenant API for generated apps.
+  // Auth is via x-drape-project-key header (not Drape user auth).
+  app.use('/v1', createDrapeCloudRouter());
 
   // IAP — webhook is public (Apple calls it), verify-receipt has its own requireAuth
   app.use('/iap', iapRouter);

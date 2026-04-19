@@ -58,6 +58,12 @@ export const config = {
   dockerTlsDir: optional('DOCKER_TLS_DIR', '/etc/docker/tls'),
   workspaceImage: optional('DRAPE_WORKSPACE_IMAGE', 'drape-workspace:latest'),
 
+  // Drape Cloud (multi-tenant shared backend for generated apps)
+  drapeCloudDbUrl: optional('DRAPE_CLOUD_DB_URL', ''),
+  drapeCloudEnabled: optionalBool('DRAPE_CLOUD_ENABLED', false),
+  drapeCloudRowQuotaPerProject: optionalInt('DRAPE_CLOUD_ROW_QUOTA_PER_PROJECT', 10000),
+  drapeCloudRequestsQuotaPerMonth: optionalInt('DRAPE_CLOUD_REQUESTS_QUOTA_PER_MONTH', 100000),
+
   // NVMe paths
   projectsRoot: optional('PROJECTS_ROOT', '/data/projects'),
   publishedRoot: optional('PUBLISHED_ROOT', '/data/published'),

@@ -76,6 +76,11 @@ export function createApp(): express.Express {
       if (isPreviewTraffic(path)) return true;
       if (path.startsWith('/fly/logs/')) return true; // SSE log stream
       if (path.startsWith('/logs/')) return true; // backend log endpoints
+      // Drape Cloud has its OWN per-project quota in quota.service.ts.
+      // Generated apps make many drape.table() calls per page render and
+      // would false-positive under the 100/min global limiter, especially
+      // during verify where the qa-agent visits multiple routes fast.
+      if (path.startsWith('/v1/')) return true;
       return false;
     },
     standardHeaders: true,

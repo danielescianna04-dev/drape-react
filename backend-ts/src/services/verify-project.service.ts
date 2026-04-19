@@ -48,6 +48,16 @@ export type { VerifyResult, VerifyOptions } from './verify/types';
 
 const VERIFY_MAX_ATTEMPTS = 3;
 const VERIFY_BONUS_ATTEMPTS_FOR_NEW_FIXABLE_ERROR = 1;
+const VERIFY_QA_INFRA_RETRIES_PER_ATTEMPT = 1;
+
+// Puppeteer/Chromium infrastructure failures — NOT real app bugs.
+// When qa-agent crashes at the protocol level, the attempt is wasted.
+// Detect and retry in place without spending an attempt slot.
+const QA_INFRA_CRASH_REGEX = /QA agent fatal error:.*(Protocol error|Connection closed|Target closed|Session closed|Page has been closed|Navigation timeout|net::ERR_)/i;
+function isQaInfraCrash(errors: string[]): boolean {
+  if (errors.length !== 1) return false;
+  return QA_INFRA_CRASH_REGEX.test(errors[0]);
+}
 
 const PROJECT_FIX_MODEL = config.projectVerifyFixModel;
 const PROJECT_FIX_THINKING_LEVEL = config.projectVerifyFixThinkingLevel;
@@ -89,6 +99,7 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
   let previousAttemptHadFix = false;
   let escalationAttempted = false;
   let lastEscalationDecisionReason: string | null = null;
+  let qaInfraRetriesUsedThisAttempt = 0;
   let totalVerifyCheapCostEur = 0;
   let totalVerifyCheapTokens = 0;
   let totalVerifyEscalationCostEur = 0;
@@ -120,6 +131,23 @@ export async function verifyAndFixProject(opts: VerifyOptions): Promise<VerifyRe
       allowQaFallback: true,
     });
     const attemptDuration = Date.now() - attemptStartTime;
+
+    // Puppeteer protocol/connection crashes are QA infra failures, not app bugs.
+    // Don't burn a real attempt slot on them — retry in place up to N times.
+    if (!lastResult.passed && isQaInfraCrash(lastResult.errors) && qaInfraRetriesUsedThisAttempt < VERIFY_QA_INFRA_RETRIES_PER_ATTEMPT) {
+      qaInfraRetriesUsedThisAttempt += 1;
+      log.warn(
+        `[Verify] Project ${projectId} QA infra crash on attempt ${attempt + 1} (retry ${qaInfraRetriesUsedThisAttempt}/${VERIFY_QA_INFRA_RETRIES_PER_ATTEMPT}) — not counting this attempt`,
+      );
+      await appendRuntimeAction(projectId, 'verify', `QA infra crash — retrying (attempt ${attempt + 1})`, {
+        status: 'fixed',
+        error: lastResult.errors[0] || '',
+        details: 'Puppeteer/browser crashed; retrying verify in place without consuming an attempt slot',
+      }).catch(() => {});
+      attempt -= 1;
+      continue;
+    }
+    qaInfraRetriesUsedThisAttempt = 0;
 
     // Build attempt record for the report
     const attemptRecord: any = {

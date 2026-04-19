@@ -388,7 +388,10 @@ class ProjectDetectorService {
     // Dev mode: faster startup (~3-5s vs 60-90s build),
     // per-page compilation errors instead of blocking the entire server.
     if (useTurbopack) flags.push('--turbopack');
-    const startCommand = `./node_modules/.bin/next dev ${flags.join(' ')}`;
+    // Disable telemetry: skips the "Attention: Next.js collects..." prompt
+    // on first run (which otherwise adds a few seconds of noise on every
+    // fresh container) and avoids a DNS+HTTPS round trip to telemetry.nextjs.org.
+    const startCommand = `NEXT_TELEMETRY_DISABLED=1 ./node_modules/.bin/next dev ${flags.join(' ')}`;
 
     return {
       type: 'nextjs',

@@ -67,6 +67,30 @@ function isLikelyPrimaryInteractive(el) {
   return /(home|chat|messages|status|settings|profile|search|explore|discover|feed|cart|checkout|shop|buy|subscribe|pricing|camera|reels|shorts|library|menu|account|orders|favorites|saved|notifications|inbox|calendar|book|schedule|next|continue|start|get started|view|open|export|download|share|play|watch|details)/i.test(label);
 }
 
+// Filter chips that represent the "no filter / all" default. Clicking
+// one when it's already selected is a legitimate no-op and should NOT
+// be flagged as a dead interactive — the previous logic was creating
+// an infinite fix loop on every catalog/listing page.
+const FILTER_RESET_LABELS = new Set([
+  'all', 'tutti', 'tutte', 'tutto',
+  'all categories', 'tutte le categorie',
+  'show all', 'mostra tutto', 'vedi tutti',
+  'any', 'qualsiasi',
+  'clear', 'clear filters', 'azzera', 'reset',
+  'default',
+]);
+
+function isResetLikeFilterChip(el) {
+  const text = normalizeInteractiveLabel(el?.text || '');
+  if (!text) return false;
+  if (!FILTER_RESET_LABELS.has(text)) return false;
+  // Must look like a filter chip/toggle/tab — not a primary CTA.
+  if (el?.type === 'button' || el?.type === 'interactive' || el?.type === 'chip' || el?.type === 'tab') return true;
+  // Buttons without an href that are short labels are almost always chips.
+  if (!el?.href && typeof el?.text === 'string' && el.text.length <= 20) return true;
+  return false;
+}
+
 function classifyDeadInteractive(el, pagePath) {
   const normalizedHref = normalizeInteractiveLabel(el?.href);
   const normalizedPage = normalizeInteractiveLabel(pagePath);
@@ -80,6 +104,14 @@ function classifyDeadInteractive(el, pagePath) {
       severity: 'low',
       blocking: false,
       reason: 'same-page link',
+    };
+  }
+
+  if (isResetLikeFilterChip(el)) {
+    return {
+      severity: 'low',
+      blocking: false,
+      reason: 'reset/default filter chip (expected no-op when already active)',
     };
   }
 
@@ -649,7 +681,15 @@ async function functionalTest(browser, options = {}) {
               if (change.type === 'navigation') {
                 const newAnalysis = await analyzePage(page).catch(() => null);
                 if (newAnalysis?.hasError) {
-                  clickResult.error = `Error screen after clicking "${el.text}"`;
+                  const errDetail = await page
+                    .evaluate(() => {
+                      const bodyText = (document.body?.innerText || '').trim();
+                      const line = bodyText.split('\n').map(s => s.trim()).find(s => s.length > 8) || '';
+                      return line.substring(0, 200);
+                    })
+                    .catch(() => '');
+                  const toPath = clickResult.toPage || '';
+                  clickResult.error = `Error screen after clicking "${el.text}"${toPath ? ` → ${toPath}` : ''}${errDetail ? ` — ${errDetail}` : ''}`;
                   results.issues.push({ type: 'functional', severity: 'critical', page: testPage, description: clickResult.error });
                 }
                 if (newAnalysis?.isBlank) {
@@ -893,8 +933,13 @@ async function main() {
 
     report.totalIssues = criticalHigh.length;
   } catch (err) {
-    logAction('qa', 'fatal', err.message.substring(0, 200));
+    const msg = (err && err.message ? String(err.message) : String(err)).substring(0, 300);
+    logAction('qa', 'fatal', msg);
     report.status = 'error';
+    // Persist the actual failure reason — the backend orchestrator surfaces
+    // this to the auto-fix model. Without it, all crashes look the same
+    // ("status=error, issues=0") and the AI has nothing to fix.
+    report.fatalError = msg;
   } finally {
     if (browser) await browser.close().catch(() => {});
   }
@@ -961,15 +1006,21 @@ async function main() {
         : (c.element?.type === 'link' ? ' [href=none]' : '');
       return `Dead interactive element: ${elDesc}${hrefDesc}${pageDesc} — ${c.error}`;
     });
+  // If qa-agent crashed before producing issues, surface the fatal message
+  // as a real error string so the backend auto-fix has something to act on.
+  const fatalErrors = report.status === 'error' && report.fatalError
+    ? [`QA agent fatal error: ${report.fatalError}`]
+    : [];
   const backcompat = {
     passed: report.status === 'verified',
     pages: lastAttempt?.pages || [],
     navigation: lastAttempt?.clicks || [],
-    errors: [...pageErrors, ...deadClickErrors],
+    errors: [...pageErrors, ...deadClickErrors, ...fatalErrors],
     qaReport: {
       status: report.status,
       qualityScore: report.qualityScore,
       totalIssues: report.totalIssues,
+      fatalError: report.fatalError || undefined,
       attempts: (report.attempts || []).map(a => ({
         cycle: a.cycle,
         functionalIssues: a.functionalIssues,

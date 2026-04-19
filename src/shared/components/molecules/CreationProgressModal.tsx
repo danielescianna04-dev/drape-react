@@ -908,11 +908,18 @@ export const CreationProgressModal = ({ visible, progress, status, step, agentEv
             >
                 {toolTimeline.length === 0 ? (
                     <View style={styles.emptyToolState}>
-                        <Ionicons name="sparkles-outline" size={18} color="rgba(196, 181, 253, 0.9)" />
+                        <View style={styles.emptyIconHalo}>
+                            <View style={styles.emptyIconInner}>
+                                <Ionicons name="sparkles" size={22} color="#C4B5FD" />
+                            </View>
+                        </View>
+                        <Text style={styles.emptyToolStateTitle}>
+                            {lang === 'it' ? 'In attesa dell’agente' : 'Waiting for the agent'}
+                        </Text>
                         <Text style={styles.emptyToolStateText}>
                             {lang === 'it'
-                                ? 'Appena parte l’agente, vedrai qui ogni operazione in tempo reale.'
-                                : 'As soon as the agent starts, each tool call will appear here live.'}
+                                ? 'Appena parte, vedrai qui ogni operazione in tempo reale.'
+                                : 'As soon as it starts, each tool call will appear here live.'}
                         </Text>
                     </View>
                 ) : (
@@ -922,13 +929,25 @@ export const CreationProgressModal = ({ visible, progress, status, step, agentEv
                                 ? 'ellipse'
                                 : item.state === 'error'
                                     ? 'alert-circle'
-                                    : 'checkmark-circle';
+                                    : 'checkmark';
                         const stateColor =
                             item.state === 'running'
                                 ? '#A78BFA'
                                 : item.state === 'error'
                                     ? '#FCA5A5'
                                     : '#86EFAC';
+                        const stateBg =
+                            item.state === 'running'
+                                ? 'rgba(167, 139, 250, 0.18)'
+                                : item.state === 'error'
+                                    ? 'rgba(252, 165, 165, 0.16)'
+                                    : 'rgba(134, 239, 172, 0.14)';
+                        const stateBorder =
+                            item.state === 'running'
+                                ? 'rgba(167, 139, 250, 0.5)'
+                                : item.state === 'error'
+                                    ? 'rgba(252, 165, 165, 0.42)'
+                                    : 'rgba(134, 239, 172, 0.36)';
                         return (
                             <View
                                 key={item.key}
@@ -938,14 +957,10 @@ export const CreationProgressModal = ({ visible, progress, status, step, agentEv
                                     item.state === 'running' && styles.toolRowActive,
                                 ]}
                             >
-                                <View style={styles.toolRail}>
-                                    <View style={[styles.toolRailDot, { backgroundColor: stateColor }]} />
-                                    {index !== toolTimeline.length - 1 && <View style={styles.toolRailLine} />}
-                                </View>
-                                <View style={[styles.toolIconWrap, { backgroundColor: `${item.color}18`, borderColor: `${item.color}36` }]}>
+                                <View style={[styles.toolIconWrap, { backgroundColor: `${item.color}1A`, borderColor: `${item.color}40` }]}>
                                     <Ionicons
                                         name={item.icon}
-                                        size={15}
+                                        size={16}
                                         color={item.color}
                                     />
                                 </View>
@@ -953,16 +968,19 @@ export const CreationProgressModal = ({ visible, progress, status, step, agentEv
                                     <View style={styles.toolLabelRow}>
                                         <Text style={styles.toolLabel} numberOfLines={1}>{item.label}</Text>
                                         {item.state === 'running' && (
-                                            <Text style={styles.toolInlineLive}>
-                                                {lang === 'it' ? 'live' : 'live'}
-                                            </Text>
+                                            <View style={styles.toolLivePill}>
+                                                <View style={styles.toolLiveDot} />
+                                                <Text style={styles.toolInlineLive}>live</Text>
+                                            </View>
                                         )}
                                     </View>
                                     {!!item.detail && (
                                         <Text style={styles.toolDetail} numberOfLines={1}>{item.detail}</Text>
                                     )}
                                 </View>
-                                <Ionicons name={stateIcon} size={16} color={stateColor} style={styles.toolStateIcon} />
+                                <View style={[styles.toolStatePill, { backgroundColor: stateBg, borderColor: stateBorder }]}>
+                                    <Ionicons name={stateIcon} size={item.state === 'running' ? 8 : 13} color={stateColor} />
+                                </View>
                             </View>
                         );
                     })
@@ -1114,57 +1132,71 @@ const styles = StyleSheet.create({
         flexGrow: 1,
     },
     emptyToolState: {
-        flexDirection: 'row',
+        flex: 1,
         alignItems: 'center',
-        gap: 10,
-        borderRadius: 16,
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-        backgroundColor: 'rgba(255,255,255,0.03)',
+        justifyContent: 'center',
+        paddingHorizontal: 24,
+        paddingVertical: 32,
+        gap: 14,
+    },
+    emptyIconHalo: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(167, 139, 250, 0.08)',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: 'rgba(167, 139, 250, 0.14)',
+    },
+    emptyIconInner: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(167, 139, 250, 0.14)',
+        borderWidth: 1,
+        borderColor: 'rgba(196, 181, 253, 0.32)',
+    },
+    emptyToolStateTitle: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: 'rgba(255,255,255,0.92)',
+        letterSpacing: 0.2,
+        marginTop: 2,
     },
     emptyToolStateText: {
-        flex: 1,
-        fontSize: 12,
-        lineHeight: 17,
-        color: 'rgba(255,255,255,0.62)',
+        fontSize: 12.5,
+        lineHeight: 18,
+        color: 'rgba(255,255,255,0.52)',
+        textAlign: 'center',
+        maxWidth: 260,
     },
     toolRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
-        minHeight: 48,
-        paddingVertical: 8,
+        gap: 12,
+        minHeight: 52,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        marginBottom: 4,
+        borderRadius: 14,
+        backgroundColor: 'rgba(255,255,255,0.025)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
     },
     toolRowActive: {
-        backgroundColor: 'rgba(139, 92, 246, 0.04)',
-        borderRadius: 14,
+        backgroundColor: 'rgba(139, 92, 246, 0.08)',
+        borderColor: 'rgba(167, 139, 250, 0.28)',
     },
     toolRowLast: {
         marginBottom: 0,
     },
-    toolRail: {
-        width: 10,
-        alignItems: 'center',
-        alignSelf: 'stretch',
-    },
-    toolRailDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        marginTop: 4,
-    },
-    toolRailLine: {
-        width: 1,
-        flex: 1,
-        marginTop: 4,
-        backgroundColor: 'rgba(255,255,255,0.08)',
-    },
     toolIconWrap: {
-        width: 30,
-        height: 30,
-        borderRadius: 15,
+        width: 34,
+        height: 34,
+        borderRadius: 10,
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 1,
@@ -1172,7 +1204,7 @@ const styles = StyleSheet.create({
     toolTextWrap: {
         flex: 1,
         minWidth: 0,
-        paddingRight: 8,
+        paddingRight: 4,
     },
     toolLabelRow: {
         flexDirection: 'row',
@@ -1181,24 +1213,47 @@ const styles = StyleSheet.create({
     },
     toolLabel: {
         flexShrink: 1,
-        fontSize: 12.5,
-        fontWeight: '700',
-        color: 'rgba(255,255,255,0.9)',
+        fontSize: 13,
+        fontWeight: '600',
+        color: 'rgba(255,255,255,0.94)',
+        letterSpacing: 0.1,
+    },
+    toolLivePill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+        borderRadius: 999,
+        backgroundColor: 'rgba(167, 139, 250, 0.18)',
+        borderWidth: 1,
+        borderColor: 'rgba(167, 139, 250, 0.4)',
+    },
+    toolLiveDot: {
+        width: 5,
+        height: 5,
+        borderRadius: 2.5,
+        backgroundColor: '#C4B5FD',
     },
     toolInlineLive: {
-        fontSize: 10,
+        fontSize: 9.5,
         fontWeight: '700',
-        color: '#C4B5FD',
+        color: '#DDD6FE',
         textTransform: 'uppercase',
-        letterSpacing: 0.8,
+        letterSpacing: 0.9,
     },
     toolDetail: {
-        fontSize: 11,
-        color: 'rgba(255,255,255,0.46)',
+        fontSize: 11.5,
+        color: 'rgba(255,255,255,0.5)',
         marginTop: 2,
     },
-    toolStateIcon: {
-        opacity: 0.9,
+    toolStatePill: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
     },
     statusContainer: {
         alignItems: 'center',

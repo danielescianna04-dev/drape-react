@@ -10,6 +10,10 @@
 import { fileService } from '../file.service';
 import { BuildReportTracker } from '../build-report.service';
 import { assessProjectComplexity, getProjectGenerationRuntimePolicy } from '../project-complexity.service';
+import { resolveProjectTechnology } from '../project-technology';
+import { config as appConfig } from '../../config';
+import { provisionDrapeCloudForProject } from '../drape-cloud/provision';
+import { isDrapeCloudConfigured } from '../drape-cloud/client';
 import { log } from '../../utils/logger';
 import { config } from '../../config';
 import type { PipelineContext, PipelinePhase, PipelineState } from './types';
@@ -22,10 +26,20 @@ import { runFinalize } from './phase-finalize';
 const PROJECT_CREATION_MODEL = config.projectGenerationModel;
 
 async function createInitialState(ctx: PipelineContext): Promise<PipelineState> {
+  // Resolve the canonical technology BEFORE creating the tracker so the
+  // build-report persists the user-selected template (e.g. "html") instead of
+  // the detector-derived label ("static") that doesn't match the prompt +
+  // auto-fix systems' naming.
+  const resolvedTechnology = await resolveProjectTechnology(
+    ctx.projectId,
+    ctx.sessionProjectType,
+    'nextjs',
+  );
+
   const tracker = new BuildReportTracker(
     ctx.projectId,
     ctx.projectName || ctx.projectId.replace(/^project-/, '') || ctx.projectId,
-    ctx.sessionProjectType || 'nextjs',
+    resolvedTechnology,
     false,
   );
   tracker.updateSummary({
@@ -38,24 +52,33 @@ async function createInitialState(ctx: PipelineContext): Promise<PipelineState> 
   // Seed complexity from the stored creation-input.json (if present).
   // Missing/malformed input is silently tolerated: we fall back to 'medium'.
   let projectComplexity: PipelineState['projectComplexity'] = 'medium';
+  let useDrapeCloud = false;
+  let creationDescription = '';
+  let creationAnswers: Record<string, string | string[]> = {};
+  let creationTitle = ctx.projectName || '';
   try {
     const creationInput = await fileService.readFile(ctx.projectId, '.drape/creation-input.json');
     if (creationInput.success && creationInput.data?.content) {
       const parsed = JSON.parse(creationInput.data.content);
+      useDrapeCloud = parsed?.useDrapeCloud === true;
+      creationDescription = typeof parsed.description === 'string' ? parsed.description : '';
+      creationAnswers =
+        parsed.structuredAnswers && typeof parsed.structuredAnswers === 'object'
+          ? (parsed.structuredAnswers as Record<string, string | string[]>)
+          : {};
+      if (typeof parsed.projectName === 'string' && parsed.projectName) {
+        creationTitle = parsed.projectName;
+      }
       const complexity = assessProjectComplexity({
-        technology: ctx.sessionProjectType || 'nextjs',
-        description: typeof parsed.description === 'string' ? parsed.description : '',
-        answers: parsed.structuredAnswers && typeof parsed.structuredAnswers === 'object'
-          ? parsed.structuredAnswers
-          : {},
+        technology: resolvedTechnology,
+        description: creationDescription,
+        answers: creationAnswers,
         cloudMode: false,
       });
       projectComplexity = complexity.level;
       tracker.updateSummary({
-        creationPrompt: typeof parsed.description === 'string' ? parsed.description : '',
-        creationAnswers: parsed.structuredAnswers && typeof parsed.structuredAnswers === 'object'
-          ? parsed.structuredAnswers
-          : {},
+        creationPrompt: creationDescription,
+        creationAnswers,
         projectComplexity: complexity.level,
         projectComplexityScore: complexity.score,
       });
@@ -71,6 +94,28 @@ async function createInitialState(ctx: PipelineContext): Promise<PipelineState> 
   // Touch the policy so it's resolved here (kept for symmetry with old flow).
   getProjectGenerationRuntimePolicy(projectComplexity);
 
+  // Drape Cloud provisioning — done before generation so the AI can
+  // reference the SDK/env from the very first file it writes. Soft-
+  // fails: if provisioning errors, we continue with useDrapeCloud=false
+  // rather than blocking creation entirely.
+  if (useDrapeCloud) {
+    if (!appConfig.drapeCloudEnabled || !isDrapeCloudConfigured()) {
+      log.warn(`[Pipeline] useDrapeCloud requested but cloud is disabled — falling back`);
+      useDrapeCloud = false;
+    } else {
+      try {
+        await provisionDrapeCloudForProject(ctx.projectId, ctx.userId, resolvedTechnology, {
+          description: creationDescription,
+          structuredAnswers: creationAnswers,
+          projectTitle: creationTitle,
+        });
+      } catch (err: any) {
+        log.warn(`[Pipeline] Drape Cloud provisioning failed: ${err.message}`);
+        useDrapeCloud = false;
+      }
+    }
+  }
+
   return {
     phase: 'generation',
     filesCreated: 0,
@@ -81,6 +126,8 @@ async function createInitialState(ctx: PipelineContext): Promise<PipelineState> 
     generationError: null,
     modelUsed: PROJECT_CREATION_MODEL,
     projectComplexity,
+    resolvedTechnology,
+    useDrapeCloud,
     tsFixAttempt: 0,
     previewStartAttempt: 0,
     depRepairAttempted: false,

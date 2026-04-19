@@ -35,7 +35,7 @@ export async function runFullVerify(state: PipelineState, ctx: PipelineContext):
     const result = await verifyAndFixProject({
       projectId: ctx.projectId,
       userId: ctx.userId,
-      technology: ctx.sessionProjectType || 'nextjs',
+      technology: state.resolvedTechnology,
       onProgress: (_pct, msg) => {
         if (ctx.isClientConnected()) {
           ctx.writeSseEvent('status', { type: 'status', message: msg, phase: 'verify' });

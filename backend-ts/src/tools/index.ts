@@ -388,6 +388,57 @@ export const AGENT_TOOLS: ToolDefinition[] = [
       required: ['command_id'],
     },
   },
+  {
+    name: 'declare_tables',
+    description:
+      'Drape Cloud ONLY. Extend or shrink the canonical data-model for this project. You MUST call this BEFORE writing a file that references a table name not yet listed in .drape/data-model.md. Adding auto-updates the markdown and the declared-tables registry used by the write_file validator. Removing requires a reason. No-op outside Drape Cloud projects.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        add: {
+          type: 'array',
+          description: 'Tables to add. Each entry becomes a drape.table() usable name.',
+          items: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Logical table name — lowercase, letters/numbers/underscore, ≤ 64 chars (e.g. "cart_items").',
+              },
+              scope: {
+                type: 'string',
+                enum: ['shared', 'mine', 'junction'],
+                description:
+                  'shared = visible to everyone (catalog, articles); mine = each signed-in user has their own rows (cart, favorites); junction = links two things (likes, follows).',
+              },
+              purpose: {
+                type: 'string',
+                description: 'One short sentence explaining what this table holds.',
+              },
+              seedable: {
+                type: 'boolean',
+                description: 'When true, the cloud-seed.json will contain initial rows the backend imports before preview starts. Default: true for shared, false for mine/junction.',
+              },
+            },
+            required: ['name', 'scope', 'purpose'],
+          },
+        },
+        remove: {
+          type: 'array',
+          description: 'Tables to remove from the declared list. Requires a reason.',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              reason: { type: 'string', description: 'Why this table is no longer needed.' },
+            },
+            required: ['name', 'reason'],
+          },
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 /**

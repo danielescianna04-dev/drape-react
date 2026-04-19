@@ -9,6 +9,8 @@ interface Props {
   pgDetected: boolean;
   supabaseDetected?: boolean;
   supabaseUrl?: string;
+  /** Project is on the shared Drape Cloud backend. */
+  drapeCloudDetected?: boolean;
   containerReady: boolean;
   isLoading: boolean;
   error: string | null;
@@ -16,7 +18,7 @@ interface Props {
   onRetry: () => void;
 }
 
-export const DatabaseDiscovery: React.FC<Props> = ({ databases, pgDetected, supabaseDetected, supabaseUrl, containerReady, isLoading, error, onSelectDb, onRetry }) => {
+export const DatabaseDiscovery: React.FC<Props> = ({ databases, pgDetected, supabaseDetected, supabaseUrl, drapeCloudDetected, containerReady, isLoading, error, onSelectDb, onRetry }) => {
   const insets = useSafeAreaInsets();
 
   if (isLoading) {
@@ -50,6 +52,36 @@ export const DatabaseDiscovery: React.FC<Props> = ({ databases, pgDetected, supa
           <Text style={styles.retryBtnText}>Retry</Text>
         </TouchableOpacity>
       </View>
+    );
+  }
+
+  // Drape Cloud detected — the shared multi-tenant backend. No
+  // external dashboard to link to; the data viewer is the dashboard.
+  if (drapeCloudDetected) {
+    const accentColor = '#8B5CF6';
+    return (
+      <ScrollView contentContainerStyle={[styles.emptyContainer, { paddingTop: insets.top + 80 }]}>
+        <View style={styles.glowWrap}>
+          <View style={[styles.glowRing, { borderColor: `${accentColor}33` }]}>
+            <LinearGradient colors={[`${accentColor}26`, `${accentColor}08`]} style={styles.glowGradient} />
+          </View>
+          <View style={[styles.iconBox, { backgroundColor: `${accentColor}1F` }]}>
+            <Ionicons name="sparkles-outline" size={28} color={accentColor} />
+          </View>
+        </View>
+        <Text style={styles.emptyTitle}>Drape Cloud</Text>
+        <Text style={styles.emptySubtitle}>
+          Shared backend attivo per questo progetto.{'\n'}Dati persistenti, auth e storage via SDK.
+        </Text>
+        <TouchableOpacity
+          style={{ backgroundColor: `${accentColor}1F`, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: `${accentColor}33`, marginTop: 20, paddingHorizontal: 24 }}
+          onPress={() => onSelectDb('__drape__')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="list-outline" size={16} color={accentColor} />
+          <Text style={{ color: accentColor, fontSize: 14, fontWeight: '600' }}>Apri tabelle</Text>
+        </TouchableOpacity>
+      </ScrollView>
     );
   }
 

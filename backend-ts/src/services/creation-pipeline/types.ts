@@ -15,6 +15,7 @@
 
 import type { BuildReportTracker } from '../build-report.service';
 import type { ProjectComplexity } from '../project-complexity.service';
+import type { ProjectTechnology } from '../project-technology';
 
 export type PipelinePhase =
   | 'generation'
@@ -57,6 +58,18 @@ export interface PipelineState {
   generationError: string | null;
   modelUsed: string;
   projectComplexity: ProjectComplexity;
+  /**
+   * Canonical technology for this project, resolved once at pipeline start.
+   * Prefers `.drape/creation-input.json` (user intent) over the detector label.
+   */
+  resolvedTechnology: ProjectTechnology;
+
+  /**
+   * When true, this project uses the multi-tenant Drape Cloud backend.
+   * The AI is instructed to use the drape-cloud SDK (no SQL / no API routes).
+   * When false/absent the legacy Neon+Drizzle path remains in effect.
+   */
+  useDrapeCloud: boolean;
 
   // — verify sub-phase state —
   tsFixAttempt: number;

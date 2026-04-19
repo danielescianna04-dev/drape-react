@@ -20,7 +20,20 @@ import { ProjectAICostSummary } from '../project-ai-policy';
 import { assessProjectComplexity, ProjectComplexity } from '../project-complexity.service';
 import { PROTECTED_CONFIG_FILES } from '../../utils/protected-files';
 import type { AutoFixOptions, AutoFixResult, VerifyResult } from './types';
-import { extractDeadLinkHrefs, trimErrorForPrompt, trimFileContentForPrompt } from './error-classifier';
+import {
+  extractBrokenControlLabels,
+  extractDeadLinkHrefs,
+  extractNavDestinationPaths,
+  trimErrorForPrompt,
+  trimFileContentForPrompt,
+} from './error-classifier';
+import {
+  getKeyFilesForTechnology,
+  normalizeTechnology,
+  readCreationInputIntent,
+  readCreationInputTechnology,
+  type ProjectTechnology,
+} from '../project-technology';
 
 const PROJECT_FIX_MAX_CONTEXT_FILES = config.projectVerifyFixMaxContextFiles;
 const PROJECT_FIX_ESCALATION_MAX_CONTEXT_FILES = config.projectVerifyEscalationMaxContextFiles;
@@ -145,8 +158,15 @@ export async function autoFix(
       }
     }
 
-    // Always read key files for context
-    for (const p of ['app/layout.tsx', 'app/page.tsx', 'app/globals.css', 'src/App.tsx', 'src/index.css', 'src/main.tsx']) {
+    // Resolve the project's actual technology so we read (and ask the model
+    // to modify) the files the runtime actually serves. The old code always
+    // loaded app/page.tsx + src/App.tsx — wrong for vanilla-HTML projects
+    // where the runtime serves index.html and ignores any React file.
+    const resolvedTechnology: ProjectTechnology =
+      (await readCreationInputTechnology(projectId)) ||
+      normalizeTechnology(technology) ||
+      'nextjs';
+    for (const p of getKeyFilesForTechnology(resolvedTechnology)) {
       if (!canAddMoreContext(brokenFiles)) break;
       try {
         pushContextFile(brokenFiles, p, await readProjectFile(p));
@@ -212,6 +232,86 @@ export async function autoFix(
         } else {
           deadLinkTargets.push({ href, page: candidates[0], exists: false });
         }
+      }
+    }
+
+    // Broken-control labels: when qa-agent reports a button/link by visible
+    // text (e.g. "METÀX", "Tutto"), grep the project for that literal so the
+    // auto-fix loads the file that actually renders it — not just the default
+    // key-files list. Without this, the AI often "fixes" the wrong component
+    // repeatedly while the dead button stays broken.
+    const brokenControlMatches: { label: string; files: string[] }[] = [];
+    if (hasDeadClicks || hasNavErrors) {
+      const labels = extractBrokenControlLabels(result.errors);
+      for (const label of labels) {
+        if (!canAddMoreContext(brokenFiles)) break;
+        try {
+          const grep = await workspaceService.exec(
+            projectId,
+            userId,
+            `grep -rln --include='*.tsx' --include='*.jsx' --include='*.ts' --include='*.js' -F ${shellEscape(label)} /home/coder/project/app /home/coder/project/src /home/coder/project/components 2>/dev/null | head -3`,
+          );
+          const files: string[] = [];
+          for (const line of (grep.stdout || '').split('\n').filter(Boolean)) {
+            const relPath = line.replace('/home/coder/project/', '');
+            if (PROTECTED_CONFIG_FILES.has(relPath)) continue;
+            files.push(relPath);
+            if (!canAddMoreContext(brokenFiles)) break;
+            try {
+              pushContextFile(brokenFiles, relPath, await readProjectFile(relPath));
+            } catch {}
+          }
+          if (files.length > 0) brokenControlMatches.push({ label, files });
+        } catch {}
+      }
+    }
+
+    // Nav-error destinations: "[nav] ... → /subscriptions/4 → error screen"
+    // Dynamic routes (/subscriptions/4) map to app/subscriptions/[id]/page.tsx
+    // which the default key-files list misses. Probe literal AND common
+    // dynamic-segment variants so the detail page that actually broke is in
+    // the AI's context.
+    const navDestinations: { path: string; resolvedFile: string | null }[] = [];
+    if (hasDeadClicks || result.errors.some(e => e.includes('[nav]'))) {
+      for (const destPath of extractNavDestinationPaths(result.errors)) {
+        const segments = destPath.replace(/^\//, '').split('/');
+        const candidates: string[] = [];
+        // Literal path first.
+        candidates.push(`app/${segments.join('/')}/page.tsx`, `app/${segments.join('/')}/page.jsx`);
+        // Dynamic-segment variants: swap the LAST segment with [id]/[slug]/[...slug].
+        // Pick the last segment because that's where URLs usually embed ids
+        // (e.g. /subscriptions/4, /blog/post-1, /users/abc).
+        if (segments.length >= 2) {
+          const prefix = segments.slice(0, -1).join('/');
+          for (const dyn of ['[id]', '[slug]', '[...slug]']) {
+            candidates.push(`app/${prefix}/${dyn}/page.tsx`, `app/${prefix}/${dyn}/page.jsx`);
+          }
+        } else if (segments.length === 1) {
+          for (const dyn of ['[id]', '[slug]', '[...slug]']) {
+            candidates.push(`app/${dyn}/page.tsx`, `app/${dyn}/page.jsx`);
+          }
+        }
+        // src/pages router (Vite / legacy Next.js pages router)
+        if (segments.length >= 1) {
+          candidates.push(
+            `src/pages/${segments.join('/')}.tsx`,
+            `src/pages/${segments.join('/')}.jsx`,
+            `src/pages/${segments.join('/')}/index.tsx`,
+          );
+        }
+        let resolved: string | null = null;
+        for (const cand of candidates) {
+          if (!canAddMoreContext(brokenFiles)) break;
+          try {
+            const content = await readProjectFile(cand);
+            if (content && content.trim()) {
+              resolved = cand;
+              pushContextFile(brokenFiles, cand, content);
+              break;
+            }
+          } catch {}
+        }
+        navDestinations.push({ path: destPath, resolvedFile: resolved });
       }
     }
 
@@ -373,14 +473,50 @@ export async function autoFix(
           .join('\n')}\n`
       : '';
 
-    const fixPrompt = `Fix these ${technology} project errors:
+    const navDestinationSection = navDestinations.length > 0
+      ? `NAV-ERROR DESTINATIONS (pages that rendered an error/blank after click):\n${navDestinations
+          .map((d) =>
+            d.resolvedFile
+              ? `- ${d.path} → open ${d.resolvedFile} and FIX the actual render error (likely undefined access, missing prop, or bad data lookup on the dynamic id)`
+              : `- ${d.path} → no page file found; CREATE the matching page (dynamic routes use app/<segment>/[id]/page.tsx) with a safe lookup that handles missing items`,
+          )
+          .join('\n')}\n`
+      : '';
 
-ERRORS:
+    const brokenControlSection = brokenControlMatches.length > 0
+      ? `BROKEN CONTROL LOCATIONS (grep of each broken button/link label across the project):\n${brokenControlMatches
+          .map((m) =>
+            `- "${m.label}" is rendered in: ${m.files.join(', ')} — open THAT file and wire the control. If the element is a child component, also edit the parent to pass a real onClick prop (never leave the prop undefined).`,
+          )
+          .join('\n')}\n`
+      : '';
+
+    // For blank/minimal/visual content failures the error alone doesn't tell
+    // the model WHAT the user asked for — so it tends to write bland filler.
+    // Surface the original creation prompt + structured answers so the fix
+    // actually implements the requested feature.
+    const hasContentIntentError = result.errors.some((e) =>
+      /\[content\]|Page is blank|No visible content|blank page|minimal content|\[visual\]/i.test(e),
+    );
+    let intentSection = '';
+    if (hasContentIntentError) {
+      const intent = await readCreationInputIntent(projectId);
+      if (intent.description || intent.structuredAnswers) {
+        const answers = intent.structuredAnswers
+          ? JSON.stringify(intent.structuredAnswers).slice(0, 1200)
+          : '';
+        intentSection = `USER'S ORIGINAL REQUEST (what this app is supposed to do — the rendered page does NOT match this yet):\n${intent.description ? intent.description.slice(0, 1200) : '(no description)'}\n${answers ? `Structured answers: ${answers}\n` : ''}Project technology: ${resolvedTechnology}. Fix the runtime-served files listed below (not unused framework files) so the app actually implements this request with real, interactive content — not a generic landing page.\n\n`;
+      }
+    }
+
+    const fixPrompt = `Fix these ${resolvedTechnology} project errors:
+
+${intentSection}ERRORS:
 ${summarizedErrors.join('\n')}
 ${screenshotContext}
 ${routeFailures ? `FAILING ROUTES:\n${routeFailures}\n` : ''}
 ${navigationFailures ? `BROKEN INTERACTIONS:\n${navigationFailures}\n` : ''}
-${deadLinkSection}${fileContext ? `CURRENT FILES:\n${fileContext}\n` : ''}
+${deadLinkSection}${navDestinationSection}${brokenControlSection}${fileContext ? `CURRENT FILES:\n${fileContext}\n` : ''}
 Return a JSON array of fixed files: [{"path": "file/path", "content": "complete fixed content"}]
 
 Rules:
@@ -408,6 +544,8 @@ Rules:
   • Card/div with cursor-pointer → add onClick that navigates or opens details
   • Icon button (heart/star/share/bell) → toggle local state, show toast, or open a panel
   • Tab/nav item → use router.push() or setActiveTab state
+  • PARENT/CHILD: if the broken control lives in a child component (e.g. <TopBar />, <BottomNav />, <FilterChip />), the fix is TWO files: (1) the child accepts an onClick/onPress prop and forwards it to the underlying button; (2) the parent page passes a real handler to that prop. Fixing only the child (with a no-op default) or only the parent (without exposing the prop) leaves the button dead — verify will flag the same label again on the next attempt.
+  • LABEL GREP: if a "BROKEN CONTROL LOCATIONS" section above lists files where the label appears, start there — that's the component that renders the dead button. Do not modify unrelated files that happen to be in the default key-files list.
   NEVER leave onClick={() => {}} or onClick={()=>console.log()} — if you can't wire it, REMOVE the element from JSX entirely
 - The error message format is: "Dead interactive element: <type> \"<text>\" [href=<target>] on page <path> — ..." — the href bracket tells you the exact link target. If a "DEAD LINK TARGETS" section is included above, follow it literally: when it says "target page MISSING — CREATE <path>", your fix MUST include a new file at that exact path with real content (do NOT just tweak the source page). When it says "target page EXISTS", fix whatever in that page prevents the click from doing something visible.
 - For redirect loops (page X redirects to page Y): the guard/redirect logic doesn't persist state. Fix by using localStorage or cookies to persist auth/profile state across navigations, not just React state

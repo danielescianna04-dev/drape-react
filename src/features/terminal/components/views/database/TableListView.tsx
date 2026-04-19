@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Props {
-  tables: { name: string; rowCount: number }[];
+  tables: { name: string; rowCount: number; system?: boolean }[];
   dbPath: string;
   isLoading: boolean;
   onSelectTable: (name: string) => void;
@@ -22,7 +22,8 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
   const insets = useSafeAreaInsets();
   const isSupabase = dbPath === '__supabase__';
   const isNeon = dbPath === '__neon__' || dbPath.includes('neon.tech');
-  const isCloud = isSupabase || isNeon;
+  const isDrape = dbPath === '__drape__';
+  const isCloud = isSupabase || isNeon || isDrape;
   const totalRows = tables.reduce((sum, t) => sum + (t.rowCount || 0), 0);
 
   return (
@@ -86,13 +87,24 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
                   onPress={() => onSelectTable(table.name)}
                   activeOpacity={0.7}
                 >
-                  <View style={styles.tableIconWrap}>
-                    <Ionicons name="layers-outline" size={18} color="#A78BFA" />
+                  <View style={[styles.tableIconWrap, table.system && { backgroundColor: 'rgba(253, 186, 116, 0.14)' }]}>
+                    <Ionicons
+                      name={table.system ? 'shield-checkmark-outline' : 'layers-outline'}
+                      size={18}
+                      color={table.system ? '#FDBA74' : '#A78BFA'}
+                    />
                   </View>
                   <View style={styles.tableInfo}>
-                    <Text style={styles.tableName}>{table.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.tableName}>{table.name}</Text>
+                      {table.system && (
+                        <View style={{ paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, backgroundColor: 'rgba(253, 186, 116, 0.16)', borderWidth: 1, borderColor: 'rgba(253, 186, 116, 0.3)' }}>
+                          <Text style={{ fontSize: 9, fontWeight: '700', color: '#FDBA74', letterSpacing: 0.5 }}>SYSTEM</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={styles.tableType}>
-                      {isCloud ? 'PostgreSQL' : 'SQLite'} table
+                      {table.system ? 'Auth-managed, read-only' : isDrape ? 'Drape Cloud table' : isCloud ? 'PostgreSQL table' : 'SQLite table'}
                     </Text>
                   </View>
                   <View style={styles.tableRight}>

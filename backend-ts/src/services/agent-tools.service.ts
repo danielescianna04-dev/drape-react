@@ -161,6 +161,19 @@ class AgentToolsService {
         case 'patch_file':
           return await this.patchFile(projectId, input, session);
 
+        case 'declare_tables': {
+          const { applyDeclareChange } = await import('./drape-cloud/declared-tables.service');
+          const result = await applyDeclareChange(projectId, input || {});
+          const summary = result.tables.length
+            ? `Declared tables (${result.tables.length}): ${result.tables.map((t) => `${t.name} [${t.scope}]`).join(', ')}`
+            : 'No tables declared yet.';
+          const warnLine = result.warnings.length ? `\nWarnings:\n- ${result.warnings.join('\n- ')}` : '';
+          return {
+            success: true,
+            content: `${summary}${warnLine}\nDrape Cloud auto-updated .drape/data-model.md and .drape/declared-tables.json.`,
+          };
+        }
+
         case 'load_skill': {
           const { loadSkill, discoverSkills } = await import('../tools/skill-loader');
           if (input.name) {
@@ -288,9 +301,29 @@ class AgentToolsService {
       await fileService.notifyAgent(session.agentUrl, file_path, content);
     }
 
+    // Drape Cloud: catch `drape.table('x')` references to tables the
+    // AI hasn't declared yet. Emitted as an inline warning so the AI
+    // sees it in the tool response and can call `declare_tables`
+    // before its next file write.
+    let drapeCloudWarning = '';
+    if (content.includes('drape.table') && /\.[tj]sx?$|\.vue$|\.svelte$|\.astro$|\.html?$/.test(normalized)) {
+      try {
+        const { findUndeclaredTableRefs } = await import('./drape-cloud/declared-tables.service');
+        const undeclared = await findUndeclaredTableRefs(projectId, content);
+        if (undeclared.length > 0) {
+          drapeCloudWarning =
+            `\n\n⚠️  Drape Cloud: this file references table(s) [${undeclared.join(', ')}] that are NOT declared in ` +
+            `.drape/data-model.md. Call the \`declare_tables\` tool with each one (name, scope: shared|mine|junction, purpose) ` +
+            `BEFORE you continue, otherwise the preview will call drape.table() on a table whose design intent is undocumented.`;
+        }
+      } catch {
+        /* validator failure must never block file writes */
+      }
+    }
+
     // Static analysis: scan JSX/TSX/Vue/HTML files for dead interactive elements.
     // Warnings are returned to the AI inline so it can fix them in the same turn.
-    let warnings = '';
+    let warnings = drapeCloudWarning;
     if (/\.[tj]sx?$|\.vue$|\.html?$|\.astro$/.test(normalized)) {
       const issues: string[] = [];
       // Empty onClick handlers

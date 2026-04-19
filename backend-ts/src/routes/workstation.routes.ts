@@ -1304,6 +1304,10 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
       technology: technology || 'nextjs',
       description: description || '',
       structuredAnswers: structuredAnswers || {},
+      // Cloud mode routing flag: cloudEnabled from the UI is mapped to
+      // useDrapeCloud so the creation pipeline can branch into the
+      // Drape Cloud SDK prompt instead of the legacy Neon+Drizzle path.
+      useDrapeCloud: cloudEnabled === true,
       createdAt: new Date().toISOString(),
     }, null, 2),
   );

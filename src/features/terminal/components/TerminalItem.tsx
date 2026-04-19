@@ -12,6 +12,8 @@ import { TerminalOutputContent } from './TerminalOutputContent';
 import { TerminalUserMessage } from './TerminalUserMessage';
 import { TerminalSystemItem } from './TerminalSystemItem';
 import { TerminalPlanItem } from './TerminalPlanItem';
+import { FriendlyToolItem } from './FriendlyToolItem';
+import { useUIStore } from '../../../core/terminal/uiStore';
 import {
   TerminalBackendLogItem,
   TerminalErrorItem,
@@ -38,6 +40,7 @@ interface Props {
 
 const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = false, onRetryTool, onPlanApprove, onPlanReject }: Props) => {
   const { t } = useTranslation();
+  const simpleToolView = useUIStore((s) => s.simpleToolView);
   const [isExpanded, setIsExpanded] = useState(false);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string>('');
@@ -134,24 +137,28 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
         )}
 
         {item.type === ItemType.OUTPUT && (
-          <TerminalOutputContent
-            item={item}
-            styles={styles}
-            t={t}
-            isExpanded={isExpanded}
-            setIsExpanded={setIsExpanded}
-            isExecuting={isExecuting}
-            executingDots={executingDots}
-            pulseAnim={pulseAnim}
-            showThinking={showThinking}
-            thinkingDisplayText={thinkingDisplayText}
-            thinkingPulseOpacity={thinkingPulseOpacity}
-            thinkingDotOpacity1={thinkingDotOpacity1}
-            thinkingDotOpacity2={thinkingDotOpacity2}
-            thinkingDotOpacity3={thinkingDotOpacity3}
-            handleCopy={handleCopy}
-            copiedFeedback={copiedFeedback}
-          />
+          simpleToolView && (item as any).toolInfo ? (
+            <FriendlyToolItem item={item as any} />
+          ) : (
+            <TerminalOutputContent
+              item={item}
+              styles={styles}
+              t={t}
+              isExpanded={isExpanded}
+              setIsExpanded={setIsExpanded}
+              isExecuting={isExecuting}
+              executingDots={executingDots}
+              pulseAnim={pulseAnim}
+              showThinking={showThinking}
+              thinkingDisplayText={thinkingDisplayText}
+              thinkingPulseOpacity={thinkingPulseOpacity}
+              thinkingDotOpacity1={thinkingDotOpacity1}
+              thinkingDotOpacity2={thinkingDotOpacity2}
+              thinkingDotOpacity3={thinkingDotOpacity3}
+              handleCopy={handleCopy}
+              copiedFeedback={copiedFeedback}
+            />
+          )
         )}
 
         {item.type === ItemType.ERROR && (

@@ -186,10 +186,246 @@ REACT NATIVE (EXPO) SPECIFIC:
 - This project uses Expo SDK 52. Do NOT install expo-* packages with version ^55 or ^54 — they are incompatible. Let \`npx expo install\` handle versioning.`,
 };
 
-/** Build the system prompt for project creation AI */
-export function getProjectCreationSystemPrompt(technology: string, cloudMode: boolean, supabase?: SupabaseCredentials | null, neon?: NeonCredentials | null): string {
+function drapeCloudNoteFor(technology: string): string {
+  // Tech-specific import path + env read. Kept explicit (no code
+  // generation hacks) so the AI can copy-paste the exact lines.
+  const sdkPath: Record<string, string> = {
+    nextjs: "@/lib/drape-cloud",
+    react: "@/lib/drape-cloud",
+    vue: "@/lib/drape-cloud",
+    astro: "@/lib/drape-cloud",
+    expo: "@/lib/drape-cloud",
+    html: "./drape-cloud.js",
+  };
+  const importLine: Record<string, string> = {
+    nextjs: `import { createDrape } from '${sdkPath.nextjs}';\nexport const drape = createDrape({ apiUrl: process.env.NEXT_PUBLIC_DRAPE_CLOUD_API_URL!, projectKey: process.env.NEXT_PUBLIC_DRAPE_CLOUD_KEY! });`,
+    react: `import { createDrape } from '${sdkPath.react}';\nexport const drape = createDrape({ apiUrl: import.meta.env.VITE_DRAPE_CLOUD_API_URL, projectKey: import.meta.env.VITE_DRAPE_CLOUD_KEY });`,
+    vue: `import { createDrape } from '${sdkPath.vue}';\nexport const drape = createDrape({ apiUrl: import.meta.env.VITE_DRAPE_CLOUD_API_URL, projectKey: import.meta.env.VITE_DRAPE_CLOUD_KEY });`,
+    astro: `import { createDrape } from '${sdkPath.astro}';\nexport const drape = createDrape({ apiUrl: import.meta.env.VITE_DRAPE_CLOUD_API_URL, projectKey: import.meta.env.VITE_DRAPE_CLOUD_KEY });`,
+    expo: `import { createDrape } from '${sdkPath.expo}';\nexport const drape = createDrape({ apiUrl: process.env.EXPO_PUBLIC_DRAPE_CLOUD_API_URL!, projectKey: process.env.EXPO_PUBLIC_DRAPE_CLOUD_KEY! });`,
+    html: `<script src="drape-cloud-config.js"></script>\n<script type="module">\n  import { createDrape } from './drape-cloud.js';\n  window.drape = createDrape(window.__DRAPE_CLOUD__);\n</script>`,
+  };
 
-  const base = `You are Drape, an AI that creates web applications. You create and modify code that is immediately built and rendered in a live preview on the user's phone. The user sees the result in real-time.
+  return `\n\nDRAPE CLOUD MODE (multi-tenant backend — NO SQL, NO API ROUTES, NO DRIZZLE, NO BETTER-AUTH):
+
+Persistence, auth and database are ALREADY available through the pre-installed drape-cloud SDK. Your only job is to build the UI and call the SDK. DO NOT generate:
+- Any database schema file (schema.sql, drizzle config, migrations)
+- Any API route (app/api/*, server/routes/*)
+- Any backend server (express, fastify)
+- Any auth library code (better-auth, NextAuth, Lucia)
+- Environment files (.env, .env.local — already generated)
+
+Bootstrapping file (${technology === 'html' ? 'inline in index.html' : `create this ONE file: ${technology === 'nextjs' ? 'lib/drape.ts' : technology === 'expo' ? 'lib/drape.ts' : 'src/lib/drape.ts'}`}):
+\`\`\`${technology === 'html' ? 'html' : 'ts'}
+${importLine[technology] || importLine.nextjs}
+\`\`\`
+
+SDK API (memorise this — it's the ONLY data layer):
+
+  // Read / write rows (tableName = a noun you pick: 'tasks', 'posts', 'favorites', ...)
+  const { rows } = await drape.table('tasks').list({
+    where: { done: false, priority: { gte: 3 } },  // ops: eq, neq, gt, gte, lt, lte, like, ilike, in
+    orderBy: '-created_at',                        // '-' prefix = DESC
+    limit: 50,
+    mine: true,                                    // only rows owned by the signed-in end user
+  });
+  const { row } = await drape.table('tasks').get(id);
+  const { row } = await drape.table('tasks').insert({ title: 'Buy milk' }, { mine: true });
+  const { row } = await drape.table('tasks').update(id, { done: true });
+  const { deleted } = await drape.table('tasks').delete(id);
+
+  // End-user auth (anonymous by default — no code needed until signup)
+  const { user } = await drape.auth.signUp('a@b.com', 'password123');
+  const { user } = await drape.auth.signIn('a@b.com', 'password123');
+  drape.auth.user();          // cached user or null
+  await drape.auth.signOut();
+
+RULES:
+- For user-specific data (favorites, cart, profile, preferences): always pass { mine: true } on insert and use mine:true on list.
+- For shared/public data (catalog, articles, products): omit mine so everyone sees the same rows.
+- NO loading skeletons waiting for a non-existent API — the SDK is real, the await will resolve.
+- NEVER hardcode seed arrays in components. NEVER write \`if (rows.length === 0) insert(...)\` loops. The backend seeds the DB BEFORE the preview starts (see "SEED FILE" below).
+- Components read ONLY with drape.table(...).list() + useState + useEffect. If list returns [] you render an empty state — DO NOT try to populate from JS.
+- Auth UI: build login/signup forms yourself (input + button), call drape.auth.signIn/signUp, handle the DrapeError (has .code + .message). Show 'Email already registered' for code=email_taken, 'Invalid email or password' for code=invalid_credentials.
+- NEVER import 'pg', 'drizzle-orm', 'better-auth', '@supabase/*', 'prisma' — they are not installed and would break the build.
+- NEVER create files in 'app/api/', 'server/', 'db/' — those directories are meaningless in Drape Cloud mode.
+- FLAT PAYLOADS ONLY. Every field you want to query, filter, sort or display must be a TOP-LEVEL key on the object passed to \`insert()\`. DO NOT nest real data under a generic wrapper like \`{ snapshot: {...}, data: {...}, payload: {...}, meta: {...} }\`. Example:
+  ❌ WRONG: \`drape.table('watch_history').insert({ title_id, snapshot: { title, year, cast, poster } }, { mine: true })\`
+  ✅ RIGHT: \`drape.table('watch_history').insert({ title_id, title, year, cast, poster }, { mine: true })\`
+  The only exceptions are naturally-nested values that the user never queries individually: a \`preferences\` object on a settings row, a \`raw_response\` debug blob, a coordinate pair \`{ lat, lng }\`. Lists (e.g. cast) and scalars (title, year, rating) must be top-level.
+
+SEED FILE (MANDATORY — this is how initial data gets into the DB):
+
+You MUST write exactly one file at path \`.drape/cloud-seed.json\` containing the initial rows the app should boot with. The Drape Cloud backend imports it into the shared DB AUTOMATICALLY right after generation, before the preview starts. Your app code never does the seeding.
+
+Shape (strict JSON — no comments, no trailing commas):
+{
+  "movies":   [{ "title": "Inception", "year": 2010, "rating": 8.8 }, { ... }],
+  "tasks":    [{ "text": "Buy milk", "done": false, "priority": 2 }, { ... }],
+  "articles": [{ "title": "...", "body": "...", "author": "..." }]
+}
+
+Rules for the seed file:
+- Top-level keys are logical table names (lowercase, letters/numbers/underscore, max 64 chars).
+- Each value is an array of plain objects (rows).
+- 8–15 realistic rows per table. No "Lorem ipsum", no "Item 1/2/3". Real names, real titles, real prices.
+- DO NOT include \`id\`, \`created_at\`, \`updated_at\` or any meta field — the DB generates them.
+- DO NOT include \`end_user_id\` — seed data is always public/shared (the ':mine' rows get created by end users after signup).
+- Keep the file under 50kb total. If your app needs 50 movies, put the 12 most interesting ones in the seed and let the app grow naturally.
+- If the app has no shared data (purely user-scoped, e.g. a private journal), still write \`{}\` to this file so the pipeline sees you did your job.
+
+Your component code then looks exactly like this — NO seeding boilerplate:
+
+\`\`\`tsx
+const [movies, setMovies] = useState<any[]>([]);
+useEffect(() => { drape.table('movies').list({ orderBy: '-rating' }).then(r => setMovies(r.rows)); }, []);
+\`\`\``;
+}
+
+/** Build the system prompt for project creation AI */
+export function getProjectCreationSystemPrompt(technology: string, cloudMode: boolean, supabase?: SupabaseCredentials | null, neon?: NeonCredentials | null, drapeCloud?: boolean): string {
+
+  // When drapeCloud is active, PREPEND the SDK contract to the system
+  // prompt. Putting it at the top (before all the generic rules)
+  // matters: models tend to lock onto the first concrete instruction
+  // they see and build their plan around it. Leaving the Drape Cloud
+  // section at the bottom meant the AI had already decided "I'll
+  // hardcode a PRODUCTS array" by the time it got there.
+  const drapeCloudHeader = drapeCloud
+    ? `============================================================
+=== DRAPE CLOUD MODE — READ THIS BEFORE ANYTHING ELSE BELOW ===
+============================================================
+
+This project uses the Drape Cloud shared backend. Data is NOT your
+responsibility and the rules below about "hardcoded const arrays"
+and "${cloudMode ? 'cloud mode' : 'fetch API routes'}" DO NOT APPLY.
+
+Your ONLY data layer is the pre-installed SDK at lib/drape-cloud.js
+(already created by the backend — do NOT regenerate it).
+
+STEP 0 — READ THE CANONICAL DATA MODEL FIRST
+
+The backend has ALREADY analysed the user's request and written the
+authoritative schema to \`.drape/data-model.md\`. This is the source
+of truth for which tables this app has. Your very first action must
+be to \`read_file\` this path. Every table listed there must be
+implemented in the UI you build. If you believe you need a table
+that isn't listed, call the \`declare_tables\` tool to add it BEFORE
+you write a file that references it — do NOT use \`drape.table('x')\`
+for any \`x\` that isn't in the declared list.
+
+A companion skeleton at \`.drape/cloud-seed.json\` lists the shared
+tables the baseline says need seed rows — fill each array with 8–15
+realistic rows. Never remove entries; only populate them (or add
+new top-level keys for additional shared tables you declared via
+\`declare_tables\`).
+
+STEP 1 — create EXACTLY this ONE bootstrap file (${technology === 'nextjs' ? 'lib/drape.ts' : technology === 'expo' ? 'lib/drape.ts' : technology === 'html' ? 'skip — inline in index.html' : 'src/lib/drape.ts'}):
+
+\`\`\`${technology === 'html' ? 'html' : 'ts'}
+${technology === 'nextjs'
+  ? `import { createDrape } from './drape-cloud.js';\nexport const drape = createDrape({\n  apiUrl: process.env.NEXT_PUBLIC_DRAPE_CLOUD_API_URL!,\n  projectKey: process.env.NEXT_PUBLIC_DRAPE_CLOUD_KEY!,\n});`
+  : technology === 'expo'
+  ? `import { createDrape } from './drape-cloud.js';\nexport const drape = createDrape({\n  apiUrl: process.env.EXPO_PUBLIC_DRAPE_CLOUD_API_URL!,\n  projectKey: process.env.EXPO_PUBLIC_DRAPE_CLOUD_KEY!,\n});`
+  : technology === 'html'
+  ? `<script src="drape-cloud-config.js"></script>\n<script type="module">\n  import { createDrape } from './drape-cloud.js';\n  window.drape = createDrape(window.__DRAPE_CLOUD__);\n</script>`
+  : `import { createDrape } from './drape-cloud.js';\nexport const drape = createDrape({\n  apiUrl: import.meta.env.VITE_DRAPE_CLOUD_API_URL,\n  projectKey: import.meta.env.VITE_DRAPE_CLOUD_KEY,\n});`}
+\`\`\`
+
+STEP 2 — EVERY component that shows data uses \`drape.table(...)\`:
+
+\`\`\`tsx
+'use client';
+import { useEffect, useState } from 'react';
+import { drape } from '@/lib/drape';
+
+type Product = { name: string; price: number; category: string; image: string };
+
+export default function Catalog() {
+  const [items, setItems] = useState<any[]>([]);
+  useEffect(() => {
+    drape.table<Product>('products').list({ orderBy: '-rating' }).then(r => setItems(r.rows));
+  }, []);
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      {items.map(i => (
+        <div key={i.id} className="rounded-xl bg-white p-4">
+          <img src={i.data.image} className="w-full rounded-lg" />
+          <h3>{i.data.name}</h3>
+          <p>€{i.data.price}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+\`\`\`
+
+Notice: the SDK returns \`{ rows: [{ id, data: {...}, ... }] }\` so your
+payload fields live under \`.data\`. Example: \`item.data.name\`, not
+\`item.name\`.
+
+STEP 3 — populate .drape/cloud-seed.json with REALISTIC ROWS
+The backend pre-created a skeleton with the shared tables that need
+seed data (arrays are empty — you must fill them). The backend
+AUTOMATICALLY inserts these rows into the DB BEFORE the preview
+starts. Your components will see real data on first render.
+
+\`\`\`json
+{
+  "products": [
+    { "name": "Echo Dot", "price": 49.99, "category": "Electronics", "image": "https://picsum.photos/seed/echo/400/400", "rating": 4.7 },
+    { "name": "AirPods Pro", "price": 249, "category": "Electronics", "image": "https://picsum.photos/seed/airpods/400/400", "rating": 4.8 }
+  ]
+}
+\`\`\`
+
+Put 8–15 REAL rows per table. Real names, real prices, real descriptions.
+If the app legitimately has no shared data (private journal, user-only
+notes), still write \`{}\` — never skip the file.
+
+DATA MODEL — DERIVE THE FULL SHAPE FROM THE USER'S REQUEST, DO NOT REUSE ONE TABLE:
+
+Before writing any component, list every DISTINCT entity the user asked for. Each entity is its own table. Rule of thumb: every user action the app supports ("add to cart", "save favorite", "leave a comment", "follow user", "log a workout", "mark as read", "book a slot", ...) corresponds to a table. If two concepts are unrelated (e.g. "products" and "wishlist"), they are TWO tables — never reuse.
+
+Classify each table BEFORE writing code:
+
+- SHARED/PUBLIC (everyone sees the same rows) → seed 8–15 realistic rows in cloud-seed.json. Examples: catalog items, articles, tracks, exercises, venues, recipes, tutorials, categories.
+- USER-OWNED (each signed-in user has their own rows) → use \`{ mine: true }\` on insert AND list. Do NOT seed. Examples: cart, favorites, wishlist, orders, drafts, notes, bookmarks, messages, subscriptions, personal logs, profile settings.
+- DERIVED/JUNCTION (links two things, e.g. "user X likes post Y") → separate table, usually { mine: true }. Examples: likes, follows, reactions, comment votes, attendance.
+
+Every feature the user described must be reachable through ONE of the tables above. Check your list against the user's \`description\` and \`structuredAnswers\` — if the user wants "checkout" and you have no \`orders\` table, the app is incomplete.
+
+WRONG (what a lazy model does):
+- A single \`products\` table used for the catalog, the wishlist view, and the cart count → the wishlist doesn't persist across devices, the cart is lost on refresh, "my orders" page doesn't exist.
+
+RIGHT (explicit, one table per concept):
+- \`products\` (shared, seeded)
+- \`categories\` (shared, seeded)
+- \`wishlist_items\` (mine, runtime)
+- \`cart_items\` (mine, runtime)
+- \`orders\` (mine, runtime)
+- \`reviews\` (shared OR mine depending on design)
+
+Typical count: 3–8 tables. Fewer than 3 almost always means you missed something the user asked for.
+
+HARD RULES for Drape Cloud mode:
+1. NO hardcoded product arrays. NO \`const PRODUCTS = [...]\`. NO \`import { PRODUCTS } from './lib/products'\`. Every list comes from \`drape.table(...).list()\`.
+2. NO API routes: DO NOT create \`app/api/\`, \`server/\`, \`db/\`, \`lib/db.ts\`.
+3. NO imports of \`pg\`, \`drizzle-orm\`, \`better-auth\`, \`@supabase/*\`, \`prisma\` — they would break the build.
+4. Auth UI uses \`drape.auth.signUp/signIn/signOut\` directly — no auth libraries.
+5. User-owned data (cart, favorites, orders, notes, bookmarks, anything "my ...") → ALWAYS \`{ mine: true }\` on insert AND list. Never store it as local \`useState\` alone — it would disappear on refresh.
+6. Junction tables (likes, follows, comment_votes) are real tables too, not arrays inside a parent row.
+7. Fields inside a row live under \`.data\`: access \`row.data.name\`, not \`row.name\`.
+8. If the user's request mentions a feature (cart, orders, reviews, profile, favorites) you MUST build both the UI AND the backing table. No "coming soon" placeholders.
+
+If you skip STEP 1, 2, or 3, or you collapse multiple concepts into a single table, the app will be broken and the verify step will reject the build.
+
+============================================================
+
+`
+    : '';
+
+  const base = `${drapeCloudHeader}You are Drape, an AI that creates web applications. You create and modify code that is immediately built and rendered in a live preview on the user's phone. The user sees the result in real-time.
 
 You follow these key principles:
 
@@ -365,7 +601,29 @@ For Astro/HTML: use inline SVG
 
 === SEED DATA — CRITICAL ===
 NEVER show empty pages. NEVER show loading spinners without a real API behind them.
-${cloudMode
+${drapeCloud
+  ? `DRAPE CLOUD MODE — ignore any "hardcoded const arrays" rule elsewhere in this prompt.
+- Data comes from \`drape.table('x').list()\` (SDK call, already installed).
+- Initial rows go in .drape/cloud-seed.json (see the DRAPE CLOUD MODE section at the top).
+- Do NOT write API routes, Drizzle, schema.sql, or any hardcoded data-array files.
+- Components render empty state when list returns [] — do NOT try to seed from JS.
+
+✅ CORRECT (Drape Cloud):
+\`\`\`tsx
+'use client';
+import { drape } from '@/lib/drape';
+const [items, setItems] = useState<any[]>([]);
+useEffect(() => { drape.table('products').list().then(r => setItems(r.rows)); }, []);
+return <div>{items.map(i => <Card key={i.id} {...i.data} />)}</div>;
+\`\`\`
+
+❌ WRONG (Drape Cloud):
+\`\`\`tsx
+// NEVER — hardcoded arrays defeat the point of the shared backend
+const PRODUCTS = [{ id: 1, name: 'Echo Dot', ... }];
+import { PRODUCTS } from './lib/products';
+\`\`\``
+  : cloudMode
   ? `CLOUD MODE: All data comes from the database via API routes.
 - Create API routes in app/api/ that query the database using Drizzle ORM
 - Pages are 'use client' and fetch from API routes using useEffect + useState
@@ -476,7 +734,9 @@ No markdown fences, no explanation — ONLY the JSON object.`;
 - API routes: import { auth } from '@/lib/auth' for server-side auth`,
   };
 
-  const cloudNote = cloudMode && neon
+  const cloudNote = drapeCloud
+    ? drapeCloudNoteFor(technology)
+    : cloudMode && neon
     ? `\n\nCLOUD MODE WITH NEON POSTGRESQL:
 Database and auth are already set up.
 - Database host: ${neon.host}

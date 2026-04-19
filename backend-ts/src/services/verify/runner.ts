@@ -16,6 +16,7 @@ import {
   shouldFallbackToQaForSimpleProject,
 } from './error-classifier';
 import { MAX_SERVER_ERROR_TAIL_LINES, waitForServerReady } from './server-wait';
+import { readDeclared, extractTableRefsFromCode, findUnusedDeclaredTables } from '../drape-cloud/declared-tables.service';
 
 const QA_AGENT_TIMEOUT_SEC = 45;
 const E2E_TIMEOUT_SEC = 25;
@@ -397,8 +398,42 @@ export async function verify(projectId: string, userId: string, options: VerifyR
   if (qaReport && qaReport.status !== 'verified') {
     passed = false;
     if (errors.length === 0) {
-      errors.push(`QA verification failed: status=${qaReport.status}, issues=${qaReport.totalIssues || 0}`);
+      // Prefer the fatalError string when qa-agent crashed — it names the
+      // actual failure (Puppeteer launch fail, Chromium OOM, etc.) so the
+      // auto-fix model can react to it instead of looping on a generic
+      // "issues=0" message.
+      const fatal = (qaReport as any).fatalError;
+      if (qaReport.status === 'error' && typeof fatal === 'string' && fatal.trim()) {
+        errors.push(`QA agent fatal error: ${fatal.trim()}`);
+      } else {
+        errors.push(`QA verification failed: status=${qaReport.status}, issues=${qaReport.totalIssues || 0}`);
+      }
     }
+  }
+
+  // Drape Cloud post-check: log (but don't fail) when declared tables
+  // have no `drape.table('name')` reference. The feature-to-tables
+  // baseline is keyword-driven and overshoots by design; QA already
+  // catches real missing features via navigation + content checks.
+  try {
+    const declared = await readDeclared(projectId);
+    if (declared.tables.length > 0) {
+      const grep = await workspaceService.exec(
+        projectId,
+        userId,
+        `grep -rEho "drape\\.table[^)]*" /home/coder/project/app /home/coder/project/src /home/coder/project/lib 2>/dev/null | head -200`,
+      );
+      const refs: string[] = [];
+      for (const line of (grep.stdout || '').split('\n')) {
+        for (const ref of extractTableRefsFromCode(line)) refs.push(ref);
+      }
+      const unused = findUnusedDeclaredTables(declared.tables, refs);
+      if (unused.length > 0) {
+        log.info(`[Verify] data-model: declared but unused tables: ${unused.join(', ')}`);
+      }
+    }
+  } catch (err: any) {
+    log.warn(`[Verify] data-model post-check failed: ${err?.message || err}`);
   }
 
   return { passed, errors, screenshots, serverLog, pages, navigation, qaReport };

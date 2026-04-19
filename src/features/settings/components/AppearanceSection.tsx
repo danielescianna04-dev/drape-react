@@ -1,9 +1,11 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Switch } from 'react-native';
 import { isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { GlassCard } from './GlassCard';
 import { SettingItem } from './SettingItem';
 import { LANGUAGES, LanguageCode } from '../../../i18n';
+import { AppColors } from '../../../shared/theme/colors';
+import { useUIStore } from '../../../core/terminal/uiStore';
 
 interface AppearanceSectionProps {
   language: LanguageCode;
@@ -18,6 +20,9 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
   onLanguageChange,
   t,
 }) => {
+  const simpleToolView = useUIStore((s) => s.simpleToolView);
+  const setSimpleToolView = useUIStore((s) => s.setSimpleToolView);
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{t('appearance.title')}</Text>
@@ -49,6 +54,22 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
                   </TouchableOpacity>
                 ))}
               </View>
+            }
+          />
+          <SettingItem
+            icon="sparkles-outline"
+            iconColor="#A78BFA"
+            title="Modalità semplice"
+            subtitle="Mostra le azioni dell'AI in linguaggio umano invece dei comandi tecnici"
+            showChevron={false}
+            rightElement={
+              <Switch
+                value={simpleToolView}
+                onValueChange={setSimpleToolView}
+                trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
+                thumbColor="#ffffff"
+                ios_backgroundColor="rgba(255,255,255,0.1)"
+              />
             }
             isLast
           />

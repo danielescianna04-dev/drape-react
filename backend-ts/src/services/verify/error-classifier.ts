@@ -173,6 +173,68 @@ export function extractDeadLinkHrefs(errors: string[]): string[] {
   return result;
 }
 
+/**
+ * Pull destination paths from "[nav] ... → /x/y/z → ..." errors.
+ *
+ * e2e-check.js and qa-agent.js emit these when clicking a link navigates to
+ * a page that's blank or shows an error screen. The destination path is the
+ * file we most want to show the auto-fix model — often it's a dynamic route
+ * (e.g. /subscriptions/4 → app/subscriptions/[id]/page.tsx) that the default
+ * "always read key files" list misses entirely.
+ */
+export function extractNavDestinationPaths(errors: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const err of errors) {
+    if (!err.startsWith('[nav]') && !err.includes('[nav]')) continue;
+    // Match "→ /path →" — destination sits between two arrow markers.
+    const match = err.match(/→\s+(\/[A-Za-z0-9_\-/]+)\s+→/);
+    if (!match) continue;
+    const path = match[1].replace(/\/+$/, '') || '/';
+    if (path === '/' || seen.has(path)) continue;
+    if (!/^\/[A-Za-z0-9_\-/]+$/.test(path)) continue;
+    seen.add(path);
+    result.push(path);
+  }
+  return result;
+}
+
+/**
+ * Pull the visible text label out of broken-button / dead-click errors so the
+ * auto-fix can grep for the matching JSX node.
+ *
+ * Formats:
+ * - `[nav] "LABEL" (button) clicked but nothing happened — broken button`
+ * - `[nav] "LABEL" → (unknown) → redirect loop back to /`
+ * - `Dead interactive element: button "LABEL" [href=...] on page /x — ...`
+ *
+ * Synthetic labels like `button@370,12` (coordinates emitted when qa-agent
+ * fails to read visible text) are skipped — they don't grep to anything.
+ */
+export function extractBrokenControlLabels(errors: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const err of errors) {
+    const isBroken =
+      err.includes('broken button') ||
+      err.includes('redirect loop') ||
+      err.includes('Dead interactive element');
+    if (!isBroken) continue;
+    const match = err.match(/"([^"]{1,80})"/);
+    if (!match) continue;
+    const label = match[1].trim();
+    if (!label) continue;
+    // Skip synthetic "type@x,y" coordinate pseudo-labels
+    if (/^[a-z]+@\d+,\d+$/i.test(label)) continue;
+    // Skip labels that are pure whitespace / punctuation
+    if (!/[A-Za-zÀ-ÿ0-9]/.test(label)) continue;
+    if (seen.has(label)) continue;
+    seen.add(label);
+    result.push(label);
+  }
+  return result;
+}
+
 export function trimErrorForPrompt(error: string): string {
   return error.replace(/\s+/g, ' ').trim().substring(0, 260);
 }

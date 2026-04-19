@@ -5,6 +5,7 @@ import { config } from '../config';
 import { log } from '../utils/logger';
 import { readMemory } from './memory.service';
 import { vercelChatSimple } from './ai-providers';
+import { readDeclared } from './drape-cloud/declared-tables.service';
 
 interface PreviewContext {
   elementSummary?: string;
@@ -60,7 +61,9 @@ class OpenCodeContextService {
   }): Promise<OpenCodePrepareResult> {
     const state = await this.readState(params.projectId, params.userId);
     const activeState = state || this.createEmptyState(params.projectId, params.userId);
-    const basePrompt = this.buildPromptWithPreviewContext(params.prompt, params.previewContext);
+    const withPreview = this.buildPromptWithPreviewContext(params.prompt, params.previewContext);
+    const drapeCloudBlock = await this.buildDrapeCloudBlock(params.projectId);
+    const basePrompt = drapeCloudBlock ? `${drapeCloudBlock}\n\n${withPreview}` : withPreview;
     const shouldRotate =
       !state ||
       activeState.approxPromptTokens >= SESSION_TOKEN_ROTATE_THRESHOLD ||
@@ -139,6 +142,34 @@ class OpenCodeContextService {
       approxPromptTokens,
       updatedAt: Date.now(),
     });
+  }
+
+  /**
+   * When the project is on Drape Cloud, inject a compact schema hint so the
+   * chat agent knows the database exists WITHOUT having to grep for it. The
+   * declared tables live in `.drape/declared-tables.json` — a hidden directory
+   * that tools like `find` skip by default. Without this hint the agent tends
+   * to only notice whatever is in `db/*.sql` (e.g. better-auth's Neon schema)
+   * and misses Drape Cloud entirely.
+   */
+  private async buildDrapeCloudBlock(projectId: string): Promise<string | null> {
+    try {
+      const declared = await readDeclared(projectId);
+      if (declared.tables.length === 0) return null;
+      const lines: string[] = [];
+      lines.push('[Drape Cloud database]');
+      lines.push('This project uses Drape Cloud as its primary data store (Postgres-backed, accessed via the `drape` SDK imported from `lib/drape.ts` / `lib/drape-cloud.js`). Do NOT assume other DB layers own the app data.');
+      lines.push('Tables declared for this project:');
+      for (const t of declared.tables) {
+        lines.push(`- \`${t.name}\` (${t.scope}) — ${t.purpose || 'no description'}`);
+      }
+      lines.push('Usage: `drape.table(\'<name>\').list({ where, orderBy, limit, mine })` / `.get(id)` / `.insert(row, { mine })` / `.update(id, patch)` / `.delete(id)`.');
+      lines.push('Auth: `drape.auth.signUp`, `drape.auth.signIn`, `drape.auth.user()` (in `lib/drape.ts`). Virtual system tables `users` and `sessions` are exposed in the Drape DB viewer.');
+      lines.push('For field-level details of each table, read `.drape/data-model.md` — it is the canonical schema for this project.');
+      return lines.join('\n');
+    } catch {
+      return null;
+    }
   }
 
   private buildPromptWithPreviewContext(prompt: string, previewContext?: PreviewContext): string {

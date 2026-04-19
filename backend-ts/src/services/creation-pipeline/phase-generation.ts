@@ -15,6 +15,8 @@ import { AgentLoop } from '../agent-loop.service';
 import { streamAgentLoopToSse } from '../agent-loop-stream.service';
 import { getProjectCreationSystemPrompt } from '../project-creation-prompt';
 import { getProjectGenerationRuntimePolicy, ProjectComplexity } from '../project-complexity.service';
+import { fileService } from '../file.service';
+import { applySeed, parseSeedJson } from '../drape-cloud/seed.service';
 import type { PipelineContext, PipelineState } from './types';
 
 const PROJECT_CREATION_MODEL = config.projectGenerationModel;
@@ -77,10 +79,11 @@ export async function runGeneration(state: PipelineState, ctx: PipelineContext):
         mode: 'fast',
         model,
         systemPromptOverride: getProjectCreationSystemPrompt(
-          ctx.sessionProjectType || 'nextjs',
+          state.resolvedTechnology,
           false,
           null,
           null,
+          state.useDrapeCloud,
         ),
         userId: ctx.userId,
         userPlan: ctx.userPlan || 'free',
@@ -190,6 +193,43 @@ export async function runGeneration(state: PipelineState, ctx: PipelineContext):
       filesCreated,
       generatedFiles: generatedFileList,
     });
+  }
+
+  // Drape Cloud seed import: the AI was instructed to emit
+  // .drape/cloud-seed.json with initial rows. We import them into
+  // the shared DB now so the preview boot-loads with real data and
+  // the generated components stay 100% hardcoded-data free.
+  if (state.useDrapeCloud && !loopErrorMessage) {
+    try {
+      const read = await fileService.readFile(ctx.projectId, '.drape/cloud-seed.json');
+      if (read.success && read.data?.content) {
+        const parsed = parseSeedJson(read.data.content);
+        const apply = await applySeed(ctx.projectId, parsed);
+        log.info(
+          `[Pipeline/generation] Drape Cloud seed for ${ctx.projectId}: ` +
+            `${apply.rowsInserted} rows across ${apply.tablesSeeded} tables` +
+            (apply.warnings.length ? ` (warnings: ${apply.warnings.length})` : '') +
+            (apply.failures.length ? ` (failures: ${apply.failures.length})` : ''),
+        );
+        if (apply.warnings.length) {
+          for (const w of apply.warnings.slice(0, 10)) log.warn(`[Pipeline/generation] seed: ${w}`);
+        }
+        if (apply.failures.length) {
+          for (const f of apply.failures.slice(0, 10)) log.warn(`[Pipeline/generation] seed: ${f}`);
+        }
+        state.tracker.updateSummary({
+          // Reuse existing summary slots (they already exist on the
+          // BuildReport shape and the frontend already reads them).
+          tablesCreated: Array.from(parsed.tables.keys()),
+          seedRecords: apply.rowsInserted,
+        });
+      } else {
+        log.info(`[Pipeline/generation] No cloud-seed.json for ${ctx.projectId} — starting empty`);
+      }
+    } catch (err: any) {
+      // Soft-fail: a broken seed must never block creation.
+      log.warn(`[Pipeline/generation] seed apply threw for ${ctx.projectId}: ${err.message}`);
+    }
   }
 
   log.info(`[Pipeline/generation] Finished for ${ctx.projectId}, files: ${filesCreated}`);

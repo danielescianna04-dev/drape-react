@@ -12,12 +12,18 @@ interface DatabaseFile {
 interface TableInfo {
   name: string;
   rowCount: number;
+  /** Drape Cloud system tables (users, sessions) are read-only. */
+  system?: boolean;
 }
 
 interface RowsResult {
   rows: Record<string, any>[];
   columns: string[];
   total: number;
+  /** Total ignoring virtual-table filters (only set for `users` table). */
+  totalAll?: number;
+  /** True when the default anonymous-user filter was applied. */
+  anonymousFilterApplied?: boolean;
 }
 
 interface SchemaTable {
@@ -48,7 +54,7 @@ async function apiFetch(path: string, options?: RequestInit) {
 }
 
 export function useDatabaseApi(projectId: string | undefined) {
-  const discover = useCallback(async (): Promise<{ databases: DatabaseFile[]; pgDetected: boolean; supabaseDetected?: boolean; supabaseUrl?: string; containerReady?: boolean }> => {
+  const discover = useCallback(async (): Promise<{ databases: DatabaseFile[]; pgDetected: boolean; supabaseDetected?: boolean; supabaseUrl?: string; drapeCloudDetected?: boolean; containerReady?: boolean }> => {
     if (!projectId) throw new Error('No project');
     return apiFetch(`/db/discover/${projectId}`);
   }, [projectId]);
@@ -59,12 +65,13 @@ export function useDatabaseApi(projectId: string | undefined) {
     return data.tables;
   }, [projectId]);
 
-  const getRows = useCallback(async (dbPath: string, table: string, page = 0, limit = 50, filter?: Filter): Promise<RowsResult> => {
+  const getRows = useCallback(async (dbPath: string, table: string, page = 0, limit = 50, filter?: Filter, opts?: { includeAnonymous?: boolean }): Promise<RowsResult> => {
     if (!projectId) throw new Error('No project');
     let url = `/db/rows/${projectId}?db=${encodeURIComponent(dbPath)}&table=${encodeURIComponent(table)}&page=${page}&limit=${limit}`;
     if (filter) {
       url += `&filterCol=${encodeURIComponent(filter.column)}&filterOp=${filter.op}&filterVal=${encodeURIComponent(filter.value)}`;
     }
+    if (opts?.includeAnonymous) url += `&includeAnonymous=true`;
     return apiFetch(url);
   }, [projectId]);
 

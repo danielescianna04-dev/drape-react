@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   TerminalItem,
   AutocompleteOption,
@@ -37,6 +38,9 @@ export interface UIState {
   projectPreviewTokens: Record<string, string>;
   previewStartupStates: Record<string, PreviewStartupState>;
   isToolsExpanded: boolean;
+  /** When true, tool-call items in chat render a plain-language one-liner
+   * instead of the dev-oriented CMD/GREP/READ badges + code. Persisted. */
+  simpleToolView: boolean;
   isSidebarOpen: boolean;
 
   // Preview toolbar state (shared with header)
@@ -106,6 +110,7 @@ export interface UIState {
   getPreviewStartupState: (projectId: string) => PreviewStartupState | null;
   clearPreviewStartupState: (projectId: string) => void;
   setIsToolsExpanded: (value: boolean) => void;
+  setSimpleToolView: (value: boolean) => void;
   setIsSidebarOpen: (value: boolean) => void;
   setAutocompleteOptions: (options: AutocompleteOption[]) => void;
   setShowAutocomplete: (show: boolean) => void;
@@ -144,6 +149,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     projectPreviewTokens: {},
     previewStartupStates: {},
     isToolsExpanded: false,
+    simpleToolView: true,
     isSidebarOpen: false,
 
     // Preview toolbar shared state
@@ -308,6 +314,10 @@ export const useUIStore = create<UIState>((set, get) => ({
       return { previewStartupStates: newStates };
     }),
     setIsToolsExpanded: (value) => set({ isToolsExpanded: value }),
+    setSimpleToolView: (value) => {
+      set({ simpleToolView: value });
+      AsyncStorage.setItem('chat_simple_tool_view', value ? '1' : '0').catch(() => {});
+    },
     setIsSidebarOpen: (value) => set((state) => (
       state.isSidebarOpen === value ? state : { isSidebarOpen: value }
     )),
@@ -351,3 +361,12 @@ export const useUIStore = create<UIState>((set, get) => ({
     },
     setSkipNextPreflight: (value) => set({ skipNextPreflight: value }),
 }));
+
+// Hydrate persisted simpleToolView on import
+AsyncStorage.getItem('chat_simple_tool_view')
+  .then((raw) => {
+    if (raw === '0' || raw === '1') {
+      useUIStore.setState({ simpleToolView: raw === '1' });
+    }
+  })
+  .catch(() => {});

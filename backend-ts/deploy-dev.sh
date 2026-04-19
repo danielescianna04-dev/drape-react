@@ -25,11 +25,15 @@ rsync -avz --delete \
   --exclude .env \
   --exclude local-data \
   --exclude service-account-key.json \
+  --include '**/*.d.ts' \
   --exclude '*.ts' \
   ./ -e "ssh ${SSH_OPTS}" "${REMOTE}:${REMOTE_DIR}/"
 
 echo "📥 Installing production deps on server..."
 ssh ${SSH_OPTS} "$REMOTE" "cd ${REMOTE_DIR} && npm ci --omit=dev"
+
+echo "🗄️  Applying Drape Cloud migrations (idempotent)..."
+ssh ${SSH_OPTS} "$REMOTE" "cd ${REMOTE_DIR} && set -a && . ./.env && set +a && node scripts/drape-cloud-migrate.js" || echo "   (skipped — DRAPE_CLOUD_DB_URL may not be set)"
 
 echo "🔄 Restarting DEV backend..."
 ssh ${SSH_OPTS} "$REMOTE" "systemctl restart drape-backend-dev"
