@@ -1,0 +1,249 @@
+#!/bin/bash
+# =============================================================================
+# drape — single-command helper for dev/prod workflows
+# Usage: ./drape <env> <action>   OR   ./drape <action>
+# Examples:
+#   ./drape dev deploy         # deploy backend to dev
+#   ./drape dev ota            # OTA update → preview channel
+#   ./drape dev release        # backend deploy + OTA in one step
+#   ./drape prod promote       # merge dev → main + push
+#   ./drape prod deploy        # backend deploy (must be on main)
+#   ./drape prod ota           # OTA update → production channel
+#   ./drape prod release       # promote + deploy + OTA (with confirmations)
+#   ./drape status             # health of both envs
+#   ./drape logs [dev|prod]    # tail backend log
+#   ./drape version <x.y.z>    # bump user-facing version everywhere
+#   ./drape rollback prod      # list recent prod OTAs to roll back to
+# =============================================================================
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+# ─── Colors ─────────────────────────────────────────────────────────────────
+if [[ -t 1 ]]; then
+  B=$'\e[1m'; D=$'\e[2m'; R=$'\e[0m'
+  BLU=$'\e[34m'; GRN=$'\e[32m'; YEL=$'\e[33m'; RED=$'\e[31m'; PUR=$'\e[35m'
+else
+  B=''; D=''; R=''; BLU=''; GRN=''; YEL=''; RED=''; PUR=''
+fi
+
+say()   { echo "${B}${BLU}▸${R} $*"; }
+ok()    { echo "${B}${GRN}✓${R} $*"; }
+warn()  { echo "${B}${YEL}⚠${R} $*"; }
+fail()  { echo "${B}${RED}✗${R} $*" >&2; exit 1; }
+title() { echo ""; echo "${B}${PUR}━━━ $* ━━━${R}"; }
+confirm() {
+  local msg="${1:-Continue?}"; local ans
+  read -r -p "${B}${YEL}?${R} ${msg} [y/N] " ans
+  [[ "$ans" =~ ^[Yy]$ ]] || fail "Aborted."
+}
+
+branch() { git rev-parse --abbrev-ref HEAD 2>/dev/null; }
+
+require_branch() {
+  local want="$1"
+  local have; have="$(branch)"
+  [[ "$have" == "$want" ]] || fail "Must be on branch '$want' (currently '$have')."
+}
+
+require_clean() {
+  if [[ -n "$(git status --porcelain)" ]]; then
+    fail "Working tree has uncommitted changes. Commit or stash first."
+  fi
+}
+
+# ─── Actions ────────────────────────────────────────────────────────────────
+
+dev_deploy() {
+  title "Deploy backend → dev.drape.info"
+  cd "$ROOT/backend-ts"
+  ./deploy-dev.sh
+  ok "Backend dev deployed."
+}
+
+dev_ota() {
+  title "OTA update → preview channel"
+  local msg="${1:-dev update}"
+  EXPO_PUBLIC_ENV=development \
+  EXPO_PUBLIC_API_URL=https://dev.drape.info \
+  EXPO_PUBLIC_WS_URL=wss://dev.drape.info \
+    eas update --channel preview --message "$msg"
+  ok "Preview OTA published."
+}
+
+dev_release() {
+  title "Dev release (backend + OTA)"
+  local msg="${1:-dev release $(date +%Y-%m-%d)}"
+  dev_deploy
+  dev_ota "$msg"
+  ok "Dev release complete."
+}
+
+prod_promote() {
+  title "Promote dev → main"
+  require_clean
+  git fetch origin dev main
+  say "Checking out main and merging dev…"
+  git checkout main >/dev/null
+  if ! git merge --ff-only dev; then
+    git checkout - >/dev/null
+    fail "dev is not a fast-forward of main — rebase or merge manually first."
+  fi
+  git push origin main
+  ok "main now at $(git rev-parse --short HEAD). Staying on main (required for deploy)."
+}
+
+prod_deploy() {
+  title "Deploy backend → drape.info"
+  require_branch main
+  cd "$ROOT/backend-ts"
+  ./deploy.sh
+  ok "Backend prod deployed."
+}
+
+prod_ota() {
+  title "OTA update → production channel"
+  require_branch main
+  local msg="${1:-prod update}"
+  warn "This publishes to REAL production users immediately."
+  confirm "Proceed?"
+  EXPO_PUBLIC_ENV=production \
+  EXPO_PUBLIC_API_URL=https://drape.info \
+  EXPO_PUBLIC_WS_URL=wss://drape.info \
+    eas update --channel production --message "$msg"
+  ok "Production OTA published."
+}
+
+prod_release() {
+  title "Prod release (promote + deploy + OTA)"
+  local msg="${1:-prod release $(date +%Y-%m-%d)}"
+  local start_branch; start_branch="$(branch)"
+  [[ "$start_branch" == "dev" ]] || warn "Starting from '$start_branch' (expected 'dev')."
+  prod_promote
+  prod_deploy
+  prod_ota "$msg"
+  say "Returning to '$start_branch'…"
+  git checkout "$start_branch" >/dev/null
+  ok "Prod release complete."
+}
+
+show_status() {
+  title "Environment status"
+  echo "${B}Git:${R}"
+  echo "  branch: $(branch)"
+  echo "  main:   $(git rev-parse --short main 2>/dev/null || echo '—')"
+  echo "  dev:    $(git rev-parse --short dev  2>/dev/null || echo '—')"
+  local ahead behind
+  ahead="$(git rev-list --count main..dev 2>/dev/null || echo 0)"
+  behind="$(git rev-list --count dev..main 2>/dev/null || echo 0)"
+  echo "  dev vs main: ${ahead} ahead, ${behind} behind"
+  echo ""
+  echo "${B}Backend:${R}"
+  printf "  dev  → "; curl -s --max-time 5 https://dev.drape.info/health | head -c 200; echo ""
+  printf "  prod → "; curl -s --max-time 5 https://drape.info/health | head -c 200; echo ""
+}
+
+show_logs() {
+  local env="${1:-dev}"
+  case "$env" in
+    dev)  ssh -i ~/.ssh/id_ed25519_drape -p 49222 root@77.42.1.116 "tail -f /var/log/drape-backend-dev.log" ;;
+    prod) ssh -i ~/.ssh/id_ed25519_drape -p 49222 root@77.42.1.116 "tail -f /var/log/drape-backend.log" ;;
+    *)    fail "Usage: ./drape logs [dev|prod]" ;;
+  esac
+}
+
+bump_version() {
+  local v="${1:-}"
+  [[ -n "$v" ]] || fail "Usage: ./drape version <x.y.z>"
+  [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "Version must be in x.y.z format."
+  title "Bump version → $v"
+  # Use a portable sed replace across files
+  local files=(
+    "app.config.ts"
+    "package.json"
+    "backend-ts/package.json"
+    "backend-ts/src/index.ts"
+    "backend-ts/src/routes/health.routes.ts"
+    "backend-ts/src/routes/index.ts"
+  )
+  # version: 'X.Y.Z' / "version": "X.Y.Z" / v2.X.Y / currentVersion: 'X.Y.Z'
+  local current
+  current="$(grep -E "version.*['\"]([0-9]+\.[0-9]+\.[0-9]+)['\"]" app.config.ts | head -1 | sed -E "s/.*['\"]([0-9]+\.[0-9]+\.[0-9]+)['\"].*/\1/")"
+  [[ -n "$current" ]] || fail "Could not detect current version in app.config.ts"
+  say "Bumping $current → $v"
+  for f in "${files[@]}"; do
+    if [[ -f "$f" ]]; then
+      # Only replace the user-facing semver, NOT runtimeVersion (that's for binary compat)
+      # Also never touch the "minVersion = '2.0.2'" marker (comment tells why)
+      # We match on the currently-detected $current to avoid collateral damage.
+      sed -i.bak "s/${current}/${v}/g" "$f"
+      rm -f "$f.bak"
+      ok "Updated: $f"
+    fi
+  done
+  warn "runtimeVersion in app.config.ts was NOT changed (would break OTA). Bump manually only when cutting a new native binary."
+}
+
+show_rollback() {
+  local env="${1:-}"
+  [[ "$env" == "prod" || "$env" == "dev" ]] || fail "Usage: ./drape rollback [dev|prod]"
+  local branch
+  if [[ "$env" == "prod" ]]; then branch=production; else branch=preview; fi
+  title "Recent OTAs on $env ($branch branch)"
+  eas update:list --branch "$branch" --limit 10 2>/dev/null || warn "Could not list updates (requires EAS init). Check manually in the Expo dashboard."
+  echo ""
+  warn "To roll back: eas update:roll-back-to-embedded --channel $env  (reverts to the shipped binary)"
+  warn "Or republish an earlier update: eas update --channel $env --republish --group <group-id>"
+}
+
+usage() {
+  cat <<EOF
+${B}drape${R} — dev/prod workflow helper
+
+${B}DEV${R}
+  ./drape dev deploy                backend → dev.drape.info
+  ./drape dev ota [message]         OTA → preview channel
+  ./drape dev release [message]     deploy + OTA
+
+${B}PROD${R}
+  ./drape prod promote              merge dev → main, push main
+  ./drape prod deploy               backend → drape.info  (requires branch=main)
+  ./drape prod ota [message]        OTA → production channel (with confirm)
+  ./drape prod release [message]    promote + deploy + OTA (full flow)
+
+${B}UTIL${R}
+  ./drape status                    show branches + health of both envs
+  ./drape logs [dev|prod]           tail backend log
+  ./drape version <x.y.z>           bump user-facing version everywhere
+  ./drape rollback [dev|prod]       list recent OTAs for that channel
+EOF
+}
+
+# ─── Dispatch ───────────────────────────────────────────────────────────────
+env="${1:-}"; action="${2:-}"; shift || true; shift || true
+case "$env" in
+  dev)
+    case "$action" in
+      deploy)  dev_deploy ;;
+      ota)     dev_ota "$@" ;;
+      release) dev_release "$@" ;;
+      *)       usage; exit 1 ;;
+    esac
+    ;;
+  prod)
+    case "$action" in
+      promote) prod_promote ;;
+      deploy)  prod_deploy ;;
+      ota)     prod_ota "$@" ;;
+      release) prod_release "$@" ;;
+      *)       usage; exit 1 ;;
+    esac
+    ;;
+  status)   show_status ;;
+  logs)     show_logs "$action" ;;
+  version)  bump_version "$action" ;;
+  rollback) show_rollback "$action" ;;
+  ""|help|-h|--help) usage ;;
+  *) usage; exit 1 ;;
+esac
