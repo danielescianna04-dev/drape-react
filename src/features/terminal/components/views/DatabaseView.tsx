@@ -197,6 +197,11 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
           onOpenSQL={() => dispatch({ type: 'GO_TO', screen: 'sql-editor' })}
           onOpenSchema={() => dispatch({ type: 'GO_TO', screen: 'schema-viz' })}
           showBack={state.databases.length > 1}
+          onCreateTable={async (name, scope, purpose, fields) => {
+            await api.createTable(name, scope, purpose, fields);
+            const tables = await api.getTables(state.selectedDb!);
+            dispatch({ type: 'SET_TABLES', tables });
+          }}
         />
       )}
       {state.screen === 'table-data' && state.selectedDb && state.selectedTable && (

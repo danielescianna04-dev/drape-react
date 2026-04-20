@@ -105,6 +105,20 @@ export function useDatabaseApi(projectId: string | undefined) {
     });
   }, [projectId]);
 
+  const createTable = useCallback(async (
+    name: string,
+    scope: 'shared' | 'mine' | 'junction',
+    purpose?: string,
+    fields?: { name: string; type: 'text' | 'number' | 'boolean' | 'date' | 'image' | 'reference'; references?: string }[],
+    seedable?: boolean,
+  ) => {
+    if (!projectId) throw new Error('No project');
+    return apiFetch(`/db/create-table/${projectId}`, {
+      method: 'POST',
+      body: JSON.stringify({ name, scope, purpose, fields, seedable }),
+    });
+  }, [projectId]);
+
   const executeQuery = useCallback(async (dbPath: string, sql: string) => {
     if (!projectId) throw new Error('No project');
     return apiFetch(`/db/query/${projectId}`, {
@@ -122,5 +136,5 @@ export function useDatabaseApi(projectId: string | undefined) {
     return res.text();
   }, [projectId]);
 
-  return { discover, getTables, getRows, getSchema, updateCell, insertRow, deleteRow, executeQuery, exportCsv };
+  return { discover, getTables, getRows, getSchema, updateCell, insertRow, deleteRow, executeQuery, exportCsv, createTable };
 }

@@ -5,6 +5,13 @@
 # =============================================================================
 set -euo pipefail
 
+# ─── Branch guard — dev deploys from `dev` (soft warning) ────────────────────
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+if [[ "$CURRENT_BRANCH" != "dev" ]]; then
+  echo "⚠️  You are on branch '$CURRENT_BRANCH' (expected 'dev'). Deploying anyway in 3s…"
+  sleep 3
+fi
+
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519_drape}"
 SSH_PORT="${SSH_PORT:-49222}"
 SSH_OPTS="-i ${SSH_KEY} -p ${SSH_PORT}"

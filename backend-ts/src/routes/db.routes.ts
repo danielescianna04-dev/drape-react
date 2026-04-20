@@ -8,6 +8,7 @@ import { log } from '../utils/logger';
 import { fileService } from '../services/file.service';
 import { isDrapeCloudConfigured, getSql as getDrapeCloudSql } from '../services/drape-cloud/client';
 import { ScopedRowStore } from '../services/drape-cloud/scoped-query';
+import { applyDeclareChange } from '../services/drape-cloud/declared-tables.service';
 
 export const dbRouter = Router();
 
@@ -882,6 +883,42 @@ console.log(JSON.stringify({ changes: result.changes }));
 
   const data = await execNodeScript(agentUrl, script);
   res.json(data);
+}));
+
+// ─── POST /db/create-table/:projectId ───
+// Create a new Drape Cloud table (append to declared-tables.json).
+// No-op on non-Drape-Cloud projects (classic SQLite tables are created via SQL).
+dbRouter.post('/create-table/:projectId', asyncHandler(async (req, res) => {
+  const { projectId } = req.params;
+  const { name, scope, purpose, seedable, fields } = req.body || {};
+
+  if (typeof name !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name)) {
+    return res.status(400).json({ error: 'Invalid table name. Use snake_case, letters/numbers/underscore, max 64 chars.' });
+  }
+  if (scope !== 'shared' && scope !== 'mine' && scope !== 'junction') {
+    return res.status(400).json({ error: 'scope must be "shared", "mine" or "junction"' });
+  }
+  if (!(await isDrapeCloudProject(projectId))) {
+    return res.status(400).json({ error: 'Table creation is only available on Drape Cloud projects' });
+  }
+  if (name === 'users' || name === 'sessions') {
+    return res.status(400).json({ error: `'${name}' is reserved for the Drape Cloud auth system` });
+  }
+
+  try {
+    const result = await applyDeclareChange(projectId, {
+      add: [{
+        name: name.toLowerCase(),
+        scope,
+        purpose: typeof purpose === 'string' ? purpose.trim().slice(0, 200) : '',
+        seedable: seedable === true || (seedable === undefined && scope === 'shared'),
+        ...(Array.isArray(fields) ? { fields } : {}),
+      } as any],
+    });
+    return res.json({ tables: result.tables, warnings: result.warnings });
+  } catch (err: any) {
+    return res.status(500).json({ error: `Failed to create table: ${err.message}` });
+  }
 }));
 
 // ─── POST /db/query/:projectId ───

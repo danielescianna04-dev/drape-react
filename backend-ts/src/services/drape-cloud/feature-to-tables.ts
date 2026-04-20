@@ -19,12 +19,27 @@
 
 export type TableScope = 'shared' | 'mine' | 'junction';
 
+export type FieldType = 'text' | 'number' | 'boolean' | 'date' | 'image' | 'reference';
+
+export interface TableField {
+  name: string;
+  type: FieldType;
+  /** When type==='reference', the target table name. */
+  references?: string;
+  /** Optional free-text hint shown in the data-model. */
+  note?: string;
+}
+
 export interface PlannedTable {
   name: string;
   scope: TableScope;
   purpose: string;
   /** true when the table should be seeded with realistic rows at creation. */
   seedable: boolean;
+  /** Optional user-defined schema hints — they are documentation only,
+   *  Drape Cloud stores arbitrary jsonb payloads, but the AI and the
+   *  viewer use these to pre-populate forms and prompt examples. */
+  fields?: TableField[];
 }
 
 export interface DataModelPlan {
@@ -470,6 +485,29 @@ export function renderDataModelMarkdown(plan: DataModelPlan, opts: { projectTitl
       lines.push(`| \`${t.name}\` | ${t.scope} | ${t.purpose} | ${seed} |`);
     }
     lines.push('');
+
+    // Per-table field hints — schemaless under the hood but authored by the
+    // user (or AI) as a guide. Code examples should stick to these names.
+    const tablesWithFields = plan.tables.filter((t) => Array.isArray(t.fields) && t.fields.length > 0);
+    if (tablesWithFields.length > 0) {
+      lines.push('## Field hints');
+      lines.push('');
+      lines.push('Drape Cloud stores jsonb payloads, so these are documentation, not a');
+      lines.push('strict schema. Stick to these field names when you insert rows so the');
+      lines.push('viewer and future queries line up.');
+      lines.push('');
+      for (const t of tablesWithFields) {
+        lines.push(`### \`${t.name}\``);
+        lines.push('');
+        lines.push('| Field | Type | Notes |');
+        lines.push('|---|---|---|');
+        for (const f of t.fields || []) {
+          const typeLabel = f.type === 'reference' && f.references ? `reference → \`${f.references}\`` : f.type;
+          lines.push(`| \`${f.name}\` | ${typeLabel} | ${f.note || ''} |`);
+        }
+        lines.push('');
+      }
+    }
   }
 
   if (plan.requiresAuth) {

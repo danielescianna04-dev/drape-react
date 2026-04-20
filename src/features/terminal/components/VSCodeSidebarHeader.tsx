@@ -140,7 +140,7 @@ export const VSCodeSidebarHeader: React.FC<Props> = ({
 
       <View style={styles.morphButtonWrapper} pointerEvents="box-none">
         <TouchableOpacity activeOpacity={1} onPress={showHeaderMenu ? closeMenu : openMenu}>
-          <GlassCard style={{ borderRadius: 16, overflow: 'visible' }}>
+          <GlassCard style={{ borderRadius: 20, overflow: 'visible' }}>
             <Animated.View style={[styles.morphButton, morphStyle]}>
               <Animated.View style={[styles.dotsContainer, dotsOpacity]}>
                 <View style={localStyles.dot} />

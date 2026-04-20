@@ -10,7 +10,7 @@
  */
 
 import { fileService } from '../file.service';
-import type { PlannedTable } from './feature-to-tables';
+import type { PlannedTable, FieldType, TableField } from './feature-to-tables';
 import {
   renderDataModelMarkdown,
   type DataModelPlan,
@@ -82,6 +82,27 @@ export async function writeBaseline(
 }
 
 const SAFE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+const FIELD_TYPES = new Set(['text', 'number', 'boolean', 'date', 'image', 'reference']);
+
+function sanitizeFields(raw: unknown): TableField[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: TableField[] = [];
+  for (const r of raw) {
+    if (!r || typeof r !== 'object') continue;
+    const rec = r as Record<string, unknown>;
+    const name = typeof rec.name === 'string' ? rec.name.trim() : '';
+    const type = typeof rec.type === 'string' ? rec.type : '';
+    if (!SAFE_NAME_RE.test(name)) continue;
+    if (!FIELD_TYPES.has(type)) continue;
+    const field: TableField = { name, type: type as FieldType };
+    if (type === 'reference' && typeof rec.references === 'string' && SAFE_NAME_RE.test(rec.references)) {
+      field.references = rec.references;
+    }
+    if (typeof rec.note === 'string' && rec.note.trim()) field.note = rec.note.trim().slice(0, 200);
+    out.push(field);
+  }
+  return out.length > 0 ? out : undefined;
+}
 
 export interface DeclareChange {
   add?: PlannedTable[];
@@ -106,11 +127,13 @@ export async function applyDeclareChange(
       continue;
     }
     const existing = byName.get(raw.name);
+    const fields = sanitizeFields((raw as any).fields) || existing?.fields;
     const t: PlannedTable = {
       name: raw.name,
       scope: raw.scope,
       purpose: typeof raw.purpose === 'string' && raw.purpose ? raw.purpose : existing?.purpose || '',
       seedable: raw.seedable === true || (raw.seedable === undefined && raw.scope === 'shared'),
+      ...(fields ? { fields } : {}),
     };
     byName.set(t.name, t);
     state.changelog.push({ at: new Date().toISOString(), action: 'add', table: t.name });
