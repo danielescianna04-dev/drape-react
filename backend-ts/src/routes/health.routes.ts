@@ -28,13 +28,15 @@ function compareVersions(a: string, b: string): number {
 // GET /version-check — Check if app needs native update
 healthRouter.get('/version-check', (req, res) => {
   const appVersion = req.query.appVersion as string;
+  // Min version kept at 2.0.2 so existing installs are not force-updated
+  // by a bump in the `currentVersion` marker.
   const minVersion = '2.0.2';
 
   const forceUpdate = appVersion ? compareVersions(appVersion, minVersion) < 0 : false;
 
   res.json({
     minVersion,
-    currentVersion: '2.0.2',
+    currentVersion: '2.1.0',
     forceUpdate,
     storeUrl: 'https://apps.apple.com/app/id6758354741',
   });
@@ -45,7 +47,7 @@ healthRouter.get('/health', asyncHandler(async (req, res) => {
   const health = await dockerService.healthCheck();
   res.json({
     status: health.healthy ? 'ok' : 'degraded',
-    version: '2.0.2',
+    version: '2.1.0',
     architecture: 'docker-ts',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
