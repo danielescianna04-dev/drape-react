@@ -27,7 +27,6 @@ import { derivePreviewPhase } from '../preview/derivePreviewPhase';
 import {
   PreviewStateStart,
   PreviewStateLoading,
-  PreviewStateFixing,
   PreviewStateEnvRequired,
   PreviewStateSessionExpired,
   PreviewStateFatalError,
@@ -553,16 +552,6 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   onUpgrade={() => { tracciaPaginaPianiVista('preview_limit'); useNavigationStore.getState().navigateTo('plans'); }}
                   t={t}
                 />
-              ) : previewState.phase === 'fixing' ? (
-                <PreviewStateFixing
-                  terminalLines={previewState.terminalOutput}
-                  statusMessage={previewState.autoFix.statusMessage || 'Risolvo il problema...'}
-                  fixAttempt={previewState.autoFix.attempt}
-                  smoothProgress={startup.smoothProgress}
-                  elapsedSeconds={startup.elapsedSeconds}
-                  pulseAnim={startup.pulseAnim}
-                  t={t}
-                />
               ) : previewState.phase === 'idle' ? (
                 <PreviewStateStart
                   projectName={currentWorkstation?.name}
@@ -574,8 +563,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   onStart={handleStartWithTransition}
                   t={t}
                 />
-              ) : previewState.phase === 'starting' || previewState.phase === 'waiting_health' ? (
-                /* During 'checking', show ONLY loading screen — no WebView. */
+              ) : previewState.phase === 'starting' || previewState.phase === 'waiting_health' || previewState.phase === 'fixing' ? (
+                /* During 'checking'/'fixing', show ONLY loading screen — no WebView, no fix banner. */
                 <PreviewStateLoading
                   terminalLines={previewTerminalLines}
                   displayedMessage={previewState.displayedMessage}

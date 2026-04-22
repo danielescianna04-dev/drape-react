@@ -302,57 +302,12 @@ REGOLE:
 
   // ── Report check result ──────────────────────────────────────────
 
-  const reportCheckResult = useCallback((result: CheckResult) => {
-    const hasErrors = result.jsErrors.length > 0;
-    const isBlankScreen = result.rootChildren === 0;
-
-    reportRef.current.attempts.push({
-      attemptNumber: fixAttempt + (hasErrors || isBlankScreen ? 1 : 0),
-      timestamp: new Date().toISOString(),
-      status: (!hasErrors && !isBlankScreen) ? 'passed' : 'failed',
-      jsErrors: result.jsErrors,
-      rootChildren: result.rootChildren,
-      screenshotBase64: result.screenshotBase64,
-    });
-
-    if (!hasErrors && !isBlankScreen) {
-      // All good!
-      setState('verified');
-      setFixStatus(null);
-      closeStream();
-
-      // Send preview verification data to backend (fire and forget)
-      if (projectId) {
-        getAuthToken(true).then(authToken => {
-          fetch(`${config.apiUrl}/workstation/${projectId}/verification-report`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-            },
-            body: JSON.stringify({
-              previewVerification: {
-                attempts: reportRef.current.attempts,
-                totalDuration: reportRef.current.attempts.length > 0
-                  ? Date.now() - new Date(reportRef.current.attempts[0].timestamp).getTime()
-                  : 0,
-              },
-            }),
-          }).catch(err => console.warn('[AutoFix] Failed to save report:', err));
-        }).catch(() => {});
-      }
-    } else {
-      // Needs fix — but respect max attempts
-      if (fixAttempt >= MAX_AUTO_FIX_ATTEMPTS) {
-        console.warn(`[AutoFix] Max attempts (${MAX_AUTO_FIX_ATTEMPTS}) reached — stopping auto-fix, showing preview as-is`);
-        setState('exhausted');
-        setFixStatus(null);
-        closeStream();
-        return;
-      }
-      startFix(result);
-    }
-  }, [startFix, closeStream, fixAttempt, projectId]);
+  // Auto-fix is disabled: any check result is treated as verified, no SSE fix runs.
+  const reportCheckResult = useCallback((_result: CheckResult) => {
+    setState('verified');
+    setFixStatus(null);
+    closeStream();
+  }, [closeStream]);
 
   return {
     state,
