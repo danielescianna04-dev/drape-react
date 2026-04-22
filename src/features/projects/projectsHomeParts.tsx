@@ -217,6 +217,15 @@ export const ProjectsQuickActions = ({
         </GlassWrapper>
       </View>
 
+      <View style={styles.actionCardWrapper}>
+        <GlassWrapper key={`file-${focusKey}`} style={[styles.actionCard, styles.actionCardGlass]}>
+          <TouchableOpacity style={styles.actionCardInner} activeOpacity={0.8} onPress={onBrowseFiles}>
+            <Ionicons name="folder-open" size={24} color="rgba(255,255,255,0.85)" />
+            <Text style={styles.actionCardTitle}>{t('home.files')}</Text>
+            <Text style={styles.actionCardSubtitle}>{t('home.openLocal')}</Text>
+          </TouchableOpacity>
+        </GlassWrapper>
+      </View>
     </View>
   </View>
 );
