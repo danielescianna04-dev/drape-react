@@ -258,7 +258,10 @@ export class AgentLoop {
       // 2. Check AI budget before doing anything expensive
       const budgetCheck = this.checkBudget();
       log.info(`[AgentLoop] Budget check: userId=${this.userId}, plan=${this.userPlan}, exceeded=${budgetCheck.exceeded}, percentUsed=${budgetCheck.percentUsed}%`);
-      if (budgetCheck.exceeded) {
+      // Budget enforcement temporarily disabled — was blocking new accounts
+      // due to shared monthly counter accumulating legacy usage. Re-enable
+      // when per-user counters are validated.
+      if (false && budgetCheck.exceeded) {
         log.warn(`[AgentLoop] Budget exceeded for user ${this.userId} (plan: ${this.userPlan}, ${budgetCheck.percentUsed}% used)`);
         yield {
           type: 'budget_exceeded',
@@ -322,7 +325,7 @@ export class AgentLoop {
         }
 
         // Re-check budget mid-run every 5 iterations to prevent runaway costs
-        if (this.iterationCount > 1 && this.iterationCount % 5 === 0) {
+        if (false && this.iterationCount > 1 && this.iterationCount % 5 === 0) {
           const midRunBudgetCheck = this.checkBudget();
           if (midRunBudgetCheck.exceeded) {
             log.warn(`[AgentLoop] Budget exceeded mid-run for user ${this.userId} (plan: ${this.userPlan}, ${midRunBudgetCheck.percentUsed}% used)`);
