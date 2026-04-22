@@ -1518,11 +1518,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             />
             <View style={styles.ideaToolbar}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {/* Cloud Mode hidden in production */}
-                {__DEV__ && <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
+                <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
                   <Ionicons name={cloudEnabled ? 'checkmark' : 'add'} size={16} color={cloudEnabled ? '#fff' : 'rgba(255,255,255,0.6)'} />
                   <Text style={[styles.cloudPillText, cloudEnabled && styles.cloudPillTextActive]}>{t('create.cloudMode')}</Text>
-                </TouchableOpacity>}
+                </TouchableOpacity>
                 <Pressable style={styles.cloudInfoBtn} onPress={openCloudInfo} hitSlop={8}>
                   <Ionicons name="information-circle-outline" size={20} color="rgba(255,255,255,0.4)" />
                 </Pressable>
@@ -1557,11 +1556,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             />
             <View style={styles.ideaToolbar}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {/* Cloud Mode hidden in production */}
-                {__DEV__ && <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
+                <TouchableOpacity style={[styles.cloudPill, cloudEnabled && styles.cloudPillActive]} activeOpacity={0.7} onPress={handleCloudToggle}>
                   <Ionicons name={cloudEnabled ? 'checkmark' : 'add'} size={16} color={cloudEnabled ? '#fff' : 'rgba(255,255,255,0.6)'} />
                   <Text style={[styles.cloudPillText, cloudEnabled && styles.cloudPillTextActive]}>{t('create.cloudMode')}</Text>
-                </TouchableOpacity>}
+                </TouchableOpacity>
                 <Pressable style={styles.cloudInfoBtn} onPress={openCloudInfo} hitSlop={8}>
                   <Ionicons name="information-circle-outline" size={20} color="rgba(255,255,255,0.4)" />
                 </Pressable>

@@ -338,7 +338,7 @@ class WorkspaceService {
       const twVersion = parseInt(JSON.parse(pkgContent).version || '3');
 
       // Try Next.js path first, fall back to Vite/React path
-      const candidatePaths = ['app/globals.css', 'src/index.css', 'src/app.css', 'src/main.css'];
+      const candidatePaths = ['app/globals.css', 'src/index.css', 'src/app.css', 'src/main.css', 'src/styles/global.css'];
       let cssPath = '';
       let css: string | null = null;
       for (const p of candidatePaths) {

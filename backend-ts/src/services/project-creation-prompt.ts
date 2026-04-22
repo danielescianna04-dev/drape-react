@@ -143,7 +143,8 @@ VUE 3 (COMPOSITION API) SPECIFIC:
 
   astro: `
 ASTRO 5 SPECIFIC:
-- Stack: Astro 5 + Tailwind CSS + optional React islands
+- Stack: Astro 5 + Tailwind CSS v4 (via @tailwindcss/vite) + optional React islands
+- Tailwind v4 ONLY: src/styles/global.css uses @import "tailwindcss" and @theme inline. NEVER write @tailwind base/components/utilities. NEVER add postcss.config or tailwind.config — they are not used.
 - Layout: src/layouts/Layout.astro is MINIMAL. YOU generate content.
 - Pages: src/pages/*.astro — frontmatter between --- fences
 - Static by default, zero JS shipped

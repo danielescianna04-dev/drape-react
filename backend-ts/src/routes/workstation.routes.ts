@@ -317,14 +317,21 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
     }
 
     if (technology === 'astro') {
-      ensureDep(pkg, 'dependencies', 'astro', '^4.10.0');
-      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
-      // Astro config — include @astrojs/tailwind integration when Tailwind is used
+      ensureDep(pkg, 'dependencies', 'astro', '~5.7.0');
+      ensureDep(pkg, 'dependencies', '@astrojs/react', '~4.2.0');
+      ensureDep(pkg, 'dependencies', 'react', '^19.0.0');
+      ensureDep(pkg, 'dependencies', 'react-dom', '^19.0.0');
+      ensureDep(pkg, 'devDependencies', 'typescript', '^5.7.0');
+      // Astro config — Tailwind v4 via @tailwindcss/vite plugin (no @astrojs/tailwind, no postcss)
       if (hasTailwindSignals) {
-        ensureDep(pkg, 'dependencies', '@astrojs/tailwind', '^5.1.0');
-        upsertFile(normalized, 'astro.config.mjs', `import { defineConfig } from 'astro/config';\nimport tailwind from '@astrojs/tailwind';\n\nexport default defineConfig({\n  integrations: [tailwind()],\n});\n`);
+        ensureDep(pkg, 'dependencies', '@tailwindcss/vite', '^4.0.0');
+        ensureDep(pkg, 'dependencies', 'tailwindcss', '^4.0.0');
+        // Strip any legacy @astrojs/tailwind the AI may have added
+        if (pkg.dependencies?.['@astrojs/tailwind']) delete pkg.dependencies['@astrojs/tailwind'];
+        if (pkg.devDependencies?.['@astrojs/tailwind']) delete pkg.devDependencies['@astrojs/tailwind'];
+        upsertFile(normalized, 'astro.config.mjs', `import { defineConfig } from 'astro/config';\nimport react from '@astrojs/react';\nimport tailwindcss from '@tailwindcss/vite';\n\nexport default defineConfig({\n  integrations: [react()],\n  vite: { plugins: [tailwindcss()] },\n});\n`);
       } else {
-        upsertFile(normalized, 'astro.config.mjs', `import { defineConfig } from 'astro/config';\n\nexport default defineConfig({});\n`);
+        upsertFile(normalized, 'astro.config.mjs', `import { defineConfig } from 'astro/config';\nimport react from '@astrojs/react';\n\nexport default defineConfig({\n  integrations: [react()],\n});\n`);
       }
       upsertFile(normalized, 'tsconfig.json', `{\n  "extends": "astro/tsconfigs/base",\n  "compilerOptions": {\n    "strict": false,\n    "skipLibCheck": true\n  }\n}\n`);
       ensureFile('src/pages/index.astro', `---\n---\n<html lang=\"it\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>${projectName}</title>\n  </head>\n  <body style=\"font-family: system-ui, sans-serif; padding: 24px;\">\n    <h1>Benvenuto su ${projectName}</h1>\n  </body>\n</html>\n`);
@@ -348,7 +355,20 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
       ensureFile('App.tsx', `import { Text, View, StyleSheet } from 'react-native';\n\nexport default function App() {\n  return (\n    <View style={styles.container}>\n      <Text style={styles.title}>Benvenuto su ${projectName}</Text>\n      <Text style={styles.subtitle}>Modifica App.tsx per iniziare</Text>\n    </View>\n  );\n}\n\nconst styles = StyleSheet.create({\n  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#fff' },\n  title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },\n  subtitle: { fontSize: 16, color: '#666' },\n});\n`);
     }
 
-    if (hasTailwindSignals || technology === 'nextjs') {
+    // Astro uses Tailwind v4 via @tailwindcss/vite — no postcss/autoprefixer needed.
+    // Strip any legacy postcss/tailwind configs the AI may have generated.
+    if (technology === 'astro' && hasTailwindSignals) {
+      for (const f of ['postcss.config.js', 'postcss.config.mjs', 'postcss.config.cjs', 'tailwind.config.js', 'tailwind.config.ts', 'tailwind.config.cjs']) {
+        const idx = normalized.findIndex((n) => n.path === f);
+        if (idx >= 0) normalized.splice(idx, 1);
+      }
+      if (pkg.devDependencies?.postcss) delete pkg.devDependencies.postcss;
+      if (pkg.devDependencies?.autoprefixer) delete pkg.devDependencies.autoprefixer;
+      if (pkg.devDependencies?.['tailwindcss-animate']) delete pkg.devDependencies['tailwindcss-animate'];
+      if (pkg.dependencies?.['tailwindcss-animate']) delete pkg.dependencies['tailwindcss-animate'];
+    }
+
+    if ((hasTailwindSignals || technology === 'nextjs') && technology !== 'astro') {
       ensureDep(pkg, 'devDependencies', 'tailwindcss', '^3.4.0');
       ensureDep(pkg, 'devDependencies', 'postcss', '^8.4.0');
       ensureDep(pkg, 'devDependencies', 'autoprefixer', '^10.4.0');
