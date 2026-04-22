@@ -16,6 +16,7 @@ import { tracciaCambioViewport, tracciaErroreAnteprima, tracciaElementoSeleziona
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import type { PreviewWebViewEvent } from '../preview/webview/previewWebViewEvents';
 import { isEnvRelatedMessage, isTransientProxyError, isCssNoiseError } from '../preview/webview/previewWebViewBridge';
+import { renderHeartbeat } from '../preview/webview/renderHeartbeat';
 
 // Sub-components
 import { PreviewToolbar } from './PreviewToolbar';
@@ -212,6 +213,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         setCanGoForward(event.canGoForward);
         break;
 
+      case 'render_heartbeat':
+        renderHeartbeat.record(event.at);
+        break;
+
       case 'preview_error': {
         const rawMsg = event.message;
         if (serverStatus !== 'running') {
@@ -219,7 +224,17 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           return;
         }
         if (isTransientProxyError(rawMsg)) {
-          console.warn('[Preview] Transient proxy error (ignored):', rawMsg);
+          // The WebView currently shows the 502 JSON page. Silently re-
+          // request the URL after a brief delay — by then the dev server
+          // has finished its HMR recompile and the next request returns
+          // the real page. We do NOT call handleRefresh here: that helper
+          // hides the "AI modified your project — reload" banner as a
+          // side-effect, which we want to keep up so the user still sees
+          // the acknowledgement of the AI's changes.
+          console.warn('[Preview] Transient proxy error, silent webview reload:', rawMsg);
+          setTimeout(() => {
+            try { webViewRef.current?.reload(); } catch {}
+          }, 1500);
           return;
         }
         console.warn('WebView detected non-transient proxy error:', rawMsg);
@@ -294,6 +309,16 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         break;
     }
   }, [serverStatus, lifecycle.webViewReady, setWebViewReady, setCanGoBack, setCanGoForward, setServerStatus, startup, redirectToEnvVarsWithError, handleRefresh, chat, t, preflightDoneRef, jsErrorsRef]);
+
+  // Mirror the reload-banner flag to uiStore so the sidebar-root can render
+  // a floating banner that sits above the chat drawer too (the in-preview
+  // banner was hidden behind the chat panel when both were open).
+  const setPreviewNeedsReload = useUIStore((s) => s.setPreviewNeedsReload);
+  React.useEffect(() => {
+    const shouldShow = !!(showReloadBanner && serverStatus === 'running');
+    setPreviewNeedsReload(shouldShow);
+    return () => setPreviewNeedsReload(false);
+  }, [showReloadBanner, serverStatus, setPreviewNeedsReload]);
 
   // Sync publish info to uiStore only when the published target actually changed.
   const lastPublishInfoRef = React.useRef<{ slug: string; url: string } | null>(null);
@@ -500,17 +525,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             )}
 
             <View ref={webViewContainerRef} style={styles.webViewContainer}>
-              {/* Reload banner — shown when file changes detected */}
-              {showReloadBanner && serverStatus === 'running' && (
-                <TouchableOpacity
-                  style={styles.reloadBanner}
-                  onPress={handleBannerReload}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="refresh" size={14} color="#fff" />
-                  <Text style={styles.reloadBannerText}>Modifiche rilevate — Ricarica</Text>
-                </TouchableOpacity>
-              )}
+              {/* Reload banner moved to VSCodeSidebar root — renders above chat drawer */}
               {/* Phase 5: State screens — pure components */}
               {previewState.phase === 'preflight_env' && previewEnvVars ? (
                 <PreviewStateEnvRequired

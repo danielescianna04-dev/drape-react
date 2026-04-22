@@ -160,7 +160,7 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
         </View>
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {tables.map((table, i) => {
+          {tables.filter((t) => t.name !== 'sessions').map((table, i) => {
             const hasRows = (table.rowCount || 0) > 0;
             return (
               <GlassWrap key={i} style={styles.tableCardGlass}>
@@ -238,8 +238,15 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
             onPress={() => setShowCreateModal(false)}
           />
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Nuova tabella</Text>
-            <Text style={styles.modalSubtitle}>Definisci struttura e relazioni</Text>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalHeaderIcon}>
+                <Ionicons name="layers-outline" size={18} color="#A78BFA" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Nuova tabella</Text>
+                <Text style={styles.modalSubtitle}>Dove verranno salvati i tuoi dati</Text>
+              </View>
+            </View>
 
             <ScrollView
               style={{ maxHeight: 520 }}
@@ -259,25 +266,30 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
                 maxLength={64}
               />
 
-              <Text style={styles.fieldLabel}>Tipo</Text>
+              <Text style={styles.fieldLabel}>Chi vede i dati</Text>
               <View style={styles.scopeRow}>
-                {(['shared', 'mine', 'junction'] as const).map((s) => (
+                {([
+                  { s: 'shared' as const, icon: 'globe-outline', label: 'Tutti', hint: 'Catalogo pubblico, articoli, post.' },
+                  { s: 'mine' as const, icon: 'person-outline', label: 'Utente', hint: 'Ogni utente vede solo le sue righe.' },
+                  { s: 'junction' as const, icon: 'git-compare-outline', label: 'Collega', hint: 'Unisce due tabelle (molti-a-molti).' },
+                ]).map(({ s, icon, label }) => (
                   <TouchableOpacity
                     key={s}
                     style={[styles.scopeChip, newScope === s && styles.scopeChipActive]}
                     onPress={() => setNewScope(s)}
                     activeOpacity={0.7}
                   >
+                    <Ionicons name={icon as any} size={14} color={newScope === s ? '#fff' : 'rgba(255,255,255,0.5)'} />
                     <Text style={[styles.scopeChipText, newScope === s && styles.scopeChipTextActive]}>
-                      {s === 'shared' ? 'Condivisa' : s === 'mine' ? 'Per utente' : 'Relazione'}
+                      {label}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
               <Text style={styles.scopeHint}>
-                {newScope === 'shared' && 'Visibile a tutti (catalogo, articoli, post).'}
-                {newScope === 'mine' && 'Ogni utente vede solo le sue righe (preferiti, ordini, note).'}
-                {newScope === 'junction' && 'Collega due tabelle. Genera automaticamente i due ID di riferimento.'}
+                {newScope === 'shared' && 'Visibile a tutti — usa per catalogo, articoli, post.'}
+                {newScope === 'mine' && 'Privata per utente — usa per preferiti, ordini, note.'}
+                {newScope === 'junction' && 'Collega due tabelle — genera automaticamente i due ID.'}
               </Text>
 
               {newScope === 'junction' && (
@@ -335,7 +347,7 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
 
               <Text style={styles.fieldLabel}>Descrizione (opzionale)</Text>
               <TextInput
-                style={[styles.input, { minHeight: 56 }]}
+                style={[styles.input, { minHeight: 64, borderRadius: 18, paddingTop: 12, textAlignVertical: 'top' }]}
                 value={newPurpose}
                 onChangeText={setNewPurpose}
                 placeholder="A cosa serve questa tabella?"
@@ -682,13 +694,27 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     backgroundColor: '#17141F',
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: 24,
+    padding: 22,
     borderWidth: 1,
     borderColor: 'rgba(180,160,255,0.15)',
   },
-  modalTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  modalSubtitle: { color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 4, marginBottom: 18 },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 18,
+  },
+  modalHeaderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(167,139,250,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalTitle: { color: '#fff', fontSize: 19, fontWeight: '700' },
+  modalSubtitle: { color: 'rgba(255,255,255,0.5)', fontSize: 12, marginTop: 2 },
   fieldLabel: {
     color: 'rgba(167,139,250,0.7)',
     fontSize: 10,
@@ -699,30 +725,33 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   input: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     color: '#fff',
     fontSize: 15,
   },
   scopeRow: { flexDirection: 'row', gap: 8 },
   scopeChip: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    flexDirection: 'row',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.09)',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   scopeChipActive: {
-    backgroundColor: 'rgba(139,92,246,0.18)',
-    borderColor: 'rgba(139,92,246,0.5)',
+    backgroundColor: 'rgba(139,92,246,0.22)',
+    borderColor: 'rgba(139,92,246,0.55)',
   },
-  scopeChipText: { color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: '600' },
+  scopeChipText: { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600' },
   scopeChipTextActive: { color: '#fff' },
   scopeHint: { color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 8, lineHeight: 16 },
 
@@ -733,18 +762,22 @@ const styles = StyleSheet.create({
     marginTop: 22,
   },
   modalBtnGhost: {
-    paddingVertical: 11,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 999,
   },
   modalBtnGhostText: { color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: '600' },
   modalBtnPrimary: {
-    paddingVertical: 11,
-    paddingHorizontal: 20,
-    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    borderRadius: 999,
     backgroundColor: '#8B5CF6',
-    minWidth: 130,
+    minWidth: 140,
     alignItems: 'center',
+    shadowColor: '#8B5CF6',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
   },
   modalBtnPrimaryText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 

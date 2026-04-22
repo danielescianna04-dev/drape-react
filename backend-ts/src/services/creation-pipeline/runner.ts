@@ -14,6 +14,8 @@ import { resolveProjectTechnology } from '../project-technology';
 import { config as appConfig } from '../../config';
 import { provisionDrapeCloudForProject } from '../drape-cloud/provision';
 import { isDrapeCloudConfigured } from '../drape-cloud/client';
+import { scaffoldDrapeCloudCRUD } from '../drape-cloud/scaffold-crud';
+import { readDeclared } from '../drape-cloud/declared-tables.service';
 import { log } from '../../utils/logger';
 import { config } from '../../config';
 import type { PipelineContext, PipelinePhase, PipelineState } from './types';
@@ -109,6 +111,22 @@ async function createInitialState(ctx: PipelineContext): Promise<PipelineState> 
           structuredAnswers: creationAnswers,
           projectTitle: creationTitle,
         });
+        // Schema-first scaffolding: with declared-tables.json now written,
+        // seed one CRUD page per table so the AI inherits working SDK calls
+        // instead of reaching for useState([...mock...]) arrays.
+        try {
+          const declared = await readDeclared(ctx.projectId);
+          const scaffold = await scaffoldDrapeCloudCRUD(
+            ctx.projectId,
+            resolvedTechnology,
+            declared.tables,
+          );
+          if (scaffold.written.length > 0) {
+            log.info(`[Pipeline] Scaffolded ${scaffold.written.length} CRUD page(s): ${scaffold.written.join(', ')}`);
+          }
+        } catch (err: any) {
+          log.warn(`[Pipeline] CRUD scaffolding failed (non-fatal): ${err.message}`);
+        }
       } catch (err: any) {
         log.warn(`[Pipeline] Drape Cloud provisioning failed: ${err.message}`);
         useDrapeCloud = false;

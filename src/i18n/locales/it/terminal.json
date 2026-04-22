@@ -229,7 +229,7 @@
     "budgetUsed": "Hai esaurito il budget AI per questo mese",
     "budgetWarning": "Hai usato il {{pct}}% del budget AI",
     "budgetGoFeature": "Con Go hai 7x budget",
-    "budgetGoDesc": "Piu budget AI, 10 progetti, modelli premium",
+    "budgetGoDesc": "Piu budget AI, 4 progetti, modelli premium",
     "budgetReset": "Il budget si resetta il 1° del mese",
     "startPreview": "Avvia Anteprima",
     "aiAssistant": "AI Assistant",
@@ -265,7 +265,7 @@
     "history": "Cronologia",
     "upgradeMessage": "Passa a Go per continuare",
     "upgradeCta": "Passa a Go",
-    "upgradeFeatures": "10 progetti + 5 clonati",
+    "upgradeFeatures": "4 progetti + 5 clonati",
     "upgradeWith": "Con Go hai:",
     "upgradePreviews": "Preview illimitate",
     "upgradeBudget": "7x budget AI"

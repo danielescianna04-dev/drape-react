@@ -88,6 +88,14 @@ export interface DrapeClient {
     user(): EndUser | null;
     refresh(): Promise<EndUser | null>;
   };
+  /**
+   * Build a publicly-shareable URL for a path inside the app. Use for QR
+   * codes, "share link" buttons and any URL you hand to another device.
+   * Transparently carries the preview token (?pt=) during dev mode so the
+   * link works when scanned off-device; returns origin + path unchanged in
+   * production.
+   */
+  publicUrl(path: string): string;
 }
 
 export function createDrape(config: DrapeConfig): DrapeClient;

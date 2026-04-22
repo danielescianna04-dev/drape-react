@@ -78,6 +78,17 @@ const TRANSIENT_PROXY_KEYWORDS = [
   'econnrefused',
   'too many requests',
   '429',
+  // Next.js and other dev servers briefly drop sockets during HMR
+  // recompilation. These look like hard errors but the server is alive —
+  // the next request recovers automatically.
+  'socket hang up',
+  'econnreset',
+  'etimedout',
+  'network changed',
+  // Backend proxy surfaces these friendly strings when the underlying
+  // dev server hiccups during a hot-reload. They are always transient.
+  'preview server not responding',
+  'preview server timeout',
 ];
 
 // ── Helpers ────────────────────────────────────────────────────

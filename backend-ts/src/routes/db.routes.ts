@@ -310,7 +310,7 @@ dbRouter.get('/tables/:projectId', asyncHandler(async (req, res) => {
     }
     try {
       const sql = getDrapeCloudSql();
-      const [dataTables, usersCount, sessionsCount] = await Promise.all([
+      const [dataTables, usersCount] = await Promise.all([
         sql<{ name: string; rowcount: string }[]>`
           SELECT table_name AS name, COUNT(*)::text AS rowcount
           FROM drape_rows
@@ -321,18 +321,13 @@ dbRouter.get('/tables/:projectId', asyncHandler(async (req, res) => {
         sql<{ c: string }[]>`
           SELECT COUNT(*)::text AS c FROM drape_end_users WHERE project_id = ${projectId}
         `,
-        sql<{ c: string }[]>`
-          SELECT COUNT(*)::text AS c FROM drape_sessions WHERE project_id = ${projectId}
-        `,
       ]);
       const tables = dataTables.map((r) => ({
         name: r.name,
         rowCount: Number(r.rowcount) || 0,
         system: false,
       }));
-      // System tables: read-only, always present, auth-managed.
       tables.push({ name: 'users', rowCount: Number(usersCount[0]?.c || 0), system: true });
-      tables.push({ name: 'sessions', rowCount: Number(sessionsCount[0]?.c || 0), system: true });
       return res.json({ tables });
     } catch (err: any) {
       log.warn(`[DB] Drape Cloud tables query failed for ${projectId}: ${err.message}`);

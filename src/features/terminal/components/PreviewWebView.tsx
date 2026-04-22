@@ -11,6 +11,7 @@ import { PreviewWebViewEvent, parseWebViewMessage } from '../preview/webview/pre
 import {
   buildPreviewInjectedScript,
   buildPostLoadDetectionScript,
+  buildRenderHeartbeatScript,
   buildViewportSwitchScript,
 } from '../preview/webview/previewWebViewInjectedScript';
 import { evaluateNavigation } from '../preview/webview/previewWebViewBridge';
@@ -176,6 +177,10 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
                 }
                 // Inject post-load detection script
                 webViewRef.current?.injectJavaScript(buildPostLoadDetectionScript());
+                // Install the render heartbeat so the host can decide if
+                // HMR already applied a file change (mutation observed) or
+                // if the user needs to tap Reload (no mutation within window).
+                webViewRef.current?.injectJavaScript(buildRenderHeartbeatScript());
                 setIsLoading(false);
               }}
 

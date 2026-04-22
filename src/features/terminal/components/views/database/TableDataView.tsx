@@ -26,7 +26,83 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [showAnonymous, setShowAnonymous] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newRowValues, setNewRowValues] = useState<Record<string, string>>({});
+  const [creating, setCreating] = useState(false);
   const isUsersTable = dbPath === '__drape__' && table === 'users';
+  const isSystemTable = dbPath === '__drape__' && (table === 'users' || table === 'sessions');
+
+  const editableColumns = useMemo(
+    () => columns.filter((c) => !['id', 'rowid', 'created_at', 'updated_at', 'end_user_id'].includes(c)),
+    [columns],
+  );
+
+  // FK-picker state: cache of row options per referenced table.
+  const [fkCache, setFkCache] = useState<Record<string, { id: string; label: string }[]>>({});
+  const [fkLoading, setFkLoading] = useState<Record<string, boolean>>({});
+  const [openPicker, setOpenPicker] = useState<string | null>(null);
+  const [availableTables, setAvailableTables] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!showAddModal) return;
+    api.getTables(dbPath).then((t: any[]) => setAvailableTables(t.map((x) => x.name))).catch(() => {});
+  }, [showAddModal, dbPath]);
+
+  const resolveFkTable = useCallback((col: string): string | null => {
+    if (!col.endsWith('_id')) return null;
+    const base = col.slice(0, -3);
+    if (base === 'end_user') return 'users';
+    if (availableTables.includes(base)) return base;
+    if (availableTables.includes(base + 's')) return base + 's';
+    if (base.endsWith('y') && availableTables.includes(base.slice(0, -1) + 'ies')) return base.slice(0, -1) + 'ies';
+    return null;
+  }, [availableTables]);
+
+  const loadFkOptions = useCallback(async (refTable: string) => {
+    if (fkCache[refTable] || fkLoading[refTable]) return;
+    setFkLoading((p) => ({ ...p, [refTable]: true }));
+    try {
+      const data = await api.getRows(dbPath, refTable, 0, 50);
+      const opts = (data.rows || []).map((r: any) => {
+        const label = r.name || r.title || r.email || r.label || r.username || String(r.id ?? r.rowid ?? '').slice(0, 8);
+        return { id: String(r.id ?? r.rowid ?? ''), label: String(label) };
+      });
+      setFkCache((p) => ({ ...p, [refTable]: opts }));
+    } catch {
+      setFkCache((p) => ({ ...p, [refTable]: [] }));
+    } finally {
+      setFkLoading((p) => ({ ...p, [refTable]: false }));
+    }
+  }, [api, dbPath, fkCache, fkLoading]);
+
+  const openAddModal = useCallback(() => {
+    const init: Record<string, string> = {};
+    editableColumns.forEach((c) => { init[c] = ''; });
+    setNewRowValues(init);
+    setShowAddModal(true);
+  }, [editableColumns]);
+
+  const submitNewRow = useCallback(async () => {
+    try {
+      setCreating(true);
+      const values: Record<string, any> = {};
+      for (const [k, v] of Object.entries(newRowValues)) {
+        if (v === '') continue;
+        if (v === 'true') values[k] = true;
+        else if (v === 'false') values[k] = false;
+        else if (/^-?\d+(\.\d+)?$/.test(v)) values[k] = Number(v);
+        else values[k] = v;
+      }
+      await api.insertRow(dbPath, table, values);
+      setShowAddModal(false);
+      setPage(0);
+      await loadRows(0);
+    } catch (err: any) {
+      Alert.alert('Errore', err.message);
+    } finally {
+      setCreating(false);
+    }
+  }, [api, dbPath, table, newRowValues, loadRows]);
 
   const apiRef = React.useRef(api);
   apiRef.current = api;
@@ -203,6 +279,121 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
           />
         </View>
       </ScrollView>
+
+      {!isSystemTable && (
+        <TouchableOpacity
+          style={[s.fab, { bottom: insets.bottom + 24 }]}
+          onPress={openAddModal}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="add" size={28} color="#fff" />
+        </TouchableOpacity>
+      )}
+
+      <Modal
+        visible={showAddModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAddModal(false)}
+      >
+        <View style={s.addBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setShowAddModal(false)} />
+          <View style={s.addCard}>
+            <View style={s.addHeader}>
+              <View style={s.addHeaderIcon}>
+                <Ionicons name="add-circle-outline" size={18} color="#A78BFA" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.addTitle}>Nuova riga</Text>
+                <Text style={s.addSubtitle}>Tabella {table}</Text>
+              </View>
+            </View>
+
+            <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              {editableColumns.length === 0 ? (
+                <Text style={s.addEmpty}>Nessun campo modificabile.</Text>
+              ) : editableColumns.map((col) => {
+                const refTable = resolveFkTable(col);
+                const value = newRowValues[col] || '';
+                if (refTable) {
+                  const opts = fkCache[refTable] || [];
+                  const isLoading = !!fkLoading[refTable];
+                  const selected = opts.find((o) => o.id === value);
+                  const isOpen = openPicker === col;
+                  return (
+                    <View key={col} style={{ marginBottom: 12 }}>
+                      <Text style={s.addLabel}>{col} <Text style={{ color: 'rgba(167,139,250,0.5)' }}>→ {refTable}</Text></Text>
+                      <TextInput
+                        style={s.addInput}
+                        value={value}
+                        onChangeText={(v) => setNewRowValues((prev) => ({ ...prev, [col]: v }))}
+                        onFocus={() => {
+                          loadFkOptions(refTable);
+                          setOpenPicker(col);
+                        }}
+                        placeholder={selected ? selected.label : `Scegli o scrivi ID da ${refTable}…`}
+                        placeholderTextColor="rgba(255,255,255,0.3)"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                      {isOpen && (
+                        <View style={s.fkDropdown}>
+                          {isLoading ? (
+                            <ActivityIndicator color="#8B5CF6" style={{ padding: 12 }} />
+                          ) : opts.length === 0 ? (
+                            <Text style={s.fkEmpty}>Nessuna riga in {refTable}. Scrivi l'ID a mano.</Text>
+                          ) : opts.map((opt) => (
+                            <TouchableOpacity
+                              key={opt.id}
+                              style={s.fkOption}
+                              onPress={() => {
+                                setNewRowValues((prev) => ({ ...prev, [col]: opt.id }));
+                                setOpenPicker(null);
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={s.fkOptionLabel} numberOfLines={1}>{opt.label}</Text>
+                              <Text style={s.fkOptionId} numberOfLines={1}>{opt.id.slice(0, 8)}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  );
+                }
+                return (
+                  <View key={col} style={{ marginBottom: 12 }}>
+                    <Text style={s.addLabel}>{col}</Text>
+                    <TextInput
+                      style={s.addInput}
+                      value={value}
+                      onChangeText={(v) => setNewRowValues((prev) => ({ ...prev, [col]: v }))}
+                      placeholder={`valore per ${col}`}
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            <View style={s.addActions}>
+              <TouchableOpacity style={s.addBtnGhost} onPress={() => setShowAddModal(false)} activeOpacity={0.7}>
+                <Text style={s.addBtnGhostText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.addBtnPrimary, creating && { opacity: 0.5 }]}
+                onPress={submitNewRow}
+                disabled={creating}
+                activeOpacity={0.85}
+              >
+                {creating ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.addBtnPrimaryText}>Crea riga</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Row Detail Modal */}
       <Modal visible={selectedRow !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setSelectedRow(null); setEditingField(null); }}>
@@ -674,6 +865,86 @@ const s = StyleSheet.create({
   boolText: { fontSize: 12, fontWeight: '700', fontFamily: 'monospace' },
   boolTrueText: { color: '#34D399' },
   boolFalseText: { color: 'rgba(255,255,255,0.45)' },
+
+  // Add-row FAB + modal
+  fab: {
+    position: 'absolute',
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#8B5CF6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#8B5CF6',
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  addBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  addCard: {
+    backgroundColor: '#17141F',
+    borderRadius: 24,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(180,160,255,0.15)',
+  },
+  addHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 18 },
+  addHeaderIcon: {
+    width: 38, height: 38, borderRadius: 12,
+    backgroundColor: 'rgba(167,139,250,0.14)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  addTitle: { color: '#fff', fontSize: 19, fontWeight: '700' },
+  addSubtitle: { color: 'rgba(255,255,255,0.5)', fontSize: 12, marginTop: 2 },
+  addLabel: {
+    color: 'rgba(167,139,250,0.7)', fontSize: 10, fontWeight: '700',
+    letterSpacing: 0.7, textTransform: 'uppercase', marginBottom: 6,
+  },
+  addInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 999, paddingHorizontal: 16, paddingVertical: 12,
+    color: '#fff', fontSize: 15,
+  },
+  addEmpty: { color: 'rgba(255,255,255,0.4)', fontSize: 13, paddingVertical: 12 },
+  fkDropdown: {
+    marginTop: 6,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(180,160,255,0.12)',
+    maxHeight: 220,
+    overflow: 'hidden',
+  },
+  fkOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+    gap: 10,
+  },
+  fkOptionLabel: { color: '#fff', fontSize: 14, flex: 1 },
+  fkOptionId: { color: 'rgba(167,139,250,0.6)', fontSize: 11, fontFamily: 'monospace' },
+  fkEmpty: { color: 'rgba(255,255,255,0.4)', fontSize: 12, padding: 12, textAlign: 'center' },
+  addActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 18 },
+  addBtnGhost: { paddingVertical: 12, paddingHorizontal: 18, borderRadius: 999 },
+  addBtnGhostText: { color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: '600' },
+  addBtnPrimary: {
+    paddingVertical: 12, paddingHorizontal: 22, borderRadius: 999,
+    backgroundColor: '#8B5CF6', minWidth: 140, alignItems: 'center',
+    shadowColor: '#8B5CF6', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+  },
+  addBtnPrimaryText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
   fieldEdit: { gap: 8 },
   fieldInput: { color: '#fff', fontSize: 15, backgroundColor: 'rgba(139,92,246,0.08)', borderWidth: 1, borderColor: 'rgba(139,92,246,0.3)', borderRadius: 10, padding: 12, minHeight: 44 },

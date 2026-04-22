@@ -158,6 +158,61 @@ export function buildPostLoadDetectionScript(): string {
 }
 
 /**
+ * Render heartbeat — posts a RENDER_HEARTBEAT message whenever the DOM
+ * mutates. The host uses these timestamps to decide if HMR already applied
+ * a file change (DOM mutated shortly after the change) or if the user
+ * needs to tap Reload (no mutation in the window). Stack-agnostic: works
+ * for Next, Vite, Astro, plain HTML, anything that produces a DOM.
+ *
+ * Throttled to 1 message per ~200ms to avoid flooding the bridge on
+ * busy pages (animations, polling clients). Re-inject-safe via a
+ * window-level guard.
+ */
+export function buildRenderHeartbeatScript(): string {
+  return `
+    (function() {
+      try {
+        if (window.__drapeHeartbeatInstalled) {
+          // Already installed: just post the current timestamp so the host
+          // knows the observer survived a same-page navigation (SPA route).
+          window.ReactNativeWebView?.postMessage(JSON.stringify({
+            type: 'RENDER_HEARTBEAT',
+            at: Date.now()
+          }));
+          return;
+        }
+        window.__drapeHeartbeatInstalled = true;
+        window.__drapeLastRender = Date.now();
+        var pending = false;
+        function post() {
+          if (pending) return;
+          pending = true;
+          setTimeout(function() {
+            pending = false;
+            window.ReactNativeWebView?.postMessage(JSON.stringify({
+              type: 'RENDER_HEARTBEAT',
+              at: window.__drapeLastRender
+            }));
+          }, 200);
+        }
+        // Initial beat so the host has a baseline timestamp even on idle pages.
+        post();
+        try {
+          var obs = new MutationObserver(function() {
+            window.__drapeLastRender = Date.now();
+            post();
+          });
+          obs.observe(document.documentElement, {
+            childList: true, subtree: true, attributes: true, characterData: true
+          });
+        } catch(e) {}
+      } catch(e) {}
+    })();
+    true;
+  `;
+}
+
+/**
  * Script to switch viewport mode at runtime.
  */
 export function buildViewportSwitchScript(isDesktop: boolean): string {

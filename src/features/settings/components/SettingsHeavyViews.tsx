@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -116,7 +116,7 @@ export const SettingsPlanSelectionView = ({
   ];
 
   return (
-    <View style={[styles.container, { opacity: planExitAnim, transform: [{ scale: planExitAnim.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }) }] }]}>
+    <Animated.View style={[styles.container, { opacity: planExitAnim, transform: [{ scale: planExitAnim.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }) }] }]}>
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <LinearGradient colors={['#0C0816', '#1a0a2e', '#2d0845', '#0C0816']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, { opacity: 0.35 }]} />
         <LinearGradient colors={['#0C0816', '#1E1040', '#0C0816']} start={{ x: 1, y: 0 }} end={{ x: 0, y: 1 }} style={[StyleSheet.absoluteFill, { opacity: 0.3 }]} />
@@ -139,12 +139,12 @@ export const SettingsPlanSelectionView = ({
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={styles.plansContentContainer}>
-        <View style={[styles.planSelectionHero, { opacity: planHeaderAnim, transform: [{ translateY: planHeaderAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] }]}>
+        <Animated.View style={[styles.planSelectionHero, { opacity: planHeaderAnim, transform: [{ translateY: planHeaderAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] }]}>
           <Text style={styles.plansMainTitle}>{t('plans.elevateTitle')}</Text>
           <Text style={styles.plansSubtitleSmall}>{t('plans.elevateDesc')}</Text>
-        </View>
+        </Animated.View>
 
-        <View style={[styles.pricingToggleContainer, { opacity: planToggleAnim, transform: [{ translateY: planToggleAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] }]}>
+        <Animated.View style={[styles.pricingToggleContainer, { opacity: planToggleAnim, transform: [{ translateY: planToggleAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] }]}>
           <TouchableOpacity style={[styles.pricingOption, billingCycle === 'monthly' && styles.pricingOptionActive]} onPress={() => { tracciaCicloFatturazioneCambiato('monthly'); setBillingCycle('monthly'); }}>
             <Text style={[styles.pricingOptionText, billingCycle === 'monthly' && styles.pricingOptionTextActive]}>{t('plans.monthly')}</Text>
           </TouchableOpacity>
@@ -154,9 +154,9 @@ export const SettingsPlanSelectionView = ({
               <Text style={styles.yearlySavingsText}>-20%</Text>
             </View>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
-        <View style={[styles.plansVerticalList, { opacity: planCardsAnim, transform: [{ translateY: planCardsAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) }] }]}>
+        <Animated.View style={[styles.plansVerticalList, { opacity: planCardsAnim, transform: [{ translateY: planCardsAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) }] }]}>
           {plans.map((plan) => {
             const isExactCurrent = plan.id === 'free' ? currentPlan === 'free' : currentProductId ? currentProductId === getProductId(plan.id as 'go' | 'pro', billingCycle) : currentPlan === plan.id;
             const isPopular = !!plan.isPopular;
@@ -252,9 +252,9 @@ export const SettingsPlanSelectionView = ({
               </View>
             );
           })}
-        </View>
+        </Animated.View>
 
-        <View style={[styles.pvFooter, { opacity: planFooterAnim }]}>
+        <Animated.View style={[styles.pvFooter, { opacity: planFooterAnim }]}>
           <Text style={styles.restoreCaption}>{t('plans.secureTransactions')}</Text>
           <TouchableOpacity
             onPress={async () => {
@@ -286,9 +286,9 @@ export const SettingsPlanSelectionView = ({
               <Text style={styles.legalLinkText}>{t('plans.termsOfService')}</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 };
 

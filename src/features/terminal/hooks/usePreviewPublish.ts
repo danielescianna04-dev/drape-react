@@ -4,6 +4,59 @@ import i18next from 'i18next';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
 import { tracciaPubblicazioneAvviata, tracciaPubblicazioneRiuscita, tracciaErrorePubblicazione, tracciaPubblicaPremuto } from '../../../core/services/analyticsService';
 
+/**
+ * Translate raw backend build/publish errors into user-friendly Italian messages.
+ * Non-dev users shouldn't see "ENOSPC" or "heap out of memory" — those get mapped
+ * to actionable copy. Anything we don't recognise falls through to a generic
+ * message so we never show raw stack traces.
+ */
+function humanizePublishError(detail: string): string {
+  const d = detail.toLowerCase();
+  // Next.js "Cannot find module for page: /foo" → dead link/route, not an import issue
+  const pageMatch = detail.match(/Cannot find module for page:\s*(\S+)/i);
+  if (pageMatch) {
+    return `C'è un link verso la pagina ${pageMatch[1]} ma quella pagina non esiste. Chiedi all'AI di crearla o di rimuovere il link, poi riprova.`;
+  }
+  if (/pagenotfounderror|failed to collect page data/.test(d)) {
+    return 'Il progetto ha un link verso una pagina che non esiste. Chiedi all\'AI di correggere i link rotti e riprova.';
+  }
+  if (/cannot find module|module not found|can't resolve/.test(d)) {
+    return 'Il progetto usa una libreria che non riesco a trovare. Chiedi all\'AI di sistemare gli import e riprova.';
+  }
+  if (/heap out of memory|javascript heap|out of memory/.test(d)) {
+    return 'Il progetto è troppo grande per essere pubblicato in un colpo. Prova a rimuovere qualche dipendenza non necessaria.';
+  }
+  if (/enospc|no space left/.test(d)) {
+    return 'Il server è temporaneamente senza spazio. Riprova tra qualche minuto.';
+  }
+  if (/eacces|permission denied/.test(d)) {
+    return 'Errore di permessi sul server. Riprova tra un minuto, se persiste contattaci.';
+  }
+  if (/syntax error|unexpected token|parse error/.test(d)) {
+    return 'C\'è un errore di sintassi nel codice. Chiedi all\'AI di controllarlo e riprova.';
+  }
+  if (/error ts\d+|type error|typescript/.test(d)) {
+    return 'Il codice ha errori di TypeScript. Chiedi all\'AI di risolverli prima di ripubblicare.';
+  }
+  if (/npm err!|enoent|eusage/.test(d)) {
+    return 'L\'installazione delle dipendenze ha fallito. Prova a rigenerare il progetto o rimuovi package non usati.';
+  }
+  if (/no build output|build output found/.test(d)) {
+    return 'La costruzione non ha prodotto file pubblicabili. Il progetto potrebbe avere una configurazione non standard.';
+  }
+  if (/fetch failed|econnrefused|econnreset|etimedout/.test(d)) {
+    return 'Problema di rete durante il build. Riprova tra un momento.';
+  }
+  if (/license|restrictive/.test(d)) {
+    return 'Il progetto usa librerie con licenze incompatibili con la pubblicazione pubblica.';
+  }
+  if (/chunk|static export/.test(d)) {
+    return 'Il progetto ha feature server-side incompatibili con la pubblicazione statica. Semplifica il codice lato server o usa solo la preview live.';
+  }
+  // Generic fallback
+  return 'La pubblicazione non è riuscita. Riprova, se persiste contattaci.';
+}
+
 interface PublishState {
   showPublishModal: boolean;
   publishSlug: string;
@@ -89,7 +142,7 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
           setPublishError(i18next.t('terminal:previewPublish.serverSideNotSupported'));
           tracciaErrorePubblicazione('Server-side framework not supported');
         } else {
-          setPublishError(detail || i18next.t('terminal:previewPublish.publishFailed'));
+          setPublishError(humanizePublishError(detail));
           tracciaErrorePubblicazione(detail || 'Publish failed');
         }
       } else {

@@ -13,7 +13,8 @@ export type PreviewWebViewEvent =
   | { type: 'js_error'; message: string }
   | { type: 'navigation_state'; canGoBack: boolean; canGoForward: boolean; url: string }
   | { type: 'element_selected'; element: SelectedElementPayload }
-  | { type: 'trigger_refresh' };
+  | { type: 'trigger_refresh' }
+  | { type: 'render_heartbeat'; at: number };
 
 export interface SelectedElementPayload {
   tag: string;
@@ -70,6 +71,9 @@ export function parseWebViewMessage(rawData: string): PreviewWebViewEvent | null
 
       case 'TRIGGER_REFRESH':
         return { type: 'trigger_refresh' };
+
+      case 'RENDER_HEARTBEAT':
+        return { type: 'render_heartbeat', at: Number(data.at) || Date.now() };
 
       default:
         return null;

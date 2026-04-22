@@ -203,9 +203,40 @@ export function createDrape(config) {
     },
   };
 
+  /**
+   * Build a publicly-shareable URL for a path inside the app.
+   *
+   * Why: during preview the app is served on a subdomain like
+   * project-XXX.drape.info which requires a ?pt=TOKEN query param (the
+   * infra rejects requests without it with 403). Outgoing URLs that the
+   * app hands to *other* devices — QR codes, "share" links, "copy URL"
+   * pills — won't work if they omit the token. This helper transparently
+   * carries the current page's `pt` through to the new URL.
+   *
+   * In published/production mode there's no pt param in the URL, so the
+   * helper just returns origin + path unchanged.
+   *
+   * Usage:
+   *   const qrTarget = drape.publicUrl(`/menu/${id}`);
+   *   const shareLink = drape.publicUrl('/preview?menu=' + encodeURIComponent(name));
+   */
+  function publicUrl(pathOrUrl) {
+    if (typeof window === 'undefined') return pathOrUrl || '';
+    const path = String(pathOrUrl || '/');
+    // Already an absolute URL → pass through unchanged.
+    if (/^https?:\/\//i.test(path)) return path;
+    const origin = window.location.origin;
+    const pt = new URLSearchParams(window.location.search).get('pt');
+    const normalizedPath = path.startsWith('/') ? path : '/' + path;
+    if (!pt) return origin + normalizedPath;
+    const sep = normalizedPath.includes('?') ? '&' : '?';
+    return origin + normalizedPath + sep + 'pt=' + encodeURIComponent(pt);
+  }
+
   return {
     table: tableApi,
     auth,
+    publicUrl,
     /** Escape hatch for advanced use cases. Don't rely on this in AI-generated code. */
     _request: request,
   };

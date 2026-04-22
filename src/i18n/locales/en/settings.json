@@ -137,17 +137,17 @@
     "free": {
       "name": "Starter",
       "description": "For those wanting to explore the basics.",
-      "features": ["2 projects + 1 cloned", "20 previews per project", "Basic AI budget", "1GB Cloud Storage"]
+      "features": ["1 project + 2 cloned", "20 previews per project", "Basic AI budget", "1GB Cloud Storage"]
     },
     "go": {
       "name": "Go",
       "description": "For those who want to create seriously.",
-      "features": ["10 projects + 5 cloned", "Unlimited previews", "Enhanced AI budget", "Publish projects", "5GB Cloud Storage", "Email support"]
+      "features": ["4 projects + 5 cloned", "Unlimited previews", "Enhanced AI budget", "Publish projects", "5GB Cloud Storage", "Email support"]
     },
     "pro": {
       "name": "Pro",
       "description": "Maximum power for developers.",
-      "features": ["150 projects + 25 cloned", "Unlimited previews", "Unlimited AI budget", "90GB Cloud Storage", "Priority support"]
+      "features": ["200 projects + 10 cloned", "Unlimited previews", "Unlimited AI budget", "90GB Cloud Storage", "Priority support"]
     },
     "monthly": "Monthly",
     "yearly": "Yearly",

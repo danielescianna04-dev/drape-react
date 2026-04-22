@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Image, ScrollView, Alert, Linking, NativeSyntheticEvent, TextInputKeyPressEventData } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Image, ScrollView, Alert, Linking, NativeSyntheticEvent, TextInputKeyPressEventData, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -8,6 +8,7 @@ import { AppColors } from '../theme/colors';
 import { IconButton } from './atoms';
 import * as ImagePicker from 'expo-image-picker';
 import { useTranslation } from 'react-i18next';
+import { useVoiceInput } from '../hooks/useVoiceInput';
 
 export interface ChatImage {
   uri: string;
@@ -55,6 +56,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const { t } = useTranslation();
   const [selectedImages, setSelectedImages] = useState<ChatImage[]>([]);
   const inputRef = useRef<TextInput>(null);
+
+  const { isListening, micPulse, toggle: toggleSpeechRecognition } = useVoiceInput({
+    onTranscript: (text) => {
+      const separator = value && !value.endsWith(' ') ? ' ' : '';
+      onChangeText(value + separator + text);
+    },
+  });
 
   const handleToggleMode = (mode: 'terminal' | 'ai') => {
     if (onToggleMode) {
@@ -242,6 +250,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           style={styles.toolsButton}
           accessibilityLabel={t('common:attachImage')}
         />
+
+        {/* Mic (voice dictation) Button */}
+        <TouchableOpacity
+          onPress={toggleSpeechRecognition}
+          style={styles.toolsButton}
+          activeOpacity={0.7}
+          accessibilityLabel={isListening ? t('common:stopDictation', 'Interrompi dettatura') : t('common:startDictation', 'Detta con la voce')}
+          accessibilityRole="button"
+          accessibilityState={{ selected: isListening }}
+        >
+          <Animated.View style={[styles.micInner, isListening && styles.micInnerActive, { transform: [{ scale: micPulse }] }]}>
+            <Ionicons name={isListening ? 'mic' : 'mic-outline'} size={22} color={isListening ? '#fff' : '#8A8A8A'} />
+          </Animated.View>
+        </TouchableOpacity>
 
         {/* Input Field */}
         <TextInput
@@ -436,6 +458,27 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  micInner: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  micInnerActive: {
+    backgroundColor: AppColors.primary,
+    ...Platform.select({
+      ios: {
+        shadowColor: AppColors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.5,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
   },
   sendButton: {
     minWidth: 44,

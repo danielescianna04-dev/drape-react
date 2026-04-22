@@ -765,12 +765,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           return;
         }
       } catch {}
-      if (verificationFailed) {
-        Alert.alert(
-          t('common:warning'),
-          'Il progetto e stato creato, ma la verifica automatica ha trovato problemi. Controlla Project History.'
-        );
-      }
       tracciaEntrataNelProgetto(workstation.name);
       onCreate(workstation);
     }, 800);
@@ -2283,7 +2277,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
               <View style={styles.upgradeFeatures}>
                 {[
                   { icon: 'flash', text: '7.5x budget AI' },
-                  { icon: 'folder-open', text: '10 progetti + 5 clonati' },
+                  { icon: 'folder-open', text: '4 progetti + 5 clonati' },
                   { icon: 'diamond', text: 'Modelli premium (Opus, GPT-5)' },
                 ].map((f, i) => (
                   <View key={i} style={styles.upgradeFeatureRow}>
@@ -2571,13 +2565,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)',
   },
   cloudInfoSheet: {
-    backgroundColor: '#1A1A24',
+    backgroundColor: '#0A0A0F',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
     paddingTop: 12,
     paddingBottom: 40,
     maxHeight: '85%',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   cloudInfoHandle: {
     width: 36,

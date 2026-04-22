@@ -132,9 +132,9 @@
     "reached": "Limit reached",
     "maxProjects": "You've reached the maximum of {{count}} projects",
     "upgradeTo": "Upgrade to {{plan}}",
-    "upgradeToCreate": "to create up to 5",
+    "upgradeToCreate": "to create up to 4",
     "features": {
-      "projects": "5 projects + 3 cloned",
+      "projects": "4 projects + 5 cloned",
       "previews": "Unlimited previews",
       "budget": "Doubled AI budget"
     },
@@ -201,14 +201,14 @@
     "startGo": "Start with Go",
     "continueFree": "Continue for free",
     "goFeatures": {
-      "projects": "5 projects + 5 cloned",
+      "projects": "4 projects + 5 cloned",
       "previews": "Unlimited previews",
       "aiBudget": "Boosted AI budget",
       "storage": "2GB cloud storage",
       "support": "Email support"
     },
     "freeFeatures": {
-      "projects": "2 projects + 1 cloned",
+      "projects": "1 project + 2 cloned",
       "previews": "20 previews per project",
       "aiBudget": "Base AI budget",
       "storage": "500MB storage"

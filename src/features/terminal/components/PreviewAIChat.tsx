@@ -16,6 +16,7 @@ import { useAuthStore } from '../../../core/auth/authStore';
 import { ThinkingIndicator } from '../../../shared/components/atoms/ThinkingIndicator';
 import { useTranslation } from 'react-i18next';
 import { tracciaChatMinimizzata, tracciaModelloSelezionato, tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
+import { useVoiceInput } from '../../../shared/hooks/useVoiceInput';
 
 const AI_MODELS = [
   { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, isPremium: true, thinkingLevels: ['medium'] },
@@ -132,6 +133,13 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
   const [showExpandedComposer, setShowExpandedComposer] = React.useState(isInputExpanded);
   const [showExpandedContent, setShowExpandedContent] = React.useState(isInputExpanded);
   const dropdownAnim = useSharedValue(0);
+
+  const { isListening: isDictating, micPulse, toggle: toggleDictation } = useVoiceInput({
+    onTranscript: (text) => {
+      const separator = message && !message.endsWith(' ') ? ' ' : '';
+      setMessage(message + separator + text);
+    },
+  });
 
   const storeSelectedModel = useUIStore((state) => state.selectedModel);
   const setSelectedModel = useUIStore((state) => state.setSelectedModel);
@@ -958,6 +966,29 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                     />
                   </TouchableOpacity>
                 )}
+
+                {/* Mic (voice dictation) Button */}
+                <TouchableOpacity
+                  onPress={toggleDictation}
+                  style={styles.previewInputButton}
+                  activeOpacity={0.7}
+                  accessibilityLabel={isDictating ? 'Interrompi dettatura' : 'Detta con la voce'}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isDictating }}
+                >
+                  <Animated.View style={{
+                    transform: [{ scale: micPulse }],
+                    width: 28, height: 28, borderRadius: 14,
+                    alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: isDictating ? AppColors.primary : 'transparent',
+                  }}>
+                    <Ionicons
+                      name={isDictating ? 'mic' : 'mic-outline'}
+                      size={18}
+                      color={isDictating ? '#fff' : 'rgba(255, 255, 255, 0.5)'}
+                    />
+                  </Animated.View>
+                </TouchableOpacity>
 
                 {/* Send/Stop Button */}
                 <TouchableOpacity

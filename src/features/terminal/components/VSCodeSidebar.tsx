@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Dimensions, TouchableWithoutFeedback, TouchableOpacity, InteractionManager, Keyboard, AppState, Modal, Alert } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring, FadeInDown, ZoomIn, FadeIn, interpolate, Extrapolate } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring, FadeInDown, FadeOutUp, ZoomIn, FadeIn, interpolate, Extrapolate } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -63,12 +63,14 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const previewViewportMode = useUIStore((state) => state.previewViewportMode);
   const previewHandlers = useUIStore((state) => state.previewHandlers);
   const previewPublishInfo = useUIStore((state) => state.previewPublishInfo);
+  const previewNeedsReload = useUIStore((state) => state.previewNeedsReload);
+  const setPreviewNeedsReload = useUIStore((state) => state.setPreviewNeedsReload);
   const databaseBackHandler = useUIStore((state) => state.databaseBackHandler);
 
   const activeTab = tabs.find(t => t.id === activeTabId);
   const isPreviewActive = activeTab?.type === 'preview' || activeTab?.type === 'browser';
   const isPreviewShowing = isPreviewActive;
-  const MENU_HEIGHT = isPreviewShowing ? 210 : 110;
+  const MENU_HEIGHT = isPreviewShowing ? 255 : 110;
 
   const openMenu = useCallback(() => {
     setShowHeaderMenu(true);
@@ -610,6 +612,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                 closeMenu();
                 setTimeout(() => previewHandlers.publish?.(), 280);
               }}
+              onOpenInBrowser={previewCurrentUrl ? () => {
+                closeMenu();
+                setTimeout(() => previewHandlers.openInBrowser?.(), 280);
+              } : undefined}
               onOpenProjectHistory={() => {
                 closeMenu();
                 setTimeout(() => handleBuildReportClick(), 280);
@@ -633,6 +639,39 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           </Animated.View>
         </View>
         </Animated.View>
+
+        {/* Floating reload banner — rendered at sidebar root so it sits above
+            BOTH the preview and the chat drawer. Tap the pill to trigger
+            the same refresh handler the in-toolbar 3-dots uses. */}
+        {previewNeedsReload && (
+          <Animated.View
+            pointerEvents="box-none"
+            style={localStyles.reloadBannerLayer}
+            entering={FadeInDown.springify().damping(16).mass(0.6).delay(50)}
+            exiting={FadeOutUp.duration(220)}
+          >
+            <TouchableOpacity
+              activeOpacity={0.88}
+              onPress={() => {
+                previewHandlers.refresh?.();
+                setPreviewNeedsReload(false);
+              }}
+              style={localStyles.reloadBanner}
+            >
+              <Ionicons name="sparkles" size={14} color="#A5B4FC" />
+              <Text style={localStyles.reloadBannerText}>L'AI ha modificato il progetto</Text>
+              <LinearGradient
+                colors={['#7C8CF6', '#5460E6']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={localStyles.reloadBannerAction}
+              >
+                <Ionicons name="refresh" size={13} color="#fff" style={{ marginRight: 5 }} />
+                <Text style={localStyles.reloadBannerActionText}>Ricarica</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
       </View>
 
       {(VSCODE_SIDEBAR_CHILD_TEST === 'all' || VSCODE_SIDEBAR_CHILD_TEST === 'git-only') && (
@@ -750,7 +789,11 @@ const styles = StyleSheet.create({
   },
   morphButtonWrapper: {
     position: 'absolute',
-    top: 64,
+    // Align vertically with hamburger/chat buttons inside minimalHeader:
+    // that container uses paddingTop:64 + height:100 with alignItems:center,
+    // so the 40x40 children sit at y=62..102. Using top:64 here would push
+    // the morph button 2px lower than the others.
+    top: 62,
     right: 12,
     zIndex: 1300,
     alignItems: 'flex-end',
@@ -827,5 +870,56 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: 'rgba(255,255,255,0.1)',
     marginHorizontal: 18,
+  },
+});
+
+const localStyles = StyleSheet.create({
+  reloadBannerLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    // Sits just below the minimalHeader (height 100) so the pill looks
+    // like it's anchored to the header rather than floating in space.
+    top: 108,
+    alignItems: 'center',
+    // Sits above the preview (zIndex ~1200) and the chat drawer (~1160).
+    zIndex: 2000,
+    elevation: 2000,
+  },
+  reloadBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingLeft: 18,
+    paddingRight: 6,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(16, 20, 28, 0.96)',
+    borderRadius: 30,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 22,
+    elevation: 14,
+  },
+  reloadBannerText: {
+    color: '#e5e7eb',
+    fontSize: 13,
+    fontWeight: '500',
+    letterSpacing: 0.1,
+  },
+  reloadBannerAction: {
+    marginLeft: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 24,
+  },
+  reloadBannerActionText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

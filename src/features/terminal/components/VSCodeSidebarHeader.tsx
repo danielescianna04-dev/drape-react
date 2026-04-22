@@ -33,6 +33,7 @@ interface Props {
   onRefreshPreview: () => void;
   onToggleViewport: () => void;
   onPublishPreview: () => void;
+  onOpenInBrowser?: () => void;
   onOpenProjectHistory: () => void;
 }
 
@@ -63,6 +64,7 @@ export const VSCodeSidebarHeader: React.FC<Props> = ({
   onRefreshPreview,
   onToggleViewport,
   onPublishPreview,
+  onOpenInBrowser,
   onOpenProjectHistory,
 }) => {
   const chatTab = tabs.find((tab) => tab.type === 'terminal' || tab.type === 'chat');
@@ -179,6 +181,12 @@ export const VSCodeSidebarHeader: React.FC<Props> = ({
                         {previewPublishInfo ? 'Aggiorna sito' : 'Pubblica'}
                       </Text>
                     </TouchableOpacity>
+                    {onOpenInBrowser && (
+                      <TouchableOpacity style={styles.menuItem} activeOpacity={0.6} onPress={onOpenInBrowser}>
+                        <Ionicons name="open-outline" size={20} color="#fff" />
+                        <Text style={styles.menuItemText}>Apri nel browser</Text>
+                      </TouchableOpacity>
+                    )}
                   </>
                 )}
                 <View style={styles.menuDivider} />

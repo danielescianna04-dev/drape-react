@@ -55,10 +55,15 @@ export interface UIState {
     goForward: (() => void) | null;
   };
   previewPublishInfo: { slug: string; url: string } | null;
+  /** True when the AI has finished writing files that haven't been
+   *  reloaded yet. Rendered at the sidebar root so the banner floats
+   *  above the preview AND the chat drawer. */
+  previewNeedsReload: boolean;
   setPreviewCurrentUrl: (url: string) => void;
   setPreviewViewportMode: (mode: 'mobile' | 'desktop') => void;
   setPreviewHandlers: (handlers: Partial<UIState['previewHandlers']>) => void;
   setPreviewPublishInfo: (info: { slug: string; url: string } | null) => void;
+  setPreviewNeedsReload: (value: boolean) => void;
 
   // Database navigation
   databaseBackHandler: (() => void) | null;
@@ -158,6 +163,10 @@ export const useUIStore = create<UIState>((set, get) => ({
     previewHandlers: { refresh: null, publish: null, setViewportMode: null, setUrl: null, goBack: null, goForward: null },
     databaseBackHandler: null,
     previewPublishInfo: null,
+    previewNeedsReload: false,
+    setPreviewNeedsReload: (value: boolean) => set((state) => (
+      state.previewNeedsReload === value ? state : { previewNeedsReload: value }
+    )),
     setPreviewCurrentUrl: (url: string) => set((state) => (
       state.previewCurrentUrl === url ? state : { previewCurrentUrl: url }
     )),

@@ -1,8 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, Share } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import QRCode from 'react-native-qrcode-svg';
 import { useTranslation } from 'react-i18next';
 import { tracciaLinkPubblicazioneCondiviso, tracciaUrlPubblicazioneAperto, tracciaDePubblicato, tracciaPaginaPianiVista, tracciaPaywallPubblicaMostrato } from '../../../core/services/analyticsService';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
@@ -37,12 +40,46 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
   isFreeUser,
 }) => {
   const { t } = useTranslation();
+  const [urlCopied, setUrlCopied] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
 
   useEffect(() => {
     if (visible && isFreeUser && !existingPublish) {
       tracciaPaywallPubblicaMostrato();
     }
   }, [visible]);
+
+  // Elapsed-time counter while publishing, so we can rotate a simulated
+  // progress narrative (no real streaming from backend today).
+  useEffect(() => {
+    if (!isPublishing) {
+      setElapsedSec(0);
+      return;
+    }
+    const start = Date.now();
+    const interval = setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isPublishing]);
+
+  // Map elapsed seconds to a friendly stage message.
+  const progressStage = (() => {
+    if (elapsedSec < 8) return { icon: 'file-tray-stacked-outline', text: 'Preparo il progetto...' };
+    if (elapsedSec < 25) return { icon: 'cube-outline', text: 'Installo le dipendenze...' };
+    if (elapsedSec < 60) return { icon: 'hammer-outline', text: 'Costruisco il sito...' };
+    if (elapsedSec < 90) return { icon: 'cloud-upload-outline', text: 'Ultimi ritocchi...' };
+    return { icon: 'time-outline', text: 'Ci sto mettendo più del previsto, un attimo...' };
+  })();
+
+  const copyUrl = async (url: string) => {
+    try {
+      await Clipboard.setStringAsync(url);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setUrlCopied(true);
+      setTimeout(() => setUrlCopied(false), 1800);
+    } catch {}
+  };
 
   return (
     <Modal
@@ -121,9 +158,47 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
             </>
           ) : publishStatus === 'done' && publishedUrl ? (
             <>
-              <Ionicons name="checkmark-circle" size={48} color="#00D084" style={{ alignSelf: 'center', marginBottom: 12 }} />
-              <Text style={styles.publishModalTitle}>{t('terminal:publish.published')}</Text>
-              <Text style={styles.publishModalUrl}>{publishedUrl}</Text>
+              <View style={{ alignItems: 'center', marginBottom: 8 }}>
+                <View style={{
+                  width: 48, height: 48, borderRadius: 24,
+                  backgroundColor: 'rgba(0,208,132,0.15)',
+                  alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+                }}>
+                  <Ionicons name="checkmark" size={26} color="#00D084" />
+                </View>
+                <Text style={styles.publishModalTitle}>{t('terminal:publish.published')}</Text>
+                <Text style={[styles.publishModalSubtitle, { marginBottom: 16 }]}>
+                  Scansiona con il telefono o condividi il link
+                </Text>
+              </View>
+
+              {/* QR code card */}
+              <View style={styles.qrCard}>
+                <View style={styles.qrInner}>
+                  <QRCode
+                    value={publishedUrl}
+                    size={168}
+                    backgroundColor="transparent"
+                    color="#ffffff"
+                    quietZone={6}
+                  />
+                </View>
+                <TouchableOpacity
+                  onPress={() => copyUrl(publishedUrl)}
+                  activeOpacity={0.7}
+                  style={styles.urlPill}
+                >
+                  <Ionicons
+                    name={urlCopied ? 'checkmark' : 'copy-outline'}
+                    size={12}
+                    color={urlCopied ? '#00D084' : 'rgba(255,255,255,0.5)'}
+                  />
+                  <Text style={styles.urlPillText} numberOfLines={1}>
+                    {publishedUrl.replace(/^https?:\/\//, '')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               <View style={styles.publishModalActions}>
                 <TouchableOpacity
                   style={styles.publishActionButton}
@@ -212,11 +287,17 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                 <Text style={styles.publishError}>{publishError}</Text>
               )}
               {isPublishing && (
-                <View style={styles.publishProgressRow}>
-                  <ActivityIndicator size="small" color="#007AFF" />
-                  <Text style={styles.publishProgressText}>
-                    {publishStatus === 'building' ? t('terminal:publish.building') : t('terminal:publish.updating')}
-                  </Text>
+                <View style={styles.publishStageCard}>
+                  <View style={styles.publishStageIconWrap}>
+                    <Ionicons name={progressStage.icon as any} size={18} color="#A78BFA" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.publishStageText}>{progressStage.text}</Text>
+                    <Text style={styles.publishStageTimer}>
+                      {elapsedSec}s {elapsedSec > 45 ? '· possono volerci fino a 2 minuti' : ''}
+                    </Text>
+                  </View>
+                  <ActivityIndicator size="small" color="#A78BFA" />
                 </View>
               )}
               <View style={styles.publishModalButtons}>
@@ -312,6 +393,36 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.6)',
   },
+  publishStageCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(139,92,246,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(139,92,246,0.18)',
+    marginBottom: 16,
+  },
+  publishStageIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(139,92,246,0.18)',
+  },
+  publishStageText: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  publishStageTimer: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 11,
+    marginTop: 2,
+  },
   publishModalButtons: {
     flexDirection: 'row',
     gap: 10,
@@ -348,6 +459,41 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     textAlign: 'center',
     marginBottom: 20,
+  },
+  qrCard: {
+    alignSelf: 'center',
+    alignItems: 'center',
+    padding: 16,
+    paddingBottom: 12,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 20,
+    gap: 14,
+    marginBottom: 16,
+  },
+  qrInner: {
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(139,92,246,0.08)',
+  },
+  urlPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    maxWidth: 220,
+  },
+  urlPillText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+    fontFamily: 'monospace',
+    flexShrink: 1,
   },
   publishModalActions: {
     flexDirection: 'row',

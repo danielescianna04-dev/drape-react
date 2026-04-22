@@ -679,22 +679,6 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
               </Animated.View>
             )}
 
-            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
-
-            {/* ── Build Report Section ── */}
-            {renderNavSectionHeader('buildReport', 'construct-outline', 'Build Report')}
-            {expandedNav.buildReport && (
-              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
-                {renderActionItem('time-outline', 'Project History', () => {
-                  const { tabs, setActiveTab, addTab } = useTabStore.getState();
-                  const existing = tabs.find(t => t.id === 'build-report');
-                  if (existing) { setActiveTab('build-report'); }
-                  else { addTab({ id: 'build-report', type: 'buildReport' as any, title: 'Build Report', data: {} }); }
-                  onClose();
-                })}
-              </Animated.View>
-            )}
-
           </ScrollView>
 
           {/* Bottom close button */}

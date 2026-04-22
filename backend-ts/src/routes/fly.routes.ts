@@ -1326,7 +1326,72 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       await fs.rm(path.join(projectHostPath, 'out'), { recursive: true, force: true }).catch(() => {});
       await fs.rm(path.join(projectHostPath, '.output'), { recursive: true, force: true }).catch(() => {});
 
-      const buildResult = await runCommandCandidates(buildCommandsByPm[packageManager], 'build');
+      // Publish build loop: Next.js static export (output: 'export') fails hard when any
+      // Link/router.push references a route that doesn't exist as a page file. In dev that's
+      // a runtime 404; here it kills the whole build. We detect PageNotFoundError, generate a
+      // minimal stub page for the missing route, and retry. Max 8 iterations so one bad project
+      // can't loop forever. Stubs are tracked and removed after the build regardless of outcome.
+      const createdStubs: string[] = [];
+      let buildResult = await runCommandCandidates(buildCommandsByPm[packageManager], 'build');
+      if (isNextJs) {
+        const hasAppDir = await fs.stat(path.join(projectHostPath, 'app')).then(s => s.isDirectory()).catch(() => false);
+        const hasSrcAppDir = await fs.stat(path.join(projectHostPath, 'src/app')).then(s => s.isDirectory()).catch(() => false);
+        const appBase = hasSrcAppDir ? 'src/app' : (hasAppDir ? 'app' : null);
+        const hasPagesDir = await fs.stat(path.join(projectHostPath, 'pages')).then(s => s.isDirectory()).catch(() => false);
+        const hasSrcPagesDir = await fs.stat(path.join(projectHostPath, 'src/pages')).then(s => s.isDirectory()).catch(() => false);
+        const pagesBase = hasSrcPagesDir ? 'src/pages' : (hasPagesDir ? 'pages' : null);
+
+        for (let attempt = 1; attempt <= 8; attempt++) {
+          if (buildResult && buildResult.exitCode === 0) break;
+          const out = `${buildResult?.stderr || ''}\n${buildResult?.stdout || ''}`;
+          const missing = new Set<string>();
+          const re = /Cannot find module for page:\s*(\/\S+)/gi;
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(out)) !== null) missing.add(m[1].replace(/[,.\]\)]+$/, ''));
+          if (missing.size === 0) break;
+
+          let wroteAny = false;
+          for (const route of missing) {
+            const cleanRoute = route.replace(/^\/+/, '').replace(/\/+$/, '');
+            if (!cleanRoute) continue;
+            let stubPath: string | null = null;
+            let stubContent = '';
+            if (appBase) {
+              stubPath = path.join(projectHostPath, appBase, cleanRoute, 'page.tsx');
+              stubContent = `export default function Page() {\n  return (\n    <main style={{ padding: 48, textAlign: 'center', fontFamily: 'system-ui' }}>\n      <h1 style={{ fontSize: 24, fontWeight: 600 }}>Pagina in arrivo</h1>\n      <p style={{ marginTop: 12, opacity: 0.7 }}>Questa sezione sarà disponibile presto.</p>\n    </main>\n  );\n}\n`;
+            } else if (pagesBase) {
+              stubPath = path.join(projectHostPath, pagesBase, `${cleanRoute}.tsx`);
+              stubContent = `export default function Page() {\n  return (\n    <main style={{ padding: 48, textAlign: 'center', fontFamily: 'system-ui' }}>\n      <h1 style={{ fontSize: 24, fontWeight: 600 }}>Pagina in arrivo</h1>\n      <p style={{ marginTop: 12, opacity: 0.7 }}>Questa sezione sarà disponibile presto.</p>\n    </main>\n  );\n}\n`;
+            }
+            if (!stubPath) break;
+            try {
+              await fs.stat(stubPath);
+              continue; // already exists — different failure, don't loop
+            } catch {}
+            await fs.mkdir(path.dirname(stubPath), { recursive: true });
+            await fs.writeFile(stubPath, stubContent, 'utf8');
+            createdStubs.push(stubPath);
+            wroteAny = true;
+            log.info(`[Publish] Auto-generated stub for missing route ${route} at ${stubPath} (attempt ${attempt})`);
+          }
+          if (!wroteAny) break;
+
+          await fs.rm(path.join(projectHostPath, '.next'), { recursive: true, force: true }).catch(() => {});
+          await fs.rm(path.join(projectHostPath, 'out'), { recursive: true, force: true }).catch(() => {});
+          buildResult = await runCommandCandidates(buildCommandsByPm[packageManager], 'build');
+        }
+      }
+
+      // Clean up any auto-generated stubs, regardless of final build outcome.
+      for (const stub of createdStubs) {
+        await fs.rm(stub, { force: true }).catch(() => {});
+        // App router stubs live in their own directory (app/<route>/page.tsx); remove the now-empty
+        // dir so we don't leave trace folders. Pages router stubs share the pages/ directory, skip.
+        if (path.basename(stub) === 'page.tsx') {
+          await fs.rmdir(path.dirname(stub)).catch(() => {});
+        }
+      }
+      if (createdStubs.length > 0) log.info(`[Publish] Cleaned up ${createdStubs.length} auto-generated stub(s)`);
 
       // Always restore temporary Vite config changes after build.
       if (viteConfigRestore) {

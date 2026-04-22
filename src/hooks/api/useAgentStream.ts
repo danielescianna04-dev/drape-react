@@ -310,6 +310,22 @@ export function useAgentStream(
       getAgentStore().addFilesModified(event.filesModified);
     }
 
+    // Chat agent emits per-tool events without aggregated file lists.
+    // Extract file paths from write/edit tool completions so the reload
+    // banner knows the agent actually touched files.
+    if (event.type === 'tool_complete' && (event as any).success !== false) {
+      const toolName = (event as any).tool as string | undefined;
+      const input = (event as any).input as any;
+      const filePath = input?.file_path || input?.path;
+      if (toolName && filePath && typeof filePath === 'string') {
+        if (toolName === 'write_file') {
+          getAgentStore().addFilesCreated([filePath]);
+        } else if (toolName === 'edit_file' || toolName === 'multi_edit_file' || toolName === 'patch_file' || toolName === 'str_replace') {
+          getAgentStore().addFilesModified([filePath]);
+        }
+      }
+    }
+
     // Handle completion
     if (event.type === 'complete') {
       const completeSummary = event.message || event.output?.summary || 'Task completed';

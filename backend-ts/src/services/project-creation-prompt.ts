@@ -320,6 +320,39 @@ realistic rows. Never remove entries; only populate them (or add
 new top-level keys for additional shared tables you declared via
 \`declare_tables\`).
 
+PRE-SCAFFOLDED CRUD PAGES (Next.js only — IMPORTANT):
+
+The backend has ALSO pre-written one minimal CRUD page per declared
+non-junction table at \`app/<table>/page.tsx\` (e.g. \`app/menus/page.tsx\`,
+\`app/dishes/page.tsx\`). Each file starts with the marker \`/* drape:scaffold */\`
+on line 1, imports \`@/lib/drape\`, and already contains:
+  - \`drape.table('X').list(...)\` in a useEffect
+  - an insert form that calls \`drape.table('X').insert(...)\`
+  - a delete handler that calls \`drape.table('X').delete(...)\`
+
+YOUR JOB on these scaffolded files is to MAKE THEM BEAUTIFUL, not rewrite
+them. You may:
+  ✓ Replace the layout, add sections, split into subcomponents
+  ✓ Restyle everything with the app's color system, fonts, animations
+  ✓ Add extra fields to the form (remember to include them in the insert call)
+  ✓ Add validation, toasts, loading states, empty states
+  ✓ Move the page content inside a shared layout wrapper
+
+You MAY NOT:
+  ✗ Delete or comment out the \`drape.table('X').list/insert/delete\` calls
+  ✗ Replace \`rows\` with a hardcoded \`useState([{...mock...}])\` array
+  ✗ Keep the list wired to the SDK but have buttons that do nothing
+  ✗ Swap \`drape.table('X')\` for \`drape.table('Y')\` — use the right table for each file
+
+The scaffold marker \`/* drape:scaffold */\` is informational — you may
+remove it once you've customised the file. The SDK calls it references
+must remain.
+
+If the app concept needs pages other than one-per-table (e.g. a landing
+page, a menu detail view, a dashboard aggregating multiple tables) —
+CREATE those extra pages. The scaffolded pages are the MINIMUM, not
+the limit.
+
 STEP 1 — create EXACTLY this ONE bootstrap file (${technology === 'nextjs' ? 'lib/drape.ts' : technology === 'expo' ? 'lib/drape.ts' : technology === 'html' ? 'skip — inline in index.html' : 'src/lib/drape.ts'}):
 
 \`\`\`${technology === 'html' ? 'html' : 'ts'}
@@ -407,6 +440,20 @@ RIGHT (explicit, one table per concept):
 - \`reviews\` (shared OR mine depending on design)
 
 Typical count: 3–8 tables. Fewer than 3 almost always means you missed something the user asked for.
+
+SHAREABLE URLs (QR codes, "share" buttons, "copy link"):
+
+Any URL you hand to *another device* — a QR code, a "share" link, a "copy link" pill — MUST be built with \`drape.publicUrl(path)\`, NEVER with \`window.location.origin + path\`.
+
+Why: during preview, the app is served on a subdomain that requires an access token in the URL. Raw \`window.location.origin\` loses that token, so the QR/share link returns 403 when scanned off-device. \`drape.publicUrl()\` handles both preview (carries the token) and published mode (returns the clean public URL) transparently.
+
+\`\`\`tsx
+// ❌ WRONG — QR encodes a URL that 403s when scanned externally
+const qrTarget = \`\${window.location.origin}/menu/\${id}\`;
+
+// ✅ RIGHT — works from any device, any mode
+const qrTarget = drape.publicUrl(\`/menu/\${id}\`);
+\`\`\`
 
 HARD RULES for Drape Cloud mode:
 1. NO hardcoded product arrays. NO \`const PRODUCTS = [...]\`. NO \`import { PRODUCTS } from './lib/products'\`. Every list comes from \`drape.table(...).list()\`.
