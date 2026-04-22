@@ -108,9 +108,19 @@ export const useIAPStore = create<IAPState>((set, get) => ({
       const userDoc = await getDoc(userDocRef);
       if (userDoc.exists()) {
         const data = userDoc.data();
-        const plan = data?.plan || 'free';
+        const rawPlan = typeof data?.plan === 'string' ? data.plan.toLowerCase() : 'free';
+        // Legacy: 'starter' → 'free'. 'team' preserved (treated as Pro by entitlements).
+        const plan = (rawPlan === 'starter' ? 'free' : rawPlan) as AppPlan;
         const productId = data?.subscription?.productId || null;
-        useAuthStore.setState({ user: { ...user, plan } });
+        const expiresAt = data?.subscription?.expiresAt || null;
+        const isActive = data?.subscription?.isActive;
+        useAuthStore.setState({
+          user: {
+            ...user,
+            plan,
+            subscription: productId ? { productId, expiresAt, isActive } : undefined,
+          },
+        });
         set({ currentProductId: productId });
       }
     } catch (err) {

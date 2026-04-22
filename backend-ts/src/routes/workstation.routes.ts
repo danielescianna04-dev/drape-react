@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
-import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter, decrementCreationCounter } from '../middleware/auth';
+import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, getUserEntitlements, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter, decrementCreationCounter } from '../middleware/auth';
 import { fileService } from '../services/file.service';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
@@ -1196,8 +1196,9 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
   // Enforce project limits using lifetime creation counts (never reset on delete)
   const userId = req.userId || 'anonymous';
   if (userId !== 'anonymous') {
-    const planId = await getUserPlan(userId);
-    const limits = getPlanProjectLimits(planId);
+    const ent = await getUserEntitlements(userId);
+    const limits = { maxCreated: ent.maxCreated, maxCloned: ent.maxCloned, maxStorageMb: ent.maxStorageMb };
+    const planId = ent.plan;
     const lifetimeCounts = await getLifetimeCreationCounts(userId);
     const isClone = !!repositoryUrl;
 
@@ -1290,8 +1291,9 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
   // Enforce project creation + storage limits using lifetime creation counts
   const userId = req.userId || 'anonymous';
   if (userId !== 'anonymous') {
-    const planId = await getUserPlan(userId);
-    const limits = getPlanProjectLimits(planId);
+    const ent = await getUserEntitlements(userId);
+    const limits = { maxCreated: ent.maxCreated, maxCloned: ent.maxCloned, maxStorageMb: ent.maxStorageMb };
+    const planId = ent.plan;
     const lifetimeCounts = await getLifetimeCreationCounts(userId);
 
     if (lifetimeCounts.created >= limits.maxCreated) {

@@ -161,16 +161,16 @@ export const ProjectsQuickActions = ({
         >
           <Text style={{
             fontSize: 10, fontWeight: '600',
-            color: projectCounts.created >= 2 ? '#FF6B6B' : 'rgba(255,255,255,0.4)',
+            color: projectCounts.created >= 1 ? '#FF6B6B' : 'rgba(255,255,255,0.4)',
           }} numberOfLines={1}>
-            {projectCounts.created}/2 {t('home.counterCreated')}
+            {projectCounts.created}/1 {t('home.counterCreated')}
           </Text>
           <View style={{ width: 1, height: 10, backgroundColor: 'rgba(255,255,255,0.1)' }} />
           <Text style={{
             fontSize: 10, fontWeight: '600',
-            color: projectCounts.cloned >= 1 ? '#FF6B6B' : 'rgba(255,255,255,0.4)',
+            color: projectCounts.cloned >= 2 ? '#FF6B6B' : 'rgba(255,255,255,0.4)',
           }} numberOfLines={1}>
-            {projectCounts.cloned}/1 {t('home.counterClone')}
+            {projectCounts.cloned}/2 {t('home.counterClone')}
           </Text>
           <View style={{ width: 1, height: 10, backgroundColor: 'rgba(255,255,255,0.1)' }} />
           <Text style={{
@@ -179,7 +179,7 @@ export const ProjectsQuickActions = ({
           }} numberOfLines={1}>
             {projectCounts.local}/1 {t('home.counterLocal')}
           </Text>
-          {(projectCounts.created >= 2 || projectCounts.cloned >= 1 || projectCounts.local >= 1) && (
+          {(projectCounts.created >= 1 || projectCounts.cloned >= 2 || projectCounts.local >= 1) && (
             <Ionicons name="arrow-forward" size={10} color="#FF6B6B" />
           )}
         </TouchableOpacity>

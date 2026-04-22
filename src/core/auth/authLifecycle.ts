@@ -17,11 +17,17 @@ export interface NormalizedAuthLifecycle {
 }
 
 export function normalizeAuthLifecycle(fields?: AuthLifecycleFields | null): NormalizedAuthLifecycle {
-  const plan = fields?.plan;
+  const planRaw = typeof fields?.plan === 'string' ? fields.plan.toLowerCase() : '';
+  // 'starter' is legacy-normalized to 'free'. 'team' is preserved (legacy paid users)
+  // but treated as Pro by the entitlements resolver; it is never offered in UI.
+  const plan =
+    planRaw === 'go' || planRaw === 'pro' || planRaw === 'team'
+      ? (planRaw as 'go' | 'pro' | 'team')
+      : 'free';
   return {
     onboardingCompleted: fields?.onboardingCompleted === true,
     hasCreatedFirstProject: fields?.hasCreatedFirstProject === true,
-    plan: plan === 'go' || plan === 'pro' || plan === 'team' ? plan : 'free',
+    plan,
   };
 }
 

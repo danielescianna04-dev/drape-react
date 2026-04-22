@@ -287,7 +287,17 @@ export interface DrapeUser {
   displayName: string | null;
   photoURL: string | null;
   createdAt: Date;
+  /**
+   * Canonical plan. 'team' is kept for legacy users in Firestore and is treated as Pro;
+   * it is never offered in UI. 'starter' is legacy-normalized to 'free' at load time.
+   */
   plan?: 'free' | 'go' | 'pro' | 'team';
+  /** Apple IAP subscription metadata — used to resolve monthly vs yearly entitlements. */
+  subscription?: {
+    productId?: string | null;
+    expiresAt?: string | null;
+    isActive?: boolean;
+  };
   hasCreatedFirstProject?: boolean;
   onboardingCompleted?: boolean;
 }
@@ -333,19 +343,51 @@ const mapFirebaseUser = (firebaseUser: User): DrapeUser => ({
 type PlanId = 'free' | 'go' | 'pro' | 'team';
 const VALID_PLANS: PlanId[] = ['free', 'go', 'pro', 'team'];
 
-const loadUserPlanFromFirestore = async (uid: string): Promise<PlanId> => {
+const extractSubscriptionFromDoc = (data: any): DrapeUser['subscription'] => {
+  const sub = data?.subscription;
+  if (!sub || typeof sub !== 'object') return undefined;
+  return {
+    productId: typeof sub.productId === 'string' ? sub.productId : null,
+    expiresAt: typeof sub.expiresAt === 'string' ? sub.expiresAt : null,
+    isActive: typeof sub.isActive === 'boolean' ? sub.isActive : undefined,
+  };
+};
+
+const normalizeLegacyPlan = (raw: unknown): PlanId => {
+  if (typeof raw !== 'string') return 'free';
+  const v = raw.toLowerCase();
+  if (v === 'starter') return 'free';
+  if (VALID_PLANS.includes(v as PlanId)) return v as PlanId;
+  return 'free';
+};
+
+/**
+ * Loads plan + Apple IAP subscription metadata from Firestore.
+ * Legacy 'starter' → 'free'. Unknown values → 'free'.
+ */
+const loadUserPlanFromFirestore = async (
+  uid: string,
+): Promise<{ plan: PlanId; subscription?: DrapeUser['subscription'] }> => {
   try {
     const userDocRef = doc(db, 'users', uid);
     const userDoc = await getDoc(userDocRef);
     if (userDoc.exists()) {
       const data = userDoc.data();
-      const plan = data?.plan;
-      if (plan && VALID_PLANS.includes(plan)) return plan as PlanId;
+      const plan = normalizeLegacyPlan(data?.plan);
+      const sub = data?.subscription;
+      const subscription = sub && typeof sub === 'object'
+        ? {
+            productId: typeof sub.productId === 'string' ? sub.productId : null,
+            expiresAt: typeof sub.expiresAt === 'string' ? sub.expiresAt : null,
+            isActive: typeof sub.isActive === 'boolean' ? sub.isActive : undefined,
+          }
+        : undefined;
+      return { plan, subscription };
     }
-    return 'free';
+    return { plan: 'free' };
   } catch (error) {
     console.warn('[AuthStore] Failed to load user plan from Firestore:', error);
-    return 'free';
+    return { plan: 'free' };
   }
 };
 
@@ -468,6 +510,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           onboardingCompleted: userData?.onboardingCompleted,
         });
         drapeUser.plan = normalizedLifecycle.plan;
+        drapeUser.subscription = extractSubscriptionFromDoc(userData);
         drapeUser.hasCreatedFirstProject = normalizedLifecycle.hasCreatedFirstProject;
         drapeUser.onboardingCompleted = normalizedLifecycle.onboardingCompleted;
 

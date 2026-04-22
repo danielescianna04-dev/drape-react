@@ -18,12 +18,19 @@ interface BudgetStatus {
 }
 
 interface SubscriptionSectionProps {
+  // Accepts 'team' for legacy users only; displayed as 'Pro'.
   currentPlan: 'free' | 'go' | 'pro' | 'team';
   budgetStatus: BudgetStatus | null;
   loading: boolean;
   onPlanPress: () => void;
   onBudgetPress: () => void;
   t: (key: string) => string;
+}
+
+function formatPlanLabel(plan: 'free' | 'go' | 'pro' | 'team'): string {
+  if (plan === 'go') return 'Go';
+  if (plan === 'pro' || plan === 'team') return 'Pro';
+  return 'Free';
 }
 
 export const SubscriptionSection: React.FC<SubscriptionSectionProps> = ({
@@ -43,7 +50,7 @@ export const SubscriptionSection: React.FC<SubscriptionSectionProps> = ({
             icon="card-outline"
             iconColor="#60A5FA"
             title={t('subscription.currentPlan')}
-            subtitle={currentPlan === 'free' ? 'Free' : currentPlan === 'go' ? 'Go' : currentPlan === 'pro' ? 'Pro' : 'Team'}
+            subtitle={formatPlanLabel(currentPlan)}
             onPress={onPlanPress}
           />
           <SettingItem

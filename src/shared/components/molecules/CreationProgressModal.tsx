@@ -908,79 +908,45 @@ export const CreationProgressModal = ({ visible, progress, status, step, agentEv
             >
                 {toolTimeline.length === 0 ? (
                     <View style={styles.emptyToolState}>
-                        <View style={styles.emptyIconHalo}>
-                            <View style={styles.emptyIconInner}>
-                                <Ionicons name="sparkles" size={22} color="#C4B5FD" />
-                            </View>
-                        </View>
-                        <Text style={styles.emptyToolStateTitle}>
-                            {lang === 'it' ? 'In attesa dell’agente' : 'Waiting for the agent'}
-                        </Text>
+                        <Ionicons name="sparkles-outline" size={18} color="rgba(196,181,253,0.7)" />
                         <Text style={styles.emptyToolStateText}>
-                            {lang === 'it'
-                                ? 'Appena parte, vedrai qui ogni operazione in tempo reale.'
-                                : 'As soon as it starts, each tool call will appear here live.'}
+                            {lang === 'it' ? 'In attesa…' : 'Waiting…'}
                         </Text>
                     </View>
                 ) : (
                     toolTimeline.map((item, index) => {
-                        const stateIcon =
-                            item.state === 'running'
-                                ? 'ellipse'
-                                : item.state === 'error'
-                                    ? 'alert-circle'
-                                    : 'checkmark';
-                        const stateColor =
-                            item.state === 'running'
-                                ? '#A78BFA'
-                                : item.state === 'error'
-                                    ? '#FCA5A5'
-                                    : '#86EFAC';
-                        const stateBg =
-                            item.state === 'running'
-                                ? 'rgba(167, 139, 250, 0.18)'
-                                : item.state === 'error'
-                                    ? 'rgba(252, 165, 165, 0.16)'
-                                    : 'rgba(134, 239, 172, 0.14)';
-                        const stateBorder =
-                            item.state === 'running'
-                                ? 'rgba(167, 139, 250, 0.5)'
-                                : item.state === 'error'
-                                    ? 'rgba(252, 165, 165, 0.42)'
-                                    : 'rgba(134, 239, 172, 0.36)';
+                        const isRunning = item.state === 'running';
+                        const isError = item.state === 'error';
+                        const stateColor = isRunning ? '#A78BFA' : isError ? '#FCA5A5' : '#86EFAC';
                         return (
                             <View
                                 key={item.key}
                                 style={[
                                     styles.toolRow,
                                     index === toolTimeline.length - 1 && styles.toolRowLast,
-                                    item.state === 'running' && styles.toolRowActive,
                                 ]}
                             >
-                                <View style={[styles.toolIconWrap, { backgroundColor: `${item.color}1A`, borderColor: `${item.color}40` }]}>
-                                    <Ionicons
-                                        name={item.icon}
-                                        size={16}
-                                        color={item.color}
-                                    />
-                                </View>
-                                <View style={styles.toolTextWrap}>
-                                    <View style={styles.toolLabelRow}>
-                                        <Text style={styles.toolLabel} numberOfLines={1}>{item.label}</Text>
-                                        {item.state === 'running' && (
-                                            <View style={styles.toolLivePill}>
-                                                <View style={styles.toolLiveDot} />
-                                                <Text style={styles.toolInlineLive}>live</Text>
-                                            </View>
-                                        )}
-                                    </View>
+                                <Ionicons
+                                    name={item.icon}
+                                    size={16}
+                                    color="rgba(255,255,255,0.55)"
+                                    style={styles.toolIcon}
+                                />
+                                <Text style={styles.toolLabel} numberOfLines={1}>
+                                    <Text style={styles.toolLabelMain}>{item.label}</Text>
                                     {!!item.detail && (
-                                        <Text style={styles.toolDetail} numberOfLines={1}>{item.detail}</Text>
+                                        <Text style={styles.toolLabelDetail}>{'  ·  '}{item.detail}</Text>
                                     )}
-                                </View>
-                                <View style={[styles.toolStatePill, { backgroundColor: stateBg, borderColor: stateBorder }]}>
-                                    <Ionicons name={stateIcon} size={item.state === 'running' ? 8 : 13} color={stateColor} />
-                                </View>
+                                </Text>
+                                {isRunning ? (
+                                    <View style={[styles.toolDot, { backgroundColor: stateColor }]} />
+                                ) : (
+                                    <Ionicons
+                                        name={isError ? 'alert-circle' : 'checkmark'}
+                                        size={14}
+                                        color={stateColor}
+                                    />
+                                )}
                             </View>
                         );
                     })
@@ -1133,127 +1099,49 @@ const styles = StyleSheet.create({
     },
     emptyToolState: {
         flex: 1,
+        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingHorizontal: 24,
-        paddingVertical: 32,
-        gap: 14,
-    },
-    emptyIconHalo: {
-        width: 72,
-        height: 72,
-        borderRadius: 36,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'rgba(167, 139, 250, 0.08)',
-        borderWidth: 1,
-        borderColor: 'rgba(167, 139, 250, 0.14)',
-    },
-    emptyIconInner: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'rgba(167, 139, 250, 0.14)',
-        borderWidth: 1,
-        borderColor: 'rgba(196, 181, 253, 0.32)',
-    },
-    emptyToolStateTitle: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: 'rgba(255,255,255,0.92)',
-        letterSpacing: 0.2,
-        marginTop: 2,
+        gap: 8,
     },
     emptyToolStateText: {
-        fontSize: 12.5,
-        lineHeight: 18,
-        color: 'rgba(255,255,255,0.52)',
-        textAlign: 'center',
-        maxWidth: 260,
+        fontSize: 13,
+        color: 'rgba(255,255,255,0.45)',
+        letterSpacing: 0.2,
     },
     toolRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-        minHeight: 52,
+        gap: 10,
         paddingVertical: 10,
-        paddingHorizontal: 12,
-        marginBottom: 4,
-        borderRadius: 14,
-        backgroundColor: 'rgba(255,255,255,0.025)',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.05)',
-    },
-    toolRowActive: {
-        backgroundColor: 'rgba(139, 92, 246, 0.08)',
-        borderColor: 'rgba(167, 139, 250, 0.28)',
+        paddingHorizontal: 4,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: 'rgba(255,255,255,0.06)',
     },
     toolRowLast: {
-        marginBottom: 0,
+        borderBottomWidth: 0,
     },
-    toolIconWrap: {
-        width: 34,
-        height: 34,
-        borderRadius: 10,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 1,
-    },
-    toolTextWrap: {
-        flex: 1,
-        minWidth: 0,
-        paddingRight: 4,
-    },
-    toolLabelRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
+    toolIcon: {
+        width: 18,
     },
     toolLabel: {
-        flexShrink: 1,
+        flex: 1,
+        minWidth: 0,
         fontSize: 13,
-        fontWeight: '600',
-        color: 'rgba(255,255,255,0.94)',
-        letterSpacing: 0.1,
+        lineHeight: 18,
     },
-    toolLivePill: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        paddingHorizontal: 7,
-        paddingVertical: 2,
-        borderRadius: 999,
-        backgroundColor: 'rgba(167, 139, 250, 0.18)',
-        borderWidth: 1,
-        borderColor: 'rgba(167, 139, 250, 0.4)',
+    toolLabelMain: {
+        color: 'rgba(255,255,255,0.85)',
+        fontWeight: '500',
     },
-    toolLiveDot: {
-        width: 5,
-        height: 5,
-        borderRadius: 2.5,
-        backgroundColor: '#C4B5FD',
+    toolLabelDetail: {
+        color: 'rgba(255,255,255,0.4)',
+        fontWeight: '400',
     },
-    toolInlineLive: {
-        fontSize: 9.5,
-        fontWeight: '700',
-        color: '#DDD6FE',
-        textTransform: 'uppercase',
-        letterSpacing: 0.9,
-    },
-    toolDetail: {
-        fontSize: 11.5,
-        color: 'rgba(255,255,255,0.5)',
-        marginTop: 2,
-    },
-    toolStatePill: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 1,
+    toolDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
     },
     statusContainer: {
         alignItems: 'center',

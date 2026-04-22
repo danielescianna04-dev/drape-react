@@ -7,6 +7,7 @@ import { requestGitAuth } from '../core/github/gitAuthStore';
 import { useTerminalStore } from '../core/terminal/terminalStore';
 import { useTabStore } from '../core/tabs/tabStore';
 import { useAuthStore } from '../core/auth/authStore';
+import { resolvePlanEntitlements } from '../core/entitlements/planEntitlements';
 import { useCloneStatusStore } from '../core/clone/cloneStatusStore';
 import { useFileCacheStore } from '../core/cache/fileCacheStore';
 import { liveActivityService } from '../core/services/liveActivityService';
@@ -611,10 +612,13 @@ export function useAppProjectActions({
         console.warn('📥 [handleImportRepo] Repo access check failed (network?):', accessMsg);
       }
 
-      // Pre-check clone limits using lifetime counters (never reset on delete)
-      const userPlan = useAuthStore.getState().user?.plan || 'free';
-      const planCloneLimits: Record<string, number> = { free: 1, go: 5, pro: 25, team: 100 };
-      const maxCloned = planCloneLimits[userPlan] || 1;
+      // Pre-check clone limits from the shared entitlements source of truth.
+      const authState = useAuthStore.getState();
+      const userPlanRaw = authState.user?.plan || 'free';
+      const productId = (authState.user as any)?.subscription?.productId || null;
+      const entitlements = resolvePlanEntitlements(userPlanRaw, productId);
+      const userPlan = entitlements.plan;
+      const maxCloned = entitlements.maxCloned;
       const lifetimeCounts = await workstationService.getLifetimeCreationCounts(userId);
       if (!skipLimitCheck && lifetimeCounts.cloned >= maxCloned) {
         importInProgress.current = false;

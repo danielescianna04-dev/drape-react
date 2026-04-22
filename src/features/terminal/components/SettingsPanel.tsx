@@ -10,6 +10,7 @@ import { AppColors, withOpacity } from '../../../shared/theme/colors';
 import { useSidebarOffset } from '../../../features/terminal/context/SidebarContext';
 import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
+import { canUseModel } from '../../../core/entitlements/planEntitlements';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import { tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
 import { PanelHeader } from '../../../shared/components/organisms';
@@ -37,7 +38,6 @@ export const SettingsPanel = ({ onClose }: Props) => {
   } = useUIStore();
 
   const { user } = useAuthStore();
-  const isPaidUser = ['go', 'pro', 'team'].includes(user?.plan || '');
   const navigateTo = useNavigationStore((s) => s.navigateTo);
 
   const animatedStyle = useAnimatedStyle(() => {
@@ -57,13 +57,15 @@ export const SettingsPanel = ({ onClose }: Props) => {
     };
   });
 
+  // Model catalog — gating is resolved by canUseModel(plan, modelId).
+  // Free → only claude-4-6-sonnet + gemini-3-0-flash.
   const models = [
-    { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', description: 'Anthropic', icon: 'infinite', isPremium: true },
-    { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', description: 'Anthropic', icon: 'sparkles' },
-    { id: 'gpt-5-4', name: 'GPT 5.4', description: 'OpenAI', icon: 'bulb', isPremium: true },
-    { id: 'glm-5.1', name: 'GLM 5.1', description: 'Z.ai / OpenRouter', icon: 'flash' },
-    { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', description: 'Google', icon: 'planet', isPremium: true },
-    { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', description: 'Google', icon: 'flash' },
+    { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', description: 'Anthropic', icon: 'infinite' as const },
+    { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', description: 'Anthropic', icon: 'sparkles' as const },
+    { id: 'gpt-5-4', name: 'GPT 5.4', description: 'OpenAI', icon: 'bulb' as const },
+    { id: 'glm-5-1', name: 'GLM 5.1', description: 'Z.ai / OpenRouter', icon: 'flash' as const },
+    { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', description: 'Google', icon: 'planet' as const },
+    { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', description: 'Google', icon: 'flash' as const },
   ];
 
   return (
@@ -97,7 +99,7 @@ export const SettingsPanel = ({ onClose }: Props) => {
 
           {models.map((model) => {
             const isSelected = selectedModel === model.id;
-            const isLocked = model.isPremium && !isPaidUser;
+            const isLocked = !canUseModel(user?.plan, model.id);
             return (
               <TouchableOpacity
                 key={model.id}

@@ -84,15 +84,17 @@ healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, r
     // Always read plan from Firestore — never trust client-provided planId
     const planId = await getUserPlan(userId);
 
-    // Plan limits
+    // Plan usage-summary limits. Not a source of truth for AI budgets (see planAiBudgets)
+    // nor project counts (see resolvePlanEntitlements) — this is a display-side summary
+    // for the tokens/usage endpoint. Previews here is per-project cap.
     const planLimits: Record<string, { tokens: number; previews: number; projects: number; search: number }> = {
-      free:    { tokens: 50000, previews: 20, projects: 3, search: 999999 },
-      go:      { tokens: 500000, previews: -1, projects: 15, search: 999999 },
-      pro:     { tokens: 2000000, previews: -1, projects: 75, search: 999999 },
-      team:    { tokens: 10000000, previews: 300, projects: 300, search: 999999 },
+      free: { tokens: 50000, previews: 20, projects: 3, search: 999999 },
+      go: { tokens: 500000, previews: 300, projects: 15, search: 999999 },
+      pro: { tokens: 2000000, previews: 300, projects: 75, search: 999999 },
     };
 
-    const limits = planLimits[planId] || planLimits.free;
+    const normalizedPlan = planId === 'starter' ? 'free' : planId === 'team' ? 'pro' : planId;
+    const limits = planLimits[normalizedPlan] || planLimits.free;
 
     // Get real AI usage from metrics
     const monthStart = new Date();

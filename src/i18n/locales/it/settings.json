@@ -135,29 +135,29 @@
   },
   "plans": {
     "free": {
-      "name": "Starter",
-      "description": "Per chi vuole esplorare le basi.",
-      "features": ["1 progetto + 2 clonati", "20 preview per progetto", "Budget AI base", "1GB Storage Cloud"]
+      "name": "Free",
+      "description": "Per provare Drape.",
+      "features": ["1 progetto creato", "2 progetti clonati", "Budget AI €1 al mese", "Modelli: Claude 4.6 Sonnet, Gemini 3.0 Flash"]
     },
     "go": {
       "name": "Go",
       "description": "Per chi vuole creare sul serio.",
-      "features": ["4 progetti + 5 clonati", "Preview illimitate", "Budget AI potenziato", "Pubblica progetti", "5GB Storage Cloud", "Supporto email"]
+      "features": ["3 progetti creati (mensile) · 5 (annuale)", "5 progetti clonati", "Budget AI €10 al mese", "Tutti i modelli AI", "Pubblica progetti", "5GB Storage Cloud"]
     },
     "pro": {
       "name": "Pro",
       "description": "Potenza massima per sviluppatori.",
-      "features": ["200 progetti + 10 clonati", "Preview illimitate", "Budget AI illimitato", "90GB Storage Cloud", "Supporto prioritario"]
+      "features": ["6 progetti creati (mensile) · 8 (annuale)", "15 progetti clonati", "Budget AI €25 al mese", "Tutti i modelli AI", "Pubblica progetti", "50GB Storage Cloud"]
     },
     "monthly": "Mensile",
     "yearly": "Annuale",
-    "save20": "RISPARMIA 20%",
+    "save20": "Più conveniente",
     "upgradeTitle": "Piani",
     "elevateTitle": "Eleva il tuo Sviluppo",
     "elevateDesc": "Scatena la potenza dell'AI nei tuoi progetti con i piani Drape.",
-    "secureTransactions": "Transazioni sicure via Stripe. Gestione abbonamento semplice e veloce dalle impostazioni.",
+    "secureTransactions": "Pagamenti gestiti da Apple. Modifica o cancella il tuo abbonamento in qualsiasi momento dalle impostazioni dell'ID Apple.",
     "upgradeTo": "Passa a {{plan}}",
-    "upgradeFeatures": "Piu progetti, preview illimitate e budget AI raddoppiato.",
+    "upgradeFeatures": "Più progetti creati, più preview e un budget AI più ampio.",
     "currentPlan": "Piano Attuale",
     "freePlan": "Piano Gratuito",
     "recommended": "CONSIGLIATO",

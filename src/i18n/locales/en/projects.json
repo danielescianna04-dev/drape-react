@@ -20,7 +20,7 @@
     "noProjects": "No projects",
     "createFirstProject": "Create your first project using the buttons above",
     "unlockPro": "Upgrade to Go",
-    "unlockProDesc": "More projects, premium models, 7x AI budget",
+    "unlockProDesc": "More projects, all AI models, a larger AI budget",
     "counterCreated": "created",
     "counterClone": "clone",
     "counterLocal": "local"
@@ -132,15 +132,22 @@
     "reached": "Limit reached",
     "maxProjects": "You've reached the maximum of {{count}} projects",
     "upgradeTo": "Upgrade to {{plan}}",
-    "upgradeToCreate": "to create up to 4",
+    "upgradeToCreate": "to create more",
     "features": {
-      "projects": "4 projects + 5 cloned",
-      "previews": "Unlimited previews",
-      "budget": "Doubled AI budget"
+      "projects": "More created and cloned projects",
+      "previews": "More previews per project",
+      "budget": "Larger AI budget"
     },
     "notNow": "Not now",
     "cloneLimitReached": "You've reached the limit of {{max}} cloned repositories for the {{plan}} plan",
     "upgradeCta": "Upgrade to Go"
+  },
+  "postCreationPaywall": {
+    "title": "Project created!",
+    "subtitle": "With Go you can build more and use every AI model.",
+    "featureBudget": "More AI budget every month",
+    "featureProjects": "More created and cloned projects",
+    "featureModels": "All AI models"
   },
   "actions": {
     "delete": "Delete Project",
@@ -201,17 +208,17 @@
     "startGo": "Start with Go",
     "continueFree": "Continue for free",
     "goFeatures": {
-      "projects": "4 projects + 5 cloned",
-      "previews": "Unlimited previews",
-      "aiBudget": "Boosted AI budget",
-      "storage": "2GB cloud storage",
-      "support": "Email support"
+      "projects": "3 created projects (5 on yearly)",
+      "previews": "300 previews per project",
+      "aiBudget": "€10 AI budget per month",
+      "storage": "5GB cloud storage",
+      "support": "All AI models"
     },
     "freeFeatures": {
-      "projects": "1 project + 2 cloned",
+      "projects": "1 created + 2 cloned",
       "previews": "20 previews per project",
-      "aiBudget": "Base AI budget",
-      "storage": "500MB storage"
+      "aiBudget": "€1 AI budget per month",
+      "storage": "1GB storage"
     },
     "subscriptionTerms": "Payment will be charged to your Apple ID account at the confirmation of purchase. Subscription automatically renews unless it is canceled at least 24 hours before the end of the current period. Your account will be charged for renewal within 24 hours prior to the end of the current period. You can manage and cancel your subscriptions by going to your App Store account settings after purchase.",
     "termsOfService": "Terms of Service",

@@ -577,15 +577,15 @@ export default function App() {
               <View style={limitStyles.features}>
                 <View style={limitStyles.featureRow}>
                   <Ionicons name="checkmark-circle" size={16} color="#A78BFA" />
-                  <Text style={limitStyles.featureText}>10 progetti + 5 clonati</Text>
+                  <Text style={limitStyles.featureText}>{i18n.t('projects:limit.features.projects')}</Text>
                 </View>
                 <View style={limitStyles.featureRow}>
                   <Ionicons name="checkmark-circle" size={16} color="#A78BFA" />
-                  <Text style={limitStyles.featureText}>7x budget AI</Text>
+                  <Text style={limitStyles.featureText}>{i18n.t('projects:limit.features.budget')}</Text>
                 </View>
                 <View style={limitStyles.featureRow}>
                   <Ionicons name="checkmark-circle" size={16} color="#A78BFA" />
-                  <Text style={limitStyles.featureText}>Modelli premium</Text>
+                  <Text style={limitStyles.featureText}>{i18n.t('projects:limit.features.previews')}</Text>
                 </View>
               </View>
 

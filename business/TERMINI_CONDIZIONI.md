@@ -159,7 +159,7 @@ Drape procederà alla chiusura degli account degli utenti che risultino recidivi
 ## 10. Pagamenti e Abbonamenti
 
 ### 10.1 Piani
-Il Servizio offre piani gratuiti e a pagamento: Starter (gratuito), Go e Pro. Le funzionalità e i limiti di ciascun piano sono descritti nell'App.
+Il Servizio offre piani gratuiti e a pagamento: Free, Go e Pro. I piani Go e Pro sono disponibili in versione mensile o annuale. Le funzionalità e i limiti di ciascun piano sono descritti nell'App.
 
 ### 10.2 Fatturazione
 - I pagamenti sono gestiti tramite Apple In-App Purchase

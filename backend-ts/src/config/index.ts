@@ -40,11 +40,13 @@ const isProduction = nodeEnv === 'production';
 const AI_THINKING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'max'] as const;
 const PROMPT_CACHE_TTLS = ['5m', '1h'] as const;
 
+// Monthly AI budget per plan. Resets monthly. Legacy 'team' kept as alias of Pro
+// so legacy users don't lose access; it is not sold.
 export const planAiBudgets = {
   free: { name: 'Free', monthlyBudgetEur: optionalFloat('AI_BUDGET_FREE_EUR', 1.0) },
-  go: { name: 'Go', monthlyBudgetEur: optionalFloat('AI_BUDGET_GO_EUR', 7.5) },
-  pro: { name: 'Pro', monthlyBudgetEur: optionalFloat('AI_BUDGET_PRO_EUR', 1000.0) },
-  team: { name: 'Team', monthlyBudgetEur: optionalFloat('AI_BUDGET_TEAM_EUR', 5000.0) },
+  go: { name: 'Go', monthlyBudgetEur: optionalFloat('AI_BUDGET_GO_EUR', 10.0) },
+  pro: { name: 'Pro', monthlyBudgetEur: optionalFloat('AI_BUDGET_PRO_EUR', 25.0) },
+  team: { name: 'Pro', monthlyBudgetEur: optionalFloat('AI_BUDGET_PRO_EUR', 25.0) },
 } as const;
 
 export const config = {

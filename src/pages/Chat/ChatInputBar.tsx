@@ -10,6 +10,8 @@ import Svg, { Circle } from 'react-native-svg';
 import { useTranslation } from 'react-i18next';
 import { SafeText } from '../../shared/components/SafeText';
 import { AppColors } from '../../shared/theme/colors';
+import { canUseModel } from '../../core/entitlements/planEntitlements';
+import { useAuthStore } from '../../core/auth/authStore';
 
 // ── AI Models ───────────────────────────────────────────────────────
 // Icon components
@@ -30,12 +32,12 @@ const GoogleIcon = ({ size = 16 }: { size?: number }) => (
 );
 
 export const AI_MODELS = [
-  { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, hasThinking: true, thinkingLevels: ['medium'], isPremium: true },
+  { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, hasThinking: true, thinkingLevels: ['medium'] },
   { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
-  { id: 'gpt-5-4', name: 'GPT 5.4', IconComponent: OpenAIIcon, hasThinking: false, isPremium: true },
-  { id: 'glm-5.1', name: 'GLM 5.1', IconComponent: OpenAIIcon, hasThinking: false },
-  { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'low', 'high'], isPremium: true },
-  { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'minimal', 'low', 'medium', 'high'] },
+  { id: 'gpt-5-4', name: 'GPT 5.4', IconComponent: OpenAIIcon, hasThinking: false },
+  { id: 'glm-5-1', name: 'GLM 5.1', IconComponent: OpenAIIcon, hasThinking: false },
+  { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'low', 'high'] },
+  { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'minimal', 'low', 'medium', 'high'] },
 ] as const;
 
 // ── Props ───────────────────────────────────────────────────────────
@@ -140,6 +142,7 @@ export const ChatInputBar = React.memo(({
   onOpenEnvVars,
 }: ChatInputBarProps) => {
   const { t } = useTranslation(['chat', 'terminal']);
+  const currentPlan = useAuthStore((s) => s.user?.plan);
 
   const thinkingLevelLabels = useMemo<Record<string, string>>(() => ({
     none: t('terminal:chat.reasoningLevels.off'),
@@ -286,7 +289,7 @@ export const ChatInputBar = React.memo(({
               const Icon = model.IconComponent;
               const isSelected = selectedModel === model.id;
               const hasLevels = 'thinkingLevels' in model && Array.isArray((model as typeof AI_MODELS[number] & { thinkingLevels?: readonly string[] }).thinkingLevels);
-              const isLocked = ('isPremium' in model && model.isPremium) && !isPaidUser;
+              const isLocked = !canUseModel(currentPlan, model.id);
 
               return (
                 <TouchableOpacity

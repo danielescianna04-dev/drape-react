@@ -2268,15 +2268,15 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                   <Ionicons name="checkmark-circle" size={32} color="#fff" />
                 </LinearGradient>
               </View>
-              <Text style={styles.upgradeTitle}>Progetto creato!</Text>
+              <Text style={styles.upgradeTitle}>{t('postCreationPaywall.title')}</Text>
               <Text style={styles.upgradeSubtitle}>
-                Con Go puoi creare di piu e con modelli AI premium.
+                {t('postCreationPaywall.subtitle')}
               </Text>
               <View style={styles.upgradeFeatures}>
                 {[
-                  { icon: 'flash', text: '7.5x budget AI' },
-                  { icon: 'folder-open', text: '4 progetti + 5 clonati' },
-                  { icon: 'diamond', text: 'Modelli premium (Opus, GPT-5)' },
+                  { icon: 'flash', text: t('postCreationPaywall.featureBudget') },
+                  { icon: 'folder-open', text: t('postCreationPaywall.featureProjects') },
+                  { icon: 'diamond', text: t('postCreationPaywall.featureModels') },
                 ].map((f, i) => (
                   <View key={i} style={styles.upgradeFeatureRow}>
                     <LinearGradient

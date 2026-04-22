@@ -135,29 +135,29 @@
   },
   "plans": {
     "free": {
-      "name": "Starter",
-      "description": "For those wanting to explore the basics.",
-      "features": ["1 project + 2 cloned", "20 previews per project", "Basic AI budget", "1GB Cloud Storage"]
+      "name": "Free",
+      "description": "Try Drape at no cost.",
+      "features": ["1 created project", "2 cloned projects", "€1 AI budget per month", "Models: Claude 4.6 Sonnet, Gemini 3.0 Flash"]
     },
     "go": {
       "name": "Go",
       "description": "For those who want to create seriously.",
-      "features": ["4 projects + 5 cloned", "Unlimited previews", "Enhanced AI budget", "Publish projects", "5GB Cloud Storage", "Email support"]
+      "features": ["3 created projects (monthly) · 5 (yearly)", "5 cloned projects", "€10 AI budget per month", "All AI models", "Publish projects", "5GB Cloud Storage"]
     },
     "pro": {
       "name": "Pro",
       "description": "Maximum power for developers.",
-      "features": ["200 projects + 10 cloned", "Unlimited previews", "Unlimited AI budget", "90GB Cloud Storage", "Priority support"]
+      "features": ["6 created projects (monthly) · 8 (yearly)", "15 cloned projects", "€25 AI budget per month", "All AI models", "Publish projects", "50GB Cloud Storage"]
     },
     "monthly": "Monthly",
     "yearly": "Yearly",
-    "save20": "SAVE 20%",
+    "save20": "Best value",
     "upgradeTitle": "Upgrade Plan",
     "elevateTitle": "Elevate Your Development",
     "elevateDesc": "Unleash AI power in your projects with Drape plans.",
-    "secureTransactions": "Secure transactions via Stripe. Simple and fast subscription management from settings.",
+    "secureTransactions": "Payments handled by Apple. Manage or cancel your subscription anytime from your Apple ID settings.",
     "upgradeTo": "Upgrade to {{plan}}",
-    "upgradeFeatures": "More projects, unlimited previews and doubled AI budget.",
+    "upgradeFeatures": "More created projects, more previews and a larger AI budget.",
     "currentPlan": "Current Plan",
     "freePlan": "Free Plan",
     "recommended": "RECOMMENDED",

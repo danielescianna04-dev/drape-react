@@ -13,18 +13,19 @@ import Svg, { Circle } from 'react-native-svg';
 import { AnthropicIcon, GoogleIcon, OpenAIIcon } from '../../../shared/components/icons';
 import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
+import { canUseModel } from '../../../core/entitlements/planEntitlements';
 import { ThinkingIndicator } from '../../../shared/components/atoms/ThinkingIndicator';
 import { useTranslation } from 'react-i18next';
 import { tracciaChatMinimizzata, tracciaModelloSelezionato, tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
 import { useVoiceInput } from '../../../shared/hooks/useVoiceInput';
 
 const AI_MODELS = [
-  { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, isPremium: true, thinkingLevels: ['medium'] },
-  { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, isPremium: false, thinkingLevels: [] as string[] },
-  { id: 'gpt-5-4', name: 'GPT 5.4', IconComponent: OpenAIIcon, isPremium: true, thinkingLevels: [] as string[] },
-  { id: 'glm-5.1', name: 'GLM 5.1', IconComponent: OpenAIIcon, isPremium: false, thinkingLevels: [] as string[] },
-  { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, isPremium: true, thinkingLevels: ['low', 'high'] },
-  { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, isPremium: false, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
+  { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, thinkingLevels: ['medium'] },
+  { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, thinkingLevels: [] as string[] },
+  { id: 'gpt-5-4', name: 'GPT 5.4', IconComponent: OpenAIIcon, thinkingLevels: [] as string[] },
+  { id: 'glm-5-1', name: 'GLM 5.1', IconComponent: OpenAIIcon, thinkingLevels: [] as string[] },
+  { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, thinkingLevels: ['low', 'high'] },
+  { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
 ];
 
 const THINKING_LEVEL_LABELS: Record<string, string> = {
@@ -145,7 +146,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
   const setSelectedModel = useUIStore((state) => state.setSelectedModel);
   const [thinkingLevel, setThinkingLevel] = React.useState('medium');
   const { user } = useAuthStore();
-  const isPaidUser = ['go', 'pro', 'team'].includes(user?.plan || '');
+  // Model gating is now per-model via canUseModel() — no single boolean.
   const navigateTo = useNavigationStore((state) => state.navigateTo);
 
   const currentModelName = React.useMemo(() => {
@@ -382,7 +383,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
               const IconComponent = model.IconComponent;
               const isSelected = storeSelectedModel === model.id;
               const hasThinkingOptions = model.thinkingLevels.length > 0;
-              const isLocked = model.isPremium && !isPaidUser;
+              const isLocked = !canUseModel(user?.plan, model.id);
               return (
                 <TouchableOpacity
                   key={model.id}

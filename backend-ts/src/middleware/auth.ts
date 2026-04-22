@@ -158,11 +158,31 @@ export async function optionalAuth(
 
 // ── User plan cache ──
 const USER_PLAN_CACHE_TTL = 60 * 1000; // 60 seconds — short TTL so plan upgrades apply quickly
-const userPlanCache = new Map<string, { plan: string; expiresAt: number }>();
+interface CachedPlan { plan: string; productId: string | null; expiresAt: number }
+const userPlanCache = new Map<string, CachedPlan>();
 
 /** Invalidate plan cache immediately (call after any plan change) */
 export function invalidateUserPlanCache(userId: string): void {
   userPlanCache.delete(userId);
+}
+
+async function loadUserPlanContext(userId: string): Promise<{ plan: string; productId: string | null }> {
+  const cached = userPlanCache.get(userId);
+  if (cached && Date.now() < cached.expiresAt) return { plan: cached.plan, productId: cached.productId };
+  try {
+    const db = firebaseService.getFirestore();
+    if (!db) return { plan: 'free', productId: null };
+    const doc = await db.collection('users').doc(userId).get();
+    const data = doc.data() || {};
+    const raw = (data.plan || 'free') as string;
+    // Legacy normalization: 'starter' → 'free'. 'team' stays (resolvePlanEntitlements maps it to 'pro').
+    const plan = raw === 'starter' ? 'free' : raw;
+    const productId: string | null = typeof data?.subscription?.productId === 'string' ? data.subscription.productId : null;
+    userPlanCache.set(userId, { plan, productId, expiresAt: Date.now() + USER_PLAN_CACHE_TTL });
+    return { plan, productId };
+  } catch {
+    return { plan: 'free', productId: null };
+  }
 }
 
 /**
@@ -170,19 +190,15 @@ export function invalidateUserPlanCache(userId: string): void {
  * Returns 'free' if the user document doesn't exist or on error.
  */
 export async function getUserPlan(userId: string): Promise<string> {
-  const cached = userPlanCache.get(userId);
-  if (cached && Date.now() < cached.expiresAt) return cached.plan;
-  try {
-    const db = firebaseService.getFirestore();
-    if (!db) return 'free';
-    const doc = await db.collection('users').doc(userId).get();
-    const raw = doc.data()?.plan || 'free';
-    const plan = raw === 'starter' ? 'free' : raw;
-    userPlanCache.set(userId, { plan, expiresAt: Date.now() + USER_PLAN_CACHE_TTL });
-    return plan;
-  } catch {
-    return 'free';
-  }
+  return (await loadUserPlanContext(userId)).plan;
+}
+
+/**
+ * getUserPlanContext — Plan + Apple IAP productId. Needed to resolve
+ * monthly-vs-yearly entitlements that differ by billing cycle.
+ */
+export async function getUserPlanContext(userId: string): Promise<{ plan: string; productId: string | null }> {
+  return loadUserPlanContext(userId);
 }
 
 /**
@@ -191,22 +207,40 @@ export async function getUserPlan(userId: string): Promise<string> {
  * Returns false if ownership cannot be confirmed.
  */
 // ── Plan project limits ────────────────────────────────────────────────────
+// Entitlements resolve from (plan, productId). See services/plan-entitlements.ts
+// for the single source of truth.
+import { resolvePlanEntitlements, type PlanEntitlements } from '../services/plan-entitlements';
+
 export interface PlanProjectLimits {
-  maxCreated: number;   // progetti creati da template
-  maxCloned: number;    // progetti clonati da repo
-  maxLocal: number;     // progetti aperti da file locale
-  maxStorageMb: number; // storage totale per utente in MB
+  maxCreated: number;
+  maxCloned: number;
+  maxLocal: number;
+  maxStorageMb: number;
 }
 
-const PLAN_PROJECT_LIMITS: Record<string, PlanProjectLimits> = {
-  free:    { maxCreated: 1, maxCloned: 2, maxLocal: 1, maxStorageMb: 1024 },
-  go:      { maxCreated: 4, maxCloned: 5, maxLocal: 3, maxStorageMb: 5120 },
-  pro:     { maxCreated: 200, maxCloned: 10, maxLocal: 10, maxStorageMb: 153600 },
-  team:    { maxCreated: 200, maxCloned: 100, maxLocal: 20, maxStorageMb: 71680 },
-};
+/**
+ * Back-compat signature. Returns the "default" monthly-tier limits for a plan.
+ * New code should prefer `getUserEntitlements(userId)` which uses the user's
+ * actual productId (monthly vs yearly differs for paid plans).
+ */
+export function getPlanProjectLimits(planId: string, productId?: string | null): PlanProjectLimits {
+  const ent = resolvePlanEntitlements(planId, productId ?? null);
+  return {
+    maxCreated: ent.maxCreated,
+    maxCloned: ent.maxCloned,
+    maxLocal: ent.maxLocal,
+    maxStorageMb: ent.maxStorageMb,
+  };
+}
 
-export function getPlanProjectLimits(planId: string): PlanProjectLimits {
-  return PLAN_PROJECT_LIMITS[planId] || PLAN_PROJECT_LIMITS.free;
+/**
+ * getUserEntitlements — Full entitlements resolved for a specific user.
+ * This is the preferred API for new code that needs to distinguish
+ * go_monthly/go_yearly/pro_monthly/pro_yearly.
+ */
+export async function getUserEntitlements(userId: string): Promise<PlanEntitlements> {
+  const { plan, productId } = await loadUserPlanContext(userId);
+  return resolvePlanEntitlements(plan, productId);
 }
 
 /**
