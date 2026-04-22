@@ -220,7 +220,7 @@ export class AgentLoop {
     const percentUsed = budget > 0 ? Math.round((usage.totalCostEur / budget) * 100) : 0;
 
     return {
-      exceeded: usage.totalCostEur >= budget,
+      exceeded: budget > 0 && usage.totalCostEur >= budget,
       percentUsed,
     };
   }
