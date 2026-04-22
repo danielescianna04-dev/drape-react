@@ -98,7 +98,7 @@ healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, r
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
-    const aiSummary = metricsService.getAIUsageSummary(userId, monthStart.getTime());
+    const aiSummary = metricsService.getAIUsageSummary(userId, monthStart.getTime(), ['generation', 'verify']);
     const tokensUsed = aiSummary.totalInputTokens + aiSummary.totalOutputTokens;
 
     // Get hourly token breakdown (last 24h)
@@ -195,7 +195,7 @@ const handleAiBudgetStatus = asyncHandler(async (req, res) => {
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
-    const aiSummary = metricsService.getAIUsageSummary(userId, monthStart.getTime());
+    const aiSummary = metricsService.getAIUsageSummary(userId, monthStart.getTime(), ['generation', 'verify']);
 
     const spentEur = aiSummary.totalCostEur;
     const remainingEur = Math.max(0, plan.monthlyBudgetEur - spentEur);

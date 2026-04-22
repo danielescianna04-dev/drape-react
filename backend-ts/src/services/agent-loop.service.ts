@@ -214,7 +214,8 @@ export class AgentLoop {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const usage = metricsService.getAIUsageSummary(this.userId, monthStart.getTime());
+    // Exclude Drape-absorbed system phases from the user's monthly budget.
+    const usage = metricsService.getAIUsageSummary(this.userId, monthStart.getTime(), ['generation', 'verify']);
     const budget = planAiBudgets[this.userPlan as keyof typeof planAiBudgets]?.monthlyBudgetEur
       || planAiBudgets.free.monthlyBudgetEur;
     const percentUsed = budget > 0 ? Math.round((usage.totalCostEur / budget) * 100) : 0;
@@ -257,9 +258,14 @@ export class AgentLoop {
         model: this.model,
       };
 
-      // 2. Check AI budget before doing anything expensive
-      const budgetCheck = this.checkBudget();
-      log.info(`[AgentLoop] Budget check: userId=${this.userId}, plan=${this.userPlan}, exceeded=${budgetCheck.exceeded}, percentUsed=${budgetCheck.percentUsed}%, spentEur=${budgetCheck.spentEur}, budgetEur=${budgetCheck.budgetEur}`);
+      // 2. Check AI budget before doing anything expensive.
+      // Creation and verify phases are Drape-absorbed costs (part of the
+      // subscription), not counted against the user's monthly budget.
+      const isSystemPhase = this.usagePhase === 'generation' || this.usagePhase === 'verify';
+      const budgetCheck = isSystemPhase
+        ? { exceeded: false, percentUsed: 0, spentEur: 0, budgetEur: 0 }
+        : this.checkBudget();
+      log.info(`[AgentLoop] Budget check: userId=${this.userId}, plan=${this.userPlan}, phase=${this.usagePhase}, exceeded=${budgetCheck.exceeded}, percentUsed=${budgetCheck.percentUsed}%, spentEur=${budgetCheck.spentEur}, budgetEur=${budgetCheck.budgetEur}`);
       if (budgetCheck.exceeded) {
         log.warn(`[AgentLoop] Budget exceeded for user ${this.userId} (plan: ${this.userPlan}, spent=€${budgetCheck.spentEur}, budget=€${budgetCheck.budgetEur})`);
         yield {
@@ -323,8 +329,9 @@ export class AgentLoop {
           });
         }
 
-        // Re-check budget mid-run every 5 iterations to prevent runaway costs
-        if (this.iterationCount > 1 && this.iterationCount % 5 === 0) {
+        // Re-check budget mid-run every 5 iterations to prevent runaway costs.
+        // Skip entirely for system phases (generation/verify).
+        if (!isSystemPhase && this.iterationCount > 1 && this.iterationCount % 5 === 0) {
           const midRunBudgetCheck = this.checkBudget();
           if (midRunBudgetCheck.exceeded) {
             log.warn(`[AgentLoop] Budget exceeded mid-run for user ${this.userId} (plan: ${this.userPlan}, spent=€${midRunBudgetCheck.spentEur}, budget=€${midRunBudgetCheck.budgetEur})`);

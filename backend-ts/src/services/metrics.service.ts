@@ -183,7 +183,7 @@ class MetricsService {
   /**
    * Get AI usage summary
    */
-  getAIUsageSummary(userId?: string, since?: number): AIUsageSummary {
+  getAIUsageSummary(userId?: string, since?: number, excludePhases?: string[]): AIUsageSummary {
     let entries = this.aiUsage;
 
     // Filter by user if specified
@@ -194,6 +194,11 @@ class MetricsService {
     // Filter by time if specified
     if (since) {
       entries = entries.filter(e => e.timestamp >= since);
+    }
+
+    // Exclude system phases (e.g. Drape-absorbed generation/verify costs)
+    if (excludePhases && excludePhases.length > 0) {
+      entries = entries.filter(e => !e.phase || !excludePhases.includes(e.phase));
     }
 
     const byModel: Record<string, {
