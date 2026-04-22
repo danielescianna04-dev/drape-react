@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Alert } from 'react-native';
 import * as Updates from 'expo-updates';
+import Constants from 'expo-constants';
 import { config } from '../../config/config';
 import { useToastStore } from '../../core/toast/toastStore';
 import i18n from '../../i18n';
@@ -8,7 +9,7 @@ import i18n from '../../i18n';
 // @ts-ignore
 const isDev = typeof __DEV__ !== 'undefined' && __DEV__;
 
-const APP_VERSION = '2.0.2';
+const APP_VERSION = Constants.expoConfig?.version ?? '2.2.0';
 
 interface VersionCheckResponse {
   minVersion: string;

@@ -1,6 +1,6 @@
 {
   "name": "drape-backend",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Drape AI IDE Backend - TypeScript + Docker Native",
   "main": "dist/index.js",
   "scripts": {

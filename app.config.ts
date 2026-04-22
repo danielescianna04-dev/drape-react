@@ -5,7 +5,7 @@ const IS_DEV = process.env.EXPO_PUBLIC_ENV === 'development' || process.env.EXPO
 const config: ExpoConfig = {
   name: IS_DEV ? 'Drape Dev' : 'Drape',
   slug: 'drape-react',
-  version: '2.1.0',
+  version: '2.2.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',

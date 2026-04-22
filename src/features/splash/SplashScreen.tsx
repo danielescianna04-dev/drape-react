@@ -2,8 +2,11 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Dimensions, Easing } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
+import Constants from 'expo-constants';
 import { AppColors } from '../../shared/theme/colors';
 import { DrapeLogo } from '../../shared/components/icons';
+
+const APP_VERSION = Constants.expoConfig?.version ?? '2.2.0';
 
 const { width, height } = Dimensions.get('window');
 
@@ -194,7 +197,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
         <View style={styles.bottomLine} />
         <View style={styles.bottomRow}>
           <View style={styles.versionBadge}>
-            <Text style={styles.versionText}>v2.0.2</Text>
+            <Text style={styles.versionText}>v{APP_VERSION}</Text>
           </View>
           <View style={styles.bottomDot} />
           <Text style={styles.bottomText}>{t('splash.builtForDevelopers')}</Text>

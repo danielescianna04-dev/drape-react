@@ -36,7 +36,7 @@ healthRouter.get('/version-check', (req, res) => {
 
   res.json({
     minVersion,
-    currentVersion: '2.1.0',
+    currentVersion: '2.2.0',
     forceUpdate,
     storeUrl: 'https://apps.apple.com/app/id6758354741',
   });
@@ -47,7 +47,7 @@ healthRouter.get('/health', asyncHandler(async (req, res) => {
   const health = await dockerService.healthCheck();
   res.json({
     status: health.healthy ? 'ok' : 'degraded',
-    version: '2.1.0',
+    version: '2.2.0',
     architecture: 'docker-ts',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),

@@ -1,6 +1,6 @@
 {
   "name": "drape-react",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "main": "index.ts",
   "scripts": {
     "postinstall": "npx patch-package",
@@ -81,7 +81,7 @@
     "react-native-screens": "~4.16.0",
     "react-native-sse": "^1.2.1",
     "react-native-svg": "^15.12.1",
-    "react-native-syntax-highlighter": "^2.1.0",
+    "react-native-syntax-highlighter": "^2.2.0",
     "react-native-view-shot": "4.0.3",
     "react-native-web": "^0.21.0",
     "react-native-webview": "13.15.0",
