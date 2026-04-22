@@ -137,17 +137,17 @@
     "free": {
       "name": "Free",
       "description": "Try Drape at no cost.",
-      "features": ["1 created project", "2 cloned projects", "€1 AI budget per month", "Models: Claude 4.6 Sonnet, Gemini 3.0 Flash"]
+      "features": ["1 created project", "2 cloned projects", "Base AI budget", "Models: Claude 4.6 Sonnet, Gemini 3.0 Flash"]
     },
     "go": {
       "name": "Go",
       "description": "For those who want to create seriously.",
-      "features": ["3 created projects (monthly) · 5 (yearly)", "5 cloned projects", "€10 AI budget per month", "All AI models", "Publish projects", "5GB Cloud Storage"]
+      "features": ["3 created projects (monthly) · 5 (yearly)", "5 cloned projects", "Enhanced AI budget", "All AI models", "Publish projects", "5GB Cloud Storage"]
     },
     "pro": {
       "name": "Pro",
       "description": "Maximum power for developers.",
-      "features": ["6 created projects (monthly) · 8 (yearly)", "15 cloned projects", "€25 AI budget per month", "All AI models", "Publish projects", "50GB Cloud Storage"]
+      "features": ["6 created projects (monthly) · 8 (yearly)", "15 cloned projects", "Expanded AI budget", "All AI models", "Publish projects", "50GB Cloud Storage"]
     },
     "monthly": "Monthly",
     "yearly": "Yearly",

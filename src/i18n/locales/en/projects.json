@@ -209,15 +209,15 @@
     "continueFree": "Continue for free",
     "goFeatures": {
       "projects": "3 created projects (5 on yearly)",
-      "previews": "300 previews per project",
-      "aiBudget": "€10 AI budget per month",
+      "previews": "More previews per project",
+      "aiBudget": "Enhanced AI budget",
       "storage": "5GB cloud storage",
       "support": "All AI models"
     },
     "freeFeatures": {
       "projects": "1 created + 2 cloned",
       "previews": "20 previews per project",
-      "aiBudget": "€1 AI budget per month",
+      "aiBudget": "Base AI budget",
       "storage": "1GB storage"
     },
     "subscriptionTerms": "Payment will be charged to your Apple ID account at the confirmation of purchase. Subscription automatically renews unless it is canceled at least 24 hours before the end of the current period. Your account will be charged for renewal within 24 hours prior to the end of the current period. You can manage and cancel your subscriptions by going to your App Store account settings after purchase.",

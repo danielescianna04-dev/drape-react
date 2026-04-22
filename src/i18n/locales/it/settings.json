@@ -137,17 +137,17 @@
     "free": {
       "name": "Free",
       "description": "Per provare Drape.",
-      "features": ["1 progetto creato", "2 progetti clonati", "Budget AI €1 al mese", "Modelli: Claude 4.6 Sonnet, Gemini 3.0 Flash"]
+      "features": ["1 progetto creato", "2 progetti clonati", "Budget AI base", "Modelli: Claude 4.6 Sonnet, Gemini 3.0 Flash"]
     },
     "go": {
       "name": "Go",
       "description": "Per chi vuole creare sul serio.",
-      "features": ["3 progetti creati (mensile) · 5 (annuale)", "5 progetti clonati", "Budget AI €10 al mese", "Tutti i modelli AI", "Pubblica progetti", "5GB Storage Cloud"]
+      "features": ["3 progetti creati (mensile) · 5 (annuale)", "5 progetti clonati", "Budget AI potenziato", "Tutti i modelli AI", "Pubblica progetti", "5GB Storage Cloud"]
     },
     "pro": {
       "name": "Pro",
       "description": "Potenza massima per sviluppatori.",
-      "features": ["6 progetti creati (mensile) · 8 (annuale)", "15 progetti clonati", "Budget AI €25 al mese", "Tutti i modelli AI", "Pubblica progetti", "50GB Storage Cloud"]
+      "features": ["6 progetti creati (mensile) · 8 (annuale)", "15 progetti clonati", "Budget AI esteso", "Tutti i modelli AI", "Pubblica progetti", "50GB Storage Cloud"]
     },
     "monthly": "Mensile",
     "yearly": "Annuale",

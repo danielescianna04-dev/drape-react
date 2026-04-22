@@ -228,7 +228,7 @@
     "aiBudgetExceeded": "AI budget exhausted",
     "budgetUsed": "You've used all your AI budget for this month",
     "budgetWarning": "You've used {{pct}}% of your AI budget",
-    "budgetGoFeature": "Go gives you 10x the AI budget",
+    "budgetGoFeature": "Go gives you a much larger AI budget",
     "budgetGoDesc": "More AI budget, more projects, all models",
     "budgetReset": "Budget resets on the 1st of the month",
     "startPreview": "Start Preview",
@@ -268,7 +268,7 @@
     "upgradeFeatures": "More created and cloned projects",
     "upgradeWith": "With Go you get:",
     "upgradePreviews": "More previews per project",
-    "upgradeBudget": "€10 AI budget per month"
+    "upgradeBudget": "Enhanced AI budget"
   },
   "contentRenderer": {
     "emptyTitle": "No open tabs",
