@@ -17,7 +17,7 @@ const config: ExpoConfig = {
     backgroundColor: '#0A0A0C',
   },
   ios: {
-    supportsTablet: true,
+    supportsTablet: false,
     bundleIdentifier: IS_DEV ? 'com.drape.app.dev' : 'com.drape.app',
     infoPlist: {
       UIUserInterfaceStyle: 'Dark',
