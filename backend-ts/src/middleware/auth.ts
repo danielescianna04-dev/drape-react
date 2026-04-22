@@ -272,12 +272,9 @@ export async function getLifetimeCreationCounts(userId: string): Promise<Creatio
     const db = firebaseService.getFirestore();
     if (!db) return zero;
 
-    const userDoc = await db.collection('users').doc(userId).get();
-    const data = userDoc.data()?.creationCounters as CreationCounters | undefined;
-    if (data) {
-      return { created: data.created || 0, cloned: data.cloned || 0, local: data.local || 0 };
-    }
-    // Fallback for old accounts without creationCounters: count existing projects (exclude failed/creating)
+    // Count live projects (exclude failed/creating) — gives accurate limits
+    // even when the cached `creationCounters` was incremented for a project
+    // whose creation subsequently failed (budget exceeded, crash, etc.).
     const projectsSnap = await db.collection('user_projects').where('userId', '==', userId).get();
     let created = 0, cloned = 0, local = 0;
     projectsSnap.docs.forEach(d => {
