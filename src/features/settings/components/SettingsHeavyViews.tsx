@@ -82,6 +82,14 @@ export const SettingsPlanSelectionView = ({
 
   const freePlanPrice = `${getCurrencySymbol(currentCyclePaidProduct?.currency)}0`;
 
+  // Build plan feature list with the cycle-dependent "created projects" line on top.
+  const cycleKey = billingCycle === 'yearly' ? 'projectsYearly' : 'projectsMonthly';
+  const planFeatures = (planId: 'free' | 'go' | 'pro'): string[] => {
+    const projectsLine = t(`plans.${planId}.${cycleKey}`);
+    const rest = t(`plans.${planId}.features`, { returnObjects: true }) as string[];
+    return [projectsLine, ...(Array.isArray(rest) ? rest : [])];
+  };
+
   const plans = [
     {
       id: 'free',
@@ -89,7 +97,7 @@ export const SettingsPlanSelectionView = ({
       price: freePlanPrice,
       introPrice: undefined as string | undefined,
       description: t('plans.free.description'),
-      features: t('plans.free.features', { returnObjects: true }) as string[],
+      features: planFeatures('free'),
       color: '#94A3B8',
     },
     {
@@ -99,7 +107,7 @@ export const SettingsPlanSelectionView = ({
       introPrice: billingCycle === 'monthly' ? getIntroPrice(IAP_PRODUCT_IDS.GO_MONTHLY) : undefined,
       trialText: billingCycle === 'monthly' ? getTrialText(IAP_PRODUCT_IDS.GO_MONTHLY) : undefined,
       description: t('plans.go.description'),
-      features: t('plans.go.features', { returnObjects: true }) as string[],
+      features: planFeatures('go'),
       color: AppColors.primary,
       isPopular: true,
     },
@@ -110,7 +118,7 @@ export const SettingsPlanSelectionView = ({
       introPrice: billingCycle === 'monthly' ? getIntroPrice(IAP_PRODUCT_IDS.PRO_MONTHLY) : undefined,
       trialText: billingCycle === 'monthly' ? getTrialText(IAP_PRODUCT_IDS.PRO_MONTHLY) : undefined,
       description: t('plans.pro.description'),
-      features: t('plans.pro.features', { returnObjects: true }) as string[],
+      features: planFeatures('pro'),
       color: '#F472B6',
     },
   ];
