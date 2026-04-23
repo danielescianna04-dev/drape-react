@@ -53,8 +53,16 @@ class SessionService {
 
   async getByProjectIdAndAccessToken(projectId: string, accessToken: string): Promise<Session | null> {
     if (!accessToken) return null;
+    // Case-insensitive projectId match. Firestore IDs are mixed-case but
+    // DNS hostnames are always lowercased by Express (req.hostname), so a
+    // strict === would miss every session when coming through the subdomain
+    // proxy. Access token remains case-sensitive.
+    const projectIdLc = projectId.toLowerCase();
     for (const session of this.sessions.values()) {
-      if (session.projectId === projectId && session.accessToken === accessToken) {
+      if (
+        session.projectId.toLowerCase() === projectIdLc &&
+        session.accessToken === accessToken
+      ) {
         return session;
       }
     }
