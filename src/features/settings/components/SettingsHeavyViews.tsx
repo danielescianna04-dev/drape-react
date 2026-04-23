@@ -333,25 +333,10 @@ export const SettingsResourceUsageView = ({
   const previewsUnlimited = typeof previewsLimitRaw === 'number' && previewsLimitRaw < 0;
   const previewsLimit = previewsUnlimited ? 0 : previewsLimitRaw || 0;
   const previewsPercent = previewsUnlimited || previewsLimit <= 0 ? 0 : Math.min((previewsMostUsed / previewsLimit) * 100, 100);
-  const aiOverview = projectAiAnalytics?.overview;
-  const aiTopProjects = projectAiAnalytics?.topProjects || [];
-  const aiModels = projectAiAnalytics?.byModel || [];
   const formatTokens = (n: number) => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
     return `${n}`;
-  };
-  const formatEur = (n: number) => `€${n.toFixed(n >= 10 ? 0 : 2)}`;
-  const compactProjectId = (projectId: string) => {
-    if (projectId.length <= 18) return projectId;
-    return `${projectId.slice(0, 10)}...${projectId.slice(-4)}`;
-  };
-  const formatDate = (iso: string) => {
-    try {
-      return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(iso));
-    } catch {
-      return iso;
-    }
   };
 
   return (
@@ -433,98 +418,6 @@ export const SettingsResourceUsageView = ({
             </BlurView>
           </View>
         </View>
-
-        <BlurView intensity={25} tint="dark" style={styles.usageCard}>
-          <View style={styles.analyticsHeaderRow}>
-            <View>
-              <Text style={styles.usageCardTitle}>{t('resources.aiProjects')}</Text>
-              <Text style={styles.analyticsSubtext}>{t('resources.aiProjectsDesc')}</Text>
-            </View>
-            <View style={styles.analyticsPill}>
-              <Text style={styles.analyticsPillText}>{aiOverview?.projectCount ?? 0}</Text>
-            </View>
-          </View>
-
-          <View style={styles.analyticsSummaryGrid}>
-            <View style={styles.analyticsSummaryItem}>
-              <Text style={styles.analyticsSummaryLabel}>{t('resources.aiTotal')}</Text>
-              <Text style={styles.analyticsSummaryValue}>{formatEur(aiOverview?.totalCostEur ?? 0)}</Text>
-            </View>
-            <View style={styles.analyticsSummaryItem}>
-              <Text style={styles.analyticsSummaryLabel}>{t('resources.aiAverage')}</Text>
-              <Text style={styles.analyticsSummaryValue}>{formatEur(aiOverview?.averageCostPerProjectEur ?? 0)}</Text>
-            </View>
-            <View style={styles.analyticsSummaryItem}>
-              <Text style={styles.analyticsSummaryLabel}>{t('resources.aiEscalations')}</Text>
-              <Text style={styles.analyticsSummaryValue}>{aiOverview?.premiumEscalationProjects ?? 0}</Text>
-            </View>
-          </View>
-
-          <View style={styles.analyticsBreakdownRow}>
-            <Text style={styles.analyticsBreakdownText}>{t('resources.aiGeneration')} {formatEur(aiOverview?.generationCostEur ?? 0)}</Text>
-            <Text style={styles.analyticsBreakdownText}>{t('resources.aiVerify')} {formatEur(aiOverview?.verifyCostEur ?? 0)}</Text>
-            <Text style={styles.analyticsBreakdownText}>{t('resources.aiPremium')} {formatEur(aiOverview?.verifyEscalationCostEur ?? 0)}</Text>
-          </View>
-        </BlurView>
-
-        {aiTopProjects.length > 0 && (
-          <BlurView intensity={25} tint="dark" style={styles.usageCard}>
-            <View style={styles.analyticsHeaderRow}>
-              <Text style={styles.usageCardTitle}>{t('resources.topProjects')}</Text>
-              <Text style={styles.analyticsSubtext}>{t('resources.thisMonth')}</Text>
-            </View>
-
-            <View style={styles.analyticsProjectList}>
-              {aiTopProjects.map((project: any, index: number) => (
-                <View
-                  key={`${project.projectId}-${index}`}
-                  style={[
-                    styles.analyticsProjectRow,
-                    index === aiTopProjects.length - 1 && { marginBottom: 0, borderBottomWidth: 0, paddingBottom: 0 },
-                  ]}
-                >
-                  <View style={styles.analyticsProjectMain}>
-                    <Text style={styles.analyticsProjectName}>
-                      {project.projectName || compactProjectId(project.projectId)}
-                    </Text>
-                    <Text style={styles.analyticsProjectMeta}>
-                      {formatTokens(project.totalTokens)} tok · {t('resources.lastActive')} {formatDate(project.lastActivityAt)}
-                    </Text>
-                  </View>
-                  <View style={styles.analyticsProjectSide}>
-                    <Text style={styles.analyticsProjectCost}>{formatEur(project.totalCostEur)}</Text>
-                    <Text style={styles.analyticsProjectMeta}>
-                      {t('resources.aiPremiumShort')} {formatEur(project.verifyEscalationCostEur || 0)}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          </BlurView>
-        )}
-
-        {aiModels.length > 0 && (
-          <BlurView intensity={25} tint="dark" style={styles.usageCard}>
-            <View style={styles.analyticsHeaderRow}>
-              <Text style={styles.usageCardTitle}>{t('resources.modelSpend')}</Text>
-              <Text style={styles.analyticsSubtext}>{t('resources.thisMonth')}</Text>
-            </View>
-            <View style={styles.analyticsModelList}>
-              {aiModels.slice(0, 3).map((model: any, index: number) => (
-                <View
-                  key={`${model.model}-${index}`}
-                  style={[
-                    styles.analyticsModelRow,
-                    index === Math.min(aiModels.length, 3) - 1 && { marginBottom: 0 },
-                  ]}
-                >
-                  <Text style={styles.analyticsModelName}>{model.model}</Text>
-                  <Text style={styles.analyticsModelCost}>{formatEur(model.costEur)}</Text>
-                </View>
-              ))}
-            </View>
-          </BlurView>
-        )}
 
         {currentPlan === 'free' && (
           <TouchableOpacity style={styles.upgradeCtaCard} onPress={onOpenPlans}>
