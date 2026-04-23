@@ -281,7 +281,18 @@ class AIProviderService {
   }
 
   public getModelConfig(modelName: string): ModelConfig | null {
-    return this.modelRegistry[modelName] || null;
+    // Canonical aliases — frontend may send either the legacy or the new id.
+    const aliases: Record<string, string> = {
+      'gemini-3-0-flash': 'gemini-3-flash',
+      'gemini-3.0-flash': 'gemini-3-flash',
+      'gemini-3-1-pro': 'gemini-3.1-pro',
+      'gemini-3-0-pro': 'gemini-3.1-pro',
+      'gemini-3-pro': 'gemini-3.1-pro',
+      'glm-5-1': 'glm-5.1',
+      'claude-sonnet-4': 'claude-4-6-sonnet',
+    };
+    const normalized = aliases[modelName] || modelName;
+    return this.modelRegistry[normalized] || null;
   }
 
   public getContextWindowTokens(model: string): number {

@@ -22,8 +22,6 @@ import { useVoiceInput } from '../../../shared/hooks/useVoiceInput';
 const AI_MODELS = [
   { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, thinkingLevels: ['medium'] },
   { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, thinkingLevels: [] as string[] },
-  { id: 'gpt-5-4', name: 'GPT 5.4', IconComponent: OpenAIIcon, thinkingLevels: [] as string[] },
-  { id: 'glm-5-1', name: 'GLM 5.1', IconComponent: OpenAIIcon, thinkingLevels: [] as string[] },
   { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, thinkingLevels: ['low', 'high'] },
   { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
 ];

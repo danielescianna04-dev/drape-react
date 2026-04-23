@@ -34,8 +34,6 @@ const GoogleIcon = ({ size = 16 }: { size?: number }) => (
 export const AI_MODELS = [
   { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, hasThinking: true, thinkingLevels: ['medium'] },
   { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
-  { id: 'gpt-5-4', name: 'GPT 5.4', IconComponent: OpenAIIcon, hasThinking: false },
-  { id: 'glm-5-1', name: 'GLM 5.1', IconComponent: OpenAIIcon, hasThinking: false },
   { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'low', 'high'] },
   { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'minimal', 'low', 'medium', 'high'] },
 ] as const;
@@ -259,25 +257,6 @@ export const ChatInputBar = React.memo(({
           </TouchableOpacity>
         </View>
 
-        {/* ── Project Context Bar — inside input bar ── */}
-        {repoName && (
-          <View style={styles.contextBar2}>
-            <TouchableOpacity style={styles.contextChip} activeOpacity={0.6} onPress={onOpenGit}>
-              <Ionicons name="logo-github" size={14} color="rgba(255,255,255,0.5)" />
-              <Text style={styles.contextChipText} numberOfLines={1}>{repoName}</Text>
-            </TouchableOpacity>
-            {branchName && (
-              <TouchableOpacity style={styles.contextChip} activeOpacity={0.6} onPress={onOpenBranch}>
-                <Ionicons name="git-branch-outline" size={14} color="rgba(255,255,255,0.5)" />
-                <Text style={styles.contextChipText} numberOfLines={1}>{branchName}</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity style={[styles.contextChip, { borderRightWidth: 0 }]} activeOpacity={0.6} onPress={onOpenEnvVars}>
-              <Ionicons name="document-text-outline" size={14} color={hasEnvVars ? '#10B981' : 'rgba(255,255,255,0.3)'} />
-              <Text style={[styles.contextChipText, !hasEnvVars && { color: 'rgba(255,255,255,0.3)' }]}>.env</Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
 
       {/* ── Model Dropdown ── */}

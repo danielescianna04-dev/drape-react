@@ -62,8 +62,6 @@ export const SettingsPanel = ({ onClose }: Props) => {
   const models = [
     { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', description: 'Anthropic', icon: 'infinite' as const },
     { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', description: 'Anthropic', icon: 'sparkles' as const },
-    { id: 'gpt-5-4', name: 'GPT 5.4', description: 'OpenAI', icon: 'bulb' as const },
-    { id: 'glm-5-1', name: 'GLM 5.1', description: 'Z.ai / OpenRouter', icon: 'flash' as const },
     { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', description: 'Google', icon: 'planet' as const },
     { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', description: 'Google', icon: 'flash' as const },
   ];
