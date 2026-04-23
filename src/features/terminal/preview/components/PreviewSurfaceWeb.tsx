@@ -51,6 +51,7 @@ export interface PreviewSurfaceWebProps {
   wsUrl: string;
   authToken: string | null;
   startCommand?: string;
+  forceReloadKey?: number;
   t: ReturnType<typeof useTranslation>['t'];
 }
 
@@ -91,6 +92,7 @@ export const PreviewSurfaceWeb: React.FC<PreviewSurfaceWebProps> = (props) => {
       wsUrl={props.wsUrl}
       authToken={props.authToken}
       startCommand={props.startCommand}
+      forceReloadKey={props.forceReloadKey}
       t={props.t}
     />
   );

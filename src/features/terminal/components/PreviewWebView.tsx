@@ -43,6 +43,10 @@ export interface PreviewWebViewProps {
   elapsedSeconds: number;
   pulseAnim: Animated.Value;
 
+  // Incrementing counter — when it changes the WebView bypasses the same-URL
+  // reload block so a transient-error retry can actually reload the page.
+  forceReloadKey?: number;
+
   // Callbacks — structured event emitter replaces individual setters
   onPreviewEvent: (event: PreviewWebViewEvent) => void;
   setIsLoading: (v: boolean) => void;
@@ -99,6 +103,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
   wsUrl,
   authToken,
   startCommand,
+  forceReloadKey,
   t,
 }) => {
   const readyFallbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -112,6 +117,16 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
     initialLoadDoneRef.current = false;
     lastLoadedUrlRef.current = '';
   }, [currentPreviewUrl, serverStatus]);
+
+  // Honor force-reload token from parent: clear same-URL lock, then reload.
+  const prevForceReloadKey = React.useRef<number | undefined>(forceReloadKey);
+  React.useEffect(() => {
+    if (forceReloadKey === undefined) return;
+    if (prevForceReloadKey.current === forceReloadKey) return;
+    prevForceReloadKey.current = forceReloadKey;
+    lastLoadedUrlRef.current = '';
+    try { webViewRef.current?.reload(); } catch { /* no-op */ }
+  }, [forceReloadKey]);
 
   // Switch viewport at runtime when user toggles desktop/mobile
   React.useEffect(() => {

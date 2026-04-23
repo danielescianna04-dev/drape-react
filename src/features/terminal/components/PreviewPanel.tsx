@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue, interpolate, Extrapolate } from 'react-native-reanimated';
@@ -127,6 +127,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
   // Shared refs passed to hooks and render
   const webViewRef = useRef<WebView>(null);
+  // Bumped to force the WebView to reload even if the URL is unchanged
+  // (bypasses the same-URL HMR block when we need to retry a transient error).
+  const [forceReloadKey, setForceReloadKey] = useState(0);
   const webViewContainerRef = useRef<View>(null);
   const jsErrorsRef = useRef<string[]>([]);
   const terminalScrollRef = useRef<ScrollView>(null);
@@ -232,7 +235,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           // the acknowledgement of the AI's changes.
           console.warn('[Preview] Transient proxy error, silent webview reload:', rawMsg);
           setTimeout(() => {
-            try { webViewRef.current?.reload(); } catch {}
+            // Bump forceReloadKey so PreviewWebView clears its same-URL lock
+            // and actually reloads (a plain webViewRef.reload() would be
+            // blocked as a Vite-HMR duplicate).
+            setForceReloadKey((v) => v + 1);
           }, 1500);
           return;
         }
@@ -617,6 +623,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   wsUrl={wsUrl}
                   authToken={terminalAuthToken}
                   startCommand={projectInfo?.startCommand}
+                  forceReloadKey={forceReloadKey}
                   t={t}
                 />
               )}
