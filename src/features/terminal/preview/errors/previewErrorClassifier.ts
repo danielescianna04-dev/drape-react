@@ -89,6 +89,10 @@ const TRANSIENT_PROXY_KEYWORDS = [
   // dev server hiccups during a hot-reload. They are always transient.
   'preview server not responding',
   'preview server timeout',
+  // Race: preview token was just created server-side, but the proxy
+  // hasn't seen it yet when the WebView makes its first request.
+  // Retrying after ~1s almost always succeeds.
+  'no active preview session',
 ];
 
 // ── Helpers ────────────────────────────────────────────────────
