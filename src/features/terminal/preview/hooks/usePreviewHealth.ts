@@ -225,6 +225,13 @@ export function usePreviewHealth({
       }
 
       if (response.status === 401) {
+        // Token may not yet be propagated on the first health check after start.
+        // Don't nuke the session — retry a few times before giving up.
+        console.warn('[Preview:CHECK] 401 on health check, retrying');
+        if (retryCount < 5) {
+          scheduleRetry(2000);
+          return;
+        }
         resetToStartScreen();
         return;
       }
