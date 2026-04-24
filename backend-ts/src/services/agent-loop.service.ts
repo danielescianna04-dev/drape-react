@@ -214,8 +214,8 @@ export class AgentLoop {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    // Exclude Drape-absorbed system phases from the user's monthly budget.
-    const usage = metricsService.getAIUsageSummary(this.userId, monthStart.getTime(), ['generation', 'verify']);
+    // Exclude Drape-absorbed project phases from the user's monthly budget.
+    const usage = metricsService.getAIUsageSummary(this.userId, monthStart.getTime(), ['generation', 'verify', 'verify_escalation']);
     const budget = planAiBudgets[this.userPlan as keyof typeof planAiBudgets]?.monthlyBudgetEur
       || planAiBudgets.free.monthlyBudgetEur;
     const percentUsed = budget > 0 ? Math.round((usage.totalCostEur / budget) * 100) : 0;
@@ -261,7 +261,7 @@ export class AgentLoop {
       // 2. Check AI budget before doing anything expensive.
       // Creation and verify phases are Drape-absorbed costs (part of the
       // subscription), not counted against the user's monthly budget.
-      const isSystemPhase = this.usagePhase === 'generation' || this.usagePhase === 'verify';
+      const isSystemPhase = this.usagePhase === 'generation' || this.usagePhase === 'verify' || this.usagePhase === 'verify_escalation';
       const budgetCheck = isSystemPhase
         ? { exceeded: false, percentUsed: 0, spentEur: 0, budgetEur: 0 }
         : this.checkBudget();

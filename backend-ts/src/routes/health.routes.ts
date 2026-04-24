@@ -3,7 +3,7 @@ import { asyncHandler } from '../middleware/async-handler';
 import { optionalAuth, requireAuth, getUserPlan, getPlanProjectLimits, getUserStorageMb, countUserProjects } from '../middleware/auth';
 import { log } from '../utils/logger';
 import { dockerService } from '../services/docker.service';
-import { metricsService } from '../services/metrics.service';
+import { metricsService, type AIUsageEntry } from '../services/metrics.service';
 import { firebaseService } from '../services/firebase.service';
 import { sessionService } from '../services/session.service';
 import { buildProjectAIAnalytics } from '../services/project-ai-analytics.service';
@@ -11,6 +11,73 @@ import { fileService } from '../services/file.service';
 import { planAiBudgets } from '../config';
 
 export const healthRouter = Router();
+
+const PROJECT_AI_PHASES = ['generation', 'verify', 'verify_escalation'] as const;
+
+function isProjectAIPhase(phase?: string): boolean {
+  return PROJECT_AI_PHASES.includes((phase || 'other') as (typeof PROJECT_AI_PHASES)[number]);
+}
+
+function summarizeAIUsageEntries(entries: AIUsageEntry[]) {
+  const summary = {
+    totalEur: 0,
+    budgetEur: 0,
+    projectEur: 0,
+    generationEur: 0,
+    verifyEur: 0,
+    verifyEscalationEur: 0,
+    otherEur: 0,
+    totalTokens: 0,
+    budgetTokens: 0,
+    projectTokens: 0,
+    generationTokens: 0,
+    verifyTokens: 0,
+    verifyEscalationTokens: 0,
+    otherTokens: 0,
+  };
+
+  for (const entry of entries) {
+    const cost = Number(entry.costEur || 0);
+    const tokens = Number(entry.inputTokens || 0) + Number(entry.outputTokens || 0) + Number(entry.cachedTokens || 0);
+    const phase = entry.phase || 'other';
+
+    summary.totalEur += cost;
+    summary.totalTokens += tokens;
+
+    if (phase === 'generation') {
+      summary.projectEur += cost;
+      summary.generationEur += cost;
+      summary.projectTokens += tokens;
+      summary.generationTokens += tokens;
+      continue;
+    }
+
+    if (phase === 'verify') {
+      summary.projectEur += cost;
+      summary.verifyEur += cost;
+      summary.projectTokens += tokens;
+      summary.verifyTokens += tokens;
+      continue;
+    }
+
+    if (phase === 'verify_escalation') {
+      summary.projectEur += cost;
+      summary.verifyEscalationEur += cost;
+      summary.projectTokens += tokens;
+      summary.verifyEscalationTokens += tokens;
+      continue;
+    }
+
+    if (!isProjectAIPhase(phase)) {
+      summary.budgetEur += cost;
+      summary.otherEur += cost;
+      summary.budgetTokens += tokens;
+      summary.otherTokens += tokens;
+    }
+  }
+
+  return summary;
+}
 
 /** Compare semver strings: returns -1 if a < b, 0 if equal, 1 if a > b */
 function compareVersions(a: string, b: string): number {
@@ -100,7 +167,7 @@ healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, r
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
-    const aiSummary = metricsService.getAIUsageSummary(userId, monthStart.getTime(), ['generation', 'verify']);
+    const aiSummary = metricsService.getAIUsageSummary(userId, monthStart.getTime(), [...PROJECT_AI_PHASES]);
     const tokensUsed = aiSummary.totalInputTokens + aiSummary.totalOutputTokens;
 
     // Get hourly token breakdown (last 24h)
@@ -110,7 +177,8 @@ healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, r
       const start = now - (h + 1) * 3600000;
       const end = now - h * 3600000;
       const hourEntries = metricsService.getAIUsageEntries(userId, 10000)
-        .filter(e => e.timestamp >= start && e.timestamp < end);
+        .filter(e => e.timestamp >= start && e.timestamp < end)
+        .filter(e => !isProjectAIPhase(e.phase));
       hourly.push(hourEntries.reduce((sum, e) => sum + e.inputTokens + e.outputTokens, 0));
     }
 
@@ -197,7 +265,7 @@ const handleAiBudgetStatus = asyncHandler(async (req, res) => {
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
-    const aiSummary = metricsService.getAIUsageSummary(userId, monthStart.getTime(), ['generation', 'verify']);
+    const aiSummary = metricsService.getAIUsageSummary(userId, monthStart.getTime(), [...PROJECT_AI_PHASES]);
 
     const spentEur = aiSummary.totalCostEur;
     const remainingEur = Math.max(0, plan.monthlyBudgetEur - spentEur);
@@ -383,9 +451,11 @@ healthRouter.post('/ai/budgets', optionalAuth, asyncHandler(async (req, res) => 
       try {
         const planId = await getUserPlan(uid);
         const plan = planAiBudgets[planId as keyof typeof planAiBudgets] || planAiBudgets.free;
-        const aiSummary = metricsService.getAIUsageSummary(uid, sinceTs);
+        const entries = metricsService.getAIUsageEntries(uid, 10000)
+          .filter((entry) => entry.timestamp >= sinceTs);
+        const aiCost = summarizeAIUsageEntries(entries);
 
-        const spentEur = aiSummary.totalCostEur;
+        const spentEur = aiCost.budgetEur;
         const remainingEur = Math.max(0, plan.monthlyBudgetEur - spentEur);
         const rawPercent = plan.monthlyBudgetEur > 0
           ? (spentEur / plan.monthlyBudgetEur) * 100
@@ -395,7 +465,26 @@ healthRouter.post('/ai/budgets', optionalAuth, asyncHandler(async (req, res) => 
         results[uid] = {
           success: true,
           plan: { id: planId, name: plan.name, monthlyBudgetEur: plan.monthlyBudgetEur },
-          usage: { spentEur, remainingEur, percentUsed },
+          usage: {
+            spentEur,
+            remainingEur,
+            percentUsed,
+            tokens: aiCost.budgetTokens,
+          },
+          projectAiCost: {
+            totalEur: aiCost.projectEur,
+            generationEur: aiCost.generationEur,
+            verifyEur: aiCost.verifyEur,
+            verifyEscalationEur: aiCost.verifyEscalationEur,
+            tokens: aiCost.projectTokens,
+          },
+          aiCost: {
+            totalEur: aiCost.totalEur,
+            budgetEur: aiCost.budgetEur,
+            projectEur: aiCost.projectEur,
+            otherEur: aiCost.otherEur,
+            tokens: aiCost.totalTokens,
+          },
         };
       } catch (err: any) {
         results[uid] = { success: false, error: err.message || 'Failed to retrieve budget' };
