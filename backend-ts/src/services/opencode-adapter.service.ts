@@ -52,7 +52,12 @@ export interface DrapeSSEEvent {
 // Model name mapping: Drape UI names → OpenCode provider/model format
 const MODEL_MAP: Record<string, string> = {
   'gemini-3-flash': 'google/gemini-3-flash-preview',
+  'gemini-3-0-flash': 'google/gemini-3-flash-preview',
+  'gemini-3.0-flash': 'google/gemini-3-flash-preview',
   'gemini-3.1-pro': 'google/gemini-3.1-pro-preview',
+  'gemini-3-1-pro': 'google/gemini-3.1-pro-preview',
+  'gemini-3-0-pro': 'google/gemini-3.1-pro-preview',
+  'gemini-3-pro': 'google/gemini-3.1-pro-preview',
   'claude-4-6-sonnet': 'anthropic/claude-sonnet-4-6',
   'claude-4-7-opus': 'anthropic/claude-opus-4-7',
   'claude-opus-4-7': 'anthropic/claude-opus-4-7',

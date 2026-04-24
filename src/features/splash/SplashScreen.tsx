@@ -149,14 +149,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
           ],
         }]}>
           <View style={styles.iconBox}>
-            <LinearGradient
-              colors={['#1A1028', '#130D1E', '#0F0A18']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.iconGradient}
-            >
-              <DrapeLogo size={52} gradient />
-            </LinearGradient>
+            <DrapeLogo size={88} />
           </View>
         </Animated.View>
 
@@ -238,13 +231,6 @@ const styles = StyleSheet.create({
     height: 88,
     borderRadius: 24,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-  },
-  iconGradient: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   brandName: {
     fontSize: 48,

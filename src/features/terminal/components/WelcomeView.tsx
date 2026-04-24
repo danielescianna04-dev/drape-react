@@ -1,9 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { View, Text, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { AppColors } from '../../../shared/theme/colors';
+import { DrapeLogo } from '../../../shared/components/icons';
 
 interface WelcomeViewProps {
   onStartChat?: () => void;
@@ -17,7 +15,7 @@ export const WelcomeView: React.FC<WelcomeViewProps> = ({ onStartChat }) => {
       <View style={styles.content}>
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <Ionicons name="terminal" size={64} color={AppColors.primary} />
+          <DrapeLogo size={74} />
         </View>
 
         {/* Title */}

@@ -16,7 +16,7 @@ import { startRetentionCleanupJob, stopRetentionCleanupJob } from './jobs/retent
 import type { Duplex } from 'stream';
 
 async function main() {
-  log.info('Starting Drape Backend v2.2.0 (TypeScript + Docker Native)');
+  log.info('Starting Drape Backend v2.2.1 (TypeScript + Docker Native)');
 
   // Initialize Firebase (auth + metadata only)
   firebaseService.initialize();
@@ -89,7 +89,7 @@ async function main() {
     ws.send(JSON.stringify({
       type: 'connected',
       message: 'Connected to Drape Backend',
-      version: '2.2.0',
+      version: '2.2.1',
       architecture: 'docker-ts',
     }));
 
