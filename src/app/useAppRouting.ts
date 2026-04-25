@@ -123,8 +123,11 @@ export function useAppRouting({
   }, [pendingFirstProjectImportFromScreen, currentWorkstation?.id, currentScreen]);
 
   // Automatically track previous screen whenever currentScreen changes.
+  // Overlay-style screens (settings, plans, explore) are NOT tracked, so
+  // closing them returns to the underlying screen the user came from
+  // rather than re-opening themselves.
   useEffect(() => {
-    if (currentScreen !== 'settings' && currentScreen !== 'plans' && currentScreen !== 'splash' && currentScreen !== 'auth' && currentScreen !== 'onboardingFlow' && currentScreen !== 'consent' && currentScreen !== 'firstProjectChoice') {
+    if (currentScreen !== 'settings' && currentScreen !== 'plans' && currentScreen !== 'explore' && currentScreen !== 'splash' && currentScreen !== 'auth' && currentScreen !== 'onboardingFlow' && currentScreen !== 'consent' && currentScreen !== 'firstProjectChoice') {
       useNavigationStore.setState({ previousScreen: currentScreen });
     }
   }, [currentScreen]);
