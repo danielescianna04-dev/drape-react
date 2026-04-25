@@ -48,18 +48,21 @@ async function fetchPublicSites(opts: {
   const db = firebaseService.getFirestore();
   if (!db) return [];
 
+  // We deliberately avoid Firestore composite indexes here:
+  //   - `where(isPublic, ==, true) + orderBy(viewCount/publishedAt)`
+  //     would require composite indexes that have to be created
+  //     out-of-band in the Firebase console.
+  // Instead we read up to FETCH_BUDGET rows with a single `where`
+  // (no orderBy → no composite index needed) and sort + paginate in
+  // memory. Cheap up to a few thousand public sites; revisit when
+  // we actually have that many.
+  const FETCH_BUDGET = 500;
   let q: FirebaseFirestore.Query = db.collection('published_sites')
-    .where('isPublic', '==', true);
+    .where('isPublic', '==', true)
+    .limit(FETCH_BUDGET);
 
   if (opts.category && VALID_CATEGORIES.has(opts.category)) {
     q = q.where('category', '==', opts.category);
-  }
-
-  // Order by viewCount desc, publishedAt desc as tiebreaker.
-  q = q.orderBy('viewCount', 'desc').orderBy('publishedAt', 'desc').limit(opts.limit);
-
-  if (typeof opts.cursorViewCount === 'number' && typeof opts.cursorPublishedAt === 'number') {
-    q = q.startAfter(opts.cursorViewCount, new Date(opts.cursorPublishedAt));
   }
 
   const snap = await q.get();
@@ -76,7 +79,7 @@ async function fetchPublicSites(opts: {
     } catch {}
   }));
 
-  return snap.docs.map(doc => {
+  const all: PublicSite[] = snap.docs.map(doc => {
     const d = doc.data();
     const publishedAtMs = d.publishedAt?.toMillis?.() ?? (d.publishedAt instanceof Date ? d.publishedAt.getTime() : Date.now());
     return {
@@ -92,6 +95,17 @@ async function fetchPublicSites(opts: {
       remixOfSlug: d.remixOfSlug,
     };
   });
+
+  // In-memory sort: viewCount desc, then publishedAt desc.
+  all.sort((a, b) => b.viewCount - a.viewCount || b.publishedAt - a.publishedAt);
+
+  // In-memory cursor: skip past the cursor position then take `limit`.
+  let start = 0;
+  if (typeof opts.cursorViewCount === 'number' && typeof opts.cursorPublishedAt === 'number') {
+    const idx = all.findIndex(s => s.viewCount === opts.cursorViewCount && s.publishedAt === opts.cursorPublishedAt);
+    start = idx >= 0 ? idx + 1 : 0;
+  }
+  return all.slice(start, start + opts.limit);
 }
 
 // GET /api/explore — JSON for the mobile app
@@ -272,14 +286,16 @@ async function fetchProfile(rawUsername: string): Promise<PublicProfile | null> 
   const userDoc = snap.docs[0];
   const u = userDoc.data();
 
+  // Same composite-index avoidance as fetchPublicSites: a single
+  // `where(userId, ==)` then in-memory filter+sort.
   const sitesSnap = await db.collection('published_sites')
     .where('userId', '==', userDoc.id)
-    .where('isPublic', '==', true)
-    .orderBy('publishedAt', 'desc')
-    .limit(50)
+    .limit(200)
     .get();
 
-  const sites: PublicSite[] = sitesSnap.docs.map(doc => {
+  const sites: PublicSite[] = sitesSnap.docs
+    .filter(doc => doc.data().isPublic === true)
+    .map(doc => {
     const d = doc.data();
     const publishedAtMs = d.publishedAt?.toMillis?.() ?? Date.now();
     return {
@@ -296,13 +312,15 @@ async function fetchProfile(rawUsername: string): Promise<PublicProfile | null> 
     };
   });
 
+  sites.sort((a, b) => b.publishedAt - a.publishedAt);
+
   return {
     uid: userDoc.id,
     username,
     bio: typeof u.bio === 'string' ? u.bio : '',
     avatarUrl: typeof u.avatarUrl === 'string' ? u.avatarUrl : null,
     joinedAt: u.createdAt?.toMillis?.() ?? null,
-    sites,
+    sites: sites.slice(0, 50),
   };
 }
 
