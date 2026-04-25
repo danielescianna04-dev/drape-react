@@ -1482,6 +1482,24 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       }
 
       if (!outputDir) {
+        // Diagnose: if this is a Next.js project, the build succeeded
+        // (we got past the buildResult check) but didn't produce `out/`.
+        // The most common cause: the app uses server features (API
+        // routes, dynamic SSR, server actions) that prevent static
+        // export, so Next ran the build but emitted server bundle
+        // only. Tell the user exactly what's wrong instead of a
+        // generic "no output".
+        if (isNextJs) {
+          const hasNext = await fileService.exists(projectId, '.next').catch(() => false);
+          if (hasNext) {
+            log.warn(`[Publish] Next.js build produced .next/ but no out/ for ${projectId} — likely server-side features prevent static export`);
+            res.status(500).json({
+              error: 'PUBLISH_NEEDS_SERVER_RUNTIME',
+              message: 'Il tuo progetto Next.js usa funzionalità server-side (API routes, getServerSideProps, server actions o pagine dinamiche) che non possono essere pubblicate come sito statico. Per ora la pubblicazione supporta solo siti statici. Puoi usare la preview live in app, oppure rimuovere le funzionalità server-side e riprovare.',
+            });
+            return;
+          }
+        }
         res.status(500).json({ error: 'No build output found (checked: dist, build, out, .output/public, build/web, .next/standalone)' });
         return;
       }

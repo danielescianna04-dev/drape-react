@@ -171,6 +171,9 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
         if (data?.error === 'PUBLISH_REQUIRES_PAID') {
           setPublishError(i18next.t('terminal:previewPublish.requiresPaid', { defaultValue: 'La pubblicazione è disponibile con il piano Go.' }));
           tracciaErrorePubblicazione('Publish requires paid plan');
+        } else if (data?.error === 'PUBLISH_NEEDS_SERVER_RUNTIME') {
+          setPublishError(data.message || 'Il tuo progetto usa funzionalità server-side che non possono essere pubblicate come sito statico.');
+          tracciaErrorePubblicazione('Publish needs server runtime');
         } else if (response.status === 409) {
           setPublishError(i18next.t('terminal:previewPublish.slugTaken'));
           tracciaErrorePubblicazione('Slug taken');
