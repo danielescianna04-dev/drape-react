@@ -45,6 +45,7 @@ export interface PreviewPublishSheetProps {
   onChangeCategory: (cat: PublishCategory) => void;
   publishIsPublic: boolean;
   onChangeIsPublic: (val: boolean) => void;
+  onOpenInsights?: () => void;
 }
 
 export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
@@ -68,6 +69,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
   onChangeCategory,
   publishIsPublic,
   onChangeIsPublic,
+  onOpenInsights,
 }) => {
   const { t } = useTranslation();
   const [urlCopied, setUrlCopied] = useState(false);
@@ -384,6 +386,15 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                     </TouchableOpacity>
                   </View>
                   <View style={styles.publishModalActions}>
+                    {onOpenInsights && (
+                      <TouchableOpacity
+                        style={[styles.publishActionButton, { backgroundColor: 'rgba(167,139,250,0.15)' }]}
+                        onPress={onOpenInsights}
+                      >
+                        <Ionicons name="stats-chart-outline" size={16} color="#A78BFA" />
+                        <Text style={[styles.publishActionText, { color: '#A78BFA' }]}>Insights</Text>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       style={[styles.publishActionButton, { backgroundColor: 'rgba(255, 59, 48, 0.12)' }]}
                       onPress={() => { tracciaDePubblicato(existingPublish.slug); onUnpublish(); }}

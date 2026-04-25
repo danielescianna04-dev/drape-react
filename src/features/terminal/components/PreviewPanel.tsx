@@ -22,6 +22,7 @@ import { renderHeartbeat } from '../preview/webview/renderHeartbeat';
 import { PreviewToolbar } from './PreviewToolbar';
 import { PreviewAIChat } from './PreviewAIChat';
 import { PreviewPublishSheet } from './PreviewPublishSheet';
+import { ProjectInsightsSheet } from '../../explore/ProjectInsightsSheet';
 import { usePreviewMachine } from '../preview';
 import { derivePreviewPhase } from '../preview/derivePreviewPhase';
 import {
@@ -130,6 +131,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   // Bumped to force the WebView to reload even if the URL is unchanged
   // (bypasses the same-URL HMR block when we need to retry a transient error).
   const [forceReloadKey, setForceReloadKey] = useState(0);
+  const [showInsights, setShowInsights] = useState(false);
   const webViewContainerRef = useRef<View>(null);
   const jsErrorsRef = useRef<string[]>([]);
   const terminalScrollRef = useRef<ScrollView>(null);
@@ -670,6 +672,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         </Animated.View>
       </Reanimated.View>
 
+      <ProjectInsightsSheet
+        visible={showInsights}
+        onClose={() => setShowInsights(false)}
+        projectId={projectId || ''}
+      />
+
       <PreviewPublishSheet
         visible={publish.showPublishModal}
         publishSlug={publish.publishSlug}
@@ -691,6 +699,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         onChangeCategory={publish.setPublishCategory}
         publishIsPublic={publish.publishIsPublic}
         onChangeIsPublic={publish.setPublishIsPublic}
+        onOpenInsights={() => { publish.closePublishModal(); setShowInsights(true); }}
       />
 
       <AskUserQuestionModal
