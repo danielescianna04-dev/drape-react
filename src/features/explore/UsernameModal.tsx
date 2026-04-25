@@ -27,30 +27,18 @@ const Glass: React.FC<{
   tint?: 'card' | 'input';
   children: React.ReactNode;
 }> = ({ style, radius = 16, tint = 'card', children }) => {
-  const fallbackBg = tint === 'card'
-    ? 'rgba(28,28,32,0.65)'
-    : 'rgba(255,255,255,0.07)';
+  const bg = tint === 'card'
+    ? 'rgba(22,22,26,0.94)'
+    : 'rgba(255,255,255,0.05)';
   const baseStyle = {
     borderRadius: radius,
     overflow: 'hidden' as const,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    borderTopColor: 'rgba(255,255,255,0.35)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: bg,
   };
-  if (isLiquidGlassSupported) {
-    return (
-      <LiquidGlassView
-        interactive
-        effect="clear"
-        colorScheme="dark"
-        style={[baseStyle, { backgroundColor: 'transparent' }, style]}
-      >
-        {children}
-      </LiquidGlassView>
-    );
-  }
   return (
-    <View style={[baseStyle, { backgroundColor: fallbackBg }, style]}>
+    <View style={[baseStyle, style]}>
       {children}
     </View>
   );
@@ -92,7 +80,7 @@ export const UsernameModal: React.FC<Props> = ({ visible, onClose, onSaved, init
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFill} />
+      <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill} />
       <Pressable style={s.overlay} onPress={() => !saving && onClose()}>
         <Pressable onPress={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 360 }}>
           <Glass radius={24}>
@@ -145,7 +133,7 @@ export const UsernameModal: React.FC<Props> = ({ visible, onClose, onSaved, init
 };
 
 const s = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 24 },
   cardInner: { padding: 24 },
   iconWrap: { alignItems: 'center', marginBottom: 8 },
   title: { color: '#fff', fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: 6 },

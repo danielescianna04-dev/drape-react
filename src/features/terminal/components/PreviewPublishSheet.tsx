@@ -18,38 +18,27 @@ import { UsernameModal } from '../../explore/UsernameModal';
 // 26+), falls back to a translucent View elsewhere.
 // A 1px border with a slightly brighter top edge fakes the
 // refraction lip of real glass material against any backdrop.
+// Solid dark surface — same look as the editor's dropdown menus.
+// Quasi-opaque dark background, very subtle 1px hairline border,
+// no bright top highlight. Reads as "system menu", not "shiny glass".
 const Glass: React.FC<{
   style?: any;
   radius?: number;
   tint?: 'card' | 'pill' | 'input';
   children: React.ReactNode;
 }> = ({ style, radius = 16, tint = 'card', children }) => {
-  const fallbackBg = tint === 'card'
-    ? 'rgba(28,28,32,0.65)'
-    : 'rgba(255,255,255,0.07)';
-
+  const bg = tint === 'card'
+    ? 'rgba(22,22,26,0.94)'
+    : 'rgba(255,255,255,0.05)';
   const baseStyle = {
     borderRadius: radius,
     overflow: 'hidden' as const,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    borderTopColor: 'rgba(255,255,255,0.35)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: bg,
   };
-
-  if (isLiquidGlassSupported) {
-    return (
-      <LiquidGlassView
-        interactive
-        effect="clear"
-        colorScheme="dark"
-        style={[baseStyle, { backgroundColor: 'transparent' }, style]}
-      >
-        {children}
-      </LiquidGlassView>
-    );
-  }
   return (
-    <View style={[baseStyle, { backgroundColor: fallbackBg }, style]}>
+    <View style={[baseStyle, style]}>
       {children}
     </View>
   );
@@ -165,10 +154,9 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
       animationType="fade"
       onRequestClose={() => !isPublishing && onClose()}
     >
-      {/* Backdrop blur. Singolo BlurView a intensità media: lo
-          sfondo resta riconoscibile ma sfocato (effetto Control
-          Center), non viene cancellato. */}
-      <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFill} />
+      {/* Lieve blur dietro — la card è quasi opaca, basta un velo
+          per separarla dallo sfondo come fanno i menu di sistema. */}
+      <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill} />
       <Pressable
         style={styles.publishModalOverlay}
         onPress={() => !isPublishing && onClose()}
@@ -524,7 +512,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
 const styles = StyleSheet.create({
   publishModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
