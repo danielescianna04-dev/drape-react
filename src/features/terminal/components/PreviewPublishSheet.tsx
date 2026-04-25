@@ -157,8 +157,11 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
       animationType="fade"
       onRequestClose={() => !isPublishing && onClose()}
     >
-      {/* Backdrop blur — sfoca quello che c'è sotto */}
-      <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+      {/* Backdrop blur — sfoca pesantemente quello che c'è sotto.
+          Stack di due BlurView per spingere il blur effettivo oltre
+          quello che un singolo BlurView può fare su iOS. */}
+      <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFill} />
+      <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
       <Pressable
         style={styles.publishModalOverlay}
         onPress={() => !isPublishing && onClose()}
@@ -514,7 +517,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
 const styles = StyleSheet.create({
   publishModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
