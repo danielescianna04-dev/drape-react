@@ -13,6 +13,7 @@ import { reengagementService } from './services/reengagement.service';
 import { metricsService } from './services/metrics.service';
 import { workspaceService } from './services/workspace.service';
 import { startRetentionCleanupJob, stopRetentionCleanupJob } from './jobs/retention-cleanup';
+import { startCustomDomainVerifier, stopCustomDomainVerifier } from './jobs/custom-domain-verifier';
 import type { Duplex } from 'stream';
 
 async function main() {
@@ -36,6 +37,9 @@ async function main() {
 
   // Start GDPR data retention cleanup job (runs every 24h)
   startRetentionCleanupJob();
+
+  // Start custom-domain DNS verifier (runs every 5 min)
+  startCustomDomainVerifier();
 
   // Create Express app
   const app = createApp();
@@ -358,6 +362,7 @@ async function main() {
     githubActivityService.stop();
     reengagementService.stop();
     stopRetentionCleanupJob();
+    stopCustomDomainVerifier();
     metricsService.cleanup();
 
     // Notify WS clients
