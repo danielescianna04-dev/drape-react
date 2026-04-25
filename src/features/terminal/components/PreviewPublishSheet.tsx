@@ -16,12 +16,8 @@ import { UsernameModal } from '../../explore/UsernameModal';
 
 // Glass wrapper — uses native LiquidGlassView when supported (iOS
 // 26+), falls back to a translucent View elsewhere.
-//
-// The contour is a 1px LinearGradient rim that fakes the refraction
-// edge of real liquid-glass material: bright at the top, dim in the
-// middle, slightly bright again at the bottom. Same trick Apple's
-// own visionOS / Liquid Glass controls use to suggest a curved
-// vitreous surface against any backdrop.
+// A 1px border with a slightly brighter top edge fakes the
+// refraction lip of real glass material against any backdrop.
 const Glass: React.FC<{
   style?: any;
   radius?: number;
@@ -32,39 +28,30 @@ const Glass: React.FC<{
     ? 'rgba(28,28,32,0.65)'
     : 'rgba(255,255,255,0.07)';
 
-  // Inner fills the gradient parent so children (e.g. flex:1 buttons)
-  // get full width — without flex:1 the inner collapses to 0.
-  const innerStyle = { flex: 1, alignSelf: 'stretch' as const, borderRadius: radius - 1, overflow: 'hidden' as const };
-  const inner = isLiquidGlassSupported ? (
-    <LiquidGlassView
-      interactive
-      effect="clear"
-      colorScheme="dark"
-      style={[innerStyle, { backgroundColor: 'transparent' }]}
-    >
-      {children}
-    </LiquidGlassView>
-  ) : (
-    <View style={[innerStyle, { backgroundColor: fallbackBg }]}>
+  const baseStyle = {
+    borderRadius: radius,
+    overflow: 'hidden' as const,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    borderTopColor: 'rgba(255,255,255,0.35)',
+  };
+
+  if (isLiquidGlassSupported) {
+    return (
+      <LiquidGlassView
+        interactive
+        effect="clear"
+        colorScheme="dark"
+        style={[baseStyle, { backgroundColor: 'transparent' }, style]}
+      >
+        {children}
+      </LiquidGlassView>
+    );
+  }
+  return (
+    <View style={[baseStyle, { backgroundColor: fallbackBg }, style]}>
       {children}
     </View>
-  );
-
-  return (
-    <LinearGradient
-      colors={[
-        'rgba(255,255,255,0.22)',
-        'rgba(255,255,255,0.06)',
-        'rgba(255,255,255,0.03)',
-        'rgba(255,255,255,0.12)',
-      ]}
-      locations={[0, 0.4, 0.7, 1]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 0, y: 1 }}
-      style={[{ borderRadius: radius, padding: 1 }, style]}
-    >
-      {inner}
-    </LinearGradient>
   );
 };
 
