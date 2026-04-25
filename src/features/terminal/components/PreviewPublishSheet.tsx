@@ -53,10 +53,10 @@ const Glass: React.FC<{
   return (
     <LinearGradient
       colors={[
-        'rgba(255,255,255,0.55)',
-        'rgba(255,255,255,0.10)',
-        'rgba(255,255,255,0.04)',
-        'rgba(255,255,255,0.30)',
+        'rgba(255,255,255,0.22)',
+        'rgba(255,255,255,0.06)',
+        'rgba(255,255,255,0.03)',
+        'rgba(255,255,255,0.12)',
       ]}
       locations={[0, 0.4, 0.7, 1]}
       start={{ x: 0, y: 0 }}
@@ -178,11 +178,10 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
       animationType="fade"
       onRequestClose={() => !isPublishing && onClose()}
     >
-      {/* Backdrop blur — sfoca pesantemente quello che c'è sotto.
-          Stack di due BlurView per spingere il blur effettivo oltre
-          quello che un singolo BlurView può fare su iOS. */}
-      <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFill} />
-      <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+      {/* Backdrop blur. Singolo BlurView a intensità media: lo
+          sfondo resta riconoscibile ma sfocato (effetto Control
+          Center), non viene cancellato. */}
+      <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFill} />
       <Pressable
         style={styles.publishModalOverlay}
         onPress={() => !isPublishing && onClose()}
@@ -538,7 +537,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
 const styles = StyleSheet.create({
   publishModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
