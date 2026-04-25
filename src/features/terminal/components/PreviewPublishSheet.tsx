@@ -32,17 +32,20 @@ const Glass: React.FC<{
     ? 'rgba(28,28,32,0.65)'
     : 'rgba(255,255,255,0.07)';
 
+  // Inner fills the gradient parent so children (e.g. flex:1 buttons)
+  // get full width — without flex:1 the inner collapses to 0.
+  const innerStyle = { flex: 1, alignSelf: 'stretch' as const, borderRadius: radius - 1, overflow: 'hidden' as const };
   const inner = isLiquidGlassSupported ? (
     <LiquidGlassView
       interactive
       effect="clear"
       colorScheme="dark"
-      style={{ borderRadius: radius - 1, overflow: 'hidden', backgroundColor: 'transparent' }}
+      style={[innerStyle, { backgroundColor: 'transparent' }]}
     >
       {children}
     </LiquidGlassView>
   ) : (
-    <View style={{ borderRadius: radius - 1, overflow: 'hidden', backgroundColor: fallbackBg }}>
+    <View style={[innerStyle, { backgroundColor: fallbackBg }]}>
       {children}
     </View>
   );
