@@ -15,33 +15,38 @@ import type { PublishCategory, ExistingPublish } from '../hooks/usePreviewPublis
 import { UsernameModal } from '../../explore/UsernameModal';
 
 // Glass wrapper — uses native LiquidGlassView when supported (iOS
-// 26+), falls back to a translucent View elsewhere. Children are
-// always rendered; the wrapper only contributes background + radius.
+// 26+), falls back to a translucent View elsewhere. Always carries
+// a hairline border so each element has a visible contour against
+// the heavily-blurred backdrop.
 const Glass: React.FC<{
   style?: any;
   radius?: number;
   tint?: 'card' | 'pill' | 'input';
   children: React.ReactNode;
 }> = ({ style, radius = 16, tint = 'card', children }) => {
+  const stroke = {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+  };
   if (isLiquidGlassSupported) {
     return (
       <LiquidGlassView
         interactive
         effect="clear"
         colorScheme="dark"
-        style={[{ borderRadius: radius, overflow: 'hidden', backgroundColor: 'transparent' }, style]}
+        style={[{ borderRadius: radius, overflow: 'hidden', backgroundColor: 'transparent' }, stroke, style]}
       >
         {children}
       </LiquidGlassView>
     );
   }
   const fallbackBg = tint === 'card'
-    ? 'rgba(28,28,32,0.6)'
+    ? 'rgba(28,28,32,0.65)'
     : tint === 'input'
-      ? 'rgba(255,255,255,0.06)'
-      : 'rgba(255,255,255,0.06)';
+      ? 'rgba(255,255,255,0.07)'
+      : 'rgba(255,255,255,0.07)';
   return (
-    <View style={[{ borderRadius: radius, overflow: 'hidden', backgroundColor: fallbackBg }, style]}>
+    <View style={[{ borderRadius: radius, overflow: 'hidden', backgroundColor: fallbackBg }, stroke, style]}>
       {children}
     </View>
   );
