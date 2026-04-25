@@ -25,8 +25,8 @@ const Glass: React.FC<{
   children: React.ReactNode;
 }> = ({ style, radius = 16, tint = 'card', children }) => {
   const stroke = {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
   };
   if (isLiquidGlassSupported) {
     return (
