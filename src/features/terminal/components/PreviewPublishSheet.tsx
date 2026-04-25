@@ -15,40 +15,53 @@ import type { PublishCategory, ExistingPublish } from '../hooks/usePreviewPublis
 import { UsernameModal } from '../../explore/UsernameModal';
 
 // Glass wrapper — uses native LiquidGlassView when supported (iOS
-// 26+), falls back to a translucent View elsewhere. Always carries
-// a hairline border so each element has a visible contour against
-// the heavily-blurred backdrop.
+// 26+), falls back to a translucent View elsewhere.
+//
+// The contour is a 1px LinearGradient rim that fakes the refraction
+// edge of real liquid-glass material: bright at the top, dim in the
+// middle, slightly bright again at the bottom. Same trick Apple's
+// own visionOS / Liquid Glass controls use to suggest a curved
+// vitreous surface against any backdrop.
 const Glass: React.FC<{
   style?: any;
   radius?: number;
   tint?: 'card' | 'pill' | 'input';
   children: React.ReactNode;
 }> = ({ style, radius = 16, tint = 'card', children }) => {
-  const stroke = {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
-  };
-  if (isLiquidGlassSupported) {
-    return (
-      <LiquidGlassView
-        interactive
-        effect="clear"
-        colorScheme="dark"
-        style={[{ borderRadius: radius, overflow: 'hidden', backgroundColor: 'transparent' }, stroke, style]}
-      >
-        {children}
-      </LiquidGlassView>
-    );
-  }
   const fallbackBg = tint === 'card'
     ? 'rgba(28,28,32,0.65)'
-    : tint === 'input'
-      ? 'rgba(255,255,255,0.07)'
-      : 'rgba(255,255,255,0.07)';
-  return (
-    <View style={[{ borderRadius: radius, overflow: 'hidden', backgroundColor: fallbackBg }, stroke, style]}>
+    : 'rgba(255,255,255,0.07)';
+
+  const inner = isLiquidGlassSupported ? (
+    <LiquidGlassView
+      interactive
+      effect="clear"
+      colorScheme="dark"
+      style={{ borderRadius: radius - 1, overflow: 'hidden', backgroundColor: 'transparent' }}
+    >
+      {children}
+    </LiquidGlassView>
+  ) : (
+    <View style={{ borderRadius: radius - 1, overflow: 'hidden', backgroundColor: fallbackBg }}>
       {children}
     </View>
+  );
+
+  return (
+    <LinearGradient
+      colors={[
+        'rgba(255,255,255,0.55)',
+        'rgba(255,255,255,0.10)',
+        'rgba(255,255,255,0.04)',
+        'rgba(255,255,255,0.30)',
+      ]}
+      locations={[0, 0.4, 0.7, 1]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+      style={[{ borderRadius: radius, padding: 1 }, style]}
+    >
+      {inner}
+    </LinearGradient>
   );
 };
 
