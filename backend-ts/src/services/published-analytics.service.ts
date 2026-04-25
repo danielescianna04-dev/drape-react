@@ -56,7 +56,7 @@ export async function recordPublishedView(input: RecordViewInput): Promise<void>
         VALUES
           (${input.slug}, ${input.projectId}, ${visitorHash},
            ${input.country || null}, ${input.referrer || null}, ${input.path || null})
-        ON CONFLICT (slug, visitor_hash, date_trunc('day', created_at)) DO NOTHING
+        ON CONFLICT (slug, visitor_hash) DO NOTHING
       `;
     } catch (err: any) {
       log.warn(`[Analytics] Postgres insert failed for ${input.slug}: ${err?.message || err}`);

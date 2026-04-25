@@ -151,10 +151,14 @@ CREATE INDEX IF NOT EXISTS idx_drape_published_views_slug_created
   ON drape_published_views(slug, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_drape_published_views_project_created
   ON drape_published_views(project_id, created_at DESC);
--- Unique-per-day visitor dedupe: same hash within the same day
--- counts once. Matches how visitor_hash is salted (per-day).
+-- Unique visitor dedupe. visitor_hash is already day-salted in the
+-- application (sha256(ip|ua|dayBucket)), so a (slug, visitor_hash)
+-- pair already represents "this visitor on this day for this site".
+-- We don't index date_trunc(...) here because Postgres requires
+-- IMMUTABLE functions in index expressions (date_trunc on timestamptz
+-- is only STABLE).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_drape_published_views_dedupe
-  ON drape_published_views(slug, visitor_hash, date_trunc('day', created_at));
+  ON drape_published_views(slug, visitor_hash);
 
 -- ---------- drape_custom_domains ----------
 -- Maps a custom domain (e.g. mio-negozio.com) to a published slug.
