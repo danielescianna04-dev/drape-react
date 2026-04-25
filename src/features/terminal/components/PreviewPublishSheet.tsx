@@ -1,16 +1,51 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, Share } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, Share, Pressable } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import QRCode from 'react-native-qrcode-svg';
 import { useTranslation } from 'react-i18next';
 import { tracciaLinkPubblicazioneCondiviso, tracciaUrlPubblicazioneAperto, tracciaDePubblicato, tracciaPaginaPianiVista, tracciaPaywallPubblicaMostrato } from '../../../core/services/analyticsService';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import type { PublishCategory, ExistingPublish } from '../hooks/usePreviewPublish';
 import { UsernameModal } from '../../explore/UsernameModal';
+
+// Glass wrapper — uses native LiquidGlassView when supported (iOS
+// 26+), falls back to a translucent View elsewhere. Children are
+// always rendered; the wrapper only contributes background + radius.
+const Glass: React.FC<{
+  style?: any;
+  radius?: number;
+  tint?: 'card' | 'pill' | 'input';
+  children: React.ReactNode;
+}> = ({ style, radius = 16, tint = 'card', children }) => {
+  if (isLiquidGlassSupported) {
+    return (
+      <LiquidGlassView
+        interactive
+        effect="clear"
+        colorScheme="dark"
+        style={[{ borderRadius: radius, overflow: 'hidden', backgroundColor: 'transparent' }, style]}
+      >
+        {children}
+      </LiquidGlassView>
+    );
+  }
+  const fallbackBg = tint === 'card'
+    ? 'rgba(28,28,32,0.6)'
+    : tint === 'input'
+      ? 'rgba(255,255,255,0.06)'
+      : 'rgba(255,255,255,0.06)';
+  return (
+    <View style={[{ borderRadius: radius, overflow: 'hidden', backgroundColor: fallbackBg }, style]}>
+      {children}
+    </View>
+  );
+};
 
 // Static category list — hoisted out of the component so the array
 // reference is stable across renders.
@@ -122,8 +157,15 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
       animationType="fade"
       onRequestClose={() => !isPublishing && onClose()}
     >
-      <View style={styles.publishModalOverlay}>
-        <View style={styles.publishModalContent}>
+      {/* Backdrop blur — sfoca quello che c'è sotto */}
+      <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+      <Pressable
+        style={styles.publishModalOverlay}
+        onPress={() => !isPublishing && onClose()}
+      >
+        <Pressable onPress={(e) => e.stopPropagation()}>
+        <Glass radius={28} style={styles.publishModalContent}>
+        <View style={styles.publishModalInner}>
           {isFreeUser && !existingPublish ? (
             <>
               <View style={{ alignItems: 'center', marginBottom: 16 }}>
@@ -269,87 +311,103 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                   ? t('terminal:publish.updateSubtitle')
                   : t('terminal:publish.publishSubtitle')}
               </Text>
-              <View style={styles.publishSlugRow}>
-                <Text style={styles.publishSlugPrefix}>drape.info/p/</Text>
-                {existingPublish ? (
-                  <Text style={[styles.publishSlugInput, { color: 'rgba(255,255,255,0.6)' }]}>
-                    {existingPublish.slug}
-                  </Text>
-                ) : (
-                  <TextInput
-                    style={styles.publishSlugInput}
-                    value={publishSlug}
-                    onChangeText={(text) => onChangeSlug(text.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    editable={!isPublishing}
-                    placeholder={t('terminal:publish.slugPlaceholder')}
-                    placeholderTextColor="rgba(255,255,255,0.3)"
-                  />
-                )}
-              </View>
+              <Glass radius={20} tint="input" style={{ marginBottom: 16 }}>
+                <View style={styles.publishSlugRow}>
+                  <Text style={styles.publishSlugPrefix}>drape.info/p/</Text>
+                  {existingPublish ? (
+                    <Text style={[styles.publishSlugInput, { color: 'rgba(255,255,255,0.6)' }]}>
+                      {existingPublish.slug}
+                    </Text>
+                  ) : (
+                    <TextInput
+                      style={styles.publishSlugInput}
+                      value={publishSlug}
+                      onChangeText={(text) => onChangeSlug(text.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      editable={!isPublishing}
+                      placeholder={t('terminal:publish.slugPlaceholder')}
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                    />
+                  )}
+                </View>
+              </Glass>
 
-              {/* Platform metadata: only shown for non-free users (paywall
-                  branch above already returned). Compact form so the modal
-                  stays one screen on small devices. */}
-              <TextInput
-                style={styles.metaInput}
-                value={publishTitle}
-                onChangeText={onChangeTitle}
-                editable={!isPublishing}
-                placeholder="Titolo (es. Negozio di fiori)"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                maxLength={80}
-              />
-              <TextInput
-                style={[styles.metaInput, styles.metaInputMultiline]}
-                value={publishDescription}
-                onChangeText={onChangeDescription}
-                editable={!isPublishing}
-                placeholder="Descrizione (cosa fa la tua app)"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                multiline
-                maxLength={280}
-              />
+              {/* Platform metadata */}
+              <Glass radius={16} tint="input" style={{ marginBottom: 10 }}>
+                <TextInput
+                  style={styles.metaInput}
+                  value={publishTitle}
+                  onChangeText={onChangeTitle}
+                  editable={!isPublishing}
+                  placeholder="Titolo (es. Negozio di fiori)"
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  maxLength={80}
+                />
+              </Glass>
+              <Glass radius={16} tint="input" style={{ marginBottom: 14 }}>
+                <TextInput
+                  style={[styles.metaInput, styles.metaInputMultiline]}
+                  value={publishDescription}
+                  onChangeText={onChangeDescription}
+                  editable={!isPublishing}
+                  placeholder="Descrizione (cosa fa la tua app)"
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  multiline
+                  maxLength={280}
+                />
+              </Glass>
 
               <View style={styles.categoryRow}>
                 {CATEGORY_OPTIONS.map(opt => {
                   const active = publishCategory === opt.id;
+                  if (active) {
+                    return (
+                      <TouchableOpacity
+                        key={opt.id}
+                        style={[styles.categoryPill, styles.categoryPillActive]}
+                        onPress={() => !isPublishing && onChangeCategory(opt.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name={opt.icon as any} size={13} color="#0a0a0c" />
+                        <Text style={[styles.categoryPillText, styles.categoryPillTextActive]}>
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }
                   return (
-                    <TouchableOpacity
-                      key={opt.id}
-                      style={[styles.categoryPill, active && styles.categoryPillActive]}
-                      onPress={() => !isPublishing && onChangeCategory(opt.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name={opt.icon as any}
-                        size={13}
-                        color={active ? '#0a0a0c' : 'rgba(255,255,255,0.6)'}
-                      />
-                      <Text style={[styles.categoryPillText, active && styles.categoryPillTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
+                    <Glass key={opt.id} radius={999}>
+                      <TouchableOpacity
+                        style={styles.categoryPill}
+                        onPress={() => !isPublishing && onChangeCategory(opt.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name={opt.icon as any} size={13} color="rgba(255,255,255,0.6)" />
+                        <Text style={styles.categoryPillText}>{opt.label}</Text>
+                      </TouchableOpacity>
+                    </Glass>
                   );
                 })}
               </View>
 
-              <TouchableOpacity
-                style={styles.publicToggleRow}
-                activeOpacity={0.75}
-                onPress={() => !isPublishing && onChangeIsPublic(!publishIsPublic)}
-              >
-                <View style={styles.publicToggleText}>
-                  <Text style={styles.publicToggleTitle}>Mostra in Explore</Text>
-                  <Text style={styles.publicToggleSub}>
-                    Altri utenti potranno vederla, aprirla e remixarla
-                  </Text>
-                </View>
-                <View style={[styles.toggleTrack, publishIsPublic && styles.toggleTrackOn]}>
-                  <View style={[styles.toggleThumb, publishIsPublic && styles.toggleThumbOn]} />
-                </View>
-              </TouchableOpacity>
+              <Glass radius={14} style={{ marginBottom: 14 }}>
+                <TouchableOpacity
+                  style={styles.publicToggleRow}
+                  activeOpacity={0.75}
+                  onPress={() => !isPublishing && onChangeIsPublic(!publishIsPublic)}
+                >
+                  <View style={styles.publicToggleText}>
+                    <Text style={styles.publicToggleTitle}>Mostra in Explore</Text>
+                    <Text style={styles.publicToggleSub}>
+                      Altri utenti potranno vederla, aprirla e remixarla
+                    </Text>
+                  </View>
+                  <View style={[styles.toggleTrack, publishIsPublic && styles.toggleTrackOn]}>
+                    <View style={[styles.toggleThumb, publishIsPublic && styles.toggleThumbOn]} />
+                  </View>
+                </TouchableOpacity>
+              </Glass>
               {publishIsPublic && (
                 <TouchableOpacity
                   onPress={() => setShowUsernameModal(true)}
@@ -423,13 +481,15 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                 </View>
               )}
               <View style={styles.publishModalButtons}>
-                <TouchableOpacity
-                  style={styles.publishCancelBtn}
-                  onPress={onClose}
-                  disabled={isPublishing}
-                >
-                  <Text style={styles.publishCancelBtnText}>{t('terminal:publish.cancel')}</Text>
-                </TouchableOpacity>
+                <Glass radius={20} style={{ flex: 1 }}>
+                  <TouchableOpacity
+                    style={styles.publishCancelBtn}
+                    onPress={onClose}
+                    disabled={isPublishing}
+                  >
+                    <Text style={styles.publishCancelBtnText}>{t('terminal:publish.cancel')}</Text>
+                  </TouchableOpacity>
+                </Glass>
                 <TouchableOpacity
                   style={[styles.publishConfirmBtn, isPublishing && { opacity: 0.5 }]}
                   onPress={onPublish}
@@ -444,7 +504,9 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
             </>
           )}
         </View>
-      </View>
+        </Glass>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 };
@@ -452,7 +514,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
 const styles = StyleSheet.create({
   publishModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -460,11 +522,9 @@ const styles = StyleSheet.create({
   publishModalContent: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 28,
+  },
+  publishModalInner: {
     padding: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   publishModalTitle: {
     fontSize: 18,
@@ -482,11 +542,8 @@ const styles = StyleSheet.create({
   publishSlugRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    marginBottom: 16,
   },
   publishSlugPrefix: {
     fontSize: 13,
@@ -552,8 +609,6 @@ const styles = StyleSheet.create({
   publishCancelBtn: {
     flex: 1,
     paddingVertical: 14,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
   },
   publishCancelBtnText: {
@@ -649,13 +704,10 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   metaInput: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 11,
     color: '#fff',
     fontSize: 13,
-    marginBottom: 10,
   },
   metaInputMultiline: {
     minHeight: 60,
@@ -675,13 +727,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
   },
   categoryPillActive: {
     backgroundColor: '#A78BFA',
-    borderColor: '#A78BFA',
   },
   categoryPillText: {
     color: 'rgba(255,255,255,0.7)',
@@ -698,11 +746,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: 'rgba(167,139,250,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(167,139,250,0.15)',
-    marginBottom: 14,
     gap: 10,
   },
   publicToggleText: {
