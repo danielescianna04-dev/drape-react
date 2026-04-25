@@ -10,7 +10,8 @@ type AppScreen =
   | 'terminal'
   | 'allProjects'
   | 'settings'
-  | 'plans';
+  | 'plans'
+  | 'explore';
 
 export const shouldShowHomeShell = (
   currentScreen: AppScreen,

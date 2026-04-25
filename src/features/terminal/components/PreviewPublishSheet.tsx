@@ -9,6 +9,19 @@ import QRCode from 'react-native-qrcode-svg';
 import { useTranslation } from 'react-i18next';
 import { tracciaLinkPubblicazioneCondiviso, tracciaUrlPubblicazioneAperto, tracciaDePubblicato, tracciaPaginaPianiVista, tracciaPaywallPubblicaMostrato } from '../../../core/services/analyticsService';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
+import type { PublishCategory, ExistingPublish } from '../hooks/usePreviewPublish';
+import { UsernameModal } from '../../explore/UsernameModal';
+
+// Static category list — hoisted out of the component so the array
+// reference is stable across renders.
+const CATEGORY_OPTIONS: { id: PublishCategory; label: string; icon: string }[] = [
+  { id: 'app', label: 'App', icon: 'apps-outline' },
+  { id: 'game', label: 'Gioco', icon: 'game-controller-outline' },
+  { id: 'tool', label: 'Tool', icon: 'construct-outline' },
+  { id: 'site', label: 'Sito', icon: 'globe-outline' },
+  { id: 'art', label: 'Arte', icon: 'color-palette-outline' },
+  { id: 'other', label: 'Altro', icon: 'ellipsis-horizontal' },
+];
 
 export interface PreviewPublishSheetProps {
   visible: boolean;
@@ -18,11 +31,20 @@ export interface PreviewPublishSheetProps {
   publishStatus: 'idle' | 'building' | 'publishing' | 'done' | 'error';
   publishedUrl: string | null;
   publishError: string | null;
-  existingPublish: { slug: string; url: string } | null;
+  existingPublish: ExistingPublish | null;
   onPublish: () => void;
   onUnpublish: () => void;
   onClose: () => void;
   isFreeUser?: boolean;
+  // Platform metadata — controlled by the hook.
+  publishTitle: string;
+  onChangeTitle: (text: string) => void;
+  publishDescription: string;
+  onChangeDescription: (text: string) => void;
+  publishCategory: PublishCategory;
+  onChangeCategory: (cat: PublishCategory) => void;
+  publishIsPublic: boolean;
+  onChangeIsPublic: (val: boolean) => void;
 }
 
 export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
@@ -38,10 +60,20 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
   onUnpublish,
   onClose,
   isFreeUser,
+  publishTitle,
+  onChangeTitle,
+  publishDescription,
+  onChangeDescription,
+  publishCategory,
+  onChangeCategory,
+  publishIsPublic,
+  onChangeIsPublic,
 }) => {
   const { t } = useTranslation();
   const [urlCopied, setUrlCopied] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
+  const [showUsernameModal, setShowUsernameModal] = useState(false);
+  const [savedUsername, setSavedUsername] = useState<string | null>(null);
 
   useEffect(() => {
     if (visible && isFreeUser && !existingPublish) {
@@ -254,6 +286,85 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                   />
                 )}
               </View>
+
+              {/* Platform metadata: only shown for non-free users (paywall
+                  branch above already returned). Compact form so the modal
+                  stays one screen on small devices. */}
+              <TextInput
+                style={styles.metaInput}
+                value={publishTitle}
+                onChangeText={onChangeTitle}
+                editable={!isPublishing}
+                placeholder="Titolo (es. Negozio di fiori)"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                maxLength={80}
+              />
+              <TextInput
+                style={[styles.metaInput, styles.metaInputMultiline]}
+                value={publishDescription}
+                onChangeText={onChangeDescription}
+                editable={!isPublishing}
+                placeholder="Descrizione (cosa fa la tua app)"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                multiline
+                maxLength={280}
+              />
+
+              <View style={styles.categoryRow}>
+                {CATEGORY_OPTIONS.map(opt => {
+                  const active = publishCategory === opt.id;
+                  return (
+                    <TouchableOpacity
+                      key={opt.id}
+                      style={[styles.categoryPill, active && styles.categoryPillActive]}
+                      onPress={() => !isPublishing && onChangeCategory(opt.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name={opt.icon as any}
+                        size={13}
+                        color={active ? '#0a0a0c' : 'rgba(255,255,255,0.6)'}
+                      />
+                      <Text style={[styles.categoryPillText, active && styles.categoryPillTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <TouchableOpacity
+                style={styles.publicToggleRow}
+                activeOpacity={0.75}
+                onPress={() => !isPublishing && onChangeIsPublic(!publishIsPublic)}
+              >
+                <View style={styles.publicToggleText}>
+                  <Text style={styles.publicToggleTitle}>Mostra in Explore</Text>
+                  <Text style={styles.publicToggleSub}>
+                    Altri utenti potranno vederla, aprirla e remixarla
+                  </Text>
+                </View>
+                <View style={[styles.toggleTrack, publishIsPublic && styles.toggleTrackOn]}>
+                  <View style={[styles.toggleThumb, publishIsPublic && styles.toggleThumbOn]} />
+                </View>
+              </TouchableOpacity>
+              {publishIsPublic && (
+                <TouchableOpacity
+                  onPress={() => setShowUsernameModal(true)}
+                  style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -6, marginBottom: 14, paddingHorizontal: 4 }}
+                >
+                  <Ionicons name="at-outline" size={12} color="#A78BFA" />
+                  <Text style={{ color: '#A78BFA', fontSize: 11, fontWeight: '600' }}>
+                    {savedUsername ? `@${savedUsername}` : 'Imposta il tuo @username'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <UsernameModal
+                visible={showUsernameModal}
+                initialValue={savedUsername || ''}
+                onClose={() => setShowUsernameModal(false)}
+                onSaved={(u) => setSavedUsername(u)}
+              />
               {existingPublish && !isPublishing && (
                 <>
                   <View style={styles.publishModalActions}>
@@ -525,5 +636,95 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.5)',
     fontWeight: '500',
+  },
+  metaInput: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    color: '#fff',
+    fontSize: 13,
+    marginBottom: 10,
+  },
+  metaInputMultiline: {
+    minHeight: 60,
+    textAlignVertical: 'top',
+    paddingTop: 11,
+  },
+  categoryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 14,
+  },
+  categoryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  categoryPillActive: {
+    backgroundColor: '#A78BFA',
+    borderColor: '#A78BFA',
+  },
+  categoryPillText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  categoryPillTextActive: {
+    color: '#0a0a0c',
+    fontWeight: '700',
+  },
+  publicToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(167,139,250,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(167,139,250,0.15)',
+    marginBottom: 14,
+    gap: 10,
+  },
+  publicToggleText: {
+    flex: 1,
+  },
+  publicToggleTitle: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  publicToggleSub: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  toggleTrack: {
+    width: 40,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleTrackOn: {
+    backgroundColor: '#A78BFA',
+  },
+  toggleThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+  },
+  toggleThumbOn: {
+    transform: [{ translateX: 16 }],
   },
 });

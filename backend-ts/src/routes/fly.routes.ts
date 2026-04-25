@@ -912,7 +912,17 @@ flyRouter.get('/project/:id/published', asyncHandler(async (req: Request, res: R
   if (snapshot.empty) { res.json({ published: false }); return; }
 
   const data = snapshot.docs[0].data();
-  res.json({ published: true, slug: data.slug, url: data.url, publishedAt: data.publishedAt });
+  res.json({
+    published: true,
+    slug: data.slug,
+    url: data.url,
+    publishedAt: data.publishedAt,
+    title: data.title || '',
+    description: data.description || '',
+    category: data.category || 'other',
+    isPublic: data.isPublic === true,
+    viewCount: typeof data.viewCount === 'number' ? data.viewCount : 0,
+  });
 }));
 
 // DELETE /fly/project/:id/published — Remove published site
@@ -953,9 +963,18 @@ flyRouter.delete('/project/:id/published', asyncHandler(async (req: Request, res
 flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Response) => {
   const projectId = req.params.id;
   validateProjectId(projectId);
-  const { slug } = req.body;
+  const { slug, title, description, category, isPublic } = req.body || {};
   const userId = req.userId || 'anonymous';
   if (!slug) throw new ValidationError('slug required');
+
+  // Sanitize platform metadata (Explore-facing). All fields are
+  // optional — when missing we fall back to the slug as title and
+  // an empty description, and the site stays unlisted by default.
+  const cleanTitle = typeof title === 'string' ? title.trim().slice(0, 80) : '';
+  const cleanDescription = typeof description === 'string' ? description.trim().slice(0, 280) : '';
+  const allowedCategories = new Set(['app', 'game', 'tool', 'site', 'art', 'other']);
+  const cleanCategory = typeof category === 'string' && allowedCategories.has(category) ? category : 'other';
+  const wantsPublic = isPublic === true;
 
   // Verify project ownership
   const isOwner = await verifyProjectOwnership(userId, projectId);
@@ -1576,13 +1595,78 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
 
     // 6. Save to Firestore
     if (db) {
+      // Preserve viewCount and remixOfSlug across re-publishes; merge
+      // so previous metadata isn't wiped when only the slug is sent.
+      const existing = await db.collection('published_sites').doc(cleanSlug).get();
+      const prev = existing.exists ? existing.data() || {} : {};
       await db.collection('published_sites').doc(cleanSlug).set({
         projectId,
         userId,
         slug: cleanSlug,
         publishedAt: new Date(),
         url: `${config.publicUrl}/p/${cleanSlug}`,
-      });
+        // Platform metadata (Explore + analytics surface).
+        title: cleanTitle || prev.title || cleanSlug,
+        description: cleanDescription || prev.description || '',
+        category: cleanCategory || prev.category || 'other',
+        isPublic: typeof isPublic === 'boolean' ? wantsPublic : (prev.isPublic === true),
+        viewCount: typeof prev.viewCount === 'number' ? prev.viewCount : 0,
+        remixOfSlug: prev.remixOfSlug || null,
+      }, { merge: true });
+    }
+
+    // 6b. Snapshot the published output for rollback.
+    //     Best-effort: a snapshot failure must not fail the publish.
+    //     We keep at most 10 snapshots per project on disk.
+    try {
+      const { isDrapeCloudConfigured, getSql } = await import('../services/drape-cloud/client');
+      if (isDrapeCloudConfigured()) {
+        const fsp = await import('fs/promises');
+        const sql = getSql();
+        const numRow = await sql<{ next: string }[]>`
+          SELECT COALESCE(MAX(version_number), 0) + 1 AS next
+          FROM drape_project_versions WHERE project_id = ${projectId}
+        `;
+        const versionNumber = parseInt(numRow[0]?.next || '1', 10);
+        const snapshotsRoot = path.join(config.publishedRoot, '..', 'published-snapshots', projectId);
+        await fsp.mkdir(snapshotsRoot, { recursive: true });
+        const snapDir = path.join(snapshotsRoot, `v${versionNumber}`);
+        await fsp.cp(destDir, snapDir, { recursive: true, force: true });
+
+        // Compute size approximately (sum of file sizes) — non-fatal.
+        let sizeBytes = 0;
+        const walk = async (dir: string): Promise<void> => {
+          const entries = await fsp.readdir(dir, { withFileTypes: true });
+          for (const ent of entries) {
+            const p = path.join(dir, ent.name);
+            if (ent.isDirectory()) await walk(p);
+            else { try { sizeBytes += (await fsp.stat(p)).size; } catch {} }
+          }
+        };
+        await walk(snapDir).catch(() => {});
+
+        await sql`UPDATE drape_project_versions SET is_active = false WHERE project_id = ${projectId}`;
+        await sql`
+          INSERT INTO drape_project_versions
+            (project_id, slug, user_id, version_number, snapshot_path, size_bytes, is_active)
+          VALUES
+            (${projectId}, ${cleanSlug}, ${userId}, ${versionNumber}, ${snapDir}, ${sizeBytes}, true)
+        `;
+
+        // Prune: keep last 10 versions, remove older snapshot dirs.
+        const oldRows = await sql<{ id: string; snapshot_path: string }[]>`
+          SELECT id, snapshot_path FROM drape_project_versions
+          WHERE project_id = ${projectId}
+          ORDER BY version_number DESC
+          OFFSET 10
+        `;
+        for (const old of oldRows) {
+          await fsp.rm(old.snapshot_path, { recursive: true, force: true }).catch(() => {});
+          await sql`DELETE FROM drape_project_versions WHERE id = ${old.id}`;
+        }
+      }
+    } catch (snapErr: any) {
+      log.warn(`[Publish] Snapshot/version failed for ${projectId}: ${snapErr?.message || snapErr}`);
     }
 
     // 7. Return URL

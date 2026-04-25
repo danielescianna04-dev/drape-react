@@ -57,6 +57,18 @@ function humanizePublishError(detail: string): string {
   return 'La pubblicazione non è riuscita. Riprova, se persiste contattaci.';
 }
 
+export type PublishCategory = 'app' | 'game' | 'tool' | 'site' | 'art' | 'other';
+
+export interface ExistingPublish {
+  slug: string;
+  url: string;
+  title?: string;
+  description?: string;
+  category?: PublishCategory;
+  isPublic?: boolean;
+  viewCount?: number;
+}
+
 interface PublishState {
   showPublishModal: boolean;
   publishSlug: string;
@@ -64,7 +76,7 @@ interface PublishState {
   publishStatus: 'idle' | 'building' | 'publishing' | 'done' | 'error';
   publishedUrl: string | null;
   publishError: string | null;
-  existingPublish: { slug: string; url: string } | null;
+  existingPublish: ExistingPublish | null;
 }
 
 interface UsePreviewPublishParams {
@@ -80,7 +92,12 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
   const [publishStatus, setPublishStatus] = useState<PublishState['publishStatus']>('idle');
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
-  const [existingPublish, setExistingPublish] = useState<{ slug: string; url: string } | null>(null);
+  const [existingPublish, setExistingPublish] = useState<ExistingPublish | null>(null);
+  // Platform metadata (Explore-facing). Editable in PublishSheet.
+  const [publishTitle, setPublishTitle] = useState('');
+  const [publishDescription, setPublishDescription] = useState('');
+  const [publishCategory, setPublishCategory] = useState<PublishCategory>('other');
+  const [publishIsPublic, setPublishIsPublic] = useState(false);
 
   // Check if project is already published
   useEffect(() => {
@@ -95,7 +112,20 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
       .then(data => {
         if (cancelled) return;
         if (data.published) {
-          setExistingPublish({ slug: data.slug, url: data.url });
+          setExistingPublish({
+            slug: data.slug,
+            url: data.url,
+            title: data.title,
+            description: data.description,
+            category: data.category,
+            isPublic: data.isPublic,
+            viewCount: data.viewCount,
+          });
+          // Pre-fill editable fields from server state.
+          if (typeof data.title === 'string') setPublishTitle(data.title);
+          if (typeof data.description === 'string') setPublishDescription(data.description);
+          if (typeof data.category === 'string') setPublishCategory(data.category as PublishCategory);
+          if (typeof data.isPublic === 'boolean') setPublishIsPublic(data.isPublic);
         } else {
           setExistingPublish(null);
         }
@@ -124,7 +154,13 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
       const response = await fetch(`${apiUrl}/fly/project/${projectId}/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ slug }),
+        body: JSON.stringify({
+          slug,
+          title: publishTitle.trim(),
+          description: publishDescription.trim(),
+          category: publishCategory,
+          isPublic: publishIsPublic,
+        }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -148,7 +184,14 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
       } else {
         setPublishStatus('done');
         setPublishedUrl(data.url);
-        setExistingPublish({ slug: data.slug, url: data.url });
+        setExistingPublish({
+          slug: data.slug,
+          url: data.url,
+          title: publishTitle.trim() || data.slug,
+          description: publishDescription.trim(),
+          category: publishCategory,
+          isPublic: publishIsPublic,
+        });
         tracciaPubblicazioneRiuscita(data.slug, data.url);
       }
     } catch (e: any) {
@@ -199,8 +242,16 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
     publishedUrl,
     publishError,
     existingPublish,
+    publishTitle,
+    publishDescription,
+    publishCategory,
+    publishIsPublic,
     // Actions
     setPublishSlug,
+    setPublishTitle,
+    setPublishDescription,
+    setPublishCategory,
+    setPublishIsPublic,
     handlePublish,
     handleUnpublish,
     openPublishModal,

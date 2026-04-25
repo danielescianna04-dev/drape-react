@@ -5,11 +5,12 @@ import { NavigationContainer } from '@react-navigation/native';
 import { ProjectsHomeScreen } from '../features/projects/ProjectsHomeScreen';
 import { CreateProjectScreen } from '../features/projects/CreateProjectScreen';
 import { AllProjectsScreen } from '../features/projects/AllProjectsScreen';
+import { ExploreScreen } from '../features/explore/ExploreScreen';
 import { WorkspaceScreen } from './WorkspaceScreen';
 import { SettingsOverlay } from './SettingsOverlay';
 import type { WorkstationInfo } from '../shared/types';
 
-type Screen = 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
+type Screen = 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans' | 'explore';
 
 interface Props {
   currentScreen: Screen | string;
@@ -32,6 +33,7 @@ interface Props {
   onCloseAllProjects: () => void;
   onCloseSettings: () => void;
   onClosePlans: () => void;
+  onCloseExplore?: () => void;
 }
 
 export const AppWorkspaceRoutes: React.FC<Props> = ({
@@ -55,6 +57,7 @@ export const AppWorkspaceRoutes: React.FC<Props> = ({
   onCloseAllProjects,
   onCloseSettings,
   onClosePlans,
+  onCloseExplore,
 }) => {
   return (
     <>
@@ -116,6 +119,17 @@ export const AppWorkspaceRoutes: React.FC<Props> = ({
           initialShowPlans={true}
           initialPlanIndex={initialPlanIndex}
         />
+      )}
+
+      {currentScreen === 'explore' && (
+        <Animated.View
+          key="explore-screen"
+          entering={SlideInRight.duration(300)}
+          exiting={FadeOut.duration(200)}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 }}
+        >
+          <ExploreScreen onClose={onCloseExplore} />
+        </Animated.View>
       )}
     </>
   );

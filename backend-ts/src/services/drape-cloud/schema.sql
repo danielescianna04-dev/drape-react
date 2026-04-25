@@ -118,3 +118,89 @@ CREATE TABLE IF NOT EXISTS drape_quota_usage (
   month_anchor    TIMESTAMPTZ NOT NULL DEFAULT date_trunc('month', now()),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ================================================================
+-- Platform tables (Explore / analytics / custom domains).
+-- These are platform-level concerns — they describe the published
+-- sites managed by Drape itself, not the data inside the generated
+-- apps. Project metadata (slug, owner, public flag, title, etc.)
+-- still lives in Firestore (`published_sites`); Postgres is used
+-- here only for high-frequency append-only data (page views) and
+-- for relational lookups that Firestore is bad at (custom domain
+-- → slug mapping for the request hot path).
+-- ================================================================
+
+-- ---------- drape_published_views ----------
+-- One row per page view of a published site. Append-only. We
+-- aggregate at read time for analytics (cheap up to ~1M rows; can
+-- migrate to a rollup table later).
+-- visitor_hash = sha256(ip + user_agent + day) so we can compute
+-- "unique visitors per day" without storing raw IPs.
+CREATE TABLE IF NOT EXISTS drape_published_views (
+  id            BIGSERIAL PRIMARY KEY,
+  slug          TEXT NOT NULL,
+  project_id    TEXT NOT NULL,
+  visitor_hash  TEXT NOT NULL,
+  country       TEXT,
+  referrer      TEXT,
+  path          TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_drape_published_views_slug_created
+  ON drape_published_views(slug, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_drape_published_views_project_created
+  ON drape_published_views(project_id, created_at DESC);
+-- Unique-per-day visitor dedupe: same hash within the same day
+-- counts once. Matches how visitor_hash is salted (per-day).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_drape_published_views_dedupe
+  ON drape_published_views(slug, visitor_hash, date_trunc('day', created_at));
+
+-- ---------- drape_custom_domains ----------
+-- Maps a custom domain (e.g. mio-negozio.com) to a published slug.
+-- status:
+--   pending  : created, DNS not verified yet
+--   verified : DNS CNAME confirmed, cert provisioning in progress
+--   active   : cert issued, requests served
+--   failed   : verification timed out or cert provisioning failed
+-- Lookup is on the request hot path (every incoming request to a
+-- custom domain), so we keep this in Postgres with a covering
+-- index by domain.
+CREATE TABLE IF NOT EXISTS drape_custom_domains (
+  domain        TEXT PRIMARY KEY,
+  project_id    TEXT NOT NULL,
+  slug          TEXT NOT NULL,
+  user_id       TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'pending',
+  last_check_at TIMESTAMPTZ,
+  last_error    TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  verified_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_drape_custom_domains_project ON drape_custom_domains(project_id);
+CREATE INDEX IF NOT EXISTS idx_drape_custom_domains_user ON drape_custom_domains(user_id);
+
+-- ---------- drape_project_versions ----------
+-- One row per publish. Each row references a tarball on disk
+-- (snapshot of the built static site at publish time). Used for
+-- rollback: "republish version N" copies that tarball back to the
+-- published directory. We keep at most 10 versions per project
+-- (older ones pruned by the publish flow).
+CREATE TABLE IF NOT EXISTS drape_project_versions (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id      TEXT NOT NULL,
+  slug            TEXT NOT NULL,
+  user_id         TEXT NOT NULL,
+  version_number  INT NOT NULL,
+  snapshot_path   TEXT NOT NULL,
+  size_bytes      BIGINT,
+  message         TEXT,
+  is_active       BOOLEAN NOT NULL DEFAULT false,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_drape_project_versions_project_created
+  ON drape_project_versions(project_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_drape_project_versions_project_number
+  ON drape_project_versions(project_id, version_number);

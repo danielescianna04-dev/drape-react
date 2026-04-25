@@ -683,6 +683,14 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         onUnpublish={publish.handleUnpublish}
         onClose={publish.closePublishModal}
         isFreeUser={(useAuthStore.getState().user?.plan || 'free') === 'free'}
+        publishTitle={publish.publishTitle}
+        onChangeTitle={publish.setPublishTitle}
+        publishDescription={publish.publishDescription}
+        onChangeDescription={publish.setPublishDescription}
+        publishCategory={publish.publishCategory}
+        onChangeCategory={publish.setPublishCategory}
+        publishIsPublic={publish.publishIsPublic}
+        onChangeIsPublic={publish.setPublishIsPublic}
       />
 
       <AskUserQuestionModal

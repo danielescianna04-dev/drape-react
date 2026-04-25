@@ -12,7 +12,8 @@ export type Screen =
   | 'terminal'
   | 'allProjects'
   | 'settings'
-  | 'plans';
+  | 'plans'
+  | 'explore';
 
 interface NavigationStore {
   // Pending navigation request (consumed by App.tsx)

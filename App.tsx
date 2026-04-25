@@ -531,6 +531,7 @@ export default function App() {
                 onCloseAllProjects={() => setCurrentScreen('home')}
                 onCloseSettings={() => setCurrentScreen(resolveOverlayCloseScreen<Screen>(previousScreen as Screen | null | undefined, 'home'))}
                 onClosePlans={() => setCurrentScreen(resolveOverlayCloseScreen<Screen>(previousScreen as Screen | null | undefined, 'home'))}
+                onCloseExplore={() => setCurrentScreen(resolveOverlayCloseScreen<Screen>(previousScreen as Screen | null | undefined, 'home'))}
               />
             </ErrorBoundary>
           </NetworkConfigProvider>

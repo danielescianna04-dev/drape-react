@@ -10,6 +10,7 @@ import { workstationService } from '../../core/workstation/workstationService-fi
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../shared/theme/colors';
 import { tracciaProgettoEliminato, tracciaProgettoFiltro, tracciaProgettoEliminaMultipli, tracciaErrore } from '../../core/services/analyticsService';
+import { useNavigationStore } from '../../core/navigation/navigationStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -449,6 +450,17 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
             : t('projects:all.title')
           }
         </Text>
+
+        {!selectionMode && (
+          <TouchableOpacity
+            onPress={() => useNavigationStore.getState().navigateTo('explore')}
+            activeOpacity={0.7}
+            style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(167,139,250,0.15)', borderWidth: 1, borderColor: 'rgba(167,139,250,0.35)', marginRight: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+          >
+            <Ionicons name="compass-outline" size={14} color="#A78BFA" />
+            <Text style={{ color: '#A78BFA', fontSize: 12, fontWeight: '700' }}>Explore</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           onPress={selectionMode ? selectAll : () => setSelectionMode(true)}
