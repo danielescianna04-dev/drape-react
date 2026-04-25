@@ -10,6 +10,7 @@ import {
   RefreshControl, ScrollView, TextInput, Alert, Animated as RNAnimated,
 } from 'react-native';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import { config } from '../../config/config';
@@ -181,91 +182,25 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onClose }) => {
     </View>
   ), [handleRemix, remixingSlug]);
 
-  const ListHeader = (
-    <>
-      <View style={styles.searchSection}>
-        {isLiquidGlassSupported ? (
-          <LiquidGlassView
-            style={[styles.searchContainer, { backgroundColor: 'transparent', overflow: 'hidden' }]}
-            interactive={true}
-            effect="clear"
-            colorScheme="dark"
-          >
-            <View style={styles.searchInner}>
-              <Ionicons name="search" size={18} color="rgba(255,255,255,0.4)" />
-              <TextInput
-                style={styles.searchInput}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Cerca..."
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.3)" />
-                </TouchableOpacity>
-              )}
-            </View>
-          </LiquidGlassView>
-        ) : (
-          <View style={[styles.searchContainer, styles.searchInner]}>
-            <Ionicons name="search" size={18} color="rgba(255,255,255,0.4)" />
-            <TextInput
-              style={styles.searchInput}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Cerca..."
-              placeholderTextColor="rgba(255,255,255,0.3)"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.3)" />
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-      </View>
-
-      <View style={styles.filterSection}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterScroll}
-        >
-          {CATEGORIES.map(opt => {
-            const active = category === opt.id;
-            return (
-              <TouchableOpacity
-                key={opt.id || 'all'}
-                style={styles.filterTab}
-                onPress={() => setCategory(opt.id)}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.filterTabInner, active && styles.filterTabActive]}>
-                  <Ionicons
-                    name={opt.icon as any}
-                    size={14}
-                    color={active ? '#fff' : 'rgba(255,255,255,0.4)'}
-                  />
-                  <Text style={[styles.filterTabText, active && styles.filterTabTextActive]}>
-                    {opt.label}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-    </>
-  );
-
   return (
     <View style={styles.container}>
-      {/* Header — same shape as AllProjectsScreen */}
+      {/* Branded gradient background — same atmosphere as Home/Create */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <LinearGradient
+          colors={['#0C0816', '#1a0a2e', '#2d0845', '#0C0816']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[StyleSheet.absoluteFill, { opacity: 0.35 }]}
+        />
+        <LinearGradient
+          colors={['#0C0816', '#1E1040', '#0C0816']}
+          start={{ x: 1, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[StyleSheet.absoluteFill, { opacity: 0.3 }]}
+        />
+      </View>
+
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -287,16 +222,68 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onClose }) => {
         </TouchableOpacity>
 
         <Text style={styles.headerTitle}>Explore</Text>
-
-        {/* Spacer to keep title centered without an action button */}
         <View style={{ width: 44 }} />
+      </View>
+
+      {/* Search bar — borderless, glass capsule */}
+      <View style={styles.searchSection}>
+        <View style={styles.searchInner}>
+          <Ionicons name="search" size={18} color="rgba(255,255,255,0.4)" />
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Cerca..."
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.3)" />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Filter pills — rendered outside the FlatList so the
+          horizontal padding is reliable and pills aren't clipped. */}
+      <View style={styles.filterSection}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScrollContent}
+          contentOffset={{ x: 0, y: 0 }}
+        >
+          {CATEGORIES.map((opt, i) => {
+            const active = category === opt.id;
+            return (
+              <TouchableOpacity
+                key={opt.id || 'all'}
+                style={[styles.filterTab, i === 0 && { marginLeft: 20 }, i === CATEGORIES.length - 1 && { marginRight: 20 }]}
+                onPress={() => setCategory(opt.id)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.filterTabInner, active && styles.filterTabActive]}>
+                  <Ionicons
+                    name={opt.icon as any}
+                    size={14}
+                    color={active ? '#fff' : 'rgba(255,255,255,0.4)'}
+                  />
+                  <Text style={[styles.filterTabText, active && styles.filterTabTextActive]}>
+                    {opt.label}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <FlatList
         data={filteredItems}
         keyExtractor={i => i.slug}
         renderItem={renderItem}
-        ListHeaderComponent={ListHeader}
         ListEmptyComponent={!loading ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>Ancora nessuna app pubblica</Text>
@@ -327,7 +314,7 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onClose }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0812',
+    backgroundColor: '#0C0816',
   },
   header: {
     flexDirection: 'row',
@@ -354,9 +341,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 20,
   },
-  searchContainer: {
-    borderRadius: 100,
-  },
   searchInner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -364,8 +348,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     paddingHorizontal: 16,
     height: 48,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
     borderRadius: 100,
   },
   searchInput: {
@@ -377,12 +359,11 @@ const styles = StyleSheet.create({
   filterSection: {
     paddingBottom: 16,
   },
-  filterScroll: {
-    paddingHorizontal: 20,
-    gap: 8,
+  filterScrollContent: {
+    alignItems: 'center',
   },
   filterTab: {
-    borderRadius: 100,
+    marginRight: 8,
   },
   filterTabInner: {
     flexDirection: 'row',
@@ -392,12 +373,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 100,
     backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
   },
   filterTabActive: {
     backgroundColor: 'rgba(123, 107, 255, 0.15)',
-    borderColor: 'rgba(123, 107, 255, 0.3)',
   },
   filterTabText: {
     fontSize: 13,
@@ -473,8 +451,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     borderRadius: 18,
     backgroundColor: 'rgba(167,139,250,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(167,139,250,0.25)',
   },
   emptyState: {
     alignItems: 'center',
