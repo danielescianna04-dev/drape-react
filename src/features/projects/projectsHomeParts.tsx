@@ -9,6 +9,7 @@ import { DevBanner } from '../../shared/components/DevBanner';
 import { GitCommitsScreen } from '../settings/GitCommitsScreen';
 import { Button } from '../../shared/components/atoms/Button';
 import { Input } from '../../shared/components/atoms/Input';
+import { useNavigationStore } from '../../core/navigation/navigationStore';
 
 export const GlassWrapper = ({
   children,
@@ -218,11 +219,15 @@ export const ProjectsQuickActions = ({
       </View>
 
       <View style={styles.actionCardWrapper}>
-        <GlassWrapper key={`file-${focusKey}`} style={[styles.actionCard, styles.actionCardGlass]}>
-          <TouchableOpacity style={styles.actionCardInner} activeOpacity={0.8} onPress={onBrowseFiles}>
-            <Ionicons name="folder-open" size={24} color="rgba(255,255,255,0.85)" />
-            <Text style={styles.actionCardTitle}>{t('home.files')}</Text>
-            <Text style={styles.actionCardSubtitle}>{t('home.openLocal')}</Text>
+        <GlassWrapper key={`explore-${focusKey}`} style={[styles.actionCard, styles.actionCardGlass]}>
+          <TouchableOpacity
+            style={styles.actionCardInner}
+            activeOpacity={0.8}
+            onPress={() => useNavigationStore.getState().navigateTo('explore')}
+          >
+            <Ionicons name="compass" size={24} color="#A78BFA" />
+            <Text style={styles.actionCardTitle}>Esplora</Text>
+            <Text style={styles.actionCardSubtitle}>App pubbliche</Text>
           </TouchableOpacity>
         </GlassWrapper>
       </View>
