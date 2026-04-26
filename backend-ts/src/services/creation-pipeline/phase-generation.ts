@@ -46,7 +46,6 @@ function shouldRetryCreationAttempt(input: {
   errorMessage: string | null;
 }): boolean {
   if (!isRetriableCreationError(input.errorMessage)) return false;
-  if (config.projectAiMaxCostEur > 0 && input.totalCostEur >= config.projectAiMaxCostEur) return false;
   const policy = getProjectGenerationRuntimePolicy(input.complexity);
   if (!policy.retryRequiresNearEmptyOutput) return true;
   const generatedCount = Math.max(input.generatedFileCount, input.filesCreated);
@@ -124,9 +123,6 @@ export async function runGeneration(state: PipelineState, ctx: PipelineContext):
             tokensUsed: { input: ev.totalInputTokens, output: ev.totalOutputTokens },
           });
           totalCostEur = ev.totalCostEur || totalCostEur;
-          if (config.projectAiMaxCostEur > 0 && totalCostEur >= config.projectAiMaxCostEur) {
-            attemptErrorMessage = `Project AI budget exceeded (€${totalCostEur.toFixed(2)} / €${config.projectAiMaxCostEur.toFixed(2)})`;
-          }
           state.tracker.updateSummary({
             aiModel: model,
             aiTokensUsed: totalInputTokens + totalOutputTokens,
