@@ -43,6 +43,7 @@ export class AgentLoop {
   private mode: AgentMode;
   private model: string;
   private thinkingLevel: string | null;
+  private maxTokens: number | null;
   private taskBudgetTokens: number | null;
   private systemPromptOverride: string | null;
   private conversationHistory: ChatMessage[];
@@ -86,6 +87,7 @@ export class AgentLoop {
     } else {
       this.thinkingLevel = null;
     }
+    this.maxTokens = typeof options.maxTokens === 'number' ? options.maxTokens : null;
     this.taskBudgetTokens = typeof options.taskBudgetTokens === 'number' ? options.taskBudgetTokens : null;
     this.userId = options.userId || null;
     this.userPlan = options.userPlan || 'free';
@@ -345,6 +347,17 @@ export class AgentLoop {
           }
         }
 
+        if (isSystemPhase && config.projectAiMaxCostEur > 0 && this.totalCostEur >= config.projectAiMaxCostEur) {
+          log.warn(`[AgentLoop] Project AI budget exceeded for ${this.projectId}: spent=€${this.totalCostEur.toFixed(4)}, cap=€${config.projectAiMaxCostEur}`);
+          yield {
+            type: 'budget_exceeded',
+            message: `Project AI budget exceeded: spent €${this.totalCostEur.toFixed(2)} on cap €${config.projectAiMaxCostEur.toFixed(2)}.`,
+            percentUsed: Math.round((this.totalCostEur / config.projectAiMaxCostEur) * 100),
+            plan: this.userPlan,
+          };
+          break;
+        }
+
         yield {
           type: 'iteration_start',
           iteration: this.iterationCount,
@@ -497,6 +510,7 @@ export class AgentLoop {
                 {
                   temperature: 0.7,
                   thinkingLevel: this.thinkingLevel,
+                  maxTokens: this.maxTokens || undefined,
                   taskBudgetTokens: this.taskBudgetTokens || undefined,
                   abortSignal: abortController.signal,
                 }
@@ -644,6 +658,17 @@ export class AgentLoop {
                           totalOutputTokens: this.totalTokensUsed.output,
                           contextUsagePercent,
                         };
+
+                        if (isSystemPhase && config.projectAiMaxCostEur > 0 && this.totalCostEur >= config.projectAiMaxCostEur) {
+                          log.warn(`[AgentLoop] Project AI budget reached during ${this.usagePhase} for ${this.projectId}: spent=€${this.totalCostEur.toFixed(4)}, cap=€${config.projectAiMaxCostEur}`);
+                          yield {
+                            type: 'budget_exceeded',
+                            message: `Project AI budget exceeded: spent €${this.totalCostEur.toFixed(2)} on cap €${config.projectAiMaxCostEur.toFixed(2)}.`,
+                            percentUsed: Math.round((this.totalCostEur / config.projectAiMaxCostEur) * 100),
+                            plan: this.userPlan,
+                          };
+                          return;
+                        }
                       }
                       break;
                   }

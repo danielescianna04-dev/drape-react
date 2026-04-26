@@ -22,6 +22,7 @@ import { neonManagementService, NeonCredentials } from '../services/neon-managem
 import { BuildReportTracker } from '../services/build-report.service';
 import { assessProjectComplexity } from '../services/project-complexity.service';
 import { refreshBatchFailureReview } from '../services/anthropic-batch-review.service';
+import { updateProjectCreationStatus } from '../services/project-status.service';
 
 async function applyBoilerplateTemplate(projectId: string, technology: string, cloudMode: boolean = false): Promise<boolean> {
   // Templates are in the backend root directory (synced via deploy), NOT inside Docker containers
@@ -1344,17 +1345,14 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
 
   // Write ownership record to Firestore so agent/stream can verify access
   try {
-    const db = firebaseService.getFirestore();
-    if (db && userId !== 'anonymous') {
-      await db.collection('users').doc(userId).collection('projects').doc(id).set({
-        projectId: id,
+    if (userId !== 'anonymous') {
+      const createdAt = new Date().toISOString();
+      await updateProjectCreationStatus(userId, id, 'creating', {
         name: projectName,
         technology: technology || 'nextjs',
         description: description || '',
-        userId,
-        status: 'creating',
-        createdAt: new Date().toISOString(),
-      }, { merge: true });
+        createdAt,
+      });
       log.info(`[CreateProject] Ownership record written for user ${userId}, project ${id}`);
     }
   } catch (err: any) {
@@ -1375,6 +1373,9 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
       task.status = 'failed';
       task.error = err.message;
       task.message = 'Generation failed';
+      updateProjectCreationStatus(userId, id, 'failed', {
+        error: err.message,
+      }).catch(() => {});
     });
   } else {
     // Agent mode: if cloud enabled, create Neon database now (agent-prompt will read credentials from .env)
@@ -1503,6 +1504,10 @@ async function generateProject(
   });
 
   update(2, 'Initializing project...', 'Setup');
+  await updateProjectCreationStatus(userId, projectId, 'generating', {
+    name: projectName,
+    technology,
+  });
   const templateActionId = report.startAction('setup', 'Applying template', `Technology: ${technology}, Cloud: ${cloudMode}`);
   const templateApplied = await applyBoilerplateTemplate(projectId, technology, cloudMode);
   report.completeAction(templateActionId, { technology, cloudMode, templateApplied });
@@ -2347,6 +2352,10 @@ Return ONLY the JSON, no markdown, no explanation.`;
       report.complete();
       update(100, 'Project Created Successfully!', 'Complete');
       task.status = 'completed';
+      await updateProjectCreationStatus(userId, projectId, 'ready', {
+        name: projectName,
+        technology,
+      });
     } else {
       report.setPreviewBlocked(true);
       report.fail();
@@ -2354,6 +2363,11 @@ Return ONLY the JSON, no markdown, no explanation.`;
       update(100, `Verification failed: ${reason}`, 'Needs Fix');
       task.status = 'verification_failed';
       task.error = reason;
+      await updateProjectCreationStatus(userId, projectId, 'verification_failed', {
+        name: projectName,
+        technology,
+        error: reason,
+      });
       log.warn(`[CreateProject] ${projectId} verification failed: ${reason}`);
     }
 
@@ -2378,5 +2392,10 @@ Return ONLY the JSON, no markdown, no explanation.`;
     task.status = 'failed';
     task.error = err.message;
     task.message = `Generation failed: ${err.message}`;
+    await updateProjectCreationStatus(userId, projectId, 'failed', {
+      name: projectName,
+      technology,
+      error: err.message,
+    });
   }
 }

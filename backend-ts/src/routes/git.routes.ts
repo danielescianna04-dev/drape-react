@@ -32,6 +32,22 @@ function stripTokenFromUrl(url: string): string {
   return url.replace(/https:\/\/[^@]+@/, 'https://');
 }
 
+async function getCurrentLocalBranch(dir: string): Promise<string | null> {
+  const result = await execShell(git('branch --show-current') + ' 2>/dev/null || echo ""', dir);
+  return result.stdout.trim() || null;
+}
+
+async function localBranchExists(dir: string, branch: string): Promise<boolean> {
+  const result = await execShell(git(`show-ref --verify --quiet refs/heads/${shellEscape(branch)}`), dir);
+  return result.exitCode === 0;
+}
+
+function cleanBranchName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const branch = value.trim();
+  return branch.length > 0 ? branch : null;
+}
+
 // GET /git/status/:projectId
 gitRouter.get('/status/:projectId', asyncHandler(async (req, res) => {
   const dir = projectDir(req.params.projectId);
@@ -252,7 +268,27 @@ gitRouter.post('/push/:projectId', asyncHandler(async (req, res) => {
   const { branch, remoteBranch, remote: targetRemote, forcePush, pushTags, setUpstream } = req.body || {};
 
   const remoteName = targetRemote || 'origin';
-  log.info(`[Git Push] project=${req.params.projectId} branch=${branch} remoteBranch=${remoteBranch || branch} remote=${remoteName} hasToken=${!!token}`);
+  const currentBranch = await getCurrentLocalBranch(dir);
+  const requestedBranch = cleanBranchName(branch);
+  let sourceBranch = requestedBranch || currentBranch;
+
+  if (sourceBranch && !(await localBranchExists(dir, sourceBranch)) && currentBranch) {
+    log.warn(`[Git Push] requested source branch ${sourceBranch} does not exist; using current branch ${currentBranch}`);
+    sourceBranch = currentBranch;
+  }
+
+  if (!sourceBranch || !(await localBranchExists(dir, sourceBranch))) {
+    res.json({
+      success: false,
+      message: 'Push failed',
+      output: '',
+      error: 'No local branch found to push. Commit from a named branch first.'
+    });
+    return;
+  }
+
+  const destinationBranch = cleanBranchName(remoteBranch) || sourceBranch;
+  log.info(`[Git Push] project=${req.params.projectId} sourceBranch=${sourceBranch} remoteBranch=${destinationBranch} currentBranch=${currentBranch || '-'} remote=${remoteName} hasToken=${!!token}`);
 
   if (token) {
     const remote = await execShell(git(`remote get-url ${shellEscape(remoteName)}`) + ' 2>/dev/null || echo ""', dir);
@@ -261,13 +297,17 @@ gitRouter.post('/push/:projectId', asyncHandler(async (req, res) => {
   }
 
   try {
-    const isCrossBranch = remoteBranch && remoteBranch !== branch;
+    const destinationLocalExists = await localBranchExists(dir, destinationBranch);
+    const isCrossBranch = destinationBranch !== sourceBranch && destinationLocalExists;
+    if (destinationBranch !== sourceBranch && !destinationLocalExists) {
+      log.warn(`[Git Push] remote branch ${destinationBranch} has no local branch; pushing ${sourceBranch}:${destinationBranch} directly`);
+    }
     let pushResult: { exitCode: number; stdout: string; stderr: string };
 
     if (isCrossBranch) {
       // Cross-branch push: checkout target → merge source → push → checkout back
       // This puts commits actually ON the target branch (like Fork does)
-      log.info(`[Git Push] cross-branch: merging ${branch} into ${remoteBranch}, then pushing ${remoteBranch}`);
+      log.info(`[Git Push] cross-branch: merging ${sourceBranch} into ${destinationBranch}, then pushing ${destinationBranch}`);
 
       // 0. Get committer identity from latest commit (needed for merge commit)
       const authorInfo = await execShell(git(`log -1 --format="%an|||%ae"`) + ' 2>/dev/null || echo "Drape User|||noreply@drape.info"', dir);
@@ -275,23 +315,23 @@ gitRouter.post('/push/:projectId', asyncHandler(async (req, res) => {
       const mergeGit = (cmd: string) => `git -c safe.directory='*' -c user.name=${shellEscape(authorName || 'Drape User')} -c user.email=${shellEscape(authorEmail || 'noreply@drape.info')} ${cmd}`;
 
       // 1. Checkout target branch
-      const checkoutResult = await execShell(git(`checkout ${shellEscape(remoteBranch)}`) + ' 2>&1', dir, 15000);
+      const checkoutResult = await execShell(git(`checkout ${shellEscape(destinationBranch)}`) + ' 2>&1', dir, 15000);
       if (checkoutResult.exitCode !== 0) {
-        log.warn(`[Git Push] checkout ${remoteBranch} failed: ${checkoutResult.stdout}`);
+        log.warn(`[Git Push] checkout ${destinationBranch} failed: ${checkoutResult.stdout}`);
         // Try checkout back to original branch
-        await execShell(git(`checkout ${shellEscape(branch)}`) + ' 2>&1', dir, 15000).catch(() => {});
-        res.json({ success: false, message: 'Checkout failed', output: checkoutResult.stdout, error: `Could not checkout ${remoteBranch}` });
+        await execShell(git(`checkout ${shellEscape(sourceBranch)}`) + ' 2>&1', dir, 15000).catch(() => {});
+        res.json({ success: false, message: 'Checkout failed', output: checkoutResult.stdout, error: `Could not checkout ${destinationBranch}` });
         return;
       }
 
       // 2. Merge source branch into target (--no-ff to create visible merge commit)
-      const mergeResult = await execShell(mergeGit(`merge --no-ff ${shellEscape(branch)} -m "Merge ${branch} into ${remoteBranch}"`) + ' 2>&1', dir, 30000);
+      const mergeResult = await execShell(mergeGit(`merge --no-ff ${shellEscape(sourceBranch)} -m ${shellEscape(`Merge ${sourceBranch} into ${destinationBranch}`)}`) + ' 2>&1', dir, 30000);
       if (mergeResult.exitCode !== 0) {
-        log.warn(`[Git Push] merge ${branch} into ${remoteBranch} failed: ${mergeResult.stdout}`);
+        log.warn(`[Git Push] merge ${sourceBranch} into ${destinationBranch} failed: ${mergeResult.stdout}`);
         // Abort merge and go back
         await execShell(git('merge --abort') + ' 2>&1', dir, 10000).catch(() => {});
-        await execShell(git(`checkout ${shellEscape(branch)}`) + ' 2>&1', dir, 15000).catch(() => {});
-        res.json({ success: false, message: 'Merge failed', output: mergeResult.stdout, error: `Merge conflict: ${branch} → ${remoteBranch}` });
+        await execShell(git(`checkout ${shellEscape(sourceBranch)}`) + ' 2>&1', dir, 15000).catch(() => {});
+        res.json({ success: false, message: 'Merge failed', output: mergeResult.stdout, error: `Merge conflict: ${sourceBranch} → ${destinationBranch}` });
         return;
       }
 
@@ -300,22 +340,21 @@ gitRouter.post('/push/:projectId', asyncHandler(async (req, res) => {
       if (forcePush) cmd += ' --force';
       if (pushTags) cmd += ' --tags';
       if (setUpstream) cmd += ' -u';
-      cmd += ` ${shellEscape(remoteName)} ${shellEscape(remoteBranch)}`;
+      cmd += ` ${shellEscape(remoteName)} ${shellEscape(destinationBranch)}`;
 
       log.info(`[Git Push] cmd: git ${cmd}`);
       pushResult = await execShell(git(cmd) + ' 2>&1', dir, 60000);
       log.info(`[Git Push] exitCode=${pushResult.exitCode} output=${stripTokenFromUrl(pushResult.stdout).substring(0, 300)}`);
 
       // 4. Checkout back to original branch
-      await execShell(git(`checkout ${shellEscape(branch)}`) + ' 2>&1', dir, 15000).catch(() => {});
+      await execShell(git(`checkout ${shellEscape(sourceBranch)}`) + ' 2>&1', dir, 15000).catch(() => {});
     } else {
-      // Normal push: push current branch to same-named remote
+      // Normal push: push the real local branch as an explicit source:destination refspec.
       let cmd = 'push';
       if (forcePush) cmd += ' --force';
       if (pushTags) cmd += ' --tags';
       if (setUpstream) cmd += ' -u';
-      cmd += ` ${shellEscape(remoteName)}`;
-      if (branch) cmd += ` ${shellEscape(branch)}`;
+      cmd += ` ${shellEscape(remoteName)} ${shellEscape(`${sourceBranch}:${destinationBranch}`)}`;
 
       log.info(`[Git Push] cmd: git ${cmd}`);
       pushResult = await execShell(git(cmd) + ' 2>&1', dir, 60000);

@@ -22,6 +22,7 @@ import {
   requireBooleanField,
   requireField,
 } from './agentRequestGuards';
+import { updateProjectCreationStatus } from '../services/project-status.service';
 import nodePath from 'path';
 import nodeFs from 'fs';
 
@@ -101,6 +102,10 @@ agentRouter.post('/create', asyncHandler(async (req, res) => {
 
   try {
     auditService.log({ userId, action: 'agent_create_start', resource: projectId, details: 'project_creation', ip: req.ip });
+    await updateProjectCreationStatus(userId, projectId, 'generating', {
+      name: projectName || projectId,
+      startedAt: new Date().toISOString(),
+    });
 
     writeSseEvent('processing', {
       type: 'processing',
@@ -128,11 +133,18 @@ agentRouter.post('/create', asyncHandler(async (req, res) => {
     });
 
     log.info(`[Agent/create] Creation completed for project ${projectId}`);
+    await updateProjectCreationStatus(userId, projectId, 'ready', {
+      name: projectName || projectId,
+    });
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
     const errStack = error instanceof Error ? error.stack : undefined;
     log.error(`[Agent/create] Error for project ${projectId}:`, errMsg);
     if (errStack) log.error(`[Agent/create] Stack:`, errStack);
+    await updateProjectCreationStatus(userId, projectId, 'failed', {
+      name: projectName || projectId,
+      error: errMsg || 'Creation failed',
+    });
 
     if (!res.writableEnded) {
       writeSseEvent('error', { type: 'error', error: errMsg || 'Creation failed' });

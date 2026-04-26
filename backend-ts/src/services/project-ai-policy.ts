@@ -45,7 +45,7 @@ export function getProjectAIBudgetCaps(
   defaults: ProjectAIBudgetCaps,
 ): ProjectAIBudgetCaps {
   return {
-    maxProjectCostEur: Number(Math.min(defaults.maxProjectCostEur, 2.5).toFixed(2)),
+    maxProjectCostEur: Number(Math.min(defaults.maxProjectCostEur, 2.2).toFixed(2)),
     maxEscalationCostEur: Number(Math.min(defaults.maxEscalationCostEur, 0.35).toFixed(2)),
   };
 }
