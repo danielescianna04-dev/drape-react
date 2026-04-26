@@ -66,6 +66,10 @@ export async function ensureProject(slug: string): Promise<{ subdomain: string }
     return { subdomain: get.result.subdomain };
   }
 
+  // next-on-pages bundles a Workers script that requires Node.js built-ins
+  // (events, stream, util, etc). Without the nodejs_compat flag the worker
+  // fails at runtime with "Node.JS Compatibility Error". We set it on both
+  // production and preview environments at create time.
   const create = await cfFetch<{ subdomain: string }>(
     `/accounts/${config.cloudflareAccountId}/pages/projects`,
     {
@@ -73,6 +77,10 @@ export async function ensureProject(slug: string): Promise<{ subdomain: string }
       body: JSON.stringify({
         name: slug,
         production_branch: 'main',
+        deployment_configs: {
+          production: { compatibility_flags: ['nodejs_compat'] },
+          preview:    { compatibility_flags: ['nodejs_compat'] },
+        },
       }),
     },
   );
@@ -142,11 +150,24 @@ export async function deleteSite(slug: string): Promise<void> {
 }
 
 /**
- * Attach a custom domain (e.g. mysite.drape.info) to the project.
- * Cloudflare auto-provisions SSL because the apex is in the same account.
+ * Attach a custom domain (e.g. mysite.drape.info) to the project AND create
+ * the matching DNS CNAME so requests actually reach Cloudflare. The two are
+ * separate operations:
+ *   1. Pages /domains POST registers the domain on the project (provisions SSL).
+ *   2. DNS CNAME makes the subdomain resolve to the *.pages.dev origin.
+ *
+ * Without (2), a wildcard A record on the same zone (e.g. *.drape.info → VPS)
+ * intercepts requests before Cloudflare can route them to Pages — symptom is
+ * the user seeing the apex's normal nginx/backend response instead of their
+ * published site.
  */
 export async function addCustomDomain(slug: string, domain: string): Promise<void> {
   ensureCredentials();
+
+  // 1. Resolve the project's *.pages.dev subdomain — needed as the CNAME target.
+  const project = await ensureProject(slug);
+
+  // 2. Register the domain on the Pages project (idempotent).
   const r = await cfFetch(
     `/accounts/${config.cloudflareAccountId}/pages/projects/${slug}/domains`,
     {
@@ -156,8 +177,38 @@ export async function addCustomDomain(slug: string, domain: string): Promise<voi
   );
   if (!r.success) {
     const msg = r.errors?.map((e) => e.message).join(', ') || 'unknown';
-    if (msg.toLowerCase().includes('already exists')) return;
-    throw new Error(`Failed to attach ${domain} to ${slug}: ${msg}`);
+    if (!msg.toLowerCase().includes('already exists')) {
+      throw new Error(`Failed to attach ${domain} to ${slug}: ${msg}`);
+    }
+  }
+
+  // 3. Create the DNS CNAME so the subdomain resolves to Cloudflare. The
+  // wildcard A record (*.drape.info → VPS) wins for any subdomain that
+  // doesn't have a more-specific record, so we MUST add an explicit one.
+  if (!config.cloudflareZoneId) {
+    log.warn(`[CFPages] CLOUDFLARE_ZONE_ID unset — cannot create CNAME for ${domain}`);
+    return;
+  }
+  const subdomainName = domain.endsWith(`.${config.publishDomain}`)
+    ? domain.slice(0, -`.${config.publishDomain}`.length)
+    : domain;
+  const dns = await cfFetch(
+    `/zones/${config.cloudflareZoneId}/dns_records`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'CNAME',
+        name: subdomainName,
+        content: project.subdomain,
+        proxied: true,
+        ttl: 1,
+      }),
+    },
+  );
+  if (!dns.success) {
+    const msg = dns.errors?.map((e) => e.message).join(', ') || 'unknown';
+    if (msg.toLowerCase().includes('already exists') || msg.toLowerCase().includes('identical record')) return;
+    throw new Error(`Failed to create CNAME for ${domain}: ${msg}`);
   }
 }
 
@@ -169,8 +220,25 @@ export async function removeCustomDomain(slug: string, domain: string): Promise<
   );
   if (!r.success) {
     const msg = r.errors?.map((e) => e.message).join(', ') || 'unknown';
-    if (msg.toLowerCase().includes('not found')) return;
-    throw new Error(`Failed to detach ${domain} from ${slug}: ${msg}`);
+    if (!msg.toLowerCase().includes('not found')) {
+      throw new Error(`Failed to detach ${domain} from ${slug}: ${msg}`);
+    }
+  }
+
+  // Also delete the matching DNS CNAME so the subdomain falls back to the
+  // wildcard (or returns NXDOMAIN). Best-effort: leftover records are harmless
+  // but accumulate, so worth cleaning up.
+  if (!config.cloudflareZoneId) return;
+  const list = await cfFetch<Array<{ id: string }>>(
+    `/zones/${config.cloudflareZoneId}/dns_records?type=CNAME&name=${encodeURIComponent(domain)}`,
+  );
+  if (list.success && Array.isArray(list.result)) {
+    for (const rec of list.result) {
+      await cfFetch(
+        `/zones/${config.cloudflareZoneId}/dns_records/${rec.id}`,
+        { method: 'DELETE' },
+      ).catch(() => undefined);
+    }
   }
 }
 

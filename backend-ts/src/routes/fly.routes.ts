@@ -1501,7 +1501,13 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
             try {
               const content = await fs.readFile(full, 'utf8');
               if (/export\s+const\s+runtime\s*=/.test(content)) continue;
-              const patched = `export const runtime = 'edge';\n\n${content}`;
+              // 'use client' / 'use server' must be the first non-comment expression.
+              // If present, insert the runtime export AFTER the directive (and any
+              // following blank line) — otherwise we break the directive.
+              const directiveMatch = content.match(/^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*\s*['"]use (?:client|server)['"]\s*;?\s*\n)/);
+              const patched = directiveMatch
+                ? content.slice(0, directiveMatch[0].length) + `\nexport const runtime = 'edge';\n` + content.slice(directiveMatch[0].length)
+                : `export const runtime = 'edge';\n\n${content}`;
               await fs.writeFile(full, patched, 'utf8');
               count++;
             } catch { /* ignore */ }

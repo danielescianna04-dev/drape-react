@@ -22,6 +22,8 @@ import { createHash } from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getSql, isDrapeCloudConfigured } from './drape-cloud/client';
 import { firebaseService } from './firebase.service';
+import { getCloudflareAnalytics } from './cloudflare-analytics.service';
+import { config } from '../config';
 import { log } from '../utils/logger';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -85,6 +87,22 @@ export interface AnalyticsSummary {
 
 export async function getPublishedAnalytics(slug: string, days = 30): Promise<AnalyticsSummary> {
   const empty: AnalyticsSummary = { totalViews: 0, uniqueVisitors: 0, byDay: [], topCountries: [], topReferrers: [] };
+
+  // Cloudflare-published sites bypass our backend, so postgres has no rows
+  // for them. Query CF's zone analytics by hostname instead.
+  try {
+    const db = firebaseService.getFirestore();
+    if (db) {
+      const doc = await db.collection('published_sites').doc(slug).get();
+      const data = doc.exists ? doc.data() : null;
+      if (data?.provider === 'cloudflare' && config.publishDomain) {
+        return await getCloudflareAnalytics(`${slug}.${config.publishDomain}`, days);
+      }
+    }
+  } catch (err: any) {
+    log.warn(`[Analytics] provider lookup failed for ${slug}: ${err?.message || err}`);
+  }
+
   if (!isDrapeCloudConfigured()) return empty;
 
   try {
