@@ -15,6 +15,7 @@ import { log } from '../utils/logger';
 import { config } from '../config';
 import { execShell, validateProjectId } from '../utils/helpers';
 import { auditService } from '../services/audit.service';
+import { deployStaticSite, deleteSite as cfDeleteSite, addCustomDomain as cfAddCustomDomain, publishedUrlFor } from '../services/cloudflare-pages.service';
 
 export const flyRouter = Router();
 
@@ -947,9 +948,22 @@ flyRouter.delete('/project/:id/published', asyncHandler(async (req: Request, res
   const data = snapshot.docs[0].data();
   const slug = data.slug;
 
-  // Remove files using Node.js fs (no shell injection)
-  const destDir = path.join(config.publishedRoot, slug);
-  await fs.rm(destDir, { recursive: true, force: true }).catch(() => {});
+  // Tear down the deployment. Cloudflare-published sites are deleted via API
+  // (drops project + all deployments + custom domain); legacy /p/{slug} sites
+  // delete the local directory. We honour whatever provider this site was
+  // published with, falling back to current config for older records.
+  const provider = data.provider || config.publishProvider;
+  if (provider === 'cloudflare') {
+    try {
+      await cfDeleteSite(slug);
+      log.info(`[Publish] Deleted Cloudflare project for slug ${slug}`);
+    } catch (cfErr: any) {
+      log.warn(`[Publish] CF delete failed for ${slug} (continuing): ${cfErr?.message || cfErr}`);
+    }
+  } else {
+    const destDir = path.join(config.publishedRoot, slug);
+    await fs.rm(destDir, { recursive: true, force: true }).catch(() => {});
+  }
 
   // Remove from Firestore
   await db.collection('published_sites').doc(snapshot.docs[0].id).delete();
@@ -1014,15 +1028,16 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
     command: string,
     cwd = '/home/coder/project',
     step = 'command',
+    timeoutMs?: number,
   ) => {
     try {
-      return await workspaceService.exec(projectId, userId, command, cwd);
+      return await workspaceService.exec(projectId, userId, command, cwd, timeoutMs);
     } catch (error: any) {
       if (!isAgentTransportError(error)) throw error;
 
       log.warn(`[Publish] Agent unavailable during ${step} for ${projectId}, recreating container and retrying once`);
       await workspaceService.getOrCreateContainer(projectId, userId);
-      return await workspaceService.exec(projectId, userId, command, cwd);
+      return await workspaceService.exec(projectId, userId, command, cwd, timeoutMs);
     }
   };
 
@@ -1103,10 +1118,10 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       bun: ['bun run generate', 'npm run generate'],
     };
 
-    const runCommandCandidates = async (commands: string[], step: string) => {
+    const runCommandCandidates = async (commands: string[], step: string, cwd: string = '/home/coder/project') => {
       let lastResult: Awaited<ReturnType<typeof execForPublish>> | null = null;
       for (const command of commands) {
-        const result = await execForPublish(command, '/home/coder/project', `${step}: ${command}`);
+        const result = await execForPublish(command, cwd, `${step}: ${command}`);
         lastResult = result;
         if (result.exitCode === 0) {
           return result;
@@ -1178,6 +1193,11 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
 
     let srcDir: string;
     const projectHostPath = path.join(config.projectsRoot, projectId);
+    // Isolated build dir lives inside the project so it's bind-mounted and
+    // visible from both host and container. The dev server keeps using the
+    // original .next/ etc.; the publish flow operates entirely in here.
+    const buildHostPath = path.join(projectHostPath, '.publish-build');
+    const buildContainerPath = '/home/coder/project/.publish-build';
 
     if (isNuxt) {
       // 4-nuxt. Nuxt requires `nuxi generate` for static pre-rendered output.
@@ -1226,6 +1246,8 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       const hasNodeModules = await fileService.exists(projectId, 'node_modules');
       if (!hasNodeModules && !hasYarnPnp) {
         log.info(`[Publish] Installing dependencies for ${projectId} with ${packageManager}...`);
+        // Install runs in the project root (it produces node_modules there),
+        // which is fine because the running dev server doesn't own node_modules.
         const installResult = await runCommandCandidates(installCommandsByPm[packageManager], 'install deps');
         if (!installResult || installResult.exitCode !== 0) {
           log.error(`[Publish] Dependency install failed for ${projectId}:`, installResult?.stderr || installResult?.stdout);
@@ -1234,28 +1256,42 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
         }
       }
 
-      // 4b. Build project in container (clear .next cache first to avoid stale chunk errors)
-      log.info(`[Publish] Building project ${projectId} for slug "${cleanSlug}"...`);
-      // Clear .next cache from HOST side first — the container rm may fail for root-owned files
-      // (bind-mounted dir: /data/cache/next-build/{id} → container /home/coder/project/.next)
-      const nextCachePath = path.join(config.cacheRoot, 'next-build', projectId);
-      try {
-        const entries = await fs.readdir(nextCachePath).catch(() => []);
-        await Promise.all(entries.map(e =>
-          fs.rm(path.join(nextCachePath, e), { recursive: true, force: true }).catch(() => {})
-        ));
-        log.info(`[Publish] Cleared .next cache on host for ${projectId}`);
-      } catch (e: any) {
-        log.warn(`[Publish] Could not clear .next cache on host: ${e.message}`);
+      // 4a-bis. Set up isolated build dir. We rsync source files into
+      // ./.publish-build/ and symlink node_modules. All build steps run there.
+      // The original project tree (including the dev server's .next/, dist/,
+      // etc.) is never touched, so the live preview stays up and intact while
+      // the publish runs in parallel.
+      log.info(`[Publish] Setting up isolated build dir for ${projectId}...`);
+      // Use tar streaming to copy source files into the isolated dir. We avoid
+      // rsync because it's not in the workspace container. tar respects
+      // --exclude and is universally available in Linux. node_modules is
+      // symlinked separately so we don't duplicate the heaviest dir.
+      const setupCmd = [
+        'rm -rf .publish-build',
+        'mkdir -p .publish-build',
+        "tar -cf - --exclude=.next --exclude=.next-publish --exclude=.vercel --exclude=.publish-build --exclude=node_modules --exclude=dist --exclude=build --exclude=out --exclude=.output --exclude=.git --exclude=.ssr . | tar -xf - -C .publish-build/",
+        'ln -sfn ../node_modules .publish-build/node_modules',
+      ].join(' && ');
+      const setupResult = await execForPublish(setupCmd, '/home/coder/project', 'isolated build setup');
+      if (setupResult.exitCode !== 0) {
+        log.error(`[Publish] Failed to setup build dir for ${projectId}: ${setupResult.stderr || setupResult.stdout}`);
+        res.status(500).json({ error: 'Failed to setup build', stderr: (setupResult.stderr || setupResult.stdout)?.substring(0, 500) });
+        return;
       }
-      // For Next.js: patch next.config on the HOST to add output: 'export' for static publishing.
-      // The backend runs as root and has direct access to project files — no container needed.
-      // We restore the original config after the build regardless of success/failure.
+
+      // 4b. Build project in the isolated dir.
+      log.info(`[Publish] Building project ${projectId} for slug "${cleanSlug}"...`);
+      // For Next.js: when publishing statically (provider=self), patch
+      // next.config to add output: 'export'. For Cloudflare we let
+      // next-on-pages handle the full SSR/API bundle, no patch needed.
+      // The patches operate on the isolated build dir so the original
+      // project files (and the running dev server) are never touched.
+      const useNextOnPages = isNextJs && config.publishProvider === 'cloudflare';
       let nextConfigRestore: { path: string; mode: 'restore' | 'delete'; original?: string } | null = null;
-      if (isNextJs) {
+      if (isNextJs && !useNextOnPages) {
         let configFound = false;
         for (const name of ['next.config.ts', 'next.config.mjs', 'next.config.js']) {
-          const cfgPath = path.join(projectHostPath, name);
+          const cfgPath = path.join(buildHostPath, name);
           try {
             const content = await fs.readFile(cfgPath, 'utf8');
             configFound = true;
@@ -1263,19 +1299,16 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
               log.info(`[Publish] ${name} already has output: 'export'`);
               break;
             }
-            // First try: inject output into object-literal export/module config.
             let patched = content.replace(
               /(const\s+\w[\w<>:, ]*\s*=\s*\{|module\.exports\s*=\s*\{|export\s+default\s*\{)/,
               "$1\n  output: 'export',"
             );
-            // Fallback for "export default nextConfig" style files.
             if (patched === content) {
               patched = content.replace(
                 /export\s+default\s+([A-Za-z_$][\w$]*)\s*;?/,
                 "$1.output = 'export';\nexport default $1"
               );
             }
-            // Fallback for "module.exports = nextConfig" style files.
             if (patched === content) {
               patched = content.replace(
                 /module\.exports\s*=\s*([A-Za-z_$][\w$]*)\s*;?/,
@@ -1285,30 +1318,33 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
             if (patched !== content) {
               nextConfigRestore = { path: cfgPath, mode: 'restore', original: content };
               await fs.writeFile(cfgPath, patched, 'utf8');
-              log.info(`[Publish] Patched ${name} with output: 'export' for static build`);
+              log.info(`[Publish] Patched ${name} with output: 'export' (in build dir)`);
             } else {
-              log.warn(`[Publish] Could not auto-patch ${name}; build may require manual output: 'export'`);
+              log.warn(`[Publish] Could not auto-patch ${name}`);
             }
             break;
-          } catch { /* config file not found, try next */ }
+          } catch { /* try next */ }
         }
-
-        // No next.config file at all: create a temporary one for static export.
         if (!configFound) {
-          const createdPath = path.join(projectHostPath, 'next.config.mjs');
-          const createdContent = "const nextConfig = {\n  output: 'export',\n};\n\nexport default nextConfig;\n";
-          await fs.writeFile(createdPath, createdContent, 'utf8');
+          const createdPath = path.join(buildHostPath, 'next.config.mjs');
+          await fs.writeFile(
+            createdPath,
+            "const nextConfig = {\n  output: 'export',\n};\n\nexport default nextConfig;\n",
+            'utf8'
+          );
           nextConfigRestore = { path: createdPath, mode: 'delete' };
-          log.info('[Publish] Created temporary next.config.mjs with output: export');
+          log.info('[Publish] Created temporary next.config.mjs (build dir, export mode)');
         }
       }
 
       // For Vite: patch vite.config to set base: '/p/{slug}/' so all asset paths
       // (including dynamic imports in JS) resolve correctly under the published subdirectory.
+      // SKIP for Cloudflare: each app lives at the root of <slug>.drape.info, no subpath.
+      // Patches operate on the isolated build dir.
       let viteConfigRestore: { path: string; original: string } | null = null;
-      if (isVite) {
+      if (isVite && config.publishProvider !== 'cloudflare') {
         for (const name of ['vite.config.ts', 'vite.config.mts', 'vite.config.mjs', 'vite.config.js']) {
-          const cfgPath = path.join(projectHostPath, name);
+          const cfgPath = path.join(buildHostPath, name);
           try {
             const content = await fs.readFile(cfgPath, 'utf8');
             if (/base\s*:/.test(content)) {
@@ -1340,25 +1376,22 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
         }
       }
 
-      await fs.rm(path.join(projectHostPath, '.next'), { recursive: true, force: true }).catch(() => {});
-      await fs.rm(path.join(projectHostPath, 'dist'), { recursive: true, force: true }).catch(() => {});
-      await fs.rm(path.join(projectHostPath, 'build'), { recursive: true, force: true }).catch(() => {});
-      await fs.rm(path.join(projectHostPath, 'out'), { recursive: true, force: true }).catch(() => {});
-      await fs.rm(path.join(projectHostPath, '.output'), { recursive: true, force: true }).catch(() => {});
+      // The build dir was just rsync'd fresh, so no leftover output dirs to clean.
 
       // Publish build loop: Next.js static export (output: 'export') fails hard when any
       // Link/router.push references a route that doesn't exist as a page file. In dev that's
       // a runtime 404; here it kills the whole build. We detect PageNotFoundError, generate a
       // minimal stub page for the missing route, and retry. Max 8 iterations so one bad project
       // can't loop forever. Stubs are tracked and removed after the build regardless of outcome.
+      // All stubs land in the isolated build dir, so they never leak into the project tree.
       const createdStubs: string[] = [];
-      let buildResult = await runCommandCandidates(buildCommandsByPm[packageManager], 'build');
-      if (isNextJs) {
-        const hasAppDir = await fs.stat(path.join(projectHostPath, 'app')).then(s => s.isDirectory()).catch(() => false);
-        const hasSrcAppDir = await fs.stat(path.join(projectHostPath, 'src/app')).then(s => s.isDirectory()).catch(() => false);
+      let buildResult = await runCommandCandidates(buildCommandsByPm[packageManager], 'build', buildContainerPath);
+      if (isNextJs && !useNextOnPages) {
+        const hasAppDir = await fs.stat(path.join(buildHostPath, 'app')).then(s => s.isDirectory()).catch(() => false);
+        const hasSrcAppDir = await fs.stat(path.join(buildHostPath, 'src/app')).then(s => s.isDirectory()).catch(() => false);
         const appBase = hasSrcAppDir ? 'src/app' : (hasAppDir ? 'app' : null);
-        const hasPagesDir = await fs.stat(path.join(projectHostPath, 'pages')).then(s => s.isDirectory()).catch(() => false);
-        const hasSrcPagesDir = await fs.stat(path.join(projectHostPath, 'src/pages')).then(s => s.isDirectory()).catch(() => false);
+        const hasPagesDir = await fs.stat(path.join(buildHostPath, 'pages')).then(s => s.isDirectory()).catch(() => false);
+        const hasSrcPagesDir = await fs.stat(path.join(buildHostPath, 'src/pages')).then(s => s.isDirectory()).catch(() => false);
         const pagesBase = hasSrcPagesDir ? 'src/pages' : (hasPagesDir ? 'pages' : null);
 
         for (let attempt = 1; attempt <= 8; attempt++) {
@@ -1377,10 +1410,10 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
             let stubPath: string | null = null;
             let stubContent = '';
             if (appBase) {
-              stubPath = path.join(projectHostPath, appBase, cleanRoute, 'page.tsx');
+              stubPath = path.join(buildHostPath, appBase, cleanRoute, 'page.tsx');
               stubContent = `export default function Page() {\n  return (\n    <main style={{ padding: 48, textAlign: 'center', fontFamily: 'system-ui' }}>\n      <h1 style={{ fontSize: 24, fontWeight: 600 }}>Pagina in arrivo</h1>\n      <p style={{ marginTop: 12, opacity: 0.7 }}>Questa sezione sarà disponibile presto.</p>\n    </main>\n  );\n}\n`;
             } else if (pagesBase) {
-              stubPath = path.join(projectHostPath, pagesBase, `${cleanRoute}.tsx`);
+              stubPath = path.join(buildHostPath, pagesBase, `${cleanRoute}.tsx`);
               stubContent = `export default function Page() {\n  return (\n    <main style={{ padding: 48, textAlign: 'center', fontFamily: 'system-ui' }}>\n      <h1 style={{ fontSize: 24, fontWeight: 600 }}>Pagina in arrivo</h1>\n      <p style={{ marginTop: 12, opacity: 0.7 }}>Questa sezione sarà disponibile presto.</p>\n    </main>\n  );\n}\n`;
             }
             if (!stubPath) break;
@@ -1396,9 +1429,9 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
           }
           if (!wroteAny) break;
 
-          await fs.rm(path.join(projectHostPath, '.next'), { recursive: true, force: true }).catch(() => {});
-          await fs.rm(path.join(projectHostPath, 'out'), { recursive: true, force: true }).catch(() => {});
-          buildResult = await runCommandCandidates(buildCommandsByPm[packageManager], 'build');
+          await fs.rm(path.join(buildHostPath, '.next'), { recursive: true, force: true }).catch(() => {});
+          await fs.rm(path.join(buildHostPath, 'out'), { recursive: true, force: true }).catch(() => {});
+          buildResult = await runCommandCandidates(buildCommandsByPm[packageManager], 'build', buildContainerPath);
         }
       }
 
@@ -1437,11 +1470,80 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
         return;
       }
 
-      // 4c. Detect build output directory on host filesystem.
+      // 4b-bis. For Next.js → Cloudflare: convert the .next build into a CF Workers
+      // bundle via @cloudflare/next-on-pages. Output lands in .vercel/output/static
+      // (assets + _worker.js for SSR/API). Wrangler then uploads that as-is.
+      if (useNextOnPages) {
+        // next-on-pages targets Cloudflare Workers, which only ships the Edge
+        // Runtime — not Node.js. Every dynamic route (API routes, [param]
+        // pages/layouts) must export `runtime = 'edge'`, otherwise the build
+        // refuses with "routes were not configured to run with the Edge Runtime".
+        // We auto-inject it into all candidate files in the isolated build dir,
+        // so the user's source tree stays untouched.
+        log.info(`[Publish] Auto-injecting edge runtime into dynamic routes for ${projectId}...`);
+        const injectEdgeRuntime = async (dir: string): Promise<number> => {
+          let count = 0;
+          const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+          for (const entry of entries) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+              count += await injectEdgeRuntime(full);
+              continue;
+            }
+            if (!/\.(t|j)sx?$/.test(entry.name)) continue;
+            const base = entry.name.replace(/\.(t|j)sx?$/, '');
+            // app router: page/layout/route inside a dynamic [param] segment, OR any /api/ file.
+            const isApiFile = full.includes('/api/') && (base === 'route');
+            const isDynamicSegment = (base === 'page' || base === 'layout' || base === 'route') &&
+              /\[[^\]]+\]/.test(path.dirname(full));
+            if (!isApiFile && !isDynamicSegment) continue;
+            try {
+              const content = await fs.readFile(full, 'utf8');
+              if (/export\s+const\s+runtime\s*=/.test(content)) continue;
+              const patched = `export const runtime = 'edge';\n\n${content}`;
+              await fs.writeFile(full, patched, 'utf8');
+              count++;
+            } catch { /* ignore */ }
+          }
+          return count;
+        };
+        const appBaseForEdge = await fs.stat(path.join(buildHostPath, 'src/app')).then(s => s.isDirectory()).catch(() => false)
+          ? path.join(buildHostPath, 'src/app')
+          : await fs.stat(path.join(buildHostPath, 'app')).then(s => s.isDirectory()).catch(() => false)
+            ? path.join(buildHostPath, 'app')
+            : null;
+        if (appBaseForEdge) {
+          const injected = await injectEdgeRuntime(appBaseForEdge);
+          if (injected > 0) log.info(`[Publish] Injected edge runtime into ${injected} files`);
+        }
+
+        log.info(`[Publish] Running next-on-pages adapter for ${projectId}...`);
+        // First-run downloads ~321 packages (vercel CLI + workers types) so it
+        // can take 3-8 min depending on the project size. 15 min is generous.
+        const nopResult = await execForPublish(
+          'npx --yes @cloudflare/next-on-pages@1',
+          buildContainerPath,
+          'next-on-pages',
+          15 * 60 * 1000,
+        );
+        if (nopResult.exitCode !== 0) {
+          const errorOutput = nopResult.stderr || nopResult.stdout || 'Unknown error';
+          log.error(`[Publish] next-on-pages failed for ${projectId}:`, errorOutput);
+          res.status(500).json({
+            error: 'Next.js → Cloudflare conversion failed',
+            stderr: errorOutput.substring(0, 500),
+          });
+          return;
+        }
+        log.info(`[Publish] next-on-pages output ready at .vercel/output/static`);
+      }
+
+      // 4c. Detect build output directory inside the isolated build dir.
       let outputDir: string | null = null;
       const outputCandidates = [
+        '.vercel/output/static',  // next-on-pages
         '.output/public',
-        '.vercel/output/static',
         'build/web',
         'dist/browser',
         'dist/client',
@@ -1454,7 +1556,7 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
 
       for (const candidate of outputCandidates) {
         try {
-          const stat = await fs.stat(path.join(projectHostPath, candidate));
+          const stat = await fs.stat(path.join(buildHostPath, candidate));
           if (stat.isDirectory()) {
             outputDir = candidate;
             break;
@@ -1467,10 +1569,10 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       if (!outputDir) {
         // Angular fallback: dist/{subdir}/browser
         try {
-          const distEntries = await fs.readdir(path.join(projectHostPath, 'dist'), { withFileTypes: true });
+          const distEntries = await fs.readdir(path.join(buildHostPath, 'dist'), { withFileTypes: true });
           const browserDir = distEntries.find((entry) => entry.isDirectory());
           if (browserDir) {
-            const maybeBrowser = path.join(projectHostPath, 'dist', browserDir.name, 'browser');
+            const maybeBrowser = path.join(buildHostPath, 'dist', browserDir.name, 'browser');
             const stat = await fs.stat(maybeBrowser).catch(() => null);
             if (stat?.isDirectory()) {
               outputDir = path.join('dist', browserDir.name, 'browser');
@@ -1482,15 +1584,14 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       }
 
       if (!outputDir) {
-        // Diagnose: if this is a Next.js project, the build succeeded
-        // (we got past the buildResult check) but didn't produce `out/`.
-        // The most common cause: the app uses server features (API
-        // routes, dynamic SSR, server actions) that prevent static
-        // export, so Next ran the build but emitted server bundle
-        // only. Tell the user exactly what's wrong instead of a
-        // generic "no output".
+        // Diagnose: Next.js project that built successfully but didn't produce
+        // a publishable output dir. With provider=cloudflare we run
+        // next-on-pages which always emits to .vercel/output/static — if THAT
+        // failed we'd have errored earlier. So this branch only fires for
+        // provider=self with a Next.js project using server features that
+        // prevent `output: 'export'` from emitting to `out/`.
         if (isNextJs) {
-          const hasNext = await fileService.exists(projectId, '.next').catch(() => false);
+          const hasNext = await fs.stat(path.join(buildHostPath, '.next')).then(s => s.isDirectory()).catch(() => false);
           if (hasNext) {
             log.warn(`[Publish] Next.js build produced .next/ but no out/ for ${projectId} — likely server-side features prevent static export`);
             res.status(500).json({
@@ -1504,11 +1605,61 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
         return;
       }
 
-      srcDir = path.join(projectHostPath, outputDir);
+      srcDir = path.join(buildHostPath, outputDir);
     } else {
       // 4d. No build step — publish project root directly (HTML/CSS/JS)
       log.info(`[Publish] No build script found, publishing project root for ${projectId}`);
       srcDir = path.join(config.projectsRoot, projectId);
+    }
+
+    // 4e. Cloudflare Pages branch — bypass local /p/{slug} hosting entirely.
+    // We upload the built directory directly; CF handles routing, SSL,
+    // CDN and deployment retention. We skip section 5 (asset rewrite),
+    // 6b (snapshot) and use the per-app subdomain as the canonical URL.
+    let publishedUrl: string;
+    if (config.publishProvider === 'cloudflare') {
+      try {
+        const { url: pagesDevUrl } = await deployStaticSite(cleanSlug, srcDir);
+        log.info(`[Publish] Deployed ${cleanSlug} to Cloudflare Pages: ${pagesDevUrl}`);
+      } catch (cfErr: any) {
+        log.error(`[Publish] Cloudflare deploy failed for ${cleanSlug}: ${cfErr?.message || cfErr}`);
+        res.status(500).json({ error: 'Publish failed (Cloudflare deploy)', stderr: String(cfErr?.message || cfErr).substring(0, 500) });
+        return;
+      }
+      // Best-effort: attach <slug>.{publishDomain} as custom domain. Fails
+      // silently if drape.info isn't on Cloudflare yet — user can still
+      // use the *.pages.dev URL until DNS activation completes.
+      const customDomain = `${cleanSlug}.${config.publishDomain}`;
+      try {
+        await cfAddCustomDomain(cleanSlug, customDomain);
+        log.info(`[Publish] Attached custom domain ${customDomain} to ${cleanSlug}`);
+      } catch (domainErr: any) {
+        log.warn(`[Publish] Could not attach ${customDomain} (zone may not be active yet): ${domainErr?.message || domainErr}`);
+      }
+      publishedUrl = publishedUrlFor(cleanSlug);
+
+      // Save Firestore + audit + respond, then bail — skip the legacy local-publish path.
+      if (db) {
+        const existing = await db.collection('published_sites').doc(cleanSlug).get();
+        const prev = existing.exists ? existing.data() || {} : {};
+        await db.collection('published_sites').doc(cleanSlug).set({
+          projectId,
+          userId,
+          slug: cleanSlug,
+          publishedAt: new Date(),
+          url: publishedUrl,
+          provider: 'cloudflare',
+          title: cleanTitle || prev.title || cleanSlug,
+          description: cleanDescription || prev.description || '',
+          category: cleanCategory || prev.category || 'other',
+          isPublic: typeof isPublic === 'boolean' ? wantsPublic : (prev.isPublic === true),
+          viewCount: typeof prev.viewCount === 'number' ? prev.viewCount : 0,
+          remixOfSlug: prev.remixOfSlug || null,
+        }, { merge: true });
+      }
+      auditService.log({ userId, action: 'publish', resource: projectId, details: `slug: ${cleanSlug} (cloudflare)`, ip: req.ip });
+      res.json({ success: true, url: publishedUrl, slug: cleanSlug });
+      return;
     }
 
     // 5. Copy to published directory using Node.js fs (no shell injection)
@@ -1703,6 +1854,10 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       res.status(500).json({ error: 'Publish failed', stderr: message.substring(0, 500) });
     }
   } finally {
+    // Always clean up the isolated build dir so it doesn't accumulate on disk.
+    // Best-effort: a stale .publish-build is harmless (next publish wipes it).
+    fs.rm(path.join(config.projectsRoot, projectId, '.publish-build'), { recursive: true, force: true }).catch(() => {});
+
     if (shouldResumePreview) {
       setImmediate(async () => {
         try {

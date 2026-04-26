@@ -151,6 +151,15 @@ export const config = {
   neonApiKey: optional('NEON_API_KEY', ''),
   neonOrgId: optional('NEON_ORG_ID', ''),
   neonRegion: optional('NEON_REGION', 'aws-eu-central-1'),
+
+  // Cloudflare Pages (publish backend)
+  cloudflareAccountId: optional('CLOUDFLARE_ACCOUNT_ID', ''),
+  cloudflareApiToken: optional('CLOUDFLARE_API_TOKEN', ''),
+  cloudflareZoneId: optional('CLOUDFLARE_ZONE_ID', ''),
+  // 'self' = current /p/{slug} flow on this VPS; 'cloudflare' = upload to CF Pages.
+  publishProvider: optionalEnum('PUBLISH_PROVIDER', ['self', 'cloudflare'] as const, 'self'),
+  // Apex domain used for <slug>.{publishDomain} URLs when provider=cloudflare.
+  publishDomain: optional('PUBLISH_DOMAIN', 'drape.info'),
   aiBudgetFreeEur: planAiBudgets.free.monthlyBudgetEur,
   aiBudgetGoEur: planAiBudgets.go.monthlyBudgetEur,
   aiBudgetProEur: planAiBudgets.pro.monthlyBudgetEur,

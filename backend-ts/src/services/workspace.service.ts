@@ -667,9 +667,9 @@ class WorkspaceService {
   /**
    * Execute a command inside the container
    */
-  async exec(projectId: string, userId: string, command: string, cwd = '/home/coder/project'): Promise<ExecResult> {
+  async exec(projectId: string, userId: string, command: string, cwd = '/home/coder/project', timeoutMs?: number): Promise<ExecResult> {
     const session = await this.getOrCreateContainer(projectId, userId);
-    return dockerService.exec(session.agentUrl, command, cwd);
+    return dockerService.exec(session.agentUrl, command, cwd, timeoutMs);
   }
 
   /**

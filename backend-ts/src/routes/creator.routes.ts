@@ -8,6 +8,7 @@
 //   POST   /creator/me/profile                        set bio / avatar
 //   GET    /creator/projects/:id/analytics            visits/day, countries, refs
 //   POST   /creator/published/:slug/remix             fork into a new project
+//   POST   /creator/published/:slug/rebind-domain     re-attach <slug>.{publishDomain}
 //   GET    /creator/projects/:id/versions             list snapshots
 //   POST   /creator/projects/:id/rollback/:versionId  republish a past snapshot
 //   POST   /creator/projects/:id/custom-domain        add a custom domain
@@ -26,6 +27,7 @@ import { config } from '../config';
 import { log } from '../utils/logger';
 import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, getLifetimeCreationCounts, incrementCreationCounter } from '../middleware/auth';
 import { getPublishedAnalytics } from '../services/published-analytics.service';
+import { addCustomDomain as cfAddCustomDomain, publishedUrlFor } from '../services/cloudflare-pages.service';
 import { getSql, isDrapeCloudConfigured } from '../services/drape-cloud/client';
 import { auditService } from '../services/audit.service';
 import { asyncHandler } from '../middleware/async-handler';
@@ -119,6 +121,42 @@ creatorRouter.get('/projects/:id/analytics', asyncHandler(async (req: Request, r
   const days = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? '30'), 10) || 30));
   const summary = await getPublishedAnalytics(slug, days);
   res.json({ slug, days, summary });
+}));
+
+// ----------------------------------------------------------------
+// Rebind subdomain — re-attach <slug>.{publishDomain} to a Cloudflare-hosted
+// site. Useful when the apex DNS wasn't active at first publish, so the
+// site lives only on *.pages.dev. Idempotent.
+// ----------------------------------------------------------------
+
+creatorRouter.post('/published/:slug/rebind-domain', asyncHandler(async (req: Request, res: Response) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  const uid = req.userId!;
+  if (!slug) throw new ValidationError('slug required');
+
+  const db = firebaseService.getFirestore();
+  if (!db) return res.status(503).json({ error: 'Firestore unavailable' });
+
+  const siteDoc = await db.collection('published_sites').doc(slug).get();
+  if (!siteDoc.exists) return res.status(404).json({ error: 'Not published' });
+  const site = siteDoc.data()!;
+  if (site.userId !== uid) return res.status(403).json({ error: 'Access denied' });
+  if (site.provider !== 'cloudflare') {
+    return res.status(400).json({ error: 'Custom subdomain rebind only applies to Cloudflare-hosted sites' });
+  }
+
+  const customDomain = `${slug}.${config.publishDomain}`;
+  try {
+    await cfAddCustomDomain(slug, customDomain);
+  } catch (e: any) {
+    log.warn(`[Rebind] ${customDomain} attach failed: ${e?.message || e}`);
+    return res.status(502).json({ error: 'Domain attach failed', detail: String(e?.message || e).slice(0, 300) });
+  }
+
+  const url = publishedUrlFor(slug);
+  await db.collection('published_sites').doc(slug).set({ url }, { merge: true });
+  auditService.log({ userId: uid, action: 'rebind-domain', resource: slug, details: customDomain, ip: req.ip });
+  res.json({ success: true, url, domain: customDomain });
 }));
 
 // ----------------------------------------------------------------
