@@ -108,6 +108,120 @@ async function fetchPublicSites(opts: {
   return all.slice(start, start + opts.limit);
 }
 
+// ----------------------------------------------------------------
+// Thumbnails — server-rendered screenshots of the published site.
+//
+// We avoid leaking user URLs to a 3rd-party screenshot service by
+// proxying through our own backend. Two layers of cache:
+//   1) Process-memory LRU (TTL 6h) for hot slugs.
+//   2) HTTP Cache-Control so the mobile RN <Image> + any CDN in front
+//      of the API will reuse without hitting us.
+//
+// Capture path: Cloudflare Browser Rendering REST API. We already
+// have CF creds for the publish flow, so no new infra. If creds are
+// missing or capture fails, we 302-redirect to image.thum.io as a
+// graceful fallback so the gallery is never blank.
+// ----------------------------------------------------------------
+const THUMB_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+const THUMB_MAX_ENTRIES = 200;
+const thumbCache = new Map<string, { buf: Buffer; ts: number; ct: string }>();
+
+function thumbCacheGet(key: string): { buf: Buffer; ct: string } | null {
+  const hit = thumbCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > THUMB_TTL_MS) {
+    thumbCache.delete(key);
+    return null;
+  }
+  // LRU touch
+  thumbCache.delete(key);
+  thumbCache.set(key, hit);
+  return { buf: hit.buf, ct: hit.ct };
+}
+
+function thumbCacheSet(key: string, buf: Buffer, ct: string) {
+  if (thumbCache.size >= THUMB_MAX_ENTRIES) {
+    const oldest = thumbCache.keys().next().value;
+    if (oldest) thumbCache.delete(oldest);
+  }
+  thumbCache.set(key, { buf, ts: Date.now(), ct });
+}
+
+async function captureScreenshot(targetUrl: string): Promise<{ buf: Buffer; ct: string } | null> {
+  const { cloudflareAccountId, cloudflareApiToken } = config as any;
+  if (!cloudflareAccountId || !cloudflareApiToken) return null;
+  try {
+    const r = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${cloudflareAccountId}/browser-rendering/screenshot`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${cloudflareApiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: targetUrl,
+          viewport: { width: 1200, height: 1600 },
+          screenshotOptions: { type: 'jpeg', quality: 78, fullPage: false },
+          gotoOptions: { waitUntil: 'networkidle0', timeout: 15000 },
+        }),
+      },
+    );
+    if (!r.ok) {
+      log.warn(`[Explore] CF screenshot ${r.status} for ${targetUrl}`);
+      return null;
+    }
+    const ct = r.headers.get('content-type') || 'image/jpeg';
+    const ab = await r.arrayBuffer();
+    return { buf: Buffer.from(ab), ct };
+  } catch (e: any) {
+    log.warn(`[Explore] CF screenshot failed: ${e?.message || e}`);
+    return null;
+  }
+}
+
+exploreRouter.get('/api/explore/thumb/:slug', async (req: Request, res: Response) => {
+  const slug = String(req.params.slug || '').toLowerCase().trim();
+  if (!/^[a-z0-9-]{1,80}$/.test(slug)) {
+    return res.status(400).json({ error: 'Invalid slug' });
+  }
+  try {
+    const db = firebaseService.getFirestore();
+    if (!db) return res.status(503).json({ error: 'Storage unavailable' });
+
+    const snap = await db.collection('published_sites').where('slug', '==', slug).limit(1).get();
+    if (snap.empty) return res.status(404).json({ error: 'Not found' });
+    const d = snap.docs[0].data();
+    if (d.isPublic !== true) return res.status(404).json({ error: 'Not found' });
+
+    const targetUrl: string = d.url || `${config.publicUrl}/p/${slug}`;
+
+    const cached = thumbCacheGet(slug);
+    if (cached) {
+      res.set('Content-Type', cached.ct);
+      res.set('Cache-Control', 'public, max-age=21600, s-maxage=21600, stale-while-revalidate=86400');
+      return res.send(cached.buf);
+    }
+
+    const shot = await captureScreenshot(targetUrl);
+    if (!shot) {
+      // Fallback: redirect to a public screenshot service. Not ideal
+      // (leaks URL), but the alternative is a broken card.
+      const fallback = `https://image.thum.io/get/width/600/crop/800/${targetUrl.replace(/^https?:\/\//, '')}`;
+      res.set('Cache-Control', 'public, max-age=600');
+      return res.redirect(302, fallback);
+    }
+
+    thumbCacheSet(slug, shot.buf, shot.ct);
+    res.set('Content-Type', shot.ct);
+    res.set('Cache-Control', 'public, max-age=21600, s-maxage=21600, stale-while-revalidate=86400');
+    res.send(shot.buf);
+  } catch (e: any) {
+    log.error(`[Explore] thumb failed: ${e?.message || e}`);
+    res.status(500).json({ error: 'Thumb failed' });
+  }
+});
+
 // GET /api/explore — JSON for the mobile app
 exploreRouter.get('/api/explore', async (req: Request, res: Response) => {
   try {

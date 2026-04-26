@@ -8,6 +8,8 @@ import { EnvVarsView } from '../../features/terminal/components/views/EnvVarsVie
 import { TasksView } from '../../features/terminal/components/views/TasksView';
 import { ShellView } from '../../features/terminal/components/views/ShellView';
 import { DatabaseView } from '../../features/terminal/components/views/DatabaseView';
+import { InsightsView } from '../../features/terminal/components/views/InsightsView';
+import { PluginsView } from '../../features/terminal/components/views/PluginsView';
 import { BuildReportView } from '../../features/terminal/components/views/BuildReportView';
 import { InteractiveTerminalView } from '../../features/terminal/components/views/InteractiveTerminalView';
 import type { Tab } from '../../core/tabs/tabStore';
@@ -64,6 +66,10 @@ export const WorkspaceTabContent: React.FC<Props> = ({ tab, isActive = true }) =
       return <BuildReportView tab={tab} />;
     case 'database':
       return <DatabaseView tab={tab} />;
+    case 'insights':
+      return <InsightsView tab={tab} />;
+    case 'plugins':
+      return <PluginsView tab={tab} />;
     default:
       return null;
   }

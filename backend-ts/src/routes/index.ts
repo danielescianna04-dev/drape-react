@@ -19,6 +19,7 @@ import { createDrapeCloudRouter } from './drape-cloud.routes';
 import { filesBrowseRouter } from './files-browse.routes';
 import { exploreRouter } from './explore.routes';
 import { creatorRouter } from './creator.routes';
+import { skillsRouter } from './skills.routes';
 import { createPreviewProxy, createAssetProxy, createSubdomainPreviewProxy } from '../middleware/vm-router';
 import { config } from '../config';
 import { requireAuth } from '../middleware/auth';
@@ -191,6 +192,9 @@ export function mountRoutes(app: Express): void {
   // Creator — owner-side platform operations (analytics, remix,
   // versions, custom domains, profile/username).
   app.use('/creator', requireAuth, creatorRouter);
+
+  // Skills (Plugins) — user-invokable AI prompt presets + marketplace.
+  app.use('/skills', requireAuth, skillsRouter);
 
   // Root info — public
   app.get('/', (req, res) => {

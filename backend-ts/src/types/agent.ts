@@ -11,6 +11,8 @@ export interface AgentOptions {
   model?: string;
   prompt?: string;
   systemPromptOverride?: string;
+  /** Skill (plugin) prompt body — prepended to system prompt for this run. */
+  skillPromptPrefix?: string;
   userId?: string;
   userPlan?: string;
   conversationHistory?: ChatMessage[];

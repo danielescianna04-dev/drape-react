@@ -50,9 +50,40 @@ interface DomainRow {
   lastError: string | null;
 }
 
-export const ProjectInsightsSheet: React.FC<Props> = ({ visible, onClose, projectId }) => {
+// Reusable body — used both as a bottom sheet and as a full-page tab.
+export const ProjectInsightsContent: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [tab, setTab] = useState<Tab>('analytics');
+  return (
+    <>
+      <View style={s.tabs}>
+        {([
+          { id: 'analytics', label: 'Analytics', icon: 'stats-chart-outline' },
+          { id: 'versions', label: 'Versioni', icon: 'time-outline' },
+          { id: 'domain', label: 'Dominio', icon: 'globe-outline' },
+        ] as const).map(t => {
+          const active = tab === t.id;
+          return (
+            <TouchableOpacity
+              key={t.id}
+              style={[s.tab, active && s.tabActive]}
+              onPress={() => setTab(t.id)}
+            >
+              <Ionicons name={t.icon as any} size={14} color={active ? '#0a0a0c' : 'rgba(255,255,255,0.7)'} />
+              <Text style={[s.tabText, active && s.tabTextActive]}>{t.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        {tab === 'analytics' && <AnalyticsTab projectId={projectId} />}
+        {tab === 'versions' && <VersionsTab projectId={projectId} />}
+        {tab === 'domain' && <DomainTab projectId={projectId} />}
+      </ScrollView>
+    </>
+  );
+};
 
+export const ProjectInsightsSheet: React.FC<Props> = ({ visible, onClose, projectId }) => {
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={s.overlay}>
@@ -63,32 +94,7 @@ export const ProjectInsightsSheet: React.FC<Props> = ({ visible, onClose, projec
               <Ionicons name="close" size={20} color="#fff" />
             </TouchableOpacity>
           </View>
-
-          <View style={s.tabs}>
-            {([
-              { id: 'analytics', label: 'Analytics', icon: 'stats-chart-outline' },
-              { id: 'versions', label: 'Versioni', icon: 'time-outline' },
-              { id: 'domain', label: 'Dominio', icon: 'globe-outline' },
-            ] as const).map(t => {
-              const active = tab === t.id;
-              return (
-                <TouchableOpacity
-                  key={t.id}
-                  style={[s.tab, active && s.tabActive]}
-                  onPress={() => setTab(t.id)}
-                >
-                  <Ionicons name={t.icon as any} size={14} color={active ? '#0a0a0c' : 'rgba(255,255,255,0.7)'} />
-                  <Text style={[s.tabText, active && s.tabTextActive]}>{t.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-            {tab === 'analytics' && <AnalyticsTab projectId={projectId} />}
-            {tab === 'versions' && <VersionsTab projectId={projectId} />}
-            {tab === 'domain' && <DomainTab projectId={projectId} />}
-          </ScrollView>
+          <ProjectInsightsContent projectId={projectId} />
         </View>
       </View>
     </Modal>

@@ -17,15 +17,52 @@ const getDeviceType = (): string => {
   return minDim >= 600 ? 'tablet' : 'phone';
 };
 
-function trackEvent(type: string, data?: Record<string, string>) {
+type AnalyticsValue = string | number | boolean | null | undefined;
+
+function normalizeEventPayload(type: string, data?: Record<string, AnalyticsValue>): Record<string, AnalyticsValue> {
+  const payload: Record<string, AnalyticsValue> = { ...(data || {}) };
+
+  if (type === 'schermata' && payload.schermata && !payload.screen) {
+    payload.screen = payload.schermata;
+  }
+
+  const isError = type === 'error'
+    || type === 'app_error'
+    || type === 'errore_app'
+    || type.startsWith('errore_')
+    || type.endsWith('_error');
+
+  if (isError) {
+    const message = payload.errorMessage || payload.messaggio_errore || payload.messaggio || payload.message;
+    const context = payload.context || payload.contesto;
+
+    if (message) {
+      const normalized = String(message).substring(0, 200);
+      payload.errorMessage = normalized;
+      payload.messaggio = payload.messaggio || normalized;
+      payload.messaggio_errore = payload.messaggio_errore || normalized;
+    }
+
+    if (context) {
+      const normalized = String(context).substring(0, 100);
+      payload.context = normalized;
+      payload.contesto = payload.contesto || normalized;
+    }
+  }
+
+  return payload;
+}
+
+function trackEvent(type: string, data?: Record<string, AnalyticsValue>) {
   // GDPR: skip tracking if user has not given analytics consent
   if (!isConsentGranted('analytics')) return;
 
   const user = auth.currentUser;
   if (!user) return;
+  const payload = normalizeEventPayload(type, data);
   addDoc(collection(db, 'user_events'), {
     type,
-    ...data,
+    ...payload,
     userId: user.uid,
     platform: Platform.OS,
     deviceType: getDeviceType(),
@@ -68,13 +105,13 @@ export async function tracciaEliminaAccount() {
 }
 
 export function tracciaErrore(messaggio: string, contesto: string) {
-  trackEvent('errore_app', { messaggio: messaggio.substring(0, 200), contesto });
+  trackEvent('errore_app', { messaggio, contesto });
 }
 
 // ── Navigazione ─────────────────────────────────────
 
 export function tracciaSchermata(schermata: string) {
-  trackEvent('schermata', { schermata });
+  trackEvent('schermata', { schermata, screen: schermata });
 }
 
 // ── Progetti ────────────────────────────────────────
@@ -632,4 +669,3 @@ export function tracciaErroreCambioBranch(branch: string, messaggio: string) {
 export function tracciaErroreCreazioneBranch(branch: string, messaggio: string) {
   trackEvent('errore_creazione_branch', { branch: branch.substring(0, 100), messaggio: messaggio.substring(0, 200) });
 }
-

@@ -75,6 +75,28 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
     }
   }, [api, dbPath, fkCache, fkLoading]);
 
+  const apiRef = React.useRef(api);
+  apiRef.current = api;
+
+  const loadRows = useCallback(async (pageNum: number, append = false) => {
+    try {
+      if (append) setIsLoadingMore(true);
+      else setIsLoading(true);
+      const data = await apiRef.current.getRows(dbPath, table, pageNum, 50, undefined, isUsersTable ? { includeAnonymous: showAnonymous } : undefined);
+      setColumns((data.columns || []).filter((c: string) => c !== 'rowid'));
+      setTotal(data.total || 0);
+      setTotalAll(typeof data.totalAll === 'number' ? data.totalAll : null);
+      if (append) setRows(prev => [...prev, ...data.rows]);
+      else setRows(data.rows || []);
+      setError(null);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+      setIsLoadingMore(false);
+    }
+  }, [dbPath, table, isUsersTable, showAnonymous]);
+
   const openAddModal = useCallback(() => {
     const init: Record<string, string> = {};
     editableColumns.forEach((c) => { init[c] = ''; });
@@ -103,28 +125,6 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
       setCreating(false);
     }
   }, [api, dbPath, table, newRowValues, loadRows]);
-
-  const apiRef = React.useRef(api);
-  apiRef.current = api;
-
-  const loadRows = useCallback(async (pageNum: number, append = false) => {
-    try {
-      if (append) setIsLoadingMore(true);
-      else setIsLoading(true);
-      const data = await apiRef.current.getRows(dbPath, table, pageNum, 50, undefined, isUsersTable ? { includeAnonymous: showAnonymous } : undefined);
-      setColumns((data.columns || []).filter((c: string) => c !== 'rowid'));
-      setTotal(data.total || 0);
-      setTotalAll(typeof data.totalAll === 'number' ? data.totalAll : null);
-      if (append) setRows(prev => [...prev, ...data.rows]);
-      else setRows(data.rows || []);
-      setError(null);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-      setIsLoadingMore(false);
-    }
-  }, [dbPath, table, isUsersTable, showAnonymous]);
 
   useEffect(() => { setPage(0); loadRows(0); }, [dbPath, table, showAnonymous]);
 

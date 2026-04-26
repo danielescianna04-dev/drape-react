@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type TabType = 'terminal' | 'file' | 'chat' | 'settings' | 'github' | 'browser' | 'preview' | 'tasks' | 'shell' | 'database' | 'pty' | 'envVars' | 'buildReport';
+export type TabType = 'terminal' | 'file' | 'chat' | 'settings' | 'github' | 'browser' | 'preview' | 'tasks' | 'shell' | 'database' | 'pty' | 'envVars' | 'buildReport' | 'insights' | 'plugins';
 
 export interface Tab {
   id: string;
@@ -186,9 +186,13 @@ export const useTabStore = create<TabStore>((set, get) => ({
     const { savedProjects } = get();
     const saved = savedProjects[projectId];
     if (saved && saved.tabs.length > 0) {
+      // Always land on a chat tab when re-entering a project, regardless of
+      // which tab was active last time. Falls back to the first tab only if
+      // no chat tab exists at all.
+      const chatTab = saved.tabs.find(t => t.type === 'chat');
       set({
         tabs: saved.tabs,
-        activeTabId: saved.activeTabId || saved.tabs[0]?.id || null,
+        activeTabId: chatTab?.id || saved.tabs[0]?.id || null,
       });
     } else {
       // No saved state — start with a fresh chat tab

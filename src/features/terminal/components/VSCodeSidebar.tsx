@@ -63,6 +63,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const previewViewportMode = useUIStore((state) => state.previewViewportMode);
   const previewHandlers = useUIStore((state) => state.previewHandlers);
   const previewPublishInfo = useUIStore((state) => state.previewPublishInfo);
+  const setPreviewPublishInfo = useUIStore((state) => state.setPreviewPublishInfo);
   const previewNeedsReload = useUIStore((state) => state.previewNeedsReload);
   const setPreviewNeedsReload = useUIStore((state) => state.setPreviewNeedsReload);
   const databaseBackHandler = useUIStore((state) => state.databaseBackHandler);
@@ -112,6 +113,32 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const openEnvVarsRequestId = useUIStore((state) => state.openEnvVarsRequestId);
   const flyMachineId = useUIStore((state) => state.flyMachineId);
   const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
+
+  // The publish-info global is shared across the whole sidebar. When the
+  // active project changes, clear it immediately so the toolbar doesn't
+  // claim a different project's publication, then re-fetch from backend.
+  const projectIdForPublish = currentWorkstation?.projectId || currentWorkstation?.id;
+  React.useEffect(() => {
+    setPreviewPublishInfo(null);
+    if (!projectIdForPublish) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const headers = await getAuthHeaders();
+        const r = await fetch(
+          `${config.apiUrl}/fly/project/${projectIdForPublish}/published`,
+          { headers },
+        );
+        const data = await r.json();
+        if (cancelled) return;
+        if (data?.published && data.slug && data.url) {
+          setPreviewPublishInfo({ slug: data.slug, url: data.url });
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [projectIdForPublish, setPreviewPublishInfo]);
+
   const lastHandledPreviewRequestId = useRef(0);
   const lastHandledGitRequestId = useRef(0);
   const lastHandledEnvVarsRequestId = useRef(0);

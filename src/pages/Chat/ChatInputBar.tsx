@@ -12,6 +12,7 @@ import { SafeText } from '../../shared/components/SafeText';
 import { AppColors } from '../../shared/theme/colors';
 import { canUseModel } from '../../core/entitlements/planEntitlements';
 import { useAuthStore } from '../../core/auth/authStore';
+import { SlashMenu } from './SlashMenu';
 
 // ── AI Models ───────────────────────────────────────────────────────
 // Icon components
@@ -211,6 +212,9 @@ export const ChatInputBar = React.memo(({
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* ── Slash menu (active when input starts with `/`) ── */}
+        <SlashMenu value={input} onSelect={(v) => onChangeText(v)} />
 
         {/* ── Main Input Row ── */}
         <View collapsable={false} style={styles.inputRow}>

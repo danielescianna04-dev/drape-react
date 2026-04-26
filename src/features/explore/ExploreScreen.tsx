@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
   RefreshControl, ScrollView, TextInput, Alert, Animated as RNAnimated,
+  Image, Dimensions,
 } from 'react-native';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -141,46 +142,63 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onClose }) => {
     }
   }, [apiBase, remixingSlug, onClose]);
 
-  const renderItem = useCallback(({ item }: { item: ExploreItem }) => (
-    <View style={styles.cardWrap}>
-      <View style={[styles.cardInner, isLiquidGlassSupported && { backgroundColor: 'transparent' }]}>
+  const renderItem = useCallback(({ item }: { item: ExploreItem }) => {
+    const shotUrl = `${apiBase}/api/explore/thumb/${encodeURIComponent(item.slug)}`;
+    const catMeta = CATEGORIES.find(c => c.id === item.category) || CATEGORIES[CATEGORIES.length - 1];
+    const isRemixing = remixingSlug === item.slug;
+    return (
+      <View style={styles.cardWrap}>
         <TouchableOpacity
-          style={styles.cardMain}
-          activeOpacity={0.85}
+          style={styles.card}
+          activeOpacity={0.88}
           onPress={() => WebBrowser.openBrowserAsync(item.url)}
         >
-          <View style={styles.projectIcon}>
-            <Ionicons
-              name={(CATEGORIES.find(c => c.id === item.category)?.icon || 'globe-outline') as any}
-              size={22}
-              color="#A78BFA"
+          <View style={styles.posterWrap}>
+            <Image source={{ uri: shotUrl }} style={styles.poster} resizeMode="cover" />
+            <LinearGradient
+              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.35)']}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
             />
+            <View style={styles.posterBadge}>
+              <Ionicons name={catMeta.icon as any} size={11} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.posterBadgeLabel} numberOfLines={1}>{catMeta.label}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.posterAction}
+              onPress={() => handleRemix(item)}
+              disabled={isRemixing}
+              activeOpacity={0.85}
+            >
+              <LinearGradient
+                colors={['#B79EFF', '#8B6BFF']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.posterActionInner}
+              >
+                {isRemixing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="git-branch" size={17} color="#fff" />
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
-          <View style={styles.projectInfo}>
-            <Text style={styles.projectName} numberOfLines={1}>{item.title}</Text>
-            <View style={styles.projectMetaRow}>
-              <Text style={styles.projectLang} numberOfLines={1}>
-                {item.authorUsername ? `@${item.authorUsername}` : 'creator anonimo'}
+          <View style={styles.cardFooter}>
+            <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
+            <View style={styles.cardMetaRow}>
+              <Text style={styles.cardAuthor} numberOfLines={1}>
+                {item.authorUsername ? `@${item.authorUsername}` : 'anonimo'}
               </Text>
-              <View style={styles.metaDot} />
-              <Text style={styles.projectTime}>{item.viewCount} 👁</Text>
+              <View style={styles.cardMetaDot} />
+              <Ionicons name="eye-outline" size={12} color="rgba(255,255,255,0.5)" />
+              <Text style={styles.cardViews}>{item.viewCount}</Text>
             </View>
           </View>
-          <TouchableOpacity
-            style={styles.remixBtn}
-            onPress={() => handleRemix(item)}
-            disabled={remixingSlug === item.slug}
-          >
-            {remixingSlug === item.slug ? (
-              <ActivityIndicator size="small" color="#A78BFA" />
-            ) : (
-              <Ionicons name="git-branch-outline" size={18} color="#A78BFA" />
-            )}
-          </TouchableOpacity>
         </TouchableOpacity>
       </View>
-    </View>
-  ), [handleRemix, remixingSlug]);
+    );
+  }, [handleRemix, remixingSlug]);
 
   return (
     <View style={styles.container}>
@@ -284,6 +302,8 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onClose }) => {
         data={filteredItems}
         keyExtractor={i => i.slug}
         renderItem={renderItem}
+        numColumns={2}
+        columnWrapperStyle={styles.columnWrap}
         ListEmptyComponent={!loading ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>Ancora nessuna app pubblica</Text>
@@ -393,64 +413,103 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 80,
   },
+  columnWrap: {
+    gap: 12,
+    marginBottom: 16,
+    justifyContent: 'flex-start',
+  },
   cardWrap: {
-    marginBottom: 10,
+    flexBasis: '48.5%',
+    flexGrow: 0,
+    flexShrink: 0,
   },
-  cardInner: {
-    backgroundColor: 'rgba(20,20,22,0.5)',
-    borderRadius: 14,
+  card: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 18,
+    overflow: 'hidden',
   },
-  cardMain: {
+  posterWrap: {
+    width: '100%',
+    aspectRatio: 3 / 4,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    position: 'relative',
+  },
+  poster: {
+    width: '100%',
+    height: '100%',
+  },
+  posterBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 100,
+    backgroundColor: 'rgba(12,8,22,0.65)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
-  projectIcon: {
-    width: 32,
-    height: 32,
+  posterBadgeLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.92)',
+    letterSpacing: 0.1,
+  },
+  posterAction: {
+    position: 'absolute',
+    right: 10,
+    bottom: -20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    padding: 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    shadowColor: '#7B5BFF',
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  posterActionInner: {
+    flex: 1,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
-  projectInfo: {
-    flex: 1,
+  cardFooter: {
+    paddingHorizontal: 12,
+    paddingTop: 14,
+    paddingBottom: 12,
   },
-  projectName: {
-    fontSize: 16,
+  cardTitle: {
+    fontSize: 15,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 2,
+    marginBottom: 4,
   },
-  projectMetaRow: {
+  cardMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
   },
-  projectLang: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.4)',
-    fontWeight: '400',
-    flex: 1,
+  cardAuthor: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+    flexShrink: 1,
   },
-  metaDot: {
+  cardMetaDot: {
     width: 3,
     height: 3,
     borderRadius: 1.5,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    marginHorizontal: 8,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginHorizontal: 4,
   },
-  projectTime: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.25)',
-    flexShrink: 0,
-  },
-  remixBtn: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-    borderRadius: 18,
-    backgroundColor: 'rgba(167,139,250,0.12)',
+  cardViews: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
   },
   emptyState: {
     alignItems: 'center',

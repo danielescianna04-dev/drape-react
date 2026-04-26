@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, Share, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, Share, Pressable, ScrollView } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
@@ -301,169 +301,146 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
             </>
           ) : (
             <>
-              <Text style={styles.publishModalTitle}>
-                {existingPublish ? t('terminal:publish.updateTitle') : t('terminal:publish.publishTitle')}
-              </Text>
-              <Text style={styles.publishModalSubtitle}>
-                {existingPublish
-                  ? t('terminal:publish.updateSubtitle')
-                  : t('terminal:publish.publishSubtitle')}
-              </Text>
-              <Glass radius={20} tint="input" style={{ marginBottom: 16 }}>
-                <View style={styles.publishSlugRow}>
-                  <Text style={styles.publishSlugPrefix}>drape.info/p/</Text>
-                  {existingPublish ? (
-                    <Text style={[styles.publishSlugInput, { color: 'rgba(255,255,255,0.6)' }]}>
-                      {existingPublish.slug}
-                    </Text>
-                  ) : (
-                    <TextInput
-                      style={styles.publishSlugInput}
-                      value={publishSlug}
-                      onChangeText={(text) => onChangeSlug(text.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      editable={!isPublishing}
-                      placeholder={t('terminal:publish.slugPlaceholder')}
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                    />
-                  )}
+              {/* ─── Hero: status pill + URL prominently ─────────────── */}
+              <View style={styles.editHero}>
+                <View style={styles.editStatusRow}>
+                  <View style={styles.editStatusDot} />
+                  <Text style={styles.editStatusText}>
+                    {existingPublish ? 'PUBBLICATO · ONLINE' : 'NUOVA PUBBLICAZIONE'}
+                  </Text>
                 </View>
-              </Glass>
+                <View style={styles.editUrlRow}>
+                  <Text style={styles.editUrlSlug}>
+                    {existingPublish ? existingPublish.slug : (publishSlug || 'slug')}
+                  </Text>
+                  <Text style={styles.editUrlDomain}>.drape.info</Text>
+                </View>
+              </View>
 
-              {/* Platform metadata */}
-              <Glass radius={16} tint="input" style={{ marginBottom: 10 }}>
+              {/* ─── Group: Indirizzo (only for new publications) ──── */}
+              {!existingPublish && (
+                <>
+                  <Text style={styles.groupLabel}>INDIRIZZO</Text>
+                  <View style={styles.groupCard}>
+                    <View style={styles.row}>
+                      <Text style={styles.rowLabel}>Slug</Text>
+                      <View style={styles.rowValueWrap}>
+                        <TextInput
+                          style={styles.rowInput}
+                          value={publishSlug}
+                          onChangeText={(text) => onChangeSlug(text.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          editable={!isPublishing}
+                          placeholder={t('terminal:publish.slugPlaceholder')}
+                          placeholderTextColor="rgba(255,255,255,0.3)"
+                          textAlign="right"
+                        />
+                      </View>
+                    </View>
+                  </View>
+                </>
+              )}
+
+              {/* ─── Editor card: bozza del post ─────────────────── */}
+              <View style={styles.draftCard}>
                 <TextInput
-                  style={styles.metaInput}
+                  style={styles.draftTitle}
                   value={publishTitle}
                   onChangeText={onChangeTitle}
                   editable={!isPublishing}
-                  placeholder="Titolo (es. Negozio di fiori)"
-                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  placeholder="Dai un titolo"
+                  placeholderTextColor="rgba(255,255,255,0.22)"
                   maxLength={80}
+                  multiline
                 />
-              </Glass>
-              <Glass radius={16} tint="input" style={{ marginBottom: 14 }}>
                 <TextInput
-                  style={[styles.metaInput, styles.metaInputMultiline]}
+                  style={styles.draftDescription}
                   value={publishDescription}
                   onChangeText={onChangeDescription}
                   editable={!isPublishing}
-                  placeholder="Descrizione (cosa fa la tua app)"
-                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  placeholder="Cosa fa la tua app, in due righe."
+                  placeholderTextColor="rgba(255,255,255,0.25)"
                   multiline
                   maxLength={280}
                 />
-              </Glass>
-
-              <View style={styles.categoryRow}>
-                {CATEGORY_OPTIONS.map(opt => {
-                  const active = publishCategory === opt.id;
-                  if (active) {
-                    return (
-                      <TouchableOpacity
-                        key={opt.id}
-                        style={[styles.categoryPill, styles.categoryPillActive]}
-                        onPress={() => !isPublishing && onChangeCategory(opt.id)}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name={opt.icon as any} size={13} color="#0a0a0c" />
-                        <Text style={[styles.categoryPillText, styles.categoryPillTextActive]}>
-                          {opt.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  }
-                  return (
-                    <Glass key={opt.id} radius={999}>
-                      <TouchableOpacity
-                        style={styles.categoryPill}
-                        onPress={() => !isPublishing && onChangeCategory(opt.id)}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name={opt.icon as any} size={13} color="rgba(255,255,255,0.6)" />
-                        <Text style={styles.categoryPillText}>{opt.label}</Text>
-                      </TouchableOpacity>
-                    </Glass>
-                  );
-                })}
+                <View style={styles.draftFooter}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 6, paddingRight: 8 }}
+                  >
+                    {CATEGORY_OPTIONS.map(opt => {
+                      const active = publishCategory === opt.id;
+                      return (
+                        <TouchableOpacity
+                          key={opt.id}
+                          style={[styles.draftChip, active && styles.draftChipActive]}
+                          onPress={() => !isPublishing && onChangeCategory(opt.id)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons
+                            name={opt.icon as any}
+                            size={12}
+                            color={active ? '#0a0a0c' : 'rgba(255,255,255,0.6)'}
+                          />
+                          <Text style={[styles.draftChipText, active && styles.draftChipTextActive]}>
+                            {opt.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
               </View>
 
-              <Glass radius={14} style={{ marginBottom: 14 }}>
+              {/* ─── Group: Visibilità ─────────────────────────────── */}
+              <Text style={styles.groupLabel}>VISIBILITÀ</Text>
+              <View style={styles.groupCard}>
                 <TouchableOpacity
-                  style={styles.publicToggleRow}
+                  style={styles.row}
                   activeOpacity={0.75}
                   onPress={() => !isPublishing && onChangeIsPublic(!publishIsPublic)}
                 >
-                  <View style={styles.publicToggleText}>
-                    <Text style={styles.publicToggleTitle}>Mostra in Explore</Text>
-                    <Text style={styles.publicToggleSub}>
-                      Altri utenti potranno vederla, aprirla e remixarla
-                    </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rowLabel}>Mostra in Explore</Text>
+                    <Text style={styles.rowHint}>Altri utenti potranno aprirla e remixarla</Text>
                   </View>
                   <View style={[styles.toggleTrack, publishIsPublic && styles.toggleTrackOn]}>
                     <View style={[styles.toggleThumb, publishIsPublic && styles.toggleThumbOn]} />
                   </View>
                 </TouchableOpacity>
-              </Glass>
-              {publishIsPublic && (
-                <TouchableOpacity
-                  onPress={() => setShowUsernameModal(true)}
-                  style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -6, marginBottom: 14, paddingHorizontal: 4 }}
-                >
-                  <Ionicons name="at-outline" size={12} color="#A78BFA" />
-                  <Text style={{ color: '#A78BFA', fontSize: 11, fontWeight: '600' }}>
-                    {savedUsername ? `@${savedUsername}` : 'Imposta il tuo @username'}
-                  </Text>
-                </TouchableOpacity>
-              )}
+                {publishIsPublic && (
+                  <>
+                    <View style={styles.rowSeparator} />
+                    <TouchableOpacity
+                      style={styles.row}
+                      onPress={() => setShowUsernameModal(true)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.rowLabel, { flex: 1 }]}>Username</Text>
+                      <View style={styles.rowChevronWrap}>
+                        <Text style={styles.rowChevronValue}>
+                          {savedUsername ? `@${savedUsername}` : 'Imposta'}
+                        </Text>
+                        <Ionicons name="chevron-forward" size={15} color="rgba(255,255,255,0.35)" />
+                      </View>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+
               <UsernameModal
                 visible={showUsernameModal}
                 initialValue={savedUsername || ''}
                 onClose={() => setShowUsernameModal(false)}
                 onSaved={(u) => setSavedUsername(u)}
               />
-              {existingPublish && !isPublishing && (
-                <>
-                  <View style={styles.publishModalActions}>
-                    <TouchableOpacity
-                      style={styles.publishActionButton}
-                      onPress={() => { tracciaUrlPubblicazioneAperto(existingPublish.slug); WebBrowser.openBrowserAsync(existingPublish.url); }}
-                    >
-                      <Ionicons name="open-outline" size={16} color="#fff" />
-                      <Text style={styles.publishActionText}>{t('terminal:publish.openSite')}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.publishActionButton}
-                      onPress={() => { tracciaLinkPubblicazioneCondiviso(existingPublish.slug); Share.share({ url: existingPublish.url, message: existingPublish.url }); }}
-                    >
-                      <Ionicons name="share-outline" size={16} color="#fff" />
-                      <Text style={styles.publishActionText}>{t('terminal:publish.share')}</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <View style={styles.publishModalActions}>
-                    {onOpenInsights && (
-                      <TouchableOpacity
-                        style={[styles.publishActionButton, { backgroundColor: 'rgba(167,139,250,0.15)' }]}
-                        onPress={onOpenInsights}
-                      >
-                        <Ionicons name="stats-chart-outline" size={16} color="#A78BFA" />
-                        <Text style={[styles.publishActionText, { color: '#A78BFA' }]}>Insights</Text>
-                      </TouchableOpacity>
-                    )}
-                    <TouchableOpacity
-                      style={[styles.publishActionButton, { backgroundColor: 'rgba(255, 59, 48, 0.12)' }]}
-                      onPress={() => { tracciaDePubblicato(existingPublish.slug); onUnpublish(); }}
-                    >
-                      <Ionicons name="trash-outline" size={16} color="rgba(255, 59, 48, 0.8)" />
-                      <Text style={[styles.publishActionText, { color: 'rgba(255, 59, 48, 0.8)' }]}>{t('terminal:publish.remove')}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              )}
+
               {publishError && (
                 <Text style={styles.publishError}>{publishError}</Text>
               )}
+
               {isPublishing && (
                 <View style={styles.publishStageCard}>
                   <View style={styles.publishStageIconWrap}>
@@ -478,26 +455,35 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                   <ActivityIndicator size="small" color="#A78BFA" />
                 </View>
               )}
-              <View style={styles.publishModalButtons}>
-                <Glass radius={20} style={{ flex: 1 }}>
-                  <TouchableOpacity
-                    style={styles.publishCancelBtn}
-                    onPress={onClose}
-                    disabled={isPublishing}
-                  >
-                    <Text style={styles.publishCancelBtnText}>{t('terminal:publish.cancel')}</Text>
-                  </TouchableOpacity>
-                </Glass>
-                <TouchableOpacity
-                  style={[styles.publishConfirmBtn, isPublishing && { opacity: 0.5 }]}
-                  onPress={onPublish}
-                  disabled={isPublishing || (!existingPublish && !publishSlug.trim())}
-                >
-                  <Ionicons name={existingPublish ? "refresh" : "cloud-upload-outline"} size={16} color="#fff" />
-                  <Text style={styles.publishConfirmBtnText}>
-                    {existingPublish ? t('terminal:publish.update') : t('terminal:publish.publish')}
-                  </Text>
+
+              {/* ─── Footer: full-width primary CTA + text links ──── */}
+              <TouchableOpacity
+                style={[styles.primaryCta, isPublishing && { opacity: 0.5 }]}
+                onPress={onPublish}
+                disabled={isPublishing || (!existingPublish && !publishSlug.trim())}
+                activeOpacity={0.85}
+              >
+                <Ionicons name={existingPublish ? 'refresh' : 'cloud-upload-outline'} size={17} color="#fff" />
+                <Text style={styles.primaryCtaText}>
+                  {existingPublish ? t('terminal:publish.update') : t('terminal:publish.publish')}
+                </Text>
+              </TouchableOpacity>
+
+              <View style={styles.footerLinkRow}>
+                <TouchableOpacity onPress={onClose} disabled={isPublishing} hitSlop={8}>
+                  <Text style={styles.footerLinkNeutral}>{t('terminal:publish.cancel')}</Text>
                 </TouchableOpacity>
+                {existingPublish && !isPublishing && (
+                  <>
+                    <View style={styles.footerLinkSeparator} />
+                    <TouchableOpacity
+                      onPress={() => { tracciaDePubblicato(existingPublish.slug); onUnpublish(); }}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.footerLinkDanger}>{t('terminal:publish.remove')}</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
             </>
           )}
@@ -546,6 +532,258 @@ const styles = StyleSheet.create({
   publishSlugPrefix: {
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.4)',
+  },
+  publishSlugSuffix: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.4)',
+    marginLeft: 2,
+  },
+  unpublishLink: {
+    alignSelf: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    marginTop: 4,
+  },
+  unpublishLinkText: {
+    fontSize: 12,
+    color: 'rgba(255, 59, 48, 0.7)',
+    fontWeight: '500',
+  },
+
+  // ─── Settings-style edit layout ────────────────────────────────────
+  editHero: {
+    paddingTop: 4,
+    paddingBottom: 22,
+    alignItems: 'flex-start',
+  },
+  editStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  editStatusDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: '#00D084',
+  },
+  editStatusText: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+  },
+  editUrlRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  editUrlSlug: {
+    color: '#fff',
+    fontSize: 26,
+    fontWeight: '700',
+    letterSpacing: -0.6,
+  },
+  editUrlDomain: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 17,
+    fontWeight: '500',
+    letterSpacing: -0.3,
+  },
+
+  groupLabel: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+    marginTop: 4,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  groupCard: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 18,
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    minHeight: 46,
+  },
+  rowStacked: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  rowSeparator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    marginLeft: 14,
+  },
+  rowLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  rowHint: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  rowValueWrap: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  rowInput: {
+    color: '#fff',
+    fontSize: 14,
+    padding: 0,
+  },
+  rowMultilineInput: {
+    color: '#fff',
+    fontSize: 14,
+    padding: 0,
+    marginTop: 8,
+    minHeight: 50,
+    textAlignVertical: 'top',
+    lineHeight: 19,
+  },
+  rowChevronWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  rowChevronValue: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+  },
+
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+  },
+  categoryGridChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  categoryGridChipActive: {
+    backgroundColor: '#A78BFA',
+    borderColor: '#A78BFA',
+  },
+  categoryGridChipText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  categoryGridChipTextActive: {
+    color: '#0a0a0c',
+    fontWeight: '700',
+  },
+
+  // ─── Draft editor card ───────────────────────────────────────────
+  draftCard: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 12,
+    marginBottom: 18,
+  },
+  draftTitle: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: -0.6,
+    lineHeight: 30,
+    padding: 0,
+  },
+  draftDescription: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+    minHeight: 44,
+    textAlignVertical: 'top',
+    padding: 0,
+  },
+  draftFooter: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: -4,
+  },
+  draftChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  draftChipActive: {
+    backgroundColor: '#A78BFA',
+  },
+  draftChipText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  draftChipTextActive: {
+    color: '#0a0a0c',
+    fontWeight: '700',
+  },
+
+  primaryCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 15,
+    borderRadius: 16,
+    backgroundColor: '#A78BFA',
+    marginTop: 6,
+  },
+  primaryCtaText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  footerLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+    paddingTop: 16,
+    paddingBottom: 4,
+  },
+  footerLinkNeutral: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  footerLinkDanger: {
+    color: 'rgba(255,59,48,0.85)',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  footerLinkSeparator: {
+    width: 3, height: 3, borderRadius: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.2)',
   },
   publishSlugInput: {
     flex: 1,

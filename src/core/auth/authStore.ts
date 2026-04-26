@@ -246,16 +246,28 @@ function startPresenceTracking(userId: string) {
 
   startHeartbeat();
 
+  let lastLifecycleEventType: 'app_foreground' | 'app_background' | null = null;
+  let lastLifecycleEventAt = 0;
+  const trackLifecycleEvent = (type: 'app_foreground' | 'app_background') => {
+    if (!isConsentGranted('analytics')) return;
+    const now = Date.now();
+    if (lastLifecycleEventType === type && now - lastLifecycleEventAt < 5000) return;
+    lastLifecycleEventType = type;
+    lastLifecycleEventAt = now;
+    addDoc(collection(db, 'user_events'), {
+      type,
+      userId,
+      timestamp: serverTimestamp()
+    }).catch(() => {});
+  };
+
   // Handle app state changes (background/inactive)
   const appStateSubscription = AppState.addEventListener('change', (state) => {
     if (state === 'background' || state === 'inactive') {
       stopHeartbeat();
       // Delete presence document so server doesn't count user as active
       deleteDoc(presenceRef).catch(() => {});
-      // Track background event (GDPR: no email)
-      addDoc(collection(db, 'user_events'), {
-        type: 'app_background', userId, timestamp: serverTimestamp()
-      }).catch(() => {});
+      trackLifecycleEvent('app_background');
     } else if (state === 'active') {
       // Re-establish presence and restart heartbeat (GDPR: no email)
       setDoc(presenceRef, {
@@ -263,10 +275,7 @@ function startPresenceTracking(userId: string) {
         sessionStart: serverTimestamp(),
       }).catch((err) => console.warn('[Auth] Failed to restore presence on active:', err?.message || err));
       startHeartbeat();
-      // Track foreground event (GDPR: no email)
-      addDoc(collection(db, 'user_events'), {
-        type: 'app_foreground', userId, timestamp: serverTimestamp()
-      }).catch(() => {});
+      trackLifecycleEvent('app_foreground');
 
       // Refresh subscription plan on foreground (catches renewals/cancellations while backgrounded)
       import('../iap/iapStore').then(({ useIAPStore }) => {

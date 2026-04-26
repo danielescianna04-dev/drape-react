@@ -45,6 +45,7 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [expandedNav, setExpandedNav] = useState<Record<string, boolean>>({ chat: true });
   const [folderPickerChat, setFolderPickerChat] = useState<ChatSession | null>(null);
+  const [isPublished, setIsPublished] = useState(false);
   const {
     chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat,
     loadChats, loadFolders, pinChat, unpinChat, moveChatToFolder, deleteFolder,
@@ -379,6 +380,63 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
     useUIStore.getState().requestOpenGitSheet(null);
   }, [tabs, setActiveTab, addTab]);
 
+  const projectIdForPublish = currentWorkstation?.projectId || currentWorkstation?.id;
+
+  useEffect(() => {
+    if (!projectIdForPublish) { setIsPublished(false); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAuthToken();
+        if (!token) return;
+        const r = await fetch(`${config.apiUrl}/fly/project/${projectIdForPublish}/published`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await r.json();
+        if (!cancelled) setIsPublished(!!data?.published);
+      } catch {
+        if (!cancelled) setIsPublished(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectIdForPublish]);
+
+  const handleOpenInsights = useCallback(() => {
+    Keyboard.dismiss();
+    tracciaPannelloAperto('insights' as any);
+    const tabId = `insights-${projectIdForPublish}`;
+    const existing = tabs.find(t => t.id === tabId);
+    if (existing) {
+      setActiveTab(tabId);
+    } else {
+      addTab({
+        id: tabId,
+        type: 'insights' as any,
+        title: 'Insights',
+        data: { projectId: projectIdForPublish },
+      });
+    }
+    handleClose();
+  }, [projectIdForPublish, tabs, setActiveTab, addTab]);
+
+  const handleOpenPlugins = useCallback(() => {
+    Keyboard.dismiss();
+    tracciaPannelloAperto('plugins' as any);
+    const tabId = 'plugins';
+    const existing = tabs.find(t => t.id === tabId);
+    if (existing) {
+      setActiveTab(tabId);
+    } else {
+      addTab({
+        id: tabId,
+        type: 'plugins' as any,
+        title: 'Plugin',
+        data: {},
+      });
+    }
+    handleClose();
+  }, [tabs, setActiveTab, addTab]);
+
   const handleOpenDatabase = useCallback(() => {
     Keyboard.dismiss();
     tracciaPannelloAperto('database');
@@ -679,6 +737,28 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
               </Animated.View>
             )}
 
+            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
+
+            {/* ── Plugin Section (always visible) ── */}
+            {renderNavSectionHeader('plugins', 'cube-outline', 'Plugin')}
+            {expandedNav.plugins && (
+              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
+                {renderActionItem('cube-outline', 'I tuoi plugin + marketplace', handleOpenPlugins)}
+              </Animated.View>
+            )}
+
+            {isPublished && (
+              <>
+                <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
+                {renderNavSectionHeader('insights', 'stats-chart-outline', 'Insights')}
+                {expandedNav.insights && (
+                  <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
+                    {renderActionItem('stats-chart-outline', 'Analytics, versioni, dominio', handleOpenInsights)}
+                  </Animated.View>
+                )}
+              </>
+            )}
+
           </ScrollView>
 
           {/* Bottom close button */}
@@ -763,6 +843,7 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
         }}
         currentFolderId={folderPickerChat?.folderId}
       />
+
     </>
   );
 };

@@ -23,6 +23,8 @@ const PROD_FIREBASE_CONFIG = {
   appId: '1:76009555388:web:09793732ba27903dccd7b9',
 };
 
+// Do not read EXPO_PUBLIC_FIREBASE_* from .env here: local .env is often prod,
+// while dev builds must always point at the isolated drape-dev project.
 const firebaseConfig = IS_DEV ? DEV_FIREBASE_CONFIG : PROD_FIREBASE_CONFIG;
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();

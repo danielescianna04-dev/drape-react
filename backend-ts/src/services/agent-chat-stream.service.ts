@@ -28,8 +28,18 @@ interface RunAgentChatStreamParams {
   prompt: string;
   model: string;
   previewContext?: PreviewContext;
+  /** Markdown body of the active /skill, prepended to the prompt for this turn. */
+  skillBody?: string | null;
+  /** Slash name of the active skill (used in logs only). */
+  skillSlash?: string | null;
   isClientConnected: () => boolean;
   writeSseEvent: (eventType: string, payload: { type: string; [key: string]: unknown }) => void;
+}
+
+/** Prepend the active /skill instructions to the user prompt. */
+function applySkillToPrompt(prompt: string, skillBody?: string | null): string {
+  if (!skillBody) return prompt;
+  return `## Active Skill\n\n${skillBody.trim()}\n\n---\n\n[User request]\n${prompt}`;
 }
 
 export async function runAgentChatStream({
@@ -39,15 +49,21 @@ export async function runAgentChatStream({
   prompt,
   model,
   previewContext,
+  skillBody,
+  skillSlash,
   isClientConnected,
   writeSseEvent,
 }: RunAgentChatStreamParams) {
   const startedAt = Date.now();
   const usedModel = model || 'gemini-3-flash';
+  const promptWithSkill = applySkillToPrompt(prompt, skillBody);
+  if (skillSlash) {
+    log.info(`[Agent/chat] Applying skill /${skillSlash} for project ${projectId} (${(skillBody || '').length} chars)`);
+  }
   const preparedRun = await opencodeContextService.prepareRun({
     projectId,
     userId,
-    prompt,
+    prompt: promptWithSkill,
     previewContext,
   });
   const fullPrompt = preparedRun.prompt;

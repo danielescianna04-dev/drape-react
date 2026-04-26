@@ -235,13 +235,36 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
 
     const container = await dockerService.getDockerContainer(session.containerId);
 
+    // Skill (plugin) detection — if the prompt starts with `/<slash>`, fetch
+    // the user's installed skill body and pass it through. The slash prefix
+    // is stripped from the prompt the model sees.
+    let promptForRun = prompt as string;
+    let skillBody: string | null = null;
+    let skillSlash: string | null = null;
+    const slashMatch = String(prompt || '').match(/^\/([a-z][a-z0-9-]{1,30})(?=\s|$)/);
+    if (slashMatch) {
+      try {
+        const { findInstalledBySlash } = await import('../services/skills.service');
+        const skill = await findInstalledBySlash(userId, slashMatch[1]);
+        if (skill) {
+          skillBody = skill.body;
+          skillSlash = skill.slash;
+          promptForRun = String(prompt).slice(slashMatch[0].length).trimStart();
+        }
+      } catch (err: any) {
+        log.warn(`[Agent/chat] Skill lookup failed for /${slashMatch[1]}: ${err?.message || err}`);
+      }
+    }
+
     await runAgentChatStream({
       container,
       projectId,
       userId,
-      prompt,
+      prompt: promptForRun,
       model: effectiveModel,
       previewContext,
+      skillBody,
+      skillSlash,
       isClientConnected: () => !clientDisconnected && !res.writableEnded,
       writeSseEvent,
     });

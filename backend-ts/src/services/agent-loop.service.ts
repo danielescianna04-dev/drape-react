@@ -45,6 +45,8 @@ export class AgentLoop {
   private thinkingLevel: string | null;
   private taskBudgetTokens: number | null;
   private systemPromptOverride: string | null;
+  /** Optional skill (plugin) prompt prepended to the system prompt for this run. */
+  private skillPromptPrefix: string | null = null;
   private conversationHistory: ChatMessage[];
   private userId: string | null;
   private userPlan: string;
@@ -78,6 +80,7 @@ export class AgentLoop {
     this.mode = options.mode || 'fast';
     this.model = options.model || 'gemini-3-flash';
     this.systemPromptOverride = options.systemPromptOverride || null;
+    this.skillPromptPrefix = options.skillPromptPrefix || null;
     const isClaude = (options.model || 'gemini-3-flash').startsWith('claude');
     if (options.thinkingLevel) {
       this.thinkingLevel = options.thinkingLevel;
@@ -1398,7 +1401,14 @@ IMPORTANT: When the user asks about the database, its content, structure, or dat
 
     const previewContextDirective = this.buildPreviewContextDirective();
 
-    return basePrompt + languageDirective + modelDirective + projectRules + memoryContext + projectContext + sessionInfo + dbDirective + previewContextDirective + this.buildExecutionPlanContext();
+    // Skill (plugin) prefix — appended after the project rules so the user's
+    // active /skill takes priority over generic environment directives but
+    // sits below project-specific instructions in AGENTS.md/CLAUDE.md.
+    const skillBlock = this.skillPromptPrefix
+      ? `\n\n## Active Skill\n\nThe user invoked a skill for this turn. Apply the following directives in addition to your normal behavior:\n\n${this.skillPromptPrefix}\n`
+      : '';
+
+    return basePrompt + languageDirective + modelDirective + projectRules + skillBlock + memoryContext + projectContext + sessionInfo + dbDirective + previewContextDirective + this.buildExecutionPlanContext();
   }
 
   /**
