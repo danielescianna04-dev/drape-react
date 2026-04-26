@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { GlassCard as SystemGlass } from '../../../settings/components/GlassCard';
 import { AppColors } from '../../../../shared/theme/colors';
 import { config } from '../../../../config/config';
 import { getAuthHeaders } from '../../../../core/api/getAuthToken';
@@ -62,38 +62,32 @@ type Section = 'analytics' | 'versions' | 'domain';
 // Reusable Glass card — matches the pattern used in Settings
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Pattern lifted from AllProjectsScreen: outer Liquid Glass with effect="clear"
-// + an inner tinted layer that becomes transparent only when LG is supported.
-// This way the card is *always* visible — either LG glass on iOS 26+, or the
-// rgba tint everywhere else.
 const GlassCard: React.FC<{ children: React.ReactNode; style?: any; innerStyle?: any }> = ({
   children, style, innerStyle,
 }) => {
-  const inner = (
-    <View
-      style={[
-        s.glassInner,
-        isLiquidGlassSupported && { backgroundColor: 'transparent' },
-        innerStyle,
-      ]}
-    >
-      {children}
-    </View>
+  return (
+    <SystemGlass style={[s.glassCard, style]}>
+      <View style={[s.glassInner, s.glassReadableSurface, innerStyle]}>
+        {children}
+      </View>
+    </SystemGlass>
   );
-  if (isLiquidGlassSupported) {
-    return (
-      <LiquidGlassView
-        style={[s.glassCard, style]}
-        interactive
-        effect="clear"
-        colorScheme="dark"
-      >
-        {inner}
-      </LiquidGlassView>
-    );
-  }
-  return <View style={[s.glassCard, style]}>{inner}</View>;
 };
+
+const GlassPill: React.FC<{
+  active?: boolean;
+  onPress: () => void;
+  style?: any;
+  children: React.ReactNode;
+}> = ({ active, onPress, style, children }) => (
+  <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={style}>
+    <SystemGlass style={s.tabGlass}>
+      <View style={[s.tabContent, s.tabReadableSurface, active && s.tabContentActive]}>
+        {children}
+      </View>
+    </SystemGlass>
+  </TouchableOpacity>
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Root
