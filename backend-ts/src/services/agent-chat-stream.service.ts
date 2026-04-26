@@ -61,9 +61,8 @@ export async function runAgentChatStream({
   const toolDigests: Array<{ tool: string; content: string }> = [];
 
   const streamToClient = (event: any) => {
-    if (!isClientConnected()) return;
     const eventType = event.type || 'message';
-    writeSseEvent(eventType, event.data || event);
+    const payload = event.data || event;
 
     if (event.type === 'text_delta') {
       const textChunk = typeof event.data?.text === 'string'
@@ -105,11 +104,16 @@ export async function runAgentChatStream({
       metricsService.trackAIUsage({
         userId,
         model: usedModel,
+        phase: 'other',
         inputTokens: tokensUsed?.input || 0,
         outputTokens: tokensUsed?.output || 0,
         costEur: costEur || 0,
       });
       log.info(`[Agent] Usage tracked: model=${usedModel}, input=${tokensUsed?.input || 0}, output=${tokensUsed?.output || 0}, cost=${costEur || 0}`);
+    }
+
+    if (isClientConnected()) {
+      writeSseEvent(eventType, payload);
     }
   };
 
