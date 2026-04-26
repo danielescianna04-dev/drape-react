@@ -89,6 +89,7 @@ export async function runGeneration(state: PipelineState, ctx: PipelineContext):
         userPlan: ctx.userPlan || 'free',
         conversationHistory: [],
         thinkingLevel: PROJECT_CREATION_THINKING_LEVEL,
+        maxTokens: config.projectGenerationMaxTokens,
         taskBudgetTokens: config.projectGenerationTaskBudgetEnabled ? policy.taskBudgetTokens : undefined,
         usagePhase: 'generation',
       });

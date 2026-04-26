@@ -16,6 +16,7 @@ export interface AgentOptions {
   conversationHistory?: ChatMessage[];
   images?: string[];
   thinkingLevel?: string; // Gemini 3 thinking level: minimal, low, medium, high
+  maxTokens?: number;
   taskBudgetTokens?: number;
   executionPlan?: any;
   previewContext?: any;
