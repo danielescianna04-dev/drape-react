@@ -4,4 +4,7 @@
 
 MESSAGE="${1:-prod update}"
 
+EXPO_PUBLIC_ENV=production \
+EXPO_PUBLIC_API_URL=https://drape.info \
+EXPO_PUBLIC_WS_URL=wss://drape.info \
 eas update --channel production --message "$MESSAGE"

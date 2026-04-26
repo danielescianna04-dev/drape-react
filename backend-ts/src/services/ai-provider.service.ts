@@ -673,7 +673,10 @@ class AIProviderService {
     }
 
     const isFlash = modelConfig.modelId.includes('flash');
-    const levelKey = options?.thinkingLevel || (isFlash ? 'minimal' : 'low');
+    const requestedLevel = options?.thinkingLevel || (isFlash ? 'minimal' : 'low');
+    // Gemini Pro preview returns empty completions when thinking is disabled.
+    // Keep "none" available for Flash, but coerce Pro to low thinking server-side.
+    const levelKey = !isFlash && requestedLevel === 'none' ? 'low' : requestedLevel;
     const thinkingDisabled = levelKey === 'none';
 
     // Flash supports thinkingBudget (0 = off, precise token cap)

@@ -34,7 +34,7 @@ const GoogleIcon = ({ size = 16 }: { size?: number }) => (
 export const AI_MODELS = [
   { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, hasThinking: true, thinkingLevels: ['medium'] },
   { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
-  { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'low', 'high'] },
+  { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['low', 'high'] },
   { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'minimal', 'low', 'medium', 'high'] },
 ] as const;
 
@@ -336,7 +336,7 @@ export const ChatInputBar = React.memo(({
       {showContextInfo && (() => {
         const contextWindows: Record<string, number> = {
           'claude-4-7-opus': 1000000, 'claude-opus-4-7': 1000000, 'claude-4-6-opus': 1000000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
-          'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3.1-pro': 1000000,
+          'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3-0-flash': 1000000, 'gemini-3.1-pro': 1000000, 'gemini-3-1-pro': 1000000,
           'gpt-5-4': 128000, 'glm-5.1': 202752, 'llama-3.3-70b': 128000,
         };
         const windowK = Math.round((contextWindows[selectedModel] || 200000) / 1000);

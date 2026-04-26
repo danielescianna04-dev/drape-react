@@ -5,7 +5,7 @@ const IS_DEV = process.env.EXPO_PUBLIC_ENV === 'development' || process.env.EXPO
 const config: ExpoConfig = {
   name: IS_DEV ? 'Drape Dev' : 'Drape',
   slug: 'drape-react',
-  version: '2.2.0',
+  version: '2.2.1',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
@@ -40,13 +40,13 @@ const config: ExpoConfig = {
         },
       },
     },
-    appleTeamId: '3699SN779P',
+    appleTeamId: 'S84DZA2LR9',
   },
   android: {
     package: IS_DEV ? 'com.drape.app.dev' : 'com.drape.app',
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
-      backgroundColor: '#ffffff',
+      backgroundColor: '#0A0618',
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,

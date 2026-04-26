@@ -8,10 +8,12 @@ import { log } from '../utils/logger';
 import { auditService } from '../services/audit.service';
 import { runAgentChatStream } from '../services/agent-chat-stream.service';
 import { fileService } from '../services/file.service';
-import { config as appConfig } from '../config';
+import { config as appConfig, planAiBudgets } from '../config';
 import { BuildReportTracker } from '../services/build-report.service';
 import { runAgentProjectCreation } from '../services/agent-project-creation.service';
 import { verifyAndFixProject } from '../services/verify-project.service';
+import { metricsService } from '../services/metrics.service';
+import { canUseModel, normalizePlan } from '../services/plan-entitlements';
 import { getAgentModeFromPath, setupAgentSse } from './agentSse';
 import { clearPlan, getStoredPlan, storePlan, updateStoredPlan } from './agentPlanStore';
 import {
@@ -24,6 +26,24 @@ import nodePath from 'path';
 import nodeFs from 'fs';
 
 export const agentRouter = Router();
+
+const PROJECT_AI_PHASES = ['generation', 'verify', 'verify_escalation'];
+const FREE_AGENT_MODEL = 'gemini-3-flash';
+
+function getMonthlyAgentBudget(userId: string, planId: string) {
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const usage = metricsService.getAIUsageSummary(userId, monthStart.getTime(), PROJECT_AI_PHASES);
+  const plan = planAiBudgets[planId as keyof typeof planAiBudgets] || planAiBudgets.free;
+  const spentEur = usage.totalCostEur;
+  return {
+    spentEur,
+    budgetEur: plan.monthlyBudgetEur,
+    remainingEur: Math.max(0, plan.monthlyBudgetEur - spentEur),
+    percentUsed: plan.monthlyBudgetEur > 0 ? Math.round((spentEur / plan.monthlyBudgetEur) * 100) : 0,
+  };
+}
 
 // GET /tools - Returns tool definitions (OpenCode handles tools internally)
 agentRouter.get('/tools', asyncHandler(async (req, res) => {
@@ -153,12 +173,43 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
   });
 
   try {
-    auditService.log({ userId, action: 'agent_chat_start', resource: projectId, details: `mode: ${mode}, model: ${model || 'gemini-3-flash'}`, ip: req.ip });
-    log.info(`[Agent/chat] Starting OpenCode stream for project ${projectId}, model: ${model || 'gemini-3-flash'}`);
+    const userPlan = await getUserPlan(userId);
+    const normalizedPlan = normalizePlan(userPlan);
+    const requestedModel = model || FREE_AGENT_MODEL;
+    const effectiveModel = normalizedPlan === 'free' ? FREE_AGENT_MODEL : requestedModel;
+    const budget = getMonthlyAgentBudget(userId, normalizedPlan);
+
+    if (!canUseModel(normalizedPlan, effectiveModel)) {
+      writeSseEvent('error', {
+        type: 'error',
+        error: `Model ${effectiveModel} is not available on plan ${normalizedPlan}.`,
+      });
+      writeSseEvent('done', { type: 'done' });
+      cleanup();
+      return;
+    }
+
+    if (budget.budgetEur > 0 && budget.spentEur >= budget.budgetEur) {
+      log.warn(`[Agent/chat] Budget blocked user=${userId}, plan=${normalizedPlan}, spent=€${budget.spentEur}, budget=€${budget.budgetEur}`);
+      writeSseEvent('budget_exceeded', {
+        type: 'budget_exceeded',
+        message: `Budget esaurito: speso €${budget.spentEur.toFixed(2)} su €${budget.budgetEur.toFixed(2)} (piano ${normalizedPlan}).`,
+        percentUsed: budget.percentUsed,
+        plan: normalizedPlan,
+      });
+      writeSseEvent('done', { type: 'done' });
+      cleanup();
+      return;
+    }
+
+    auditService.log({ userId, action: 'agent_chat_start', resource: projectId, details: `mode: ${mode}, model: ${effectiveModel}${effectiveModel !== requestedModel ? ` (requested ${requestedModel})` : ''}`, ip: req.ip });
+    log.info(`[Agent/chat] Starting OpenCode stream for project ${projectId}, plan=${normalizedPlan}, model=${effectiveModel}, requested=${requestedModel}, budget=${budget.spentEur}/${budget.budgetEur}`);
 
     writeSseEvent('processing', {
       type: 'processing',
-      message: 'Connecting to AI agent...',
+      message: effectiveModel !== requestedModel
+        ? 'Free plan uses Gemini Flash for in-project AI to protect your budget...'
+        : 'Connecting to AI agent...',
       elapsedSec: 0,
     });
 
@@ -177,7 +228,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
       projectId,
       userId,
       prompt,
-      model: model || 'gemini-3-flash',
+      model: effectiveModel,
       previewContext,
       isClientConnected: () => !clientDisconnected && !res.writableEnded,
       writeSseEvent,

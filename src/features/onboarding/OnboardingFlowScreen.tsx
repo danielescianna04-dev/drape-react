@@ -202,7 +202,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
       {/* Logo */}
       <Animated.View style={[styles.logoWrap, { opacity: logoFade, transform: [{ scale: logoScale }] }]}>
         <View style={styles.logoRing}>
-          <DrapeLogo size={56} gradient />
+          <DrapeLogo size={96} />
         </View>
       </Animated.View>
 
@@ -503,10 +503,8 @@ const styles = StyleSheet.create({
   logoRing: {
     width: 96,
     height: 96,
-    borderRadius: 48,
-    backgroundColor: 'rgba(109, 76, 255, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(124, 92, 255, 0.2)',
+    borderRadius: 28,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -37,7 +37,16 @@ export function calculateAICostEur(
   cacheReadTokens = 0,
   cacheWriteTokens = 0,
 ): number {
-  const pricing = AI_PRICING[model] || AI_PRICING['gemini-3-flash'];
+  const pricingAliases: Record<string, string> = {
+    'gemini-3-0-flash': 'gemini-3-flash',
+    'gemini-3.0-flash': 'gemini-3-flash',
+    'gemini-3-1-pro': 'gemini-3.1-pro',
+    'gemini-3-0-pro': 'gemini-3.1-pro',
+    'gemini-3-pro': 'gemini-3.1-pro',
+    'glm-5-1': 'glm-5.1',
+  };
+  const normalizedModel = pricingAliases[model] || model;
+  const pricing = AI_PRICING[normalizedModel] || AI_PRICING['gemini-3-flash'];
   // Anthropic reports input_tokens NOT including cache_read or cache_write — they are
   // separate fields. We subtract just to be safe in case an upstream adapter folds them in.
   const nonCachedInput = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);

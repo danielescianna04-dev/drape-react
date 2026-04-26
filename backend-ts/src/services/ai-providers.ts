@@ -61,10 +61,25 @@ const MODEL_REGISTRY: Record<string, ModelEntry> = {
   'glm-5.1':            { provider: 'openrouter', modelId: 'z-ai/glm-5.1', maxTokens: 12000, contextWindowTokens: 202752 },
 };
 
+const MODEL_ALIASES: Record<string, string> = {
+  'gemini-3-0-flash': 'gemini-3-flash',
+  'gemini-3.0-flash': 'gemini-3-flash',
+  'gemini-3-1-pro': 'gemini-3.1-pro',
+  'gemini-3-0-pro': 'gemini-3.1-pro',
+  'gemini-3-pro': 'gemini-3.1-pro',
+  'glm-5-1': 'glm-5.1',
+  'claude-sonnet-4': 'claude-4-6-sonnet',
+};
+
+function normalizeModelName(modelName: string): string {
+  return MODEL_ALIASES[modelName] || modelName;
+}
+
 // ── Provider Resolution ─────────────────────────────────────────────────────
 
 function getVercelModel(modelName: string) {
-  const entry = MODEL_REGISTRY[modelName];
+  const normalizedModelName = normalizeModelName(modelName);
+  const entry = MODEL_REGISTRY[normalizedModelName];
   if (!entry) throw new Error(`Unknown model: ${modelName}`);
 
   switch (entry.provider) {
@@ -209,7 +224,7 @@ function convertTools(tools: ToolDefinition[]): Record<string, any> {
 // ── Thinking Configuration ──────────────────────────────────────────────────
 
 function getProviderOptions(modelName: string, thinkingLevel: string | null): Record<string, any> | undefined {
-  const entry = MODEL_REGISTRY[modelName];
+  const entry = MODEL_REGISTRY[normalizeModelName(modelName)];
   if (!entry) return undefined;
 
   if (entry.provider === 'anthropic') {
@@ -235,14 +250,18 @@ function getProviderOptions(modelName: string, thinkingLevel: string | null): Re
   }
 
   if (entry.provider === 'google') {
-    if (!thinkingLevel || thinkingLevel === 'none') return undefined;
+    const normalizedThinkingLevel =
+      !entry.modelId.includes('flash') && (!thinkingLevel || thinkingLevel === 'none')
+        ? 'low'
+        : thinkingLevel;
+    if (!normalizedThinkingLevel || normalizedThinkingLevel === 'none') return undefined;
     const budgetMap: Record<string, number> = {
       minimal: 128, low: 1024, medium: 4096, high: 8192,
     };
     return {
       google: {
         thinkingConfig: {
-          thinkingBudget: budgetMap[thinkingLevel] || 1024,
+          thinkingBudget: budgetMap[normalizedThinkingLevel] || 1024,
         },
       },
     };
@@ -273,9 +292,10 @@ export async function* vercelChatStream(
     abortSignal?: AbortSignal;
   }
 ): AsyncGenerator<StreamChunk> {
-  const entry = MODEL_REGISTRY[modelName];
+  const normalizedModelName = normalizeModelName(modelName);
+  const entry = MODEL_REGISTRY[normalizedModelName];
   if (entry?.provider === 'anthropic' && entry.modelId === 'claude-opus-4-7') {
-    yield* aiProviderService.chatStream(modelName, messages, tools, systemPrompt, {
+    yield* aiProviderService.chatStream(normalizedModelName, messages, tools, systemPrompt, {
       temperature: options?.temperature,
       maxTokens: options?.maxTokens,
       thinkingLevel: options?.thinkingLevel,
@@ -286,11 +306,11 @@ export async function* vercelChatStream(
     return;
   }
 
-  const model = getVercelModel(modelName);
+  const model = getVercelModel(normalizedModelName);
   const coreMessages = convertMessages(messages);
 
   const maxTokens = options?.maxTokens || entry?.maxTokens || 8192;
-  let providerOptions = getProviderOptions(modelName, options?.thinkingLevel || null);
+  let providerOptions = getProviderOptions(normalizedModelName, options?.thinkingLevel || null);
 
   // Build Vercel tools (no execute — agent loop handles execution)
   const vercelTools = tools ? convertTools(tools) : undefined;
@@ -512,7 +532,7 @@ export async function vercelGenerateObject<T>(
 // ── Context Window ──────────────────────────────────────────────────────────
 
 export function getContextWindowTokens(modelName: string): number {
-  return MODEL_REGISTRY[modelName]?.contextWindowTokens || 128000;
+  return MODEL_REGISTRY[normalizeModelName(modelName)]?.contextWindowTokens || 128000;
 }
 
 // ── Exports ─────────────────────────────────────────────────────────────────

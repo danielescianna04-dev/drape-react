@@ -35,6 +35,21 @@ import { Alert } from 'react-native';
 import i18n from '../../i18n';
 import { config } from '../../config/config';
 import { deriveIsNewAuthUser, normalizeAuthLifecycle } from './authLifecycle';
+import { decode as decodeBase64 } from 'base-64';
+
+const AUTH_DEBUG_ENABLED = process.env.EXPO_PUBLIC_AUTH_DEBUG === '1';
+
+function decodeJwtPayload(token: string): Record<string, any> | null {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    return JSON.parse(decodeBase64(padded));
+  } catch {
+    return null;
+  }
+}
 
 async function parseApiError(response: Response): Promise<string> {
   try {
@@ -1269,6 +1284,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signInWithApple: async (options) => {
     set({ isLoading: true, error: null });
+    let appleTokenAudience: unknown = null;
+    let appleTokenIssuer: unknown = null;
 
     try {
 
@@ -1291,6 +1308,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (!identityToken) {
         throw new Error('No identity token received from Apple');
       }
+      const appleTokenPayload = decodeJwtPayload(identityToken);
+      appleTokenAudience = appleTokenPayload?.aud ?? null;
+      appleTokenIssuer = appleTokenPayload?.iss ?? null;
 
       // Create Firebase credential
       const provider = new OAuthProvider('apple.com');
@@ -1395,6 +1415,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (error: any) {
       isLoggingIn = false;
       console.error('❌ [AuthStore] Apple sign in error:', error);
+      if (AUTH_DEBUG_ENABLED && error?.code !== 'ERR_CANCELED') {
+        const firebaseOptions = auth.app.options;
+        const debugInfo = [
+          `env: ${process.env.EXPO_PUBLIC_ENV || 'unset'}`,
+          `firebaseProject: ${firebaseOptions.projectId || 'unset'}`,
+          `firebaseAppId: ${firebaseOptions.appId || 'unset'}`,
+          `authDomain: ${firebaseOptions.authDomain || 'unset'}`,
+          `appleAud: ${String(appleTokenAudience || 'unknown')}`,
+          `appleIss: ${String(appleTokenIssuer || 'unknown')}`,
+          `errorCode: ${error?.code || 'unknown'}`,
+        ].join('\n');
+        console.warn('[AuthStore] Apple auth debug\n' + debugInfo);
+        Alert.alert('Apple Auth Debug', debugInfo);
+      }
 
       let errorMessage = typeof error?.message === 'string' && error.message.length > 0
         ? error.message
