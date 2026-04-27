@@ -102,15 +102,15 @@ export const PluginsView: React.FC<Props> = () => {
         ] as const).map((t) => {
           const active = section === t.id;
           return (
-            <GlassPill
+            <TouchableOpacity
               key={t.id}
-              active={active}
+              activeOpacity={0.7}
               onPress={() => { setEditingSkill(null); setSection(t.id); }}
-              style={{ flex: 1 }}
+              style={[s.tabBtn, active && s.tabBtnActive]}
             >
               <Ionicons name={t.icon as any} size={14} color={active ? '#fff' : 'rgba(255,255,255,0.55)'} />
               <Text style={[s.tabLabel, active && s.tabLabelActive]}>{t.label}</Text>
-            </GlassPill>
+            </TouchableOpacity>
           );
         })}
       </View>
@@ -165,9 +165,8 @@ const SkillRow: React.FC<{
             <View style={s.rowTitleLine}>
               <Text style={s.rowSlash}>/{skill.slash}</Text>
               {skill.isOfficial && (
-                <View style={s.officialBadge}>
-                  <Ionicons name="checkmark" size={9} color="#0a0a0c" />
-                  <Text style={s.officialBadgeText}>OFFICIAL</Text>
+                <View style={s.verifiedBadge}>
+                  <Ionicons name="checkmark" size={10} color="#fff" />
                 </View>
               )}
               {skill.isPrivate && !skill.isOfficial && (
@@ -344,19 +343,35 @@ const MarketplaceSection: React.FC<{ onInstalled: () => void }> = ({ onInstalled
   const [skills, setSkills] = useState<Skill[] | null>(null);
   const [search, setSearch] = useState('');
   const [installing, setInstalling] = useState<string | null>(null);
+  const [installedSlashes, setInstalledSlashes] = useState<Set<string>>(new Set());
+
+  const reloadInstalled = useCallback(async () => {
+    try {
+      const mine = await skillsApi.listMine();
+      setInstalledSlashes(new Set(mine.skills.map((sk) => sk.slash)));
+    } catch {
+      // ignore — UI degrades gracefully (just shows install buttons everywhere)
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     skillsApi.listMarketplace({})
       .then((res) => { if (!cancelled) setSkills(res.skills); })
       .catch(() => { if (!cancelled) setSkills([]); });
+    reloadInstalled();
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadInstalled]);
 
   const handleInstall = useCallback(async (skill: Skill) => {
     setInstalling(skill.id);
     try {
       await skillsApi.install(skill.id);
+      setInstalledSlashes((prev) => {
+        const next = new Set(prev);
+        next.add(skill.slash);
+        return next;
+      });
       onInstalled();
       Alert.alert('Installato', `/${skill.slash} è ora disponibile in chat.`);
     } catch (e: any) {
@@ -449,6 +464,7 @@ const MarketplaceSection: React.FC<{ onInstalled: () => void }> = ({ onInstalled
                 key={skill.id}
                 skill={skill}
                 installing={installing === skill.id}
+                installed={installedSlashes.has(skill.slash)}
                 onInstall={() => handleInstall(skill)}
               />
             ))}
@@ -461,6 +477,7 @@ const MarketplaceSection: React.FC<{ onInstalled: () => void }> = ({ onInstalled
             <FeaturedHero
               skill={featured}
               installing={installing === featured.id}
+              installed={installedSlashes.has(featured.slash)}
               onInstall={() => handleInstall(featured)}
             />
           )}
@@ -473,6 +490,7 @@ const MarketplaceSection: React.FC<{ onInstalled: () => void }> = ({ onInstalled
               icon="sparkles"
               skills={officials}
               installingId={installing}
+              installedSlashes={installedSlashes}
               onInstall={handleInstall}
             />
           )}
@@ -489,6 +507,7 @@ const MarketplaceSection: React.FC<{ onInstalled: () => void }> = ({ onInstalled
                 icon={cat.icon as any}
                 skills={list}
                 installingId={installing}
+                installedSlashes={installedSlashes}
                 onInstall={handleInstall}
               />
             );
@@ -504,8 +523,9 @@ const MarketplaceSection: React.FC<{ onInstalled: () => void }> = ({ onInstalled
 const FeaturedHero: React.FC<{
   skill: Skill;
   installing: boolean;
+  installed?: boolean;
   onInstall: () => void;
-}> = ({ skill, installing, onInstall }) => {
+}> = ({ skill, installing, installed, onInstall }) => {
   const cat = SKILL_CATEGORIES.find((c) => c.id === skill.category);
   return (
     <GlassCard style={{ marginBottom: 22, marginTop: 4 }}>
@@ -542,12 +562,17 @@ const FeaturedHero: React.FC<{
       {/* Single CTA — full width */}
       <TouchableOpacity
         onPress={onInstall}
-        disabled={installing}
-        style={[s.heroCta, installing && { opacity: 0.6 }]}
+        disabled={installing || installed}
+        style={[s.heroCta, (installing || installed) && s.heroCtaInstalled]}
         activeOpacity={0.85}
       >
         {installing ? (
           <ActivityIndicator size="small" color="#fff" />
+        ) : installed ? (
+          <>
+            <Ionicons name="checkmark" size={16} color="#fff" />
+            <Text style={s.heroCtaText}>Installato</Text>
+          </>
         ) : (
           <>
             <Ionicons name="add" size={16} color="#fff" />
@@ -567,8 +592,9 @@ const CarouselSection: React.FC<{
   icon: keyof typeof Ionicons.glyphMap;
   skills: Skill[];
   installingId: string | null;
+  installedSlashes?: Set<string>;
   onInstall: (skill: Skill) => void;
-}> = ({ title, caption, icon, skills, installingId, onInstall }) => (
+}> = ({ title, caption, icon, skills, installingId, installedSlashes, onInstall }) => (
   <View style={{ marginBottom: 22 }}>
     <View style={s.carouselHeading}>
       <View style={s.carouselHeadingIcon}>
@@ -591,6 +617,7 @@ const CarouselSection: React.FC<{
           key={skill.id}
           skill={skill}
           installing={installingId === skill.id}
+          installed={!!installedSlashes?.has(skill.slash)}
           onInstall={() => onInstall(skill)}
         />
       ))}
@@ -603,8 +630,9 @@ const CarouselSection: React.FC<{
 const SkillTile: React.FC<{
   skill: Skill;
   installing: boolean;
+  installed?: boolean;
   onInstall: () => void;
-}> = ({ skill, installing, onInstall }) => {
+}> = ({ skill, installing, installed, onInstall }) => {
   const cat = SKILL_CATEGORIES.find((c) => c.id === skill.category);
   return (
     <View style={{ width: 210 }}>
@@ -614,8 +642,8 @@ const SkillTile: React.FC<{
             <Ionicons name={(cat?.icon || 'cube-outline') as any} size={16} color="#fff" />
           </View>
           {skill.isOfficial && (
-            <View style={s.tileOfficial}>
-              <Ionicons name="checkmark" size={9} color="#0a0a0c" />
+            <View style={s.verifiedBadge}>
+              <Ionicons name="checkmark" size={11} color="#fff" />
             </View>
           )}
         </View>
@@ -624,12 +652,17 @@ const SkillTile: React.FC<{
         <Text style={s.tileDesc} numberOfLines={3}>{skill.description}</Text>
         <TouchableOpacity
           onPress={onInstall}
-          disabled={installing}
-          style={[s.tileCta, installing && { opacity: 0.5 }]}
+          disabled={installing || installed}
+          style={[s.tileCta, installing && { opacity: 0.5 }, installed && s.tileCtaInstalled]}
           activeOpacity={0.85}
         >
           {installing ? (
             <ActivityIndicator size="small" color="#fff" />
+          ) : installed ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Ionicons name="checkmark" size={12} color="#fff" />
+              <Text style={s.tileCtaText}>Installato</Text>
+            </View>
           ) : (
             <Text style={s.tileCtaText}>+ Installa</Text>
           )}
@@ -644,8 +677,9 @@ const SkillTile: React.FC<{
 const CompactRow: React.FC<{
   skill: Skill;
   installing: boolean;
+  installed?: boolean;
   onInstall: () => void;
-}> = ({ skill, installing, onInstall }) => {
+}> = ({ skill, installing, installed, onInstall }) => {
   const cat = SKILL_CATEGORIES.find((c) => c.id === skill.category);
   return (
     <GlassCard contentStyle={{ padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -666,12 +700,14 @@ const CompactRow: React.FC<{
       </View>
       <TouchableOpacity
         onPress={onInstall}
-        disabled={installing}
-        style={[s.compactCta, installing && { opacity: 0.5 }]}
+        disabled={installing || installed}
+        style={[s.compactCta, installing && { opacity: 0.5 }, installed && s.tileCtaInstalled]}
         activeOpacity={0.85}
       >
         {installing ? (
           <ActivityIndicator size="small" color="#fff" />
+        ) : installed ? (
+          <Ionicons name="checkmark" size={16} color="#fff" />
         ) : (
           <Ionicons name="add" size={16} color="#fff" />
         )}
@@ -863,7 +899,23 @@ const EditorSection: React.FC<{
 const s = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#0A0812' },
 
-  tabsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12 },
+  tabsRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12 },
+  tabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  tabBtnActive: {
+    backgroundColor: PRIMARY_TINT,
+    borderColor: `${AppColors.primary}55`,
+  },
   // Glass pill (used for tabs + search). LiquidGlassView doesn't size from
   // intrinsic content reliably — explicit height is required.
   pillGlass: {
@@ -931,11 +983,21 @@ const s = StyleSheet.create({
   metaDot: { width: 2, height: 2, borderRadius: 1, backgroundColor: 'rgba(255,255,255,0.3)' },
   rowActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   iconBtn: { padding: 6 },
-  officialBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 2,
-    backgroundColor: AppColors.primary, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
+  // Verified badge — X/Twitter style: small glowing primary disc with a white check.
+  verifiedBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: AppColors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: AppColors.primary,
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
-  officialBadgeText: { color: '#0a0a0c', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
   privateBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
     backgroundColor: PRIMARY_TINT, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
@@ -977,6 +1039,11 @@ const s = StyleSheet.create({
     marginTop: 18,
   },
   heroCtaText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  heroCtaInstalled: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
 
   // Carousel section heading
   carouselHeading: {
@@ -1026,6 +1093,11 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   tileCtaText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  tileCtaInstalled: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
 
   // Compact row (search results)
   compactRow: {

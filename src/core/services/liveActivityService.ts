@@ -179,14 +179,23 @@ class LiveActivityService {
    */
   onPushToken(callback: (info: { activityId: string; token: string }) => void): () => void {
     if (!this.isSupported) return () => {};
-    const sub = LiveActivity.addActivityTokenListener((event) => {
-      const id: string | undefined = event?.activityID;
-      const token: string | undefined = event?.activityPushToken;
-      if (id && token) callback({ activityId: id, token });
-    });
-    if (!sub) return () => {};
-    this.tokenListenerSub = sub;
-    return () => sub.remove();
+    // The native module ships with the binary; if you bumped the package
+    // without rebuilding the dev client (expo run:ios), addListener throws
+    // "Cannot read property 'addListener' of null". Swallow it so the rest
+    // of the app still works in that case.
+    try {
+      const sub = LiveActivity.addActivityTokenListener((event) => {
+        const id: string | undefined = event?.activityID;
+        const token: string | undefined = event?.activityPushToken;
+        if (id && token) callback({ activityId: id, token });
+      });
+      if (!sub) return () => {};
+      this.tokenListenerSub = sub;
+      return () => sub.remove();
+    } catch (err: any) {
+      console.warn('[LiveActivity] token listener unavailable (rebuild dev client?):', err?.message || err);
+      return () => {};
+    }
   }
 
   /**

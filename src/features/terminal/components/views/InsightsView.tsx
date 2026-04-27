@@ -125,11 +125,11 @@ export const InsightsView: React.FC<Props> = ({ tab }) => {
         ] as const).map((t) => {
           const active = section === t.id;
           return (
-            <TouchableOpacity
+            <GlassPill
               key={t.id}
-              style={[s.tabBtn, active && s.tabBtnActive]}
+              active={active}
               onPress={() => setSection(t.id)}
-              activeOpacity={0.7}
+              style={{ flex: 1 }}
             >
               <Ionicons
                 name={t.icon as any}
@@ -137,7 +137,7 @@ export const InsightsView: React.FC<Props> = ({ tab }) => {
                 color={active ? '#fff' : 'rgba(255,255,255,0.55)'}
               />
               <Text style={[s.tabLabel, active && s.tabLabelActive]}>{t.label}</Text>
-            </TouchableOpacity>
+            </GlassPill>
           );
         })}
       </View>
@@ -872,6 +872,32 @@ const s = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 12,
   },
+  // LiquidGlass shell — explicit height (LG doesn't size from intrinsic content).
+  tabGlass: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    height: 40,
+  },
+  tabContent: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  tabReadableSurface: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  tabContentActive: {
+    backgroundColor: PRIMARY_TINT,
+    borderColor: `${AppColors.primary}55`,
+  },
+  // Legacy (still referenced if needed)
   tabBtn: {
     flex: 1,
     flexDirection: 'row',
