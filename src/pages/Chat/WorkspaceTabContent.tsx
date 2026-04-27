@@ -10,6 +10,7 @@ import { ShellView } from '../../features/terminal/components/views/ShellView';
 import { DatabaseView } from '../../features/terminal/components/views/DatabaseView';
 import { InsightsView } from '../../features/terminal/components/views/InsightsView';
 import { PluginsView } from '../../features/terminal/components/views/PluginsView';
+import { McpView } from '../../features/terminal/components/views/McpView';
 import { BuildReportView } from '../../features/terminal/components/views/BuildReportView';
 import { InteractiveTerminalView } from '../../features/terminal/components/views/InteractiveTerminalView';
 import type { Tab } from '../../core/tabs/tabStore';
@@ -70,6 +71,8 @@ export const WorkspaceTabContent: React.FC<Props> = ({ tab, isActive = true }) =
       return <InsightsView tab={tab} />;
     case 'plugins':
       return <PluginsView tab={tab} />;
+    case 'mcps':
+      return <McpView />;
     default:
       return null;
   }
