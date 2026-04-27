@@ -4,6 +4,218 @@ Come lavorare con dev + prod senza rompere niente, e cosa fa ogni comando.
 
 ---
 
+## 0. Onboarding nuovo collega — Day 1
+
+Prima di poter fare qualsiasi cosa serve accesso a 4 sistemi. Chiedimi (Daniele) di aggiungerti uno alla volta.
+
+### 0.1 Account che ti servono
+
+| Servizio | Account che ti servirà | Cosa serve |
+|---|---|---|
+| **GitHub** | invitato come collaborator su `danielescianna04-dev/drape-react` | clone + push del repo |
+| **Firebase** | aggiunto come Editor sui progetti `drape-dev` e `drapev2` | console rules, auth, firestore |
+| **Expo / EAS** | aggiunto al team `drape01` | `eas update` / `eas build` |
+| **Hetzner VPS** | chiave SSH `id_ed25519_drape` (te la passo io 1:1) | deploy backend + log |
+| **Apple Dev / Play Console** | invito separato (solo se devi fare binary builds) | `eas submit` |
+
+### 0.2 Setup locale (macOS)
+
+```bash
+# 1. Clone
+git clone git@github.com:danielescianna04-dev/drape-react.git
+cd drape-react
+
+# 2. Tooling globale (una volta sola sulla tua macchina)
+brew install node@20 watchman
+npm i -g eas-cli firebase-tools
+xcode-select --install                         # serve per il simulatore iOS
+
+# 3. Login ai servizi
+eas login                                      # account drape1.dev@gmail.com
+firebase login                                 # stesso account
+gh auth login                                  # account GitHub tuo
+
+# 4. Dipendenze app + backend
+npm install
+cd backend-ts && npm install && cd ..
+
+# 5. SSH key per il VPS (Daniele te la dà via canale sicuro)
+chmod 600 ~/.ssh/id_ed25519_drape
+
+# 6. .env locali (Daniele te li passa via 1Password / canale sicuro)
+#    - .env (root)                  → vars Expo PUBLIC + Firebase prod
+#    - backend-ts/.env              → solo se vuoi runnare il backend in locale
+#    - backend-ts/service-account-key.json  → service account drape-dev
+```
+
+### 0.3 Avviare l'app in locale
+
+#### Modalità DEV (default — quasi sempre questa)
+
+Punta al backend `dev.drape.info` + Firebase `drape-dev`. Usala 99% del tempo.
+
+```bash
+# Prima volta su una macchina nuova: build nativa + installa nel simulatore
+npx expo run:ios --device "iPhone 15 Pro"     # iOS
+npx expo run:android                          # Android
+
+# Dopo la prima build, riusi solo Metro (più veloce):
+npx expo start --clear
+# → premi 'i' per iOS, 'a' per Android
+```
+
+`.env` (root) imposta `EXPO_PUBLIC_API_URL=https://dev.drape.info` e `EXPO_PUBLIC_ENV=development`, quindi non serve passare nulla a mano. L'app sul simulatore dialoga col backend dev e Firebase `drape-dev`.
+
+#### Modalità PROD (solo per riprodurre bug prod in locale)
+
+Punta al backend `drape.info` + Firebase `drapev2`. Lo usi raramente — di solito basta la build prod via TestFlight.
+
+```bash
+EXPO_PUBLIC_ENV=production \
+EXPO_PUBLIC_API_URL=https://drape.info \
+EXPO_PUBLIC_WS_URL=wss://drape.info \
+  npx expo start --clear
+```
+
+Attenzione:
+- Stai parlando con utenti reali e dati reali. **Non** creare progetti spazzatura, **non** fare publish, **non** pagare con sandbox IAP (non funziona, è per dev).
+- Devi loggarti con un account `drapev2`. Il login dev (`drape-dev`) qui non funziona — sono Firebase project diversi.
+- Il bundle identifier resta `com.drape.app.dev` (binary di sviluppo) ma punta a backend prod: ok per debug, **non** distribuirla.
+
+#### Quando usare cosa
+
+| Caso | Usa |
+|---|---|
+| Lavoro normale, sviluppo features | DEV |
+| Test di un bug specifico segnalato da un utente prod | PROD locale (con .env override) |
+| Demo a qualcuno o screenshot per App Store | TestFlight build prod (non locale) |
+| Test del flusso IAP/paywall | TestFlight (sandbox StoreKit) — locale non basta |
+
+### 0.4 Smoke test (sei pronto se questi 3 funzionano)
+
+```bash
+./drape status              # vedi branch + health di entrambi i backend
+git log --oneline -5        # vedi gli ultimi commit
+npx expo start --clear      # Metro parte e l'app si apre nel simulatore
+```
+
+Se uno fallisce, prima di toccare codice apri un thread con Daniele.
+
+### 0.5 Prima di committare la prima volta
+
+- Lavori SEMPRE su una feature branch partita da `dev`. Mai diretto su `main`. Mai diretto su `dev` (almeno finché lavoriamo in più di uno).
+- Leggi le sezioni 2 e 3 di questo doc (workflow git + reference comandi).
+- Solo Daniele fa `./drape prod release`. Tu fermati al merge in `dev`.
+
+### 0.6 Workflow team (PR-based) — questo è il flusso da seguire
+
+Il punto chiave: **`dev` non è la tua sandbox**, è l'ambiente condiviso che gira su `dev.drape.info` ed è usato dalla build TestFlight di sviluppo. Se ci pushi roba rotta, la rompi a tutti. Quindi: tutto passa da una feature branch + PR.
+
+#### Flusso standard
+
+```bash
+# 1. Aggiorna dev locale
+git checkout dev
+git pull origin dev
+
+# 2. Crea una branch dal nome parlante
+git checkout -b feat/skills-marketplace
+# oppure: fix/login-crash, refactor/chat-store, chore/bump-deps, ecc.
+
+# 3. Lavora. Committa spesso, messaggi piccoli e chiari.
+git add -A
+git commit -m "feat(skills): add slash command menu in chat input"
+# ... altri commit ...
+
+# 4. Push della branch
+git push -u origin feat/skills-marketplace
+
+# 5. Apri una Pull Request su GitHub: base = dev, compare = feat/skills-marketplace
+gh pr create --base dev --title "feat: skills marketplace" --body "..."
+
+# 6. Daniele (o un altro collega) revisiona, lascia commenti
+#    Tu fixi, ripushi, ripeti finché non c'è approvazione.
+
+# 7. Merge della PR in dev (preferiamo "Squash and merge" per tenere la history pulita)
+#    NON fare il merge tu — aspetta che Daniele lo faccia, o conferma con lui.
+
+# 8. Dopo il merge, qualcuno (di solito Daniele) fa il release dev:
+./drape dev release "feat: skills marketplace"
+#    → backend dev aggiornato + OTA al canale preview → tutta la team vede la nuova versione.
+
+# 9. Cleanup locale
+git checkout dev
+git pull origin dev
+git branch -d feat/skills-marketplace
+```
+
+#### Branch naming
+
+| Prefisso | Quando usarlo |
+|---|---|
+| `feat/<short-name>` | Nuova funzionalità |
+| `fix/<short-name>` | Bugfix |
+| `refactor/<short-name>` | Refactor senza cambio di comportamento |
+| `chore/<short-name>` | Manutenzione (deps, lint, docs, CI) |
+| `hotfix/<short-name>` | SOLO per emergenze prod (vedi sezione 2) |
+
+#### Backend e frontend nella stessa PR
+
+Il repo è monorepo: `backend-ts/` (Express, deploy-ato sul VPS) e tutto il resto (React Native, deploy-ato via OTA).
+
+- Se la tua feature tocca solo frontend → PR con changes in `src/`.
+- Se tocca solo backend → PR con changes in `backend-ts/`.
+- Se tocca entrambi (es. una feature end-to-end tipo "skills") → **una sola PR** con tutto. Più facile reviewer e atomic per il release.
+
+Quando viene mergiata e si fa `./drape dev release`:
+1. Backend viene buildato e deployato su `dev.drape.info` (~30s).
+2. OTA viene pubblicato sul canale `preview` (~2 min).
+3. La build TestFlight dev al prossimo riavvio scarica il nuovo bundle.
+
+Se la tua PR cambia anche `firestore.rules`, **scrivilo nella PR description**, perché serve `./drape dev rules` (e poi `./drape prod rules` quando si va in prod). Il release dev NON deploya le rules in automatico — solo `prod release` lo fa.
+
+#### PR description — cosa scrivere
+
+Tieni il template semplice ma sempre presente. Esempio:
+
+```
+## Cosa
+- Aggiunto popover slash menu nel ChatInputBar
+- Nuovo endpoint POST /skills/install
+- Nuova collezione Firestore `skills` (rules aggiornate)
+
+## Perché
+Permettere agli utenti di installare skill dalla marketplace senza uscire dalla chat.
+
+## Test
+- Testato su simulatore iOS, sign-in fresh, install di /landing-page
+- Backend: curl POST con auth, verificato che il doc viene creato
+
+## Note di deploy
+- ⚠️ Modifica firestore.rules → serve `./drape dev rules` e `./drape prod rules` al prossimo release
+- Migrazione DB Postgres: nessuna
+```
+
+Questo aiuta chi rivede e chi fa il release a sapere cosa controllare.
+
+#### Cosa NON fare
+
+- ❌ Push diretto su `dev` senza PR (anche per "fix piccoli" — se è davvero piccolo, una PR si chiude in 30 secondi).
+- ❌ Push diretto su `main`. Mai. È bloccato a livello di workflow, non a livello git: se lo fai, lo vediamo subito e dobbiamo revertare.
+- ❌ Force push su una branch dove c'è una PR aperta che qualcun altro sta revisionando.
+- ❌ Mergiare la tua PR senza review (a meno che Daniele non te lo dica esplicitamente per quel caso).
+- ❌ Lanciare `./drape prod *` senza accordi espliciti con Daniele.
+
+#### Cosa puoi fare in autonomia (senza ping)
+
+- ✅ Aprire/aggiornare/chiudere le tue PR.
+- ✅ Lanciare `./drape dev deploy` o `./drape dev release` su feature backend-only quando hai bisogno di testare integrazioni server prima del merge (ma avvisa nel canale: "deployo X su dev backend per test").
+- ✅ Leggere log: `./drape logs dev` / `./drape logs prod`.
+- ✅ Leggere Firestore Console (sia drape-dev che drapev2).
+- ✅ Modificare `.env` del backend dev sul VPS via SSH **se** strettamente necessario per testare (e avvisa).
+
+---
+
 ## 1. Architettura degli ambienti
 
 ### Due ambienti completamente distinti
@@ -126,6 +338,7 @@ Tutti i comandi vanno lanciati dalla root del repo (`/Users/daniele/drape-react`
 | Comando | Cosa fa |
 |---|---|
 | `./drape dev deploy` | Build TypeScript + rsync + migrazione DB + restart `drape-backend-dev`. Niente OTA. |
+| `./drape dev rules` | Deploy `firestore.rules` → progetto `drape-dev` (richiede `firebase login`). |
 | `./drape dev ota [message]` | Bundla JS con env dev, publica OTA al canale `preview`. |
 | `./drape dev release [message]` | `deploy` + `ota` in sequenza. Release dev completa. |
 
@@ -137,8 +350,9 @@ Il `dev deploy` stampa un warning se non sei su branch `dev` (soft, non blocca).
 |---|---|
 | `./drape prod promote` | Checkout `main`, fast-forward merge di `dev`, push. Resta su `main`. Rifiuta se hai changes non committate. |
 | `./drape prod deploy` | Build + rsync + migrazione DB + restart `drape-backend`. **Rifiuta se non sei su `main`** (`FORCE=1` per override). |
+| `./drape prod rules` | Deploy `firestore.rules` → progetto `drapev2`. **Rifiuta se non sei su `main`**. |
 | `./drape prod ota [message]` | OTA al canale `production`. **Rifiuta se non sei su `main`** + chiede conferma esplicita. |
-| `./drape prod release [message]` | `promote` + `deploy` + `ota` → release end-to-end. Ti riporta su `dev` alla fine. |
+| `./drape prod release [message]` | `promote` + `deploy` + `rules` + `ota` → release end-to-end. Ti riporta su `dev` alla fine. |
 
 ### Utility
 
@@ -304,6 +518,33 @@ ssh … "journalctl -u drape-backend --since '10 min ago'"
 
 ---
 
+## 5b. Firestore rules
+
+Le rules vivono in `firestore.rules` (root del repo). Sono lato Firebase, **non** vengono incluse nel bundle JS, quindi un OTA o un deploy backend NON le aggiorna in remoto.
+
+### Quando deployarle
+
+Ogni volta che modifichi `firestore.rules` localmente. Se aggiungi una collezione nuova (es. `skills`) e dimentichi il deploy, l'app vede `Missing or insufficient permissions.` per ogni read/write su quella collezione.
+
+### Come
+
+```bash
+./drape dev rules               # → drape-dev (preview)
+./drape prod rules              # → drapev2  (richiede branch=main)
+```
+
+`prod release` lo fa già in automatico tra `deploy` e `ota`. Lo standalone serve quando modifichi solo le rules senza altro.
+
+### Sintomi di rules disallineate
+
+- "Missing or insufficient permissions" su collezioni che dovrebbero essere accessibili
+- App stuck su splash nero dopo login (un read fallito blocca `onAuthStateChanged`)
+- DeviceService warn `permission-denied during token refresh` ripetuti
+
+Soluzione: `./drape dev rules` (o `prod rules`) e ricarica.
+
+---
+
 ## 6. App native build (quando serve)
 
 Quando bumpi `runtimeVersion`, aggiungi librerie native, o cambi Info.plist/icona, DEVI cuttare una nuova binary:
@@ -449,6 +690,10 @@ drape-react/
 # Solo OTA (no backend)
 ./drape dev ota "msg"
 ./drape prod ota "msg"
+
+# Solo Firestore rules (quando modifichi firestore.rules)
+./drape dev rules
+./drape prod rules                   # (solo da main)
 
 # Osservazione
 ./drape status
