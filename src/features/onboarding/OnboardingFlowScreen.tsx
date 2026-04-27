@@ -174,7 +174,9 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
       }
       // Consent has just been resolved in-flow, so now we can safely start
       // consent-gated services like push permission and presence tracking.
-      await useAuthStore.getState().refreshConsentAwareServices().catch(() => {});
+      // Fire-and-forget — push permission dialog can hang indefinitely on iOS sim
+      // and must not block navigation.
+      useAuthStore.getState().refreshConsentAwareServices().catch(() => {});
       onComplete();
     }
   };
