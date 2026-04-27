@@ -133,7 +133,7 @@ export function resolvePlanEntitlements(
     maxCreated: cycle === 'yearly' ? 8 : 6,
     maxCloned: 15,
     maxLocal: 10,
-    maxStorageMb: 51200,
+    maxStorageMb: 0, // 0 = unlimited
     aiBudgetEur: 25,
     allowedModels: ALL_MODELS,
     canPublish: true,
