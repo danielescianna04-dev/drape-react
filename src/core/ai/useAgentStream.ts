@@ -8,6 +8,8 @@ import { useState, useCallback, useRef } from 'react';
 import EventSource from 'react-native-sse';
 import { config } from '../../config/config';
 import { getAuthToken } from '../api/getAuthToken';
+import { jobsApi } from '../api/jobsApi';
+import { pendingJobs } from './pendingJobsStore';
 
 export type AgentMode = 'fast' | 'planning';
 
@@ -60,6 +62,8 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
   const [status, setStatus] = useState<'idle' | 'running' | 'complete' | 'error'>('idle');
   const [result, setResult] = useState<any>(null);
   const esRef = useRef<EventSource | null>(null);
+  const currentJobIdRef = useRef<string | null>(null);
+  const currentProjectIdRef = useRef<string | null>(null);
   const completionHandledRef = useRef(false);
   const optionsRef = useRef(options);
   optionsRef.current = options;
@@ -88,6 +92,8 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
       setStatus('running');
       setResult(null);
       completionHandledRef.current = false;
+      currentJobIdRef.current = null;
+      currentProjectIdRef.current = projectId;
 
       try {
         const token = await getAuthToken();
@@ -120,7 +126,20 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
           'iteration_start', 'status', 'complete', 'error', 'done',
           'processing', 'heartbeat', 'plan_ready', 'usage',
           'budget_exceeded', 'budget_warning', 'sub_agent_start', 'sub_agent_complete',
+          'job_created',
         ];
+
+        // Capture the durable jobId the backend assigns so we can re-attach
+        // after a disconnect / app restart.
+        es.addEventListener('job_created' as any, (e: any) => {
+          try {
+            const { jobId } = JSON.parse(e.data);
+            if (jobId) {
+              currentJobIdRef.current = jobId;
+              pendingJobs.set(projectId, jobId).catch(() => {});
+            }
+          } catch {}
+        });
 
         for (const eventType of eventTypes) {
           es.addEventListener(eventType as any, (e: any) => {
@@ -142,6 +161,9 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
                 setStatus('complete');
                 setCurrentTool(null);
                 setIsStreaming(false);
+                if (currentProjectIdRef.current) {
+                  pendingJobs.clear(currentProjectIdRef.current).catch(() => {});
+                }
 
                 if (!completionHandledRef.current && (eventData.result || eventData.message)) {
                   completionHandledRef.current = true;
@@ -160,12 +182,18 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
                 setStatus((prev) => (prev === 'error' ? prev : 'complete'));
                 setCurrentTool(null);
                 setIsStreaming(false);
+                if (currentProjectIdRef.current) {
+                  pendingJobs.clear(currentProjectIdRef.current).catch(() => {});
+                }
                 es.close();
                 esRef.current = null;
                 return;
               } else if (eventType === 'error') {
                 setStatus('error');
                 setIsStreaming(false);
+                if (currentProjectIdRef.current) {
+                  pendingJobs.clear(currentProjectIdRef.current).catch(() => {});
+                }
                 optionsRef.current.onError?.(eventData.error || eventData.message || 'Agent error');
                 es.close();
                 esRef.current = null;
@@ -249,10 +277,113 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
     setResult(null);
   }, []);
 
+  /**
+   * Re-attach to an existing job started in a previous app session.
+   * Fetches a snapshot first; if the job already finished, fires onComplete
+   * (or onError) and clears the pending entry. Otherwise opens an SSE stream
+   * that replays past events and tails new ones to keep the UI in sync.
+   */
+  const attachToJob = useCallback(async (projectId: string, jobId: string) => {
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+    setIsStreaming(true);
+    setEvents([]);
+    setCurrentTool(null);
+    setStatus('running');
+    setResult(null);
+    completionHandledRef.current = false;
+    currentJobIdRef.current = jobId;
+    currentProjectIdRef.current = projectId;
+
+    try {
+      const snap = await jobsApi.get(jobId);
+      if (!snap) {
+        // Job not found server-side (e.g. expired) — clear local state.
+        await pendingJobs.clear(projectId);
+        setIsStreaming(false);
+        setStatus('idle');
+        return;
+      }
+      if (snap.status === 'completed') {
+        await pendingJobs.clear(projectId);
+        setStatus('complete');
+        setIsStreaming(false);
+        setResult(snap.result);
+        optionsRef.current.onComplete?.(snap.result || { success: true });
+        return;
+      }
+      if (snap.status === 'failed' || snap.status === 'cancelled') {
+        await pendingJobs.clear(projectId);
+        setStatus('error');
+        setIsStreaming(false);
+        optionsRef.current.onError?.(snap.error || `Job ${snap.status}`);
+        return;
+      }
+
+      // Still running — open the SSE replay+tail stream.
+      const es = await jobsApi.attachStream(jobId);
+      esRef.current = es;
+
+      const eventTypes = [
+        'job_snapshot', 'job_end', 'phase', 'phase_start', 'phase_complete',
+        'tool_start', 'tool_input', 'tool_complete', 'tool_error',
+        'message', 'text_delta', 'iteration_start', 'status', 'plan',
+        'file', 'file_batch', 'error', 'done',
+      ];
+      for (const t of eventTypes) {
+        es.addEventListener(t as any, (e: any) => {
+          if (!e.data) return;
+          try {
+            const eventData = JSON.parse(e.data);
+            const event: ToolEvent = { ...eventData, type: t as any, timestamp: Date.now() };
+            if (t === 'job_end') {
+              const finalStatus = eventData.status as string;
+              if (finalStatus === 'completed') {
+                setStatus('complete');
+                setResult(eventData.result);
+                optionsRef.current.onComplete?.(eventData.result || { success: true });
+              } else {
+                setStatus('error');
+                optionsRef.current.onError?.(eventData.error || `Job ${finalStatus}`);
+              }
+              setIsStreaming(false);
+              if (currentProjectIdRef.current) {
+                pendingJobs.clear(currentProjectIdRef.current).catch(() => {});
+              }
+              es.close();
+              esRef.current = null;
+              return;
+            }
+            if (t !== 'heartbeat' && t !== 'processing') {
+              setEvents((prev) => [...prev, event]);
+            }
+          } catch {}
+        });
+      }
+
+      es.addEventListener('error', () => {
+        // Don't clear pendingJobs here — the job may still be running, the
+        // network just dropped. Next mount will retry.
+        if (esRef.current) {
+          esRef.current.close();
+          esRef.current = null;
+        }
+        setIsStreaming(false);
+      });
+    } catch (err: any) {
+      setStatus('error');
+      setIsStreaming(false);
+      optionsRef.current.onError?.(err?.message || 'Failed to attach to job');
+    }
+  }, []);
+
   return {
     startStream,
     cancel,
     reset,
+    attachToJob,
     isStreaming,
     events,
     currentTool,
