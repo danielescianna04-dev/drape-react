@@ -1207,7 +1207,7 @@ export class AgentLoop {
     let mcpTools: ToolDefinition[] = [];
     if (this.toolFilter !== 'read_only') {
       try {
-        mcpTools = await initMcpServers(this.projectId);
+        mcpTools = await initMcpServers(this.projectId, this.userId);
       } catch (e: any) {
         log.warn(`[AgentLoop] Failed to load MCP tools: ${e.message}`);
       }

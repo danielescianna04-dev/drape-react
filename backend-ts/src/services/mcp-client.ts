@@ -3,6 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { log } from '../utils/logger';
 import type { ToolDefinition } from './ai-provider.service';
 import { fileService } from './file.service';
+import { listMyEnabled as listMyEnabledMcps } from './mcp.service';
 
 interface McpServerConfig {
   command: string;
@@ -95,42 +96,70 @@ export async function callMcpTool(
 }
 
 /**
- * Load MCP config from project and connect to configured servers.
+ * Read the project-local MCP config (.drape/mcp.json or .agents/mcp.json).
+ * Returns an empty map if neither file exists or is invalid JSON.
  */
-export async function initMcpServers(projectId: string): Promise<ToolDefinition[]> {
-  // Return cached tools if still fresh (avoid re-reading config every iteration)
-  const cached = mcpToolsCache.get(projectId);
-  if (cached && Date.now() < cached.expiresAt) return cached.tools;
-
+async function readProjectMcpConfig(projectId: string): Promise<Record<string, McpServerConfig>> {
   const configFiles = ['.drape/mcp.json', '.agents/mcp.json'];
-
   for (const file of configFiles) {
     try {
       const result = await fileService.readFile(projectId, file);
       if (!result.success || !result.data?.content) continue;
+      const parsed = JSON.parse(result.data.content);
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, McpServerConfig>;
+    } catch { /* keep looking */ }
+  }
+  return {};
+}
 
-      const config = JSON.parse(result.data.content) as Record<string, McpServerConfig>;
-      const allTools: ToolDefinition[] = [];
+/**
+ * Load MCP config from project AND from the user's installed-and-enabled MCPs
+ * in Firestore, merge them (project file wins on slug collision), connect to
+ * each, and return the aggregate tool list.
+ *
+ * Cache key includes the userId so two users on the same project get distinct
+ * tool sets (their installed MCPs differ).
+ */
+export async function initMcpServers(projectId: string, userId?: string | null): Promise<ToolDefinition[]> {
+  const cacheKey = `${userId || 'anon'}::${projectId}`;
+  const cached = mcpToolsCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) return cached.tools;
 
-      for (const [name, serverConfig] of Object.entries(config)) {
-        try {
-          await connectMcpServer(name, serverConfig);
-          const tools = await getMcpTools(name);
-          allTools.push(...tools);
-          log.info(`[MCP] Loaded ${tools.length} tools from ${name}`);
-        } catch (e: any) {
-          log.warn(`[MCP] Failed to connect to ${name}: ${e.message}`);
-        }
+  const projectConfig = await readProjectMcpConfig(projectId);
+
+  // Per-user MCPs from the marketplace. Materialize them to the same shape as
+  // the project file. Project file always wins if a slug collides.
+  const merged: Record<string, McpServerConfig> = { ...projectConfig };
+  if (userId) {
+    try {
+      const enabled = await listMyEnabledMcps(userId);
+      for (const m of enabled) {
+        if (merged[m.slug]) continue; // project override
+        merged[m.slug] = {
+          command: m.command,
+          args: m.args,
+          env: m.envValues || {},
+        };
       }
-
-      mcpToolsCache.set(projectId, { tools: allTools, expiresAt: Date.now() + MCP_CACHE_TTL });
-      return allTools;
-    } catch { /* invalid config */ }
+    } catch (e: any) {
+      log.warn(`[MCP] Could not load per-user MCPs for ${userId}: ${e?.message || e}`);
+    }
   }
 
-  // No config found — cache empty result too (avoid re-reading every iteration)
-  mcpToolsCache.set(projectId, { tools: [], expiresAt: Date.now() + MCP_CACHE_TTL });
-  return [];
+  const allTools: ToolDefinition[] = [];
+  for (const [name, serverConfig] of Object.entries(merged)) {
+    try {
+      await connectMcpServer(name, serverConfig);
+      const tools = await getMcpTools(name);
+      allTools.push(...tools);
+      log.info(`[MCP] Loaded ${tools.length} tools from ${name}`);
+    } catch (e: any) {
+      log.warn(`[MCP] Failed to connect to ${name}: ${e.message}`);
+    }
+  }
+
+  mcpToolsCache.set(cacheKey, { tools: allTools, expiresAt: Date.now() + MCP_CACHE_TTL });
+  return allTools;
 }
 
 /**
