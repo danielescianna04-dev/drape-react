@@ -102,6 +102,29 @@ prod_deploy() {
   ok "Backend prod deployed."
 }
 
+prod_firestore_rules() {
+  title "Deploy Firestore rules → drapev2 (prod)"
+  require_branch main
+  cd "$ROOT"
+  if ! command -v firebase >/dev/null 2>&1; then
+    warn "firebase CLI not installed — skipping rules deploy. Install: npm i -g firebase-tools"
+    return 0
+  fi
+  firebase deploy --only firestore:rules --project drapev2
+  ok "Firestore rules deployed to prod."
+}
+
+dev_firestore_rules() {
+  title "Deploy Firestore rules → drape-dev"
+  cd "$ROOT"
+  if ! command -v firebase >/dev/null 2>&1; then
+    warn "firebase CLI not installed — skipping rules deploy. Install: npm i -g firebase-tools"
+    return 0
+  fi
+  firebase deploy --only firestore:rules --project drape-dev
+  ok "Firestore rules deployed to dev."
+}
+
 prod_ota() {
   title "OTA update → production channel"
   require_branch main
@@ -122,6 +145,7 @@ prod_release() {
   [[ "$start_branch" == "dev" ]] || warn "Starting from '$start_branch' (expected 'dev')."
   prod_promote
   prod_deploy
+  prod_firestore_rules
   prod_ota "$msg"
   say "Returning to '$start_branch'…"
   git checkout "$start_branch" >/dev/null
@@ -203,14 +227,16 @@ ${B}drape${R} — dev/prod workflow helper
 
 ${B}DEV${R}
   ./drape dev deploy                backend → dev.drape.info
+  ./drape dev rules                 Firestore rules → drape-dev
   ./drape dev ota [message]         OTA → preview channel
   ./drape dev release [message]     deploy + OTA
 
 ${B}PROD${R}
   ./drape prod promote              merge dev → main, push main
   ./drape prod deploy               backend → drape.info  (requires branch=main)
+  ./drape prod rules                Firestore rules → drapev2 (requires branch=main)
   ./drape prod ota [message]        OTA → production channel (with confirm)
-  ./drape prod release [message]    promote + deploy + OTA (full flow)
+  ./drape prod release [message]    promote + deploy + rules + OTA (full flow)
 
 ${B}UTIL${R}
   ./drape status                    show branches + health of both envs
@@ -226,6 +252,7 @@ case "$env" in
   dev)
     case "$action" in
       deploy)  dev_deploy ;;
+      rules)   dev_firestore_rules ;;
       ota)     dev_ota "$@" ;;
       release) dev_release "$@" ;;
       *)       usage; exit 1 ;;
@@ -235,6 +262,7 @@ case "$env" in
     case "$action" in
       promote) prod_promote ;;
       deploy)  prod_deploy ;;
+      rules)   prod_firestore_rules ;;
       ota)     prod_ota "$@" ;;
       release) prod_release "$@" ;;
       *)       usage; exit 1 ;;

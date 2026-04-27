@@ -504,6 +504,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       previousUserId = newUserId;
 
       if (firebaseUser) {
+       try {
         // Block unverified email/password users
         const isEmailProvider = firebaseUser.providerData.some(p => p.providerId === 'password');
         if (!SKIP_EMAIL_VERIFICATION && isEmailProvider && !firebaseUser.emailVerified) {
@@ -524,9 +525,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         const drapeUser = mapFirebaseUser(firebaseUser);
 
-        // Load the user's actual plan and first-project flag from Firestore
+        // Load the user's actual plan and first-project flag from Firestore.
+        // Tolerate transient permission-denied / network errors so a Firestore
+        // read failure cannot leave the app stuck on a black loading screen.
         const userDocRef = doc(db, 'users', firebaseUser.uid);
-        const userDocSnap = await getDoc(userDocRef);
+        let userDocSnap: any = { exists: () => false, data: () => null };
+        try {
+          userDocSnap = await getDoc(userDocRef);
+        } catch (err: any) {
+          console.warn('[Auth] Could not load user doc, proceeding with defaults:', err?.code || err?.message || err);
+        }
         const userData = userDocSnap.exists() ? userDocSnap.data() : null;
         const normalizedLifecycle = normalizeAuthLifecycle({
           plan: userData?.plan,
@@ -583,6 +591,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         // Start presence tracking for admin dashboard
         startAuthenticatedRealtimeServices(firebaseUser.uid);
+       } catch (err: any) {
+        console.error('[Auth] onAuthStateChanged handler failed, finalizing UI state to avoid stuck splash:', err?.message || err);
+        const fallbackUser = mapFirebaseUser(firebaseUser);
+        set({ user: fallbackUser, isInitialized: true, isLoading: false, deviceCheckFailed: false });
+       }
       } else {
         // Stop presence tracking if active
         stopPresenceHeartbeatOnly();

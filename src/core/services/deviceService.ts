@@ -144,8 +144,13 @@ class DeviceService {
       }
 
       return isActive;
-    } catch (error) {
-      console.error('[DeviceService] Error checking active device:', error);
+    } catch (error: any) {
+      // permission-denied happens transiently during auth-token refresh; not actionable.
+      if (error?.code === 'permission-denied') {
+        console.warn('[DeviceService] active-device check skipped (permission-denied during token refresh)');
+      } else {
+        console.error('[DeviceService] Error checking active device:', error);
+      }
       return true; // Allow on error to prevent lockouts
     }
   }
