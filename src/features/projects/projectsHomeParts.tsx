@@ -173,13 +173,6 @@ export const ProjectsQuickActions = ({
           }} numberOfLines={1}>
             {projectCounts.cloned}/2 {t('home.counterClone')}
           </Text>
-          <View style={{ width: 1, height: 10, backgroundColor: 'rgba(255,255,255,0.1)' }} />
-          <Text style={{
-            fontSize: 10, fontWeight: '600',
-            color: projectCounts.local >= 1 ? '#FF6B6B' : 'rgba(255,255,255,0.4)',
-          }} numberOfLines={1}>
-            {projectCounts.local}/1 {t('home.counterLocal')}
-          </Text>
           {(projectCounts.created >= 1 || projectCounts.cloned >= 2 || projectCounts.local >= 1) && (
             <Ionicons name="arrow-forward" size={10} color="#FF6B6B" />
           )}
