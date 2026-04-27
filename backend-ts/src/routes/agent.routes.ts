@@ -25,6 +25,7 @@ import {
 import { updateProjectCreationStatus } from '../services/project-status.service';
 import { appendEvent as jobAppendEvent, createJob, updateJob } from '../services/generation-jobs.service';
 import { isDrapeCloudConfigured } from '../services/drape-cloud/client';
+import { notificationService } from '../services/notification.service';
 import nodePath from 'path';
 import nodeFs from 'fs';
 
@@ -210,6 +211,22 @@ agentRouter.post('/create', asyncHandler(async (req, res) => {
     if (jobId) {
       await updateJob(jobId, { status: 'completed', phase: 'done', progress: 100 });
     }
+    // Push notification — fires regardless of whether the SSE client is still
+    // attached. This is the whole point of the durable job: tell the user
+    // their project is ready even with the app closed.
+    notificationService.sendToUser(
+      userId,
+      {
+        type: 'project_created',
+        title: '✓ Progetto pronto',
+        body: `${projectName || projectId} è stato generato e ti aspetta.`,
+      },
+      {
+        projectId,
+        ...(jobId ? { jobId } : {}),
+        deepLink: `project/${projectId}`,
+      },
+    ).catch((err) => log.warn('[Agent/create] push send failed:', err?.message || err));
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
     const errStack = error instanceof Error ? error.stack : undefined;
@@ -222,6 +239,22 @@ agentRouter.post('/create', asyncHandler(async (req, res) => {
     if (jobId) {
       await updateJob(jobId, { status: 'failed', error: errMsg || 'Creation failed' }).catch(() => {});
     }
+    // Push at failure too — the user explicitly asked for status updates and
+    // a silent failure is worse than a notified one.
+    notificationService.sendToUser(
+      userId,
+      {
+        type: 'project_failed',
+        title: 'Generazione fallita',
+        body: `${projectName || projectId} non è stato generato. Apri l'app per riprovare.`,
+      },
+      {
+        projectId,
+        ...(jobId ? { jobId } : {}),
+        deepLink: `project/${projectId}`,
+        error: (errMsg || '').slice(0, 200),
+      },
+    ).catch((err) => log.warn('[Agent/create] push send failed:', err?.message || err));
 
     if (!res.writableEnded) {
       writeSseEvent('error', { type: 'error', error: errMsg || 'Creation failed' });
