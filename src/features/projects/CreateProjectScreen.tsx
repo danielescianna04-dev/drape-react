@@ -1287,6 +1287,16 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       const taskId = result.taskId;
       activeTaskIdRef.current = taskId;
 
+      // Bind any pending Live Activity push tokens to this taskId on the
+      // backend so APNs Live Activity updates can target this generation.
+      getAuthHeaders().then((bindHeaders) => {
+        return fetch(`${apiUrl}/workstation/live-activity-token`, {
+          method: 'POST',
+          headers: { ...bindHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ activityId: 'all', token: 'rebind', taskId }),
+        });
+      }).catch(() => {});
+
       // 2. Start polling
       restartPolling(taskId, apiUrl);
 

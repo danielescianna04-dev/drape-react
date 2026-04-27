@@ -33,6 +33,8 @@ import { useChatStore } from './src/core/terminal/chatStore';
 import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
 import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
 import { liveActivityService } from './src/core/services/liveActivityService';
+import { getAuthHeaders } from './src/core/api/getAuthToken';
+import { config as appConfig } from './src/config/config';
 import { useBackendLogs } from './src/hooks/api/useBackendLogs';
 import { useFileSync } from './src/hooks/business/useFileSync';
 import { useNavigationStore } from './src/core/navigation/navigationStore';
@@ -217,6 +219,24 @@ export default function App() {
     liveActivityService.endAllActivities().catch(() => {});
 
     // Notification tap handling is centralized in pushNotificationService.handleNotificationTap
+  }, []);
+
+  // Forward Live Activity APNs push tokens to backend so it can drive
+  // remote Dynamic Island updates while the app is suspended.
+  useEffect(() => {
+    const unsubscribe = liveActivityService.onPushToken(async ({ activityId, token }) => {
+      try {
+        const headers = await getAuthHeaders();
+        await fetch(`${appConfig.apiUrl}/workstation/live-activity-token`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ activityId, token }),
+        });
+      } catch (err) {
+        console.warn('[LiveActivity] failed to register push token', err);
+      }
+    });
+    return unsubscribe;
   }, []);
 
   // Deep link handling

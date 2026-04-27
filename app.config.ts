@@ -102,7 +102,12 @@ const config: ExpoConfig = {
       },
     ],
     './plugins/withAllowHTTP.js',
-    './plugins/withLiveActivity.js',
+    [
+      'expo-live-activity',
+      {
+        enablePushNotifications: true,
+      },
+    ],
     [
       'expo-notifications',
       {
