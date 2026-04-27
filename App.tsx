@@ -409,6 +409,7 @@ export default function App() {
               user: state.user ? { ...state.user, firstProjectChoiceSkipped: true } : state.user,
             }));
           }
+          setIsFirstCreate(false);
           setCurrentScreen('home');
         }}
       />
