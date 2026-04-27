@@ -182,7 +182,15 @@ class PushNotificationService {
    * Handle notification tap - navigate to appropriate screen
    */
   private handleNotificationTap(data: Record<string, any>): void {
-    const { type, action, projectId, workstationId } = data;
+    const { type, action, projectId, workstationId, jobId } = data;
+
+    // If this push carried a generation jobId, persist it so when the project
+    // tab mounts useAgentStream can call attachToJob and pick up live state.
+    if (jobId && projectId) {
+      // Inline import to avoid a cycle: pendingJobsStore is small.
+      const { pendingJobs } = require('../ai/pendingJobsStore');
+      pendingJobs.set(projectId, jobId).catch(() => {});
+    }
 
     // "action: openPreview" — sent by usePreviewStartup when preview is ready
     if (action === 'openPreview') {
