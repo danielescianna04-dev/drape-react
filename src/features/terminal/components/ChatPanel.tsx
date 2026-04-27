@@ -437,6 +437,24 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
     handleClose();
   }, [tabs, setActiveTab, addTab]);
 
+  const handleOpenMcps = useCallback(() => {
+    Keyboard.dismiss();
+    tracciaPannelloAperto('mcps' as any);
+    const tabId = 'mcps';
+    const existing = tabs.find(t => t.id === tabId);
+    if (existing) {
+      setActiveTab(tabId);
+    } else {
+      addTab({
+        id: tabId,
+        type: 'mcps' as any,
+        title: 'MCP',
+        data: {},
+      });
+    }
+    handleClose();
+  }, [tabs, setActiveTab, addTab]);
+
   const handleOpenDatabase = useCallback(() => {
     Keyboard.dismiss();
     tracciaPannelloAperto('database');
@@ -744,6 +762,16 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
             {expandedNav.plugins && (
               <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
                 {renderActionItem('cube-outline', 'I tuoi plugin + marketplace', handleOpenPlugins)}
+              </Animated.View>
+            )}
+
+            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
+
+            {/* ── MCP Section (tool providers) ── */}
+            {renderNavSectionHeader('mcps' as any, 'extension-puzzle-outline', 'MCP')}
+            {expandedNav.mcps && (
+              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
+                {renderActionItem('extension-puzzle-outline', 'Server MCP installati + marketplace', handleOpenMcps)}
               </Animated.View>
             )}
 
