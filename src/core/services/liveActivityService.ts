@@ -28,7 +28,22 @@ const ACTIVITY_CONFIG = {
  */
 class LiveActivityService {
   private activityId: string | null = null;
-  private isSupported: boolean = Platform.OS === 'ios';
+  // True only if iOS AND the expo-live-activity native module is actually
+  // linked into the binary. Without a native rebuild after installing the
+  // package, the JS shim exists but the underlying module is null and every
+  // call throws. Probing once at boot via a zero-side-effect listener
+  // attach keeps the rest of the codebase free of repeated try/catch noise.
+  private isSupported: boolean = (() => {
+    if (Platform.OS !== 'ios') return false;
+    try {
+      const sub: any = (LiveActivity as any).addActivityTokenListener?.(() => {});
+      sub?.remove?.();
+      return true;
+    } catch {
+      console.warn('[LiveActivity] native module not linked — Live Activity disabled until dev client is rebuilt');
+      return false;
+    }
+  })();
   private currentProjectName: string = '';
   private tokenListenerSub: { remove: () => void } | null = null;
 
