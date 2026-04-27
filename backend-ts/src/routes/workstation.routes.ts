@@ -24,6 +24,8 @@ import { assessProjectComplexity } from '../services/project-complexity.service'
 import { refreshBatchFailureReview } from '../services/anthropic-batch-review.service';
 import { updateProjectCreationStatus } from '../services/project-status.service';
 import { notificationService } from '../services/notification.service';
+import { liveActivityTokens } from '../services/live-activity-tokens.service';
+import { apnsLiveActivity } from '../services/apns-live-activity.service';
 
 async function applyBoilerplateTemplate(projectId: string, technology: string, cloudMode: boolean = false): Promise<boolean> {
   // Templates are in the backend root directory (synced via deploy), NOT inside Docker containers
@@ -194,6 +196,21 @@ function scheduleProjectDeletion(projectId: string, userId: string): { scheduled
 }
 
 export const workstationRouter = Router();
+
+workstationRouter.post('/live-activity-token', asyncHandler(async (req, res) => {
+  const userId = req.userId || 'anonymous';
+  const { activityId, token, taskId } = req.body || {};
+  if (!activityId || !token) {
+    throw new ValidationError('activityId and token are required');
+  }
+  if (activityId === 'all' && token === 'rebind' && taskId) {
+    liveActivityTokens.associateAllForUser(userId, taskId);
+    return res.json({ success: true, mode: 'rebind' });
+  }
+  liveActivityTokens.register(userId, activityId, token);
+  if (taskId) liveActivityTokens.associateTask(activityId, taskId);
+  res.json({ success: true });
+}));
 
 type GeneratedFile = { path: string; content: string };
 
@@ -1481,12 +1498,33 @@ workstationRouter.get('/create-status/:taskId', asyncHandler(async (req, res) =>
 async function generateProject(
   projectId: string, projectName: string, technology: string, description: string, task: CreationTask, userId: string, cloudMode: boolean = false, structuredAnswers?: any
 ): Promise<void> {
+  const broadcastLiveActivity = (
+    progressPct: number,
+    currentStep: string,
+    status: 'running' | 'completed' | 'failed' | 'verification_failed',
+  ) => {
+    const tokens = liveActivityTokens.byTaskId(projectId);
+    if (tokens.length === 0) return;
+    const remainingSeconds = Math.max(0, Math.round(120 * (1 - progressPct / 100)));
+    const progress = Math.max(0, Math.min(1, progressPct / 100));
+    for (const t of tokens) {
+      apnsLiveActivity.sendUpdate(t.token, {
+        projectName,
+        remainingSeconds,
+        currentStep,
+        progress,
+        status,
+      }).catch(() => {});
+    }
+  };
+
   const update = (progress: number, message: string, step: string) => {
     const normalized = Math.max(0, Math.min(100, Math.round(progress)));
     // Keep progress monotonic to avoid visual jumps backwards.
     task.progress = Math.max(task.progress || 0, normalized);
     task.message = message;
     task.step = step;
+    broadcastLiveActivity(task.progress, step || message, 'running');
   };
 
   // Initialize build report tracker
@@ -2353,6 +2391,7 @@ Return ONLY the JSON, no markdown, no explanation.`;
       report.complete();
       update(100, 'Project Created Successfully!', 'Complete');
       task.status = 'completed';
+      broadcastLiveActivity(100, 'Project Created Successfully!', 'completed');
       await updateProjectCreationStatus(userId, projectId, 'ready', {
         name: projectName,
         technology,
@@ -2373,6 +2412,7 @@ Return ONLY the JSON, no markdown, no explanation.`;
       update(100, `Verification failed: ${reason}`, 'Needs Fix');
       task.status = 'verification_failed';
       task.error = reason;
+      broadcastLiveActivity(100, 'Verification failed', 'verification_failed');
       await updateProjectCreationStatus(userId, projectId, 'verification_failed', {
         name: projectName,
         technology,
@@ -2411,6 +2451,7 @@ Return ONLY the JSON, no markdown, no explanation.`;
     task.status = 'failed';
     task.error = err.message;
     task.message = `Generation failed: ${err.message}`;
+    broadcastLiveActivity(100, 'Generation failed', 'failed');
     await updateProjectCreationStatus(userId, projectId, 'failed', {
       name: projectName,
       technology,
