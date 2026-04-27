@@ -27,6 +27,7 @@ import { useUIStore } from './src/core/terminal/uiStore';
 import { useWorkstationStore } from './src/core/terminal/workstationStore';
 import { useTabStore } from './src/core/tabs/tabStore';
 import { useAuthStore } from './src/core/auth/authStore';
+import { useResumePendingJobs } from './src/core/ai/useResumePendingJobs';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from './src/config/firebase';
 import { useChatStore } from './src/core/terminal/chatStore';
@@ -155,6 +156,12 @@ export default function App() {
   // Stream backend logs to terminal (always enabled when logged in)
   const { isInitialized, user } = useAuthStore();
   useBackendLogs({ enabled: isInitialized && !!user });
+
+  // Reconcile any background generation jobs that may have completed while
+  // the app was closed. Cleans up pendingJobs entries for terminal jobs;
+  // running ones are left for useAgentStream.attachToJob to pick up when
+  // the corresponding project chat tab mounts.
+  useResumePendingJobs(isInitialized && user ? user.uid : null);
 
   // Global file synchronization via WebSocket
   useFileSync();

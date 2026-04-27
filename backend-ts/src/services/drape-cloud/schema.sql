@@ -208,3 +208,38 @@ CREATE INDEX IF NOT EXISTS idx_drape_project_versions_project_created
   ON drape_project_versions(project_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_drape_project_versions_project_number
   ON drape_project_versions(project_id, version_number);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- generation_jobs — long-running AI project generation jobs.
+-- The HTTP request that starts a job returns its id immediately; the loop
+-- runs detached on the server, persisting state here. Clients can poll
+-- GET /agent/jobs/:id or attach to GET /agent/jobs/:id/events for a live
+-- replay+tail SSE stream. A push is sent to the user on terminal states.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS generation_jobs (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL,
+  project_id      TEXT NOT NULL,
+  project_name    TEXT,
+  prompt          TEXT,
+  -- queued | running | completed | failed | cancelled
+  status          TEXT NOT NULL DEFAULT 'queued',
+  -- machine-readable phase: generation | ts_fix | preview_start | preview_fix | full_verify | finalize | done
+  phase           TEXT,
+  -- 0..100, monotonic non-decreasing for the UI progress bar
+  progress        INTEGER NOT NULL DEFAULT 0,
+  error           TEXT,
+  -- last SSE payload (for clients that just want the latest state without replay)
+  last_event      JSONB,
+  -- ordered list of significant SSE events (compact: only phase transitions, file batches, errors)
+  events          JSONB NOT NULL DEFAULT '[]'::jsonb,
+  result          JSONB,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_user_status
+  ON generation_jobs(user_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_project
+  ON generation_jobs(project_id, created_at DESC);

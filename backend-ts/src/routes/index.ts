@@ -9,6 +9,7 @@ import { gitlabRouter } from './gitlab.routes';
 import { bitbucketRouter } from './bitbucket.routes';
 import { healthRouter } from './health.routes';
 import { agentRouter } from './agent.routes';
+import { jobsRouter } from './jobs.routes';
 import { notificationRouter } from './notification.routes';
 import { aiRouter } from './ai.routes';
 import { iapRouter } from './iap.routes';
@@ -156,6 +157,10 @@ export function mountRoutes(app: Express): void {
   app.use('/files', filesBrowseRouter);
 
   // --- Auth-protected routes ---
+
+  // Long-running generation jobs (read-side: snapshots + live SSE replay/tail).
+  // MUST be mounted before the catch-all /agent router so its paths win.
+  app.use('/agent/jobs', requireAuth, jobsRouter);
 
   // Agent routes
   app.use('/agent', requireAuth, agentRouter);

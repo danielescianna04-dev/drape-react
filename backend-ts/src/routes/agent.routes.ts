@@ -23,8 +23,37 @@ import {
   requireField,
 } from './agentRequestGuards';
 import { updateProjectCreationStatus } from '../services/project-status.service';
+import { appendEvent as jobAppendEvent, createJob, updateJob } from '../services/generation-jobs.service';
+import { isDrapeCloudConfigured } from '../services/drape-cloud/client';
+import { notificationService } from '../services/notification.service';
 import nodePath from 'path';
 import nodeFs from 'fs';
+
+// SSE event types we persist to the job timeline. Anything not in this list
+// (heartbeats, token deltas, processing messages) is sent to the live client
+// only — we don't want to bloat the events JSONB with thousands of rows.
+const PERSISTED_EVENT_TYPES = new Set([
+  'phase',
+  'phase_start',
+  'phase_complete',
+  'file',
+  'file_batch',
+  'tool_call',
+  'tool_result',
+  'error',
+  'done',
+  'plan',
+]);
+
+const PHASE_PROGRESS: Record<string, number> = {
+  generation: 25,
+  ts_fix: 45,
+  preview_start: 60,
+  preview_fix: 75,
+  full_verify: 90,
+  finalize: 95,
+  done: 100,
+};
 
 export const agentRouter = Router();
 
@@ -92,13 +121,50 @@ agentRouter.post('/create', asyncHandler(async (req, res) => {
   }
 
   let clientDisconnected = false;
-  const { writeEvent: writeSseEvent, cleanup } = setupAgentSse({
+  const { writeEvent: rawWriteSseEvent, cleanup } = setupAgentSse({
     res,
     onDisconnect: () => {
       clientDisconnected = true;
-      log.info(`[Agent/create] Client disconnected for project ${projectId}`);
+      log.info(`[Agent/create] Client disconnected for project ${projectId}, work continues in background`);
     },
   });
+
+  // Create a durable job record so the work survives client disconnects and
+  // can be observed via GET /agent/jobs/:id (snapshot) or
+  // GET /agent/jobs/:id/events (SSE replay+tail). If the cloud DB is not
+  // configured (legacy dev), skip persistence — pipeline still works, just
+  // no resume across reconnects.
+  let jobId: string | null = null;
+  if (isDrapeCloudConfigured()) {
+    try {
+      const j = await createJob({ userId, projectId, projectName: projectName || projectId, prompt });
+      jobId = j.id;
+      await updateJob(jobId, { status: 'running', phase: 'generation', progress: 5 });
+    } catch (err: any) {
+      log.warn('[Agent/create] could not create generation job:', err?.message || err);
+    }
+  }
+
+  // Decorated writer: emits to the live SSE client AND persists to the job
+  // timeline (filtered). Phase events also bump the progress integer.
+  const writeSseEvent = (eventType: string, payload: any, options?: any): boolean => {
+    const sent = rawWriteSseEvent(eventType as any, payload, options);
+    if (jobId && PERSISTED_EVENT_TYPES.has(eventType)) {
+      jobAppendEvent(jobId, { type: eventType, data: payload }).catch((err) => {
+        log.warn('[Agent/create] job appendEvent failed:', err?.message || err);
+      });
+      // Bump phase + progress when the pipeline announces a new phase.
+      const phase: string | undefined =
+        (eventType === 'phase' || eventType === 'phase_start' || eventType === 'phase_complete')
+          ? (payload?.phase || payload?.name)
+          : undefined;
+      if (phase) {
+        const progress = PHASE_PROGRESS[phase];
+        updateJob(jobId, { phase, ...(progress != null ? { progress } : {}) }).catch(() => {});
+      }
+    }
+    return sent;
+  };
 
   try {
     auditService.log({ userId, action: 'agent_create_start', resource: projectId, details: 'project_creation', ip: req.ip });
@@ -106,6 +172,12 @@ agentRouter.post('/create', asyncHandler(async (req, res) => {
       name: projectName || projectId,
       startedAt: new Date().toISOString(),
     });
+
+    // Tell the client about the jobId in the very first event so it can
+    // re-attach later via /agent/jobs/:id/events.
+    if (jobId) {
+      rawWriteSseEvent('job_created' as any, { type: 'job_created', jobId, projectId } as any);
+    }
 
     writeSseEvent('processing', {
       type: 'processing',
@@ -136,6 +208,25 @@ agentRouter.post('/create', asyncHandler(async (req, res) => {
     await updateProjectCreationStatus(userId, projectId, 'ready', {
       name: projectName || projectId,
     });
+    if (jobId) {
+      await updateJob(jobId, { status: 'completed', phase: 'done', progress: 100 });
+    }
+    // Push notification — fires regardless of whether the SSE client is still
+    // attached. This is the whole point of the durable job: tell the user
+    // their project is ready even with the app closed.
+    notificationService.sendToUser(
+      userId,
+      {
+        type: 'project_created',
+        title: '✓ Progetto pronto',
+        body: `${projectName || projectId} è stato generato e ti aspetta.`,
+      },
+      {
+        projectId,
+        ...(jobId ? { jobId } : {}),
+        deepLink: `project/${projectId}`,
+      },
+    ).catch((err) => log.warn('[Agent/create] push send failed:', err?.message || err));
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
     const errStack = error instanceof Error ? error.stack : undefined;
@@ -145,6 +236,25 @@ agentRouter.post('/create', asyncHandler(async (req, res) => {
       name: projectName || projectId,
       error: errMsg || 'Creation failed',
     });
+    if (jobId) {
+      await updateJob(jobId, { status: 'failed', error: errMsg || 'Creation failed' }).catch(() => {});
+    }
+    // Push at failure too — the user explicitly asked for status updates and
+    // a silent failure is worse than a notified one.
+    notificationService.sendToUser(
+      userId,
+      {
+        type: 'project_failed',
+        title: 'Generazione fallita',
+        body: `${projectName || projectId} non è stato generato. Apri l'app per riprovare.`,
+      },
+      {
+        projectId,
+        ...(jobId ? { jobId } : {}),
+        deepLink: `project/${projectId}`,
+        error: (errMsg || '').slice(0, 200),
+      },
+    ).catch((err) => log.warn('[Agent/create] push send failed:', err?.message || err));
 
     if (!res.writableEnded) {
       writeSseEvent('error', { type: 'error', error: errMsg || 'Creation failed' });
