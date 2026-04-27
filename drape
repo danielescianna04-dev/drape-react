@@ -131,10 +131,25 @@ prod_ota() {
   local msg="${1:-prod update}"
   warn "This publishes to REAL production users immediately."
   confirm "Proceed?"
+  # Move .env.development.local out of the way so it can't override the inline
+  # env vars during the bundle. Expo CLI loads dotenv files even if process.env
+  # already has the keys, and a stale dev override here ships an OTA that
+  # connects prod users to dev backend + dev Firebase. We saw this happen once.
+  local restore_dev_env=0
+  if [[ -f "$ROOT/.env.development.local" ]]; then
+    mv "$ROOT/.env.development.local" "$ROOT/.env.development.local.prod-bak"
+    restore_dev_env=1
+    say "Temporarily moved .env.development.local aside to avoid env leakage"
+  fi
+  local rc=0
   EXPO_PUBLIC_ENV=production \
   EXPO_PUBLIC_API_URL=https://drape.info \
   EXPO_PUBLIC_WS_URL=wss://drape.info \
-    eas update --channel production --message "$msg"
+    eas update --channel production --message "$msg" || rc=$?
+  if [[ $restore_dev_env -eq 1 ]]; then
+    mv "$ROOT/.env.development.local.prod-bak" "$ROOT/.env.development.local"
+  fi
+  [[ $rc -eq 0 ]] || fail "Production OTA failed (rc=$rc)."
   ok "Production OTA published."
 }
 
