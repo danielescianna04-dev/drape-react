@@ -70,7 +70,11 @@ class LiveActivityService {
       this.activityId = id;
       return true;
     } catch (error: any) {
-      console.error('❌ [LiveActivity] Start error:', error);
+      // iOS Simulator does not support APNs token registration, so when the
+      // plugin is configured with enablePushNotifications: true the
+      // ActivityKit request fails with a UnexpectedErrorException. Treat it
+      // as a non-fatal warning so the rest of the create flow keeps running.
+      console.warn('[LiveActivity] Start unavailable (likely simulator without APNs):', error?.message || error);
       return false;
     }
   }
