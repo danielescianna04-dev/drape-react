@@ -20,9 +20,10 @@ interface Props {
   onBack: () => void;
   onCreate: () => void;
   onClone: () => void;
+  onSkip?: () => void;
 }
 
-export const FirstProjectChoiceScreen: React.FC<Props> = ({ onBack, onCreate, onClone }) => {
+export const FirstProjectChoiceScreen: React.FC<Props> = ({ onBack, onCreate, onClone, onSkip }) => {
   const { t } = useTranslation('projects');
   const insets = useSafeAreaInsets();
   const bgMove = useRef(new Animated.Value(0)).current;
@@ -203,6 +204,16 @@ export const FirstProjectChoiceScreen: React.FC<Props> = ({ onBack, onCreate, on
             )}
           </TouchableOpacity>
         </View>
+
+        {onSkip ? (
+          <TouchableOpacity
+            style={[styles.skipBtn, { marginBottom: insets.bottom + 12 }]}
+            onPress={() => { tracciaOnboardingSceltaProgetto('salta'); onSkip(); }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.skipText}>{t('onboardingFlow.projectChoice.skip', 'Salta e vai alla home')}</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );
@@ -352,5 +363,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: 'rgba(255,255,255,0.45)',
+  },
+  skipBtn: {
+    marginTop: 28,
+    alignSelf: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  skipText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.55)',
+    textAlign: 'center',
   },
 });

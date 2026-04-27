@@ -1,6 +1,7 @@
 export interface AuthLifecycleFields {
   onboardingCompleted?: boolean | null;
   hasCreatedFirstProject?: boolean | null;
+  firstProjectChoiceSkipped?: boolean | null;
   plan?: string | null;
 }
 
@@ -36,6 +37,7 @@ export function hasIncompleteOnboarding(fields?: AuthLifecycleFields | null): bo
 }
 
 export function shouldResumeFirstProjectChoice(fields?: AuthLifecycleFields | null): boolean {
+  if (fields?.firstProjectChoiceSkipped === true) return false;
   return fields?.onboardingCompleted === true && fields?.hasCreatedFirstProject === false;
 }
 

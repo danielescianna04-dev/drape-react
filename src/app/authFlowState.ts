@@ -14,6 +14,7 @@ export interface AuthFlowUserSnapshot {
   plan?: 'free' | 'go' | 'pro' | 'team';
   onboardingCompleted?: boolean;
   hasCreatedFirstProject?: boolean;
+  firstProjectChoiceSkipped?: boolean;
 }
 
 export interface AuthFlowDecision {

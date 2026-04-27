@@ -27,6 +27,8 @@ import { useUIStore } from './src/core/terminal/uiStore';
 import { useWorkstationStore } from './src/core/terminal/workstationStore';
 import { useTabStore } from './src/core/tabs/tabStore';
 import { useAuthStore } from './src/core/auth/authStore';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from './src/config/firebase';
 import { useChatStore } from './src/core/terminal/chatStore';
 import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
 import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
@@ -372,6 +374,16 @@ export default function App() {
           }
         }}
         loadingMessage={loadingMessage}
+        onSkip={() => {
+          if (user?.uid) {
+            setDoc(doc(db, 'users', user.uid), { firstProjectChoiceSkipped: true }, { merge: true })
+              .catch((err) => console.warn('[App] firstProjectChoiceSkipped save failed', err));
+            useAuthStore.setState(state => ({
+              user: state.user ? { ...state.user, firstProjectChoiceSkipped: true } : state.user,
+            }));
+          }
+          setCurrentScreen('home');
+        }}
       />
     );
   }

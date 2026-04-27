@@ -138,6 +138,7 @@ export const FirstProjectChoiceRoute = ({
   onCloseAuth,
   onAuthenticated,
   loadingMessage,
+  onSkip,
 }: {
   i18n: typeof i18nType;
   onBack: () => void;
@@ -151,6 +152,7 @@ export const FirstProjectChoiceRoute = ({
   onCloseAuth: () => void;
   onAuthenticated: (token: string) => void;
   loadingMessage: string;
+  onSkip?: () => void;
 }) => (
   <I18nextProvider i18n={i18n}>
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0A0A0F' }}>
@@ -160,6 +162,7 @@ export const FirstProjectChoiceRoute = ({
             onBack={onBack}
             onCreate={onCreate}
             onClone={onCloneOpen}
+            onSkip={onSkip}
           />
 
           <ImportGitHubModal

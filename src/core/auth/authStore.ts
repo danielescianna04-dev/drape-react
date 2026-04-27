@@ -323,6 +323,7 @@ export interface DrapeUser {
     isActive?: boolean;
   };
   hasCreatedFirstProject?: boolean;
+  firstProjectChoiceSkipped?: boolean;
   onboardingCompleted?: boolean;
 }
 
@@ -544,6 +545,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         drapeUser.plan = normalizedLifecycle.plan;
         drapeUser.subscription = extractSubscriptionFromDoc(userData);
         drapeUser.hasCreatedFirstProject = normalizedLifecycle.hasCreatedFirstProject;
+        drapeUser.firstProjectChoiceSkipped = userData?.firstProjectChoiceSkipped === true;
         drapeUser.onboardingCompleted = normalizedLifecycle.onboardingCompleted;
 
         // Existing accounts created before this flag rollout must not be treated as "new"
@@ -671,6 +673,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       drapeUser.plan = normalizedLifecycle.plan;
       drapeUser.hasCreatedFirstProject = normalizedLifecycle.hasCreatedFirstProject;
+      drapeUser.firstProjectChoiceSkipped = userData?.firstProjectChoiceSkipped === true;
       drapeUser.onboardingCompleted = normalizedLifecycle.onboardingCompleted;
 
       // Now register device (may create doc via merge — but isNew already determined)
@@ -1274,6 +1277,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       drapeUser.plan = normalizedLifecycle.plan;
       drapeUser.hasCreatedFirstProject = normalizedLifecycle.hasCreatedFirstProject;
+      drapeUser.firstProjectChoiceSkipped = userData?.firstProjectChoiceSkipped === true;
       drapeUser.onboardingCompleted = normalizedLifecycle.onboardingCompleted;
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
@@ -1413,6 +1417,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       drapeUser.plan = normalizedLifecycle.plan;
       drapeUser.hasCreatedFirstProject = normalizedLifecycle.hasCreatedFirstProject;
+      drapeUser.firstProjectChoiceSkipped = userData?.firstProjectChoiceSkipped === true;
       drapeUser.onboardingCompleted = normalizedLifecycle.onboardingCompleted;
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
