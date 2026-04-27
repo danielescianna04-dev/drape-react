@@ -47,7 +47,7 @@ flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
       });
     }
     const storageMb = await getUserStorageMb(uid);
-    if (storageMb >= limits.maxStorageMb) {
+    if (limits.maxStorageMb > 0 && storageMb >= limits.maxStorageMb) {
       return res.status(403).json({
         success: false,
         error: 'STORAGE_LIMIT_EXCEEDED',
@@ -214,7 +214,7 @@ flyRouter.post('/project/create', asyncHandler(async (req, res) => {
       });
     }
     const storageMb = await getUserStorageMb(uid);
-    if (storageMb >= limits.maxStorageMb) {
+    if (limits.maxStorageMb > 0 && storageMb >= limits.maxStorageMb) {
       return res.status(403).json({
         success: false,
         error: 'STORAGE_LIMIT_EXCEEDED',
