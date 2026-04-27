@@ -21,6 +21,7 @@ import { filesBrowseRouter } from './files-browse.routes';
 import { exploreRouter } from './explore.routes';
 import { creatorRouter } from './creator.routes';
 import { skillsRouter } from './skills.routes';
+import { mcpsRouter } from './mcps.routes';
 import { createPreviewProxy, createAssetProxy, createSubdomainPreviewProxy } from '../middleware/vm-router';
 import { config } from '../config';
 import { requireAuth } from '../middleware/auth';
@@ -200,6 +201,9 @@ export function mountRoutes(app: Express): void {
 
   // Skills (Plugins) — user-invokable AI prompt presets + marketplace.
   app.use('/skills', requireAuth, skillsRouter);
+
+  // MCP servers (Model Context Protocol)
+  app.use('/mcps', requireAuth, mcpsRouter);
 
   // Root info — public
   app.get('/', (req, res) => {
