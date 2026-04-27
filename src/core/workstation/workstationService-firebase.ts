@@ -190,12 +190,19 @@ export const workstationService = {
         // orderBy('lastAccessed', 'desc') // TODO: Uncomment after creating index
       );
 
+      const toDate = (v: any): Date => {
+        if (!v) return new Date();
+        if (typeof v?.toDate === 'function') return v.toDate();
+        if (v instanceof Date) return v;
+        const d = new Date(v);
+        return isNaN(d.getTime()) ? new Date() : d;
+      };
       const querySnapshot = await getDocs(q);
       const projects = querySnapshot.docs.map(doc => ({
         ...doc.data(),
         id: doc.id,
-        createdAt: doc.data().createdAt?.toDate() || new Date(),
-        lastAccessed: doc.data().lastAccessed?.toDate() || new Date(),
+        createdAt: toDate(doc.data().createdAt),
+        lastAccessed: toDate(doc.data().lastAccessed),
       })) as UserProject[];
 
       return projects;
