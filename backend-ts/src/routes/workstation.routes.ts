@@ -23,6 +23,7 @@ import { BuildReportTracker } from '../services/build-report.service';
 import { assessProjectComplexity } from '../services/project-complexity.service';
 import { refreshBatchFailureReview } from '../services/anthropic-batch-review.service';
 import { updateProjectCreationStatus } from '../services/project-status.service';
+import { notificationService } from '../services/notification.service';
 
 async function applyBoilerplateTemplate(projectId: string, technology: string, cloudMode: boolean = false): Promise<boolean> {
   // Templates are in the backend root directory (synced via deploy), NOT inside Docker containers
@@ -2356,6 +2357,15 @@ Return ONLY the JSON, no markdown, no explanation.`;
         name: projectName,
         technology,
       });
+      notificationService.sendToUser(
+        userId,
+        {
+          title: 'Progetto pronto',
+          body: `${projectName} è stato creato con successo`,
+          type: 'project_created',
+        },
+        { taskId: projectId, projectId, projectName }
+      ).catch((err) => log.warn(`[CreateProject] push send failed: ${err?.message || err}`));
     } else {
       report.setPreviewBlocked(true);
       report.fail();
@@ -2369,6 +2379,15 @@ Return ONLY the JSON, no markdown, no explanation.`;
         error: reason,
       });
       log.warn(`[CreateProject] ${projectId} verification failed: ${reason}`);
+      notificationService.sendToUser(
+        userId,
+        {
+          title: 'Generazione completata con errori',
+          body: `${projectName}: verifica fallita`,
+          type: 'project_verification_failed',
+        },
+        { taskId: projectId, projectId, projectName }
+      ).catch(() => {});
     }
 
     task.result = {
@@ -2397,5 +2416,14 @@ Return ONLY the JSON, no markdown, no explanation.`;
       technology,
       error: err.message,
     });
+    notificationService.sendToUser(
+      userId,
+      {
+        title: 'Generazione fallita',
+        body: `${projectName}: ${err.message?.slice(0, 100) || 'errore sconosciuto'}`,
+        type: 'project_failed',
+      },
+      { taskId: projectId, projectId, projectName }
+    ).catch(() => {});
   }
 }

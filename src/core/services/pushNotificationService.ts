@@ -195,7 +195,9 @@ class PushNotificationService {
     switch (type) {
       case 'operation_complete':
       case 'clone_complete':
-      case 'project_created': {
+      case 'project_created':
+      case 'project_verification_failed':
+      case 'project_failed': {
         const terminalStore = useTerminalStore.getState();
         // Try to find the specific project; fall back to current workstation
         if (projectId || workstationId) {
