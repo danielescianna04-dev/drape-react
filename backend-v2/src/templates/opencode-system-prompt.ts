@@ -29,7 +29,7 @@ Tutto il codice gira nel browser dell'utente.
 ## Credenziali Appwrite
 
 Le credenziali sono già iniettate come env vars Vite:
-- \`VITE_APPWRITE_ENDPOINT\` — endpoint Appwrite (es. \`https://appwrite.drape.info/v1\`)
+- \`VITE_APPWRITE_ENDPOINT\` — endpoint Appwrite (es. \`https://appwrite.bynot.it/v1\`)
 - \`VITE_APPWRITE_PROJECT_ID\` — sempre \`drape-platform\`
 - \`VITE_APPWRITE_DATABASE_ID\` — database UNICO dell'utente Drape
 

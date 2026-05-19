@@ -5,7 +5,7 @@
 set -euo pipefail
 
 APPWRITE_DIR="/opt/appwrite"
-DOMAIN_DEFAULT="appwrite.drape.info"
+DOMAIN_DEFAULT="appwrite.bynot.it"
 
 echo "[1/3] Crea directory $APPWRITE_DIR..."
 sudo mkdir -p "$APPWRITE_DIR"
@@ -41,7 +41,7 @@ cat <<'EOF'
   _APP_SMTP_SECURE=ssl
   _APP_SMTP_USERNAME=resend
   _APP_SMTP_PASSWORD=<la-tua-resend-api-key>
-  _APP_SYSTEM_EMAIL_ADDRESS=noreply@drape.info
+  _APP_SYSTEM_EMAIL_ADDRESS=noreply@bynot.it
   _APP_OPTIONS_FORCE_HTTPS=enabled
   _APP_STORAGE_LIMIT=10485760
   _APP_WORKER_PER_CORE=4

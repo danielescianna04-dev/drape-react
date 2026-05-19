@@ -5,10 +5,10 @@ Lo stack è compatibile sia x86 sia ARM — Appwrite pubblica immagini multi-arc
 
 ## Pre-requisiti
 
-1. Hetzner CX42 acquistato + IP assegnato
+1. Netcup VPS 4000 ARM G11 acquistato + IP assegnato (alternativa: Hetzner CX43 / CPX42)
 2. DNS configurato:
-   - `appwrite.drape.info` → A record verso IP del VPS
-   - `api.drape.info` → A record verso IP del VPS (per backend Drape)
+   - `appwrite.bynot.it` → A record verso IP del VPS
+   - `api.bynot.it` → A record verso IP del VPS (per backend Drape)
 3. SSH access come root (chiave pubblica caricata su Hetzner)
 4. Account SMTP per email transazionali (Resend free / SendGrid / Mailgun)
 
@@ -41,11 +41,11 @@ Lo script:
 - Crea `/opt/appwrite`
 - Lancia il wizard ufficiale `docker run -it --rm appwrite/appwrite:latest`
 - Wizard chiede:
-  - Domain: `appwrite.drape.info`
+  - Domain: `appwrite.bynot.it`
   - HTTP port: `80`
   - HTTPS port: `443`
   - Secret key: auto-generato (lo salva in `.env`)
-  - DNS target: `appwrite.drape.info`
+  - DNS target: `appwrite.bynot.it`
 
 Dopo il wizard, modifica `/opt/appwrite/.env`:
 
@@ -56,7 +56,7 @@ _APP_SMTP_PORT=465
 _APP_SMTP_SECURE=ssl
 _APP_SMTP_USERNAME=resend
 _APP_SMTP_PASSWORD=<resend-api-key>
-_APP_SYSTEM_EMAIL_ADDRESS=noreply@drape.info
+_APP_SYSTEM_EMAIL_ADDRESS=noreply@bynot.it
 _APP_SYSTEM_EMAIL_NAME=Drape
 
 # Storage limits
@@ -79,7 +79,7 @@ docker compose up -d
 
 ## Configurazione Drape platform project
 
-1. Apri `https://appwrite.drape.info/console` nel browser
+1. Apri `https://appwrite.bynot.it/console` nel browser
 2. Crea account admin con la email che possiedi
 3. Crea organizzazione `Drape`
 4. Crea progetto `drape-platform`
@@ -95,7 +95,7 @@ docker compose up -d
 Aggiungi al `.env` del backend Drape (NON commit, NON in chat):
 
 ```bash
-APPWRITE_ENDPOINT=https://appwrite.drape.info/v1
+APPWRITE_ENDPOINT=https://appwrite.bynot.it/v1
 APPWRITE_PROJECT_ID=drape-platform
 APPWRITE_API_KEY=<server-api-key>
 ```
@@ -103,7 +103,7 @@ APPWRITE_API_KEY=<server-api-key>
 ## Verifica health
 
 ```bash
-curl https://appwrite.drape.info/v1/health
+curl https://appwrite.bynot.it/v1/health
 # Deve restituire {"name":"appwrite","status":"pass","version":"..."}
 ```
 
@@ -121,8 +121,8 @@ docker compose exec mariadb mysqldump --all-databases -uroot -p<password> > /var
 
 | Problema | Soluzione |
 |---|---|
-| Wizard non parte | Verifica DNS già propagato (`dig appwrite.drape.info`) |
+| Wizard non parte | Verifica DNS già propagato (`dig appwrite.bynot.it`) |
 | Email non arrivano | Controlla `_APP_SMTP_*` in `/opt/appwrite/.env` + restart |
 | 502 Bad Gateway | `docker compose logs appwrite` per vedere errori |
-| Slow performance | `docker stats` — se MariaDB satura RAM, upgrade CX52 |
+| Slow performance | `docker stats` — se MariaDB satura RAM, upgrade VPS o split su 2 nodi |
 | SSL non funziona | Aspetta 5-10 min, Let's Encrypt auto-genera certs al primo hit HTTPS |

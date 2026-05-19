@@ -3,6 +3,7 @@
 **Data**: 19 maggio 2026
 **Branch**: `v2/main`
 **Stato**: in implementazione
+**Domain**: `bynot.it` (landing + app), subdomain `api.bynot.it` e `appwrite.bynot.it`
 
 ---
 
@@ -10,30 +11,30 @@
 
 ### Stack
 - **Frontend**: React Native + Expo (riutilizzato 80%)
-- **Drape backend**: Express + opencode su Hetzner (no Docker workspaces)
+- **Drape backend**: Express + opencode su Netcup VPS (no Docker workspaces)
 - **Drape internal DB**: Supabase Cloud (auth, profiles, projects, files metadata)
-- **User-generated apps DB**: **Appwrite self-hosted su Hetzner CX42**
+- **User-generated apps DB**: **Appwrite self-hosted su Netcup VPS 4000 ARM G11**
 - **Preview**: Sandpack in WebView (client-side)
+- **Domain**: bynot.it (landing + subdomain Drape app)
 
-### Infrastruttura Hetzner
+### Infrastruttura VPS
 
-**Setup unificato CX42** (8 vCPU, 16 GB RAM, 80 GB SSD — 24€/mese):
+**Setup unificato Netcup VPS 4000 ARM G11** (14 ARM cores, 32 GB RAM, 1 TB NVMe — €29.99/mese):
 - Drape Express backend
 - opencode serve
 - Appwrite Docker stack (self-hosted)
-- Reverse proxy Traefik o Nginx
+- Reverse proxy Traefik o Caddy
 
-**Capacità realistica:** 300-600 utenti registrati, ~100 concorrenti attivi.
+**Capacità realistica:** 500-1.000 utenti registrati, ~150-200 concorrenti attivi.
 
-**Scaling path:** 
-- A 600+ utenti: aggiungi Hetzner Volume 100GB (+5€/mese)
-- A 1000+ utenti: upgrade CX52 (48€/mese) o split su 2 VPS
-- A 5000+ utenti: cluster Appwrite multi-node
+**Scaling path:**
+- A 1.000+ utenti: cluster Appwrite multi-node (split DB su VPS dedicato)
+- A 5.000+ utenti: dedicated MariaDB managed + Appwrite cluster
 
 ### Provisioning utenti
-- 1 utente Drape = 1 database Appwrite (logical, no overhead)
-- Magic Link Supabase per signup (Appwrite invisibile all'utente)
-- Backend Drape gestisce provisioning via Appwrite Node SDK + API key Server
+- 1 utente Drape (un progetto) = 1 database Appwrite (logical, no overhead)
+- Auth utente Drape su Supabase (Magic Link / email / Google / Apple)
+- Provisioning Appwrite trasparente via backend Drape (Server API key)
 
 ---
 
@@ -45,7 +46,7 @@
   ├─ <SandpackPreview> in WebView (preview client-side)
   └─ Appwrite JS SDK (chiamato dal codice generato dall'AI)
          ↓
-[Hetzner CX42] (24€/mese)
+[Netcup VPS 4000 ARM G11] (€29.99/mese)
   ├─ Express + opencode      (porta 3000, dietro Traefik)
   ├─ Appwrite Docker stack    (porta 80/443 su sottodominio)
   │   ├─ Appwrite API
@@ -60,8 +61,9 @@
 ```
 
 DNS:
-- `api.drape.info` → Drape Express backend (porta interna 3000)
-- `appwrite.drape.info` → Appwrite Docker stack (porta interna 80)
+- `bynot.it` → landing page (statica, Cloudflare Pages o equivalente)
+- `api.bynot.it` → Drape Express backend (porta interna 3000)
+- `appwrite.bynot.it` → Appwrite Docker stack (porta interna 80)
 
 ---
 
@@ -77,44 +79,38 @@ DNS:
 
 ## Self-host Appwrite — overview
 
-Appwrite si distribuisce come Docker Compose stack ufficiale.
+Appwrite si distribuisce come Docker Compose stack ufficiale, compatibile multi-arch (amd64 + arm64).
 
 ### Pre-requisiti VPS
-- Hetzner CX42 con Docker installato
-- Sottodominio `appwrite.drape.info` con record A pointing al VPS
+- Netcup VPS 4000 ARM G11 con Docker installato (vedi `infra/appwrite/01-bootstrap.sh`)
+- Sottodominio `appwrite.bynot.it` con record A pointing al VPS
 - Porte aperte: 80, 443
 
 ### Setup (eseguito una volta sul VPS)
 
 ```bash
-# Su VPS Hetzner
 ssh root@<vps-ip>
-mkdir -p /opt/appwrite && cd /opt/appwrite
+bash 01-bootstrap.sh
 
-# Download stack ufficiale
-docker run -it --rm \
-  --volume /var/run/docker.sock:/var/run/docker.sock \
-  --volume "$(pwd)":/usr/src/code/appwrite:rw \
-  --entrypoint="install" \
-  appwrite/appwrite:latest
-
-# Domande wizard: domain appwrite.drape.info, email admin, ecc.
+ssh drape@<vps-ip>
+bash 02-install-appwrite.sh
+# Wizard chiede domain: appwrite.bynot.it
 ```
 
 ### Configurazione critica (`.env` di Appwrite)
-- `_APP_DOMAIN=appwrite.drape.info`
-- `_APP_DOMAIN_TARGET=appwrite.drape.info`
-- `_APP_SYSTEM_EMAIL_ADDRESS=admin@drape.info`
+- `_APP_DOMAIN=appwrite.bynot.it`
+- `_APP_DOMAIN_TARGET=appwrite.bynot.it`
+- `_APP_SYSTEM_EMAIL_ADDRESS=noreply@bynot.it`
 - `_APP_STORAGE_DEVICE=local`
 - `_APP_STORAGE_LIMIT=10485760` (10 MB per file)
-- `_APP_SMTP_HOST=...` per email transazionali
-- `_APP_OPENSSL_KEY_V1=<segreto-32-char>` (genera con `openssl rand -hex 16`)
+- `_APP_SMTP_*` per email transazionali (Resend free / SendGrid)
+- `_APP_OPENSSL_KEY_V1=<segreto-32-char>`
 
 ### Setup admin + Drape internal project
-1. Vai a `https://appwrite.drape.info/console`
+1. Vai a `https://appwrite.bynot.it/console`
 2. Crea account admin (mail + password)
 3. Crea organizzazione "Drape"
-4. Crea progetto "drape-platform" 
+4. Crea progetto "drape-platform"
 5. Settings → API Keys → crea Server key con scopes:
    - users, teams, databases, collections, attributes, indexes, documents, files, buckets
 
@@ -127,42 +123,57 @@ docker run -it --rm \
 SUPABASE_URL=https://pfejqyiakkywzdzfoxce.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<from-supabase-dashboard>
 
-APPWRITE_ENDPOINT=https://appwrite.drape.info/v1
+APPWRITE_ENDPOINT=https://appwrite.bynot.it/v1
 APPWRITE_PROJECT_ID=drape-platform
 APPWRITE_API_KEY=<server-api-key-from-self-hosted>
+
+CORS_ORIGINS=https://bynot.it,exp://*
 ```
 
 ### Servizio: `appwrite-management.service.ts`
 - `provisionUserDatabase(userId, projectId)` → crea database Appwrite per progetto utente
-- `seedCollections(databaseId, schema[])` → crea collection base (todo, blog, ecc.)
-- `revokeUserDatabase(userId, projectId)` → cleanup quando utente cancella progetto
-- `getUserDatabaseId(supabaseProjectId)` → lookup mapping
+- `createCollection(databaseId, schema)` → crea collection con attr/index dichiarativi
+- `deleteUserDatabase(databaseId)` → cleanup quando utente cancella progetto
+- `health()` → check connessione Appwrite
 
 ### Mapping Drape project ↔ Appwrite database
 In Supabase `projects` table:
 - `appwrite_database_id` text
-- `appwrite_endpoint` text (sempre = `https://appwrite.drape.info/v1`)
+- `appwrite_endpoint` text (sempre = `https://appwrite.bynot.it/v1`)
 - `appwrite_project_id` text (sempre = `drape-platform`)
 
-Le credenziali per il **client Appwrite generato** (nel codice utente) sono pubbliche: endpoint + project_id. L'utente legge/scrive sul SUO database via permissions Appwrite.
+Le credenziali per il **client Appwrite generato** (nel codice utente) sono pubbliche: endpoint + project_id. Il database_id isola l'utente.
 
 ---
 
 ## Permissions Appwrite per isolamento
 
 Ogni database creato per un utente Drape ha:
-- Collection permissions: solo l'auth Appwrite user_id corrispondente può leggere/scrivere
-- Magic flow: il backend Drape crea anche un "Appwrite user" che mappa al supabase user_id, e gli dà accesso al database
-
-Alternative più semplice: tutto pubblico (database accessibili da chiunque conosce il `database_id`). Per MVP: si parte così. Per v2.1: aggiungi auth Appwrite user.
+- Collection permissions: per MVP — pubbliche (chiunque conosce database_id può leggere/scrivere)
+- v2.1: aggiunge auth Appwrite user mappato a supabase user_id per restringere accesso
 
 ---
 
-## Out of scope
+## Out of scope (post-PMF)
 
-- IAP (rimandato post-PMF, plan free per ora)
+- IAP / paid tier (Drape free per il lancio)
 - Push notifications (stub, todo expo-notifications)
 - Analytics (stub, todo PostHog)
-- Backend backup automatico (todo Hetzner backup snapshots manuali settimanali)
-- Multi-region (singolo VPS Falkenstein per ora)
-- Backend Appwrite cifratura at-rest (todo, v2.1)
+- Backup automatico Appwrite MariaDB (todo cron settimanale)
+- Multi-region (singolo VPS Nuremberg per ora)
+- Cifratura at-rest credenziali Appwrite (todo, v2.1)
+
+---
+
+## Sintesi costi mensili
+
+| Servizio | Costo |
+|---|---|
+| Netcup VPS 4000 ARM G11 (Drape backend + Appwrite + opencode) | €29.99 |
+| Supabase Cloud (free) | €0 |
+| Sandpack (client-side) | €0 |
+| Cloudflare DNS + Pages landing (free) | €0 |
+| Resend SMTP (free tier 3k/mese) | €0 |
+| **Totale baseline** | **€30/mese** |
+
+**Vs Drape originale (Hetzner 140€): -78%.**
