@@ -355,14 +355,17 @@ export function usePreviewStartupFlow({
                         const wsStore = useWorkstationStore.getState();
                         const updated = { ...currentWorkstation, technology: detectedTech, language: detectedTech };
                         wsStore.setWorkstation(updated);
-                        import('firebase/firestore').then(({ doc, updateDoc }) => {
-                          import('../../../../config/firebase').then(({ db }) => {
-                            if (currentWorkstation.projectId || currentWorkstation.id) {
-                              const projId = currentWorkstation.projectId || currentWorkstation.id;
-                              updateDoc(doc(db, 'user_projects', projId), { technology: detectedTech }).catch(() => {});
-                            }
-                          });
-                        }).catch(() => {});
+                        if (currentWorkstation.projectId || currentWorkstation.id) {
+                          const projId = currentWorkstation.projectId || currentWorkstation.id;
+                          import('../../../../lib/supabase/client')
+                            .then(({ supabase }) =>
+                              supabase
+                                .from('projects')
+                                .update({ template: detectedTech })
+                                .eq('id', projId),
+                            )
+                            .catch(() => {});
+                        }
                       }
                     }
 

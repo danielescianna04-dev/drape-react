@@ -47,6 +47,21 @@ export const workstationService = {
     if (error) throw error;
   },
 
+  async saveProjectWithId(
+    projectId: string,
+    name: string,
+    userId: string,
+    template?: string,
+  ): Promise<void> {
+    const { error } = await supabase
+      .from('projects')
+      .upsert(
+        { id: projectId, user_id: userId, name, template: template ?? null },
+        { onConflict: 'id' },
+      );
+    if (error) throw error;
+  },
+
   async createEmptyWorkstation(name: string): Promise<WorkstationInfo> {
     const workstation: WorkstationInfo = {
       id: 'ws-' + Date.now(),

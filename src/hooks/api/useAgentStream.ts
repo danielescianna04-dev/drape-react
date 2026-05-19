@@ -556,11 +556,9 @@ export function useAgentStream(
           onError?.(errorMsg);
 
           // Force sign-out so the user gets redirected to login
-          import('firebase/auth').then(({ signOut: fbSignOut }) => {
-            import('../../config/firebase').then(({ auth: fbAuth }) => {
-              fbSignOut(fbAuth).catch(() => {});
-            });
-          }).catch(() => {});
+          import('../../lib/supabase/client')
+            .then(({ supabase }) => supabase.auth.signOut().catch(() => {}))
+            .catch(() => {});
           return;
         }
 

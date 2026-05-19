@@ -22,14 +22,13 @@ import { GitAuthPopup } from './src/features/terminal/components/GitAuthPopup';
 import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
 import { OfflineOverlay } from './src/shared/components/OfflineOverlay';
 import { InAppToast } from './src/shared/components/InAppToast';
-import { workstationService } from './src/core/workstation/workstationService-firebase';
+import { workstationService } from './src/core/workstation/workstationService';
 import { useUIStore } from './src/core/terminal/uiStore';
 import { useWorkstationStore } from './src/core/terminal/workstationStore';
 import { useTabStore } from './src/core/tabs/tabStore';
 import { useAuthStore } from './src/core/auth/authStore';
 import { useResumePendingJobs } from './src/core/ai/useResumePendingJobs';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from './src/config/firebase';
+import { supabase } from './src/lib/supabase/client';
 import { useChatStore } from './src/core/terminal/chatStore';
 import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
 import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
@@ -403,8 +402,20 @@ export default function App() {
         loadingMessage={loadingMessage}
         onSkip={() => {
           if (user?.uid) {
-            setDoc(doc(db, 'users', user.uid), { firstProjectChoiceSkipped: true }, { merge: true })
-              .catch((err) => console.warn('[App] firstProjectChoiceSkipped save failed', err));
+            (async () => {
+              const { data: existing } = await supabase
+                .from('user_configs')
+                .select('preferences')
+                .eq('user_id', user.uid)
+                .maybeSingle();
+              const merged = {
+                ...((existing?.preferences as Record<string, unknown>) ?? {}),
+                firstProjectChoiceSkipped: true,
+              };
+              await supabase
+                .from('user_configs')
+                .upsert({ user_id: user.uid, preferences: merged as any });
+            })().catch((err) => console.warn('[App] firstProjectChoiceSkipped save failed', err));
             useAuthStore.setState(state => ({
               user: state.user ? { ...state.user, firstProjectChoiceSkipped: true } : state.user,
             }));
