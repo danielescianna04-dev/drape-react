@@ -6,7 +6,7 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { useTranslation } from 'react-i18next';
 import { useTabStore } from '../../core/tabs/tabStore';
 import { useWorkstationStore } from '../../core/terminal/workstationStore';
-import { workstationService } from '../../core/workstation/workstationService-firebase';
+import { workstationService } from '../../core/workstation/workstationService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../shared/theme/colors';
 import { tracciaProgettoEliminato, tracciaProgettoFiltro, tracciaProgettoEliminaMultipli, tracciaErrore } from '../../core/services/analyticsService';

@@ -17,7 +17,7 @@ import { deviceService } from '../../core/services/deviceService';
 import { getSystemConfig } from '../../core/config/systemConfig';
 import { getAuthHeaders } from '../../core/api/getAuthToken';
 import { tracciaLogout, tracciaEliminaAccount, tracciaLinguaCambiata, tracciaAcquistiRipristinati, tracciaAccountGitRimosso, tracciaErrore, tracciaPaginaPianiVista, tracciaPaginaPianiChiusa, tracciaCicloFatturazioneCambiato, tracciaPianoVisualizzato, tracciaDocumentoLegaleVisto, tracciaNotificheToggle, tracciaSchermata, tracciaImpostazioniAperte, tracciaImpostazioniChiuse } from '../../core/services/analyticsService';
-import { auth } from '../../config/firebase';
+import { supabase } from '../../lib/supabase/client';
 import { useIAPStore } from '../../core/iap/iapStore';
 
 export interface SystemStatus {
@@ -148,7 +148,17 @@ export const useSettingsData = (onClose: () => void, initialShowPlans: boolean, 
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showChangeEmail, setShowChangeEmail] = useState(false);
   const [showLegal, setShowLegal] = useState<'privacy' | 'terms' | null>(null);
-  const isEmailUser = auth.currentUser?.providerData.some(p => p.providerId === 'password') ?? false;
+  const [isEmailUser, setIsEmailUser] = useState(true);
+  useEffect(() => {
+    let mounted = true;
+    supabase.auth.getUser().then(({ data }) => {
+      if (!mounted) return;
+      const identities = data.user?.identities ?? [];
+      // Email user = nessuna identità OAuth (apple/google/etc)
+      setIsEmailUser(identities.length === 0 || identities.some((i) => i.provider === 'email'));
+    });
+    return () => { mounted = false; };
+  }, []);
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const [deviceModelName, setDeviceModelName] = useState<string>('');
 

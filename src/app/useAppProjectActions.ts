@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { Alert } from 'react-native';
-import { workstationService } from '../core/workstation/workstationService-firebase';
+import { workstationService } from '../core/workstation/workstationService';
 import { githubTokenService } from '../core/github/githubTokenService';
 import { gitAccountService } from '../core/git/gitAccountService';
 import { requestGitAuth } from '../core/github/gitAuthStore';

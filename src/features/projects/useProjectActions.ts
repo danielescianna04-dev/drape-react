@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Alert, Animated, Dimensions, Share } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
-import { workstationService } from '../../core/workstation/workstationService-firebase';
+import { workstationService } from '../../core/workstation/workstationService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useAuthStore } from '../../core/auth/authStore';
 import { filePrefetchService } from '../../core/cache/filePrefetchService';

@@ -4,8 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
-import { reauthenticateWithCredential, EmailAuthProvider, updatePassword } from 'firebase/auth';
-import { auth } from '../../../config/firebase';
+import { supabase } from '../../../lib/supabase/client';
 import { AppColors } from '../../../shared/theme/colors';
 import { useToastStore } from '../../../core/toast/toastStore';
 import { tracciaPasswordCambiata, tracciaErroreCambioPassword } from '../../../core/services/analyticsService';
@@ -51,12 +50,20 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
 
     setIsLoading(true);
     try {
-      const firebaseUser = auth.currentUser;
-      if (!firebaseUser || !firebaseUser.email) throw new Error('no-user');
+      const { data: userData } = await supabase.auth.getUser();
+      const currentEmail = userData.user?.email;
+      if (!currentEmail) throw new Error('no-user');
 
-      const credential = EmailAuthProvider.credential(firebaseUser.email, currentPassword);
-      await reauthenticateWithCredential(firebaseUser, credential);
-      await updatePassword(firebaseUser, newPassword);
+      // Re-authenticate by signing in with the current password
+      const { error: signinError } = await supabase.auth.signInWithPassword({
+        email: currentEmail,
+        password: currentPassword,
+      });
+      if (signinError) throw signinError;
+
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateError) throw updateError;
+
       tracciaPasswordCambiata();
       useToastStore.getState().showToast({
         message: t('security.passwordUpdated'),
@@ -65,10 +72,11 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       });
       onClose();
     } catch (err: any) {
-      tracciaErroreCambioPassword(err.code || err.message || 'unknown');
-      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+      tracciaErroreCambioPassword(err.message || 'unknown');
+      const msg = (err?.message || '').toLowerCase();
+      if (msg.includes('invalid login') || msg.includes('invalid_credentials')) {
         setError(t('security.wrongPassword'));
-      } else if (err.code === 'auth/weak-password') {
+      } else if (msg.includes('password') && (msg.includes('weak') || msg.includes('short') || msg.includes('6'))) {
         setError(t('security.passwordTooWeak'));
       } else {
         setError(err.message || t('common:error'));

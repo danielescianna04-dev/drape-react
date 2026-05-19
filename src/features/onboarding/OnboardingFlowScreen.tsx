@@ -14,8 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../shared/theme/colors';
 import { DrapeLogo } from '../../shared/components/icons/DrapeLogo';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+import { supabase } from '../../lib/supabase/client';
 import {
   tracciaSchermata,
   tracciaOnboardingStepCompletato,
@@ -160,13 +159,29 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
         onboardingCompleted: true,
         onboardingCompletedAt: new Date().toISOString(),
       };
+      const saveOnboarding = async () => {
+        // Merge in preferences JSONB of user_configs
+        const { data: existing } = await supabase
+          .from('user_configs')
+          .select('preferences')
+          .eq('user_id', userId)
+          .maybeSingle();
+        const mergedPreferences = {
+          ...((existing?.preferences as Record<string, unknown>) ?? {}),
+          ...onboardingData,
+        };
+        const { error } = await supabase
+          .from('user_configs')
+          .upsert({ user_id: userId, preferences: mergedPreferences as any });
+        if (error) throw error;
+      };
       try {
-        await setDoc(doc(db, 'users', userId), onboardingData, { merge: true });
+        await saveOnboarding();
         tracciaOnboardingCompletato();
       } catch (e) {
         console.warn('[Onboarding] First save failed, retrying...', e);
         try {
-          await setDoc(doc(db, 'users', userId), onboardingData, { merge: true });
+          await saveOnboarding();
           tracciaOnboardingCompletato();
         } catch (e2) {
           console.error('[Onboarding] Save failed after retry:', e2);

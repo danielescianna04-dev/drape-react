@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { Alert, AppState } from 'react-native';
 import i18next from 'i18next';
-import { auth } from '../../config/firebase';
+import { supabase } from '../../lib/supabase/client';
 
 const apiClient = axios.create();
 
@@ -49,11 +49,9 @@ function showReloginAlert(): void {
 
 apiClient.interceptors.request.use(async (config) => {
   try {
-    // Wait for Firebase to restore auth state from AsyncStorage before first request
-    await auth.authStateReady();
-    const user = auth.currentUser;
-    if (user) {
-      const token = await user.getIdToken();
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
   } catch (error) {
@@ -71,9 +69,10 @@ apiClient.interceptors.response.use(
       if (status === 401 && !error.config._tokenRetried) {
         // Force-refresh token and retry once
         try {
-          const user = auth.currentUser;
-          if (user) {
-            const freshToken = await user.getIdToken(true);
+          const { data, error: refreshError } = await supabase.auth.refreshSession();
+          const freshToken = data.session?.access_token;
+          if (refreshError) throw refreshError;
+          if (freshToken) {
             error.config._tokenRetried = true;
             error.config.headers.Authorization = `Bearer ${freshToken}`;
             return apiClient.request(error.config);

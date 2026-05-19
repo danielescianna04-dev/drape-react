@@ -1,7 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Animated, Dimensions } from 'react-native';
-import { workstationService } from '../../core/workstation/workstationService-firebase';
+import { workstationService } from '../../core/workstation/workstationService';
 import { useAuthStore } from '../../core/auth/authStore';
 import { useWorkstationStore } from '../../core/terminal/workstationStore';
 import { liveActivityService } from '../../core/services/liveActivityService';

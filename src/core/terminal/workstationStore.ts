@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { workstationService } from '../workstation/workstationService-firebase';
+import { workstationService } from '../workstation/workstationService';
 import { useTabStore } from '../tabs/tabStore';
 import {
   GitHubRepository,

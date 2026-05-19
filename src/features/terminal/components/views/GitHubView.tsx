@@ -8,7 +8,7 @@ import { AppColors } from '../../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../../../core/git/gitAccountService';
 import { useWorkstationStore } from '../../../../core/terminal/workstationStore';
-import { workstationService } from '../../../../core/workstation/workstationService-firebase';
+import { workstationService } from '../../../../core/workstation/workstationService';
 import { config } from '../../../../config/config';
 import { getAuthHeaders } from '../../../../core/api/getAuthToken';
 import { AddGitAccountModal } from '../../../settings/components/AddGitAccountModal';

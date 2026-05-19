@@ -24,7 +24,7 @@ import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { GitHubConnect } from './GitHubConnect';
 import { ProjectItem } from './ProjectItem';
-import { workstationService } from '../../../core/workstation/workstationService-firebase';
+import { workstationService } from '../../../core/workstation/workstationService';
 import { NewFolderModal } from './NewFolderModal';
 import { NewProjectModal } from './NewProjectModal';
 import { ImportGitHubModal } from './ImportGitHubModal';
