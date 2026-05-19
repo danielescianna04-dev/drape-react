@@ -1,3 +1,4 @@
+import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import { env } from './config/env';
@@ -15,6 +16,9 @@ app.use(
     credentials: true,
   }),
 );
+
+// Static: Sandpack bridge HTML servito su /sandpack/* per essere caricato in WebView RN
+app.use('/sandpack', express.static(path.join(__dirname, '../public/sandpack')));
 
 app.use('/health', healthRouter);
 app.use('/api/appwrite', appwriteRouter);

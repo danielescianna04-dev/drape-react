@@ -1,6 +1,7 @@
 # Appwrite self-hosted setup per Drape v2
 
-VPS target: **Hetzner CX42** (Falkenstein), Ubuntu 24.04 LTS.
+VPS target: **Netcup VPS 4000 ARM G11** (Nuremberg), Ubuntu 24.04 LTS ARM (arm64).
+Lo stack è compatibile sia x86 sia ARM — Appwrite pubblica immagini multi-arch.
 
 ## Pre-requisiti
 

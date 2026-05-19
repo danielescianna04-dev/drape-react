@@ -1,6 +1,8 @@
 #!/bin/bash
-# Bootstrap di un VPS Hetzner pulito per ospitare Appwrite + Drape backend.
-# Esegui come root su Ubuntu 24.04 LTS.
+# Bootstrap di un VPS pulito per ospitare Appwrite + Drape backend.
+# Compatibile con Ubuntu 24.04 LTS sia x86 (amd64) sia ARM (arm64).
+# Provider testati: Hetzner, Netcup, OVH.
+# Esegui come root.
 
 set -euo pipefail
 
