@@ -87,7 +87,10 @@ export class OpencodeHttpService {
   }
 
   /**
-   * Apre SSE su /event, invia il messaggio, traduce eventi opencode in AgentEvent.
+   * Sincrono: POST /message ritorna response completo con tutti i parts.
+   * Simuliamo streaming spezzando il testo in chunk piccoli.
+   *
+   * (L'endpoint /event SSE globale esiste ma POST /message è già sincrono — non serve.)
    */
   async *chatStream(req: AgentChatRequest): AsyncIterable<AgentEvent> {
     if (this.isMock) {
@@ -98,13 +101,76 @@ export class OpencodeHttpService {
 
     const model = parseModel(req.model);
 
-    // 1. Ensure opencode session exists for this drape sessionId
+    // 1. Ensure opencode session
     const opencodeSessionId = await this.ensureSession(req.sessionId, model);
 
-    // 2. Apri SSE /event con axios stream
-    const eventResp = await this.client.get('/event', { responseType: 'stream' });
+    yield { type: 'message_start', messageId: `msg-${Date.now()}`, model: `${model.providerID}/${model.modelID}` };
 
-    // 3. In parallelo invia il messaggio (non bloccante per SSE)
+    // 2. POST /message → ritorna response sincrono con parts completi
+    let response: any;
+    try {
+      const result = await this.client.post(`/session/${opencodeSessionId}/message`, {
+        model: { providerID: model.providerID, modelID: model.modelID },
+        parts: [{ type: 'text', text: req.message }],
+        ...(req.systemContext ? { system: req.systemContext } : {}),
+      }, { responseType: 'json' });
+      response = result.data;
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'opencode /message failed';
+      console.error('[opencode] /message failed:', msg);
+      yield { type: 'error', message: msg };
+      yield { type: 'session_end', reason: 'error', error: msg };
+      return;
+    }
+
+    // 3. Parse response.parts: emetti tool_use/tool_result per ToolPart, text streamato a chunk per TextPart
+    const info = response?.info ?? {};
+    const parts: any[] = response?.parts ?? [];
+    const messageId = info.id ?? `msg-${Date.now()}`;
+
+    if (info.error) {
+      const errMsg = info.error?.data?.message ?? info.error?.name ?? 'opencode model error';
+      yield { type: 'error', message: errMsg };
+      yield { type: 'session_end', reason: 'error', error: errMsg };
+      return;
+    }
+
+    for (const part of parts) {
+      if (part.type === 'text' && typeof part.text === 'string' && part.text.length > 0) {
+        // Streaming simulato: spezza in chunk piccoli per dare l'illusione del flusso
+        const text = part.text;
+        const chunkSize = 8;
+        for (let i = 0; i < text.length; i += chunkSize) {
+          yield { type: 'token', content: text.slice(i, i + chunkSize) };
+          // micro-delay rimosso per non rallentare (in alternativa: await new Promise(r=>setTimeout(r,5)))
+        }
+      } else if (part.type === 'tool') {
+        const state = part.state ?? {};
+        const status = state.status;
+        if (status === 'running' || status === 'pending') {
+          yield { type: 'tool_use', id: part.id, name: part.tool ?? 'unknown', input: state.input ?? {} };
+        } else if (status === 'completed') {
+          yield { type: 'tool_use', id: part.id, name: part.tool ?? 'unknown', input: state.input ?? {} };
+          yield { type: 'tool_result', id: part.id, output: state.output ?? null };
+        } else if (status === 'error') {
+          yield { type: 'tool_result', id: part.id, output: null, error: state.error ?? 'tool error' };
+        }
+      }
+      // step-start / step-finish / reasoning: skip
+    }
+
+    const tokens = info.tokens ?? {};
+    yield { type: 'message_end', messageId, tokensIn: tokens.input ?? 0, tokensOut: tokens.output ?? 0 };
+    yield { type: 'session_end', reason: 'completed' };
+  }
+
+  // Vecchio path SSE-based (non più usato, mantenuto come riferimento):
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private async *_unusedSseFlow(req: AgentChatRequest): AsyncIterable<AgentEvent> {
+    if (!this.client) throw new Error('opencode client not initialized');
+    const model = parseModel(req.model);
+    const opencodeSessionId = await this.ensureSession(req.sessionId, model);
+    const eventResp = await this.client.get('/event', { responseType: 'stream' });
     const messagePromise = this.client.post(`/session/${opencodeSessionId}/message`, {
       model: { providerID: model.providerID, modelID: model.modelID },
       parts: [{ type: 'text', text: req.message }],

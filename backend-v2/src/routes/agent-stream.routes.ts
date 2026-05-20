@@ -136,10 +136,11 @@ async function handleAgentStream(req: AuthedRequest, res: any): Promise<void> {
           break;
         case 'session_end':
           if (event.reason === 'completed') {
+            // NON includere `message` o `result.text`: il client ha già accumulato il testo
+            // dai text_delta. Includendolo qui causerebbe duplicazione visiva.
             writeSseEvent(res, 'complete', {
               success: true,
-              result: { text: assembledText, tokensIn, tokensOut },
-              message: assembledText,
+              result: { tokensIn, tokensOut },
             });
             writeSseEvent(res, 'done', { jobId });
           } else {
