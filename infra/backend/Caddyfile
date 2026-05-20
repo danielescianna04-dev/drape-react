@@ -1,0 +1,77 @@
+# Caddy reverse proxy per backend Drape v2.
+# Posizione sul VPS: /etc/caddy/Caddyfile
+# Caddy gestisce HTTPS automaticamente via Let's Encrypt.
+#
+# Install Caddy su Ubuntu:
+#   sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+#   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+#   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+#   sudo apt update && sudo apt install caddy
+#
+# Reload config:
+#   sudo systemctl reload caddy
+
+api.bynot.it {
+	# Compressione automatica
+	encode zstd gzip
+
+	# CORS per app RN + landing
+	header {
+		# Security headers
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		# Permessi minimi
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	# Logging accessi (rotated dal logrotate di sistema)
+	log {
+		output file /var/log/caddy/api.bynot.it.log {
+			roll_size 100mb
+			roll_keep 10
+		}
+		format json
+	}
+
+	# Health endpoints — esposti senza auth ma rate-limited
+	@health path /health* /api/agent/health /api/appwrite/health
+	handle @health {
+		reverse_proxy localhost:3000
+	}
+
+	# SSE streaming endpoint — disabilita buffering
+	@sse path /api/agent/chat
+	handle @sse {
+		reverse_proxy localhost:3000 {
+			flush_interval -1
+			transport http {
+				read_timeout 30m
+				write_timeout 30m
+			}
+		}
+	}
+
+	# Static Sandpack bridge — cache aggressivo
+	@sandpack path /sandpack/*
+	handle @sandpack {
+		header Cache-Control "public, max-age=3600"
+		reverse_proxy localhost:3000
+	}
+
+	# Tutto il resto al backend
+	handle {
+		reverse_proxy localhost:3000 {
+			transport http {
+				read_timeout 5m
+				write_timeout 5m
+			}
+		}
+	}
+}
+
+# Redirect www → root (se mai usato)
+www.api.bynot.it {
+	redir https://api.bynot.it{uri} permanent
+}
