@@ -152,12 +152,23 @@ export class OpencodeHttpService {
           const sessionID = props.sessionID;
           if (sessionID && sessionID !== opencodeSessionId) continue;
 
+          // opencode emette `message.part.delta` per stream incrementale del testo
+          if (type === 'message.part.delta') {
+            const field = props.field;
+            const delta = props.delta;
+            // Skip reasoning chunks (sono modello che pensa, non testo finale)
+            if (field === 'text' && typeof delta === 'string' && delta.length > 0) {
+              yield { type: 'token', content: delta };
+            }
+            continue;
+          }
+
           if (type === 'message.part.updated') {
             const part = props.part;
             if (!part) continue;
 
             if (part.type === 'text' && part.text) {
-              // Stream incrementale: emetti solo il delta
+              // Fallback: alcuni eventi emettono il testo intero (es. al completamento)
               const previous = emittedTextByPart.get(part.id) ?? 0;
               const fullText: string = part.text;
               if (fullText.length > previous) {

@@ -163,23 +163,38 @@ async function handleAgentStream(req: AuthedRequest, res: any): Promise<void> {
     res.end();
   }
 
-  // Persist ai_run record best-effort
-  supabaseAdmin
-    .from('ai_runs')
-    .insert({
-      session_id: sessionId,
-      user_id: req.userId,
-      prompt,
-      response: assembledText || null,
-      model: model ?? null,
-      tokens_in: tokensIn,
-      tokens_out: tokensOut,
-      duration_ms: Date.now() - startedAt,
-      error: lastError ?? null,
-    } as any)
-    .then(({ error }) => {
-      if (error) console.warn('[agent-stream] persist ai_run failed:', error.message);
-    });
+  // Persist ai_run record best-effort: serve prima un ai_sessions UUID singolo.
+  // TODO: gestire sessions table propriamente (riutilizzare sessione tra turn).
+  // Per ora skippiamo persist se sessionId composto non è UUID singolo.
+  void (async () => {
+    try {
+      const { data: aiSession, error: sessionError } = await supabaseAdmin
+        .from('ai_sessions')
+        .insert({
+          project_id: projectId,
+          user_id: req.userId,
+          title: projectName ? `Generation: ${projectName}` : 'Agent run',
+          status: lastError ? 'failed' : 'completed',
+        })
+        .select('id')
+        .single();
+      if (sessionError || !aiSession) return;
+
+      await supabaseAdmin.from('ai_runs').insert({
+        session_id: aiSession.id,
+        user_id: req.userId,
+        prompt,
+        response: assembledText || null,
+        model: model ?? null,
+        tokens_in: tokensIn,
+        tokens_out: tokensOut,
+        duration_ms: Date.now() - startedAt,
+        error: lastError ?? null,
+      } as any);
+    } catch (err: any) {
+      console.warn('[agent-stream] persist ai_run failed:', err?.message);
+    }
+  })();
 }
 
 // Tutti gli endpoint legacy mappano allo stesso handler (con prompt diverso lato client)
