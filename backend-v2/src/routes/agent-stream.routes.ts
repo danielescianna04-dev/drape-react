@@ -56,10 +56,7 @@ async function handleAgentStream(req: AuthedRequest, res: any): Promise<void> {
   // 1. job_created (per durable resume in client)
   writeSseEvent(res, 'job_created', { jobId, projectId });
 
-  // 2. status iniziale
-  writeSseEvent(res, 'status', { status: 'connecting', message: 'Connecting AI agent...' });
-
-  // 3. Verifica ownership progetto (best-effort)
+  // 2. Verifica ownership progetto (best-effort)
   let appwriteCreds: any = undefined;
   try {
     const { data: project } = await supabaseAdmin
@@ -89,8 +86,6 @@ async function handleAgentStream(req: AuthedRequest, res: any): Promise<void> {
   const systemContext = buildDrapeSystemPrompt({
     extraContext: projectName ? `Project name: ${projectName}` : undefined,
   });
-
-  writeSseEvent(res, 'status', { status: 'thinking', message: 'Agent thinking...' });
 
   let assembledText = '';
   let tokensIn = 0;
