@@ -31,6 +31,7 @@ type AuthState = {
   user: DrapeUser | null;
   session: Session | null;
   isNewUser: boolean;
+  isInitialized: boolean;
   isLoading: boolean;
   error: string | null;
 
@@ -73,10 +74,27 @@ async function fetchProfile(userId: string): Promise<{ plan: DrapeUser['plan']; 
   return { plan: 'free', displayName: data.display_name ?? null };
 }
 
+/**
+ * "Pending new user" flag — persiste tra refresh per sapere se un utente
+ * appena registrato deve passare per l'onboarding. Memoria locale in modulo,
+ * non in Zustand (così non triggera re-render).
+ */
+let _pendingNewUser = false;
+export function setPendingNewUser(v: boolean): void {
+  _pendingNewUser = v;
+}
+export function peekPendingNewUser(): boolean {
+  return _pendingNewUser;
+}
+export function clearPendingNewUser(): void {
+  _pendingNewUser = false;
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   session: null,
   isNewUser: false,
+  isInitialized: false,
   isLoading: false,
   error: null,
 
@@ -103,6 +121,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const user = mapSupabaseUser(supaUser, 'free');
       if (user && displayName) user.displayName = displayName;
       set({ session, user, isLoading: false, isNewUser: true });
+      setPendingNewUser(true);
     } catch (err: any) {
       set({ isLoading: false, error: err?.message ?? 'Sign up failed' });
       throw err;
@@ -208,9 +227,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const profile = supaUser ? await fetchProfile(supaUser.id) : null;
       const user = mapSupabaseUser(supaUser, profile?.plan);
       if (user && profile?.displayName) user.displayName = profile.displayName;
-      set({ session, user, isLoading: false });
+      set({ session, user, isLoading: false, isInitialized: true });
     } catch (err: any) {
-      set({ isLoading: false, error: err?.message ?? null });
+      set({ isLoading: false, isInitialized: true, error: err?.message ?? null });
     }
 
     const unsub = onAuthStateChange(async (session) => {

@@ -122,6 +122,106 @@ export const workstationService = {
   getApiUrl(): string {
     return process.env.EXPO_PUBLIC_API_URL ?? '';
   },
+
+  // ============================================================
+  // Legacy stubs (v1 API surface preserved for caller compat)
+  // ============================================================
+
+  async getLifetimeCreationCounts(_userId: string): Promise<{ total: number; today: number }> {
+    return { total: 0, today: 0 };
+  },
+
+  async checkExistingProject(_userId: string, _name: string): Promise<boolean> {
+    return false;
+  },
+
+  async countExistingCopies(_userId: string, _baseName: string): Promise<number> {
+    return 0;
+  },
+
+  async createWorkstation(name: string): Promise<WorkstationInfo> {
+    return this.createEmptyWorkstation(name);
+  },
+
+  async createWorkstationForProject(
+    project: { id: string; name: string },
+    _githubToken?: string,
+  ): Promise<{ workstationId: string }> {
+    return { workstationId: project.id };
+  },
+
+  async deleteProject(projectId: string): Promise<void> {
+    const { error } = await supabase.from('projects').delete().eq('id', projectId);
+    if (error) throw error;
+  },
+
+  async getFileContent(_projectId: string, _path: string): Promise<string | null> {
+    return null;
+  },
+
+  async markFirstProjectCreated(_userId: string): Promise<void> {
+    /* stub */
+  },
+
+  async markProjectAsCloned(_projectId: string): Promise<void> {
+    /* stub */
+  },
+
+  async removeProjectGitHubAccount(_projectId: string): Promise<void> {
+    const { error } = await supabase
+      .from('projects')
+      .update({ description: null })
+      .eq('id', _projectId);
+    if (error) throw error;
+  },
+
+  async saveGitProject(repositoryUrl: string, userId: string): Promise<WorkstationInfo> {
+    const { data, error } = await supabase
+      .from('projects')
+      .insert({
+        user_id: userId,
+        name: repositoryUrl.split('/').pop()?.replace('.git', '') ?? 'imported',
+        description: `git: ${repositoryUrl}`,
+        template: 'git',
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data as unknown as WorkstationInfo;
+  },
+
+  async savePersonalProject(name: string, userId: string): Promise<WorkstationInfo> {
+    const { data, error } = await supabase
+      .from('projects')
+      .insert({ user_id: userId, name, template: 'personal' })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data as unknown as WorkstationInfo;
+  },
+
+  async updateLastAccessed(_projectId: string): Promise<void> {
+    /* stub */
+  },
+
+  async updateProjectGitHubAccount(
+    projectId: string,
+    githubUsername: string,
+  ): Promise<void> {
+    const { error } = await supabase
+      .from('projects')
+      .update({ description: `github: ${githubUsername}` })
+      .eq('id', projectId);
+    if (error) throw error;
+  },
+
+  async updateWorkstation(workstationId: string, updates: Partial<WorkstationInfo>): Promise<void> {
+    const { error } = await supabase
+      .from('projects')
+      .update(updates as any)
+      .eq('id', workstationId);
+    if (error) throw error;
+  },
 };
 
 // Re-export legacy type alias
