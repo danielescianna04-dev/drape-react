@@ -7,6 +7,7 @@ import { appwriteRouter } from './routes/appwrite.routes';
 import { agentRouter } from './routes/agent.routes';
 import { aiRouter } from './routes/ai.routes';
 import { filesRouter } from './routes/files.routes';
+import { workstationRouter } from './routes/workstation.routes';
 
 const app = express();
 
@@ -28,6 +29,9 @@ app.use('/api/ai', aiRouter);
 // Alias legacy: frontend chiama /ai/* (senza /api). Mantieni per compat.
 app.use('/ai', aiRouter);
 app.use('/api/files', filesRouter);
+app.use('/workstation', workstationRouter);
+// Anche alias /settings/* (frontend usa questo path per system-status, budget, project-ai-analytics)
+app.use('/settings', workstationRouter);
 
 // 404 fallback
 app.use((_req, res) => {
