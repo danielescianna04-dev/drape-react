@@ -2,19 +2,22 @@ import axios, { AxiosInstance } from 'axios';
 import { env } from '../config/env';
 
 /**
- * opencode HTTP integration.
+ * opencode HTTP integration — usa il vero protocollo opencode 1.15.5.
  *
- * opencode espone un server HTTP (`opencode serve`) con API per:
- * - inviare prompt e ricevere stream di eventi
- * - gestire sessioni stateful
- * - eseguire tool (file ops, ecc.)
+ * Flow:
+ *   1. POST /session                              → crea opencode session
+ *   2. GET  /event (SSE long-lived)                → ascolta stream eventi
+ *   3. POST /session/{id}/message                  → invia messaggio utente
+ *   4. Filtra eventi per sessionID nostro, traduce in AgentEvent
  *
- * In v2 il backend Drape NON spawna opencode locale dentro a Docker.
- * Lo proxa via HTTP a un'istanza opencode che gira come servizio sullo stesso VPS
- * (o eventualmente remoto).
+ * Modelli Zen disponibili (provider="opencode"):
+ *   - opencode/big-pickle (premium)
+ *   - opencode/deepseek-v4-flash-free
+ *   - opencode/minimax-m2.5-free
+ *   - opencode/nemotron-3-super-free
+ *   - opencode/qwen3.6-plus-free
  *
- * Se OPENCODE_API_URL non è settato, il service usa un mock che logga e ritorna
- * eventi placeholder — utile per sviluppo prima che opencode sia online.
+ * Default: deepseek-v4-flash-free (gratis, performant per code).
  */
 
 export type AgentEvent =
@@ -35,10 +38,23 @@ export interface AgentChatRequest {
     projectId: string;
     databaseId: string;
   };
-  /** Context aggiuntivo iniettato nel system prompt (es. lista file progetto) */
   systemContext?: string;
-  /** Starter template scelto dall'utente (todo, blog, ecc.) */
   starterId?: string;
+}
+
+const DEFAULT_MODEL = 'deepseek-v4-flash-free';
+const DEFAULT_PROVIDER = 'opencode';
+
+// Map nostro sessionId (UUID Drape) → opencode sessionID (ses_xxx)
+const sessionMap = new Map<string, string>();
+
+function parseModel(raw?: string): { providerID: string; modelID: string } {
+  if (!raw) return { providerID: DEFAULT_PROVIDER, modelID: DEFAULT_MODEL };
+  if (raw.includes('/')) {
+    const [providerID, modelID] = raw.split('/', 2);
+    return { providerID, modelID };
+  }
+  return { providerID: DEFAULT_PROVIDER, modelID: raw };
 }
 
 export class OpencodeHttpService {
@@ -51,92 +67,219 @@ export class OpencodeHttpService {
       this.client = axios.create({
         baseURL: env.OPENCODE_API_URL,
         headers: env.OPENCODE_API_KEY ? { Authorization: `Bearer ${env.OPENCODE_API_KEY}` } : {},
-        responseType: 'stream',
-        timeout: 0, // SSE: no timeout
+        timeout: 0,
       });
     }
   }
 
+  private async ensureSession(drapeSessionId: string, model: { providerID: string; modelID: string }): Promise<string> {
+    const existing = sessionMap.get(drapeSessionId);
+    if (existing) return existing;
+
+    const { data } = await this.client!.post('/session', {
+      title: `Drape ${drapeSessionId.slice(0, 8)}`,
+      model: { id: model.modelID, providerID: model.providerID },
+    });
+    const opencodeSessionId = data?.id;
+    if (!opencodeSessionId) throw new Error('opencode did not return session id');
+    sessionMap.set(drapeSessionId, opencodeSessionId);
+    return opencodeSessionId;
+  }
+
   /**
-   * Inizia/continua una sessione agent con un nuovo prompt.
-   * Ritorna AsyncIterable di eventi (per SSE streaming verso il client).
+   * Apre SSE su /event, invia il messaggio, traduce eventi opencode in AgentEvent.
    */
   async *chatStream(req: AgentChatRequest): AsyncIterable<AgentEvent> {
     if (this.isMock) {
       yield* this.mockChatStream(req);
       return;
     }
-
     if (!this.client) throw new Error('opencode client not initialized');
 
-    const response = await this.client.post('/sessions/chat', {
-      sessionId: req.sessionId,
-      message: req.message,
-      model: req.model,
-      context: {
-        appwrite: req.appwriteCredentials,
-        systemContext: req.systemContext,
-        starterId: req.starterId,
-      },
+    const model = parseModel(req.model);
+
+    // 1. Ensure opencode session exists for this drape sessionId
+    const opencodeSessionId = await this.ensureSession(req.sessionId, model);
+
+    // 2. Apri SSE /event con axios stream
+    const eventResp = await this.client.get('/event', { responseType: 'stream' });
+
+    // 3. In parallelo invia il messaggio (non bloccante per SSE)
+    const messagePromise = this.client.post(`/session/${opencodeSessionId}/message`, {
+      model: { providerID: model.providerID, modelID: model.modelID },
+      parts: [{ type: 'text', text: req.message }],
+      ...(req.systemContext ? { system: req.systemContext } : {}),
+    }).catch((err: any) => {
+      console.error('[opencode] /message failed:', err?.response?.data ?? err?.message);
+      throw err;
     });
 
-    // Parse SSE response stream
+    yield { type: 'message_start', messageId: `msg-${Date.now()}`, model: `${model.providerID}/${model.modelID}` };
+
+    // 4. Parse SSE stream events
+    const emittedTextByPart = new Map<string, number>(); // partID → lastEmittedLength
+    let assistantMessageId: string | null = null;
+    let completed = false;
     let buffer = '';
-    for await (const chunk of response.data) {
-      buffer += chunk.toString('utf8');
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6).trim();
-        if (!payload) continue;
-        try {
-          const event = JSON.parse(payload) as AgentEvent;
-          yield event;
-        } catch (e) {
-          console.warn('[opencode] failed to parse event:', payload);
+
+    try {
+      for await (const chunk of eventResp.data) {
+        buffer += chunk.toString('utf8');
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop() ?? '';
+
+        for (const block of blocks) {
+          // SSE format: "data: {...}\n"
+          const dataLines = block
+            .split('\n')
+            .filter((l) => l.startsWith('data: '))
+            .map((l) => l.slice(6));
+          if (dataLines.length === 0) continue;
+          const payload = dataLines.join('\n');
+          if (!payload || payload === '[DONE]') continue;
+
+          let event: any;
+          try {
+            event = JSON.parse(payload);
+          } catch {
+            continue;
+          }
+
+          const type = event.type;
+          const props = event.properties ?? {};
+
+          // Filtra solo eventi della NOSTRA sessione
+          const sessionID = props.sessionID;
+          if (sessionID && sessionID !== opencodeSessionId) continue;
+
+          if (type === 'message.part.updated') {
+            const part = props.part;
+            if (!part) continue;
+
+            if (part.type === 'text' && part.text) {
+              // Stream incrementale: emetti solo il delta
+              const previous = emittedTextByPart.get(part.id) ?? 0;
+              const fullText: string = part.text;
+              if (fullText.length > previous) {
+                const delta = fullText.slice(previous);
+                emittedTextByPart.set(part.id, fullText.length);
+                yield { type: 'token', content: delta };
+              }
+            } else if (part.type === 'tool') {
+              // ToolPart: ha state.status, state.input, state.output
+              const state = part.state ?? {};
+              const status = state.status;
+              if (status === 'running' || status === 'pending') {
+                yield {
+                  type: 'tool_use',
+                  id: part.id,
+                  name: part.tool ?? 'unknown',
+                  input: state.input ?? {},
+                };
+              } else if (status === 'completed') {
+                yield {
+                  type: 'tool_result',
+                  id: part.id,
+                  output: state.output ?? null,
+                };
+              } else if (status === 'error') {
+                yield {
+                  type: 'tool_result',
+                  id: part.id,
+                  output: null,
+                  error: state.error ?? 'tool error',
+                };
+              }
+            }
+          } else if (type === 'message.updated') {
+            const info = props.info;
+            if (info?.role === 'assistant') {
+              if (!assistantMessageId) assistantMessageId = info.id;
+              // Quando completato, opencode setta time.completed
+              if (info.time?.completed && !completed) {
+                completed = true;
+                const tokens = info.tokens ?? {};
+                yield {
+                  type: 'message_end',
+                  messageId: info.id,
+                  tokensIn: tokens.input ?? 0,
+                  tokensOut: tokens.output ?? 0,
+                };
+                yield { type: 'session_end', reason: 'completed' };
+                eventResp.data.destroy?.();
+                return;
+              }
+              // Errore opencode
+              if (info.error) {
+                const errMsg =
+                  info.error?.data?.message ?? info.error?.name ?? 'opencode error';
+                yield { type: 'error', message: errMsg };
+                yield { type: 'session_end', reason: 'error', error: errMsg };
+                eventResp.data.destroy?.();
+                return;
+              }
+            }
+          } else if (type === 'session.error') {
+            const errMsg = props?.error?.message ?? 'session error';
+            yield { type: 'error', message: errMsg };
+            yield { type: 'session_end', reason: 'error', error: errMsg };
+            eventResp.data.destroy?.();
+            return;
+          }
         }
       }
+    } catch (err: any) {
+      console.error('[opencode] SSE error:', err?.message);
+      yield { type: 'error', message: err?.message ?? 'SSE stream error' };
+      yield { type: 'session_end', reason: 'error', error: err?.message };
+    } finally {
+      try { eventResp.data.destroy?.(); } catch {}
     }
+
+    // Assicura che messagePromise sia stato risolto
+    await messagePromise.catch(() => {});
   }
 
-  /**
-   * Cancella una sessione attiva.
-   */
-  async cancelSession(sessionId: string): Promise<void> {
+  async cancelSession(drapeSessionId: string): Promise<void> {
     if (this.isMock) return;
-    await this.client?.post(`/sessions/${sessionId}/cancel`);
+    const opencodeSessionId = sessionMap.get(drapeSessionId);
+    if (!opencodeSessionId) return;
+    await this.client?.post(`/session/${opencodeSessionId}/abort`).catch(() => {});
   }
 
-  /**
-   * Health check del server opencode.
-   */
   async health(): Promise<{ ok: boolean; mock: boolean; error?: string }> {
     if (this.isMock) return { ok: true, mock: true };
     try {
-      await this.client?.get('/health', { responseType: 'json', timeout: 5000 } as any);
+      await this.client?.get('/api/model', { timeout: 5000 });
       return { ok: true, mock: false };
     } catch (err: any) {
       return { ok: false, mock: false, error: err?.message ?? String(err) };
     }
   }
 
-  /**
-   * Mock per sviluppo: simula uno stream con risposta placeholder.
-   */
+  /** Lista modelli disponibili da opencode. */
+  async listModels(): Promise<Array<{ providerID: string; modelID: string }>> {
+    if (this.isMock) return [];
+    const { data } = await this.client!.get('/api/model');
+    if (Array.isArray(data)) {
+      return data.map((m: any) => ({ providerID: m.providerID ?? 'opencode', modelID: m.modelID ?? m.id }));
+    }
+    return [];
+  }
+
+  /** Pulisci mapping sessioni cache (es. quando una sessione viene cancellata). */
+  forgetSession(drapeSessionId: string): void {
+    sessionMap.delete(drapeSessionId);
+  }
+
   private async *mockChatStream(req: AgentChatRequest): AsyncIterable<AgentEvent> {
     const messageId = `mock-${Date.now()}`;
     yield { type: 'message_start', messageId, model: req.model ?? 'mock-model' };
-
-    const reply = `[MOCK opencode] Ricevuto: "${req.message.slice(0, 80)}${
-      req.message.length > 80 ? '...' : ''
-    }". Opencode non è ancora connesso (OPENCODE_API_URL non impostato).`;
-
+    const reply = `[MOCK opencode] Ricevuto: "${req.message.slice(0, 80)}". opencode non configurato.`;
     for (const ch of reply) {
       yield { type: 'token', content: ch };
       await new Promise((r) => setTimeout(r, 8));
     }
-
     yield { type: 'message_end', messageId, tokensIn: 10, tokensOut: reply.length };
     yield { type: 'session_end', reason: 'completed' };
   }
