@@ -5,6 +5,7 @@ import { env } from './config/env';
 import { healthRouter } from './routes/health.routes';
 import { appwriteRouter } from './routes/appwrite.routes';
 import { agentRouter } from './routes/agent.routes';
+import { aiRouter } from './routes/ai.routes';
 import { filesRouter } from './routes/files.routes';
 
 const app = express();
@@ -23,6 +24,7 @@ app.use('/sandpack', express.static(path.join(__dirname, '../public/sandpack')))
 app.use('/health', healthRouter);
 app.use('/api/appwrite', appwriteRouter);
 app.use('/api/agent', agentRouter);
+app.use('/api/ai', aiRouter);
 app.use('/api/files', filesRouter);
 
 // 404 fallback

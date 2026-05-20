@@ -506,6 +506,12 @@ export const estimateContextUsage = (
   }
 
   const contextWindows: Record<string, number> = {
+    'deepseek-v4-flash-free': 128000,
+    'qwen3.6-plus-free': 128000,
+    'nemotron-3-super-free': 128000,
+    'minimax-m2.5-free': 128000,
+    'big-pickle': 128000,
+    // Legacy support
     'claude-sonnet-4': 200000,
     'claude-4-6-sonnet': 200000,
     'claude-4-7-opus': 1000000,

@@ -516,7 +516,7 @@ export default function App() {
                         createdAt: new Date(),
                         lastUsed: new Date(),
                         messages: [],
-                        aiModel: creationAgentRequest?.model || 'gemini-3-flash',
+                        aiModel: creationAgentRequest?.model || 'deepseek-v4-flash-free',
                         repositoryId: projectId,
                         repositoryName: workstation.name,
                       });

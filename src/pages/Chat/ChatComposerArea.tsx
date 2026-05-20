@@ -190,11 +190,9 @@ export const ChatComposerArea: React.FC<ComposerProps> = ({
         onLockedModelPress={(model) => {
           Alert.alert(
             model.name,
-            model.id.includes('opus')
-              ? 'Il modello piu potente. Genera codice complesso, debug avanzato e architettura superiore. Disponibile con il piano Go.'
-              : model.id.includes('gpt')
-                ? 'GPT-5.3 di OpenAI. Eccelle in ragionamento e coding. Disponibile con il piano Go.'
-                : 'Gemini Pro di Google. Ottime capacita di ragionamento e analisi. Disponibile con il piano Go.',
+            model.id === 'big-pickle'
+              ? 'Zen Big Pickle. Il modello premium piu potente per coding e ragionamento complesso. Disponibile con i piani Go/Pro.'
+              : 'Questo modello richiede un piano a pagamento. Abbonati per sbloccarlo.',
             [
               { text: 'Annulla', style: 'cancel' },
               { text: 'Vedi piani', onPress: navigateToPlans },

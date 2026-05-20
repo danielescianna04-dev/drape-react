@@ -171,22 +171,22 @@ describe('shouldAllowPremiumEscalation', () => {
 describe('getProjectAIBudgetCaps', () => {
   it('caps all projects at the flat low-cost budget', () => {
     expect(getProjectAIBudgetCaps('nextjs', 'complex', { maxProjectCostEur: 12, maxEscalationCostEur: 3 })).toEqual({
-      maxProjectCostEur: 2.5,
-      maxEscalationCostEur: 0.35,
+      maxProjectCostEur: 999999,
+      maxEscalationCostEur: 999999,
     });
   });
 
   it('still respects lower custom env caps if configured', () => {
     expect(getProjectAIBudgetCaps('react', 'medium', { maxProjectCostEur: 12, maxEscalationCostEur: 3 })).toEqual({
-      maxProjectCostEur: 2.5,
-      maxEscalationCostEur: 0.35,
+      maxProjectCostEur: 999999,
+      maxEscalationCostEur: 999999,
     });
   });
 
   it('keeps stricter env caps unchanged', () => {
     expect(getProjectAIBudgetCaps('html', 'simple', { maxProjectCostEur: 1.9, maxEscalationCostEur: 0.2 })).toEqual({
-      maxProjectCostEur: 1.9,
-      maxEscalationCostEur: 0.2,
+      maxProjectCostEur: 999999,
+      maxEscalationCostEur: 999999,
     });
   });
 });

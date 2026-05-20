@@ -19,11 +19,39 @@ import { useTranslation } from 'react-i18next';
 import { tracciaChatMinimizzata, tracciaModelloSelezionato, tracciaPaginaPianiVista } from '../../../core/services/analyticsService';
 import { useVoiceInput } from '../../../shared/hooks/useVoiceInput';
 
+const createLetterIcon = (letter: string, color: string) => {
+  return ({ size = 16 }: { size?: number }) => (
+    <View style={{
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      backgroundColor: color,
+      justifyContent: 'center',
+      alignItems: 'center',
+    }}>
+      <Text style={{
+        color: '#ffffff',
+        fontSize: size * 0.65,
+        fontWeight: 'bold',
+        lineHeight: size * 0.75,
+        textAlign: 'center',
+      }}>{letter}</Text>
+    </View>
+  );
+};
+
+const DeepSeekIcon = createLetterIcon('D', '#007AFF');
+const QwenIcon = createLetterIcon('Q', '#00A896');
+const NemotronIcon = createLetterIcon('N', '#8A2BE2');
+const MiniMaxIcon = createLetterIcon('M', '#FF4500');
+const BigPickleIcon = createLetterIcon('B', '#FFD700');
+
 const AI_MODELS = [
-  { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, thinkingLevels: ['medium'] },
-  { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, thinkingLevels: [] as string[] },
-  { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, thinkingLevels: ['low', 'high'] },
-  { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
+  { id: 'deepseek-v4-flash-free', name: 'DeepSeek v4 Flash', IconComponent: DeepSeekIcon, thinkingLevels: [] as string[] },
+  { id: 'qwen3.6-plus-free', name: 'Qwen 3.6 Plus', IconComponent: QwenIcon, thinkingLevels: [] as string[] },
+  { id: 'nemotron-3-super-free', name: 'Nemotron 3 Super', IconComponent: NemotronIcon, thinkingLevels: [] as string[] },
+  { id: 'minimax-m2.5-free', name: 'MiniMax m2.5', IconComponent: MiniMaxIcon, thinkingLevels: [] as string[] },
+  { id: 'big-pickle', name: 'Zen Big Pickle', IconComponent: BigPickleIcon, thinkingLevels: [] as string[] },
 ];
 
 const THINKING_LEVEL_LABELS: Record<string, string> = {
@@ -124,7 +152,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
   onLoadPastChat,
   onStartNewChat,
   contextUsagePercent = 0,
-  selectedModel = 'gemini-3-flash',
+  selectedModel = 'deepseek-v4-flash-free',
 }) => {
   const { t } = useTranslation();
   const [showContextInfo, setShowContextInfo] = React.useState(false);
@@ -149,7 +177,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
 
   const currentModelName = React.useMemo(() => {
     const model = AI_MODELS.find(m => m.id === storeSelectedModel);
-    return model?.name ?? 'Claude 4.6 Sonnet';
+    return model?.name ?? 'DeepSeek v4 Flash';
   }, [storeSelectedModel]);
 
   const getElementLabel = React.useCallback((tag?: string) => {
@@ -459,9 +487,11 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
       {/* Context info tooltip - rendered outside overflow:hidden FAB */}
       {showContextInfo && contextUsagePercent > 0 && (() => {
         const contextWindows: Record<string, number> = {
-          'claude-4-7-opus': 1000000, 'claude-opus-4-7': 1000000, 'claude-4-6-opus': 1000000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
-          'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3.1-pro': 1000000,
-          'gpt-5-4': 128000, 'glm-5.1': 202752, 'llama-3.3-70b': 128000,
+          'deepseek-v4-flash-free': 128000,
+          'qwen3.6-plus-free': 128000,
+          'nemotron-3-super-free': 128000,
+          'minimax-m2.5-free': 128000,
+          'big-pickle': 128000,
         };
         const windowK = Math.round((contextWindows[selectedModel] || 200000) / 1000);
         const compactionAt = 90;

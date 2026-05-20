@@ -16,27 +16,39 @@ import { SlashMenu } from './SlashMenu';
 
 // ── AI Models ───────────────────────────────────────────────────────
 // Icon components
-const AnthropicIcon = ({ size = 16 }: { size?: number }) => (
-  <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#D4A574', justifyContent: 'center', alignItems: 'center' }}>
-    <Text style={{ color: '#fff', fontSize: size * 0.6, fontWeight: '900' }}>A</Text>
-  </View>
-);
-const OpenAIIcon = ({ size = 16 }: { size?: number }) => (
-  <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#10A37F', justifyContent: 'center', alignItems: 'center' }}>
-    <Text style={{ color: '#fff', fontSize: size * 0.55, fontWeight: '800' }}>G</Text>
-  </View>
-);
-const GoogleIcon = ({ size = 16 }: { size?: number }) => (
-  <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#4285F4', justifyContent: 'center', alignItems: 'center' }}>
-    <Text style={{ color: '#fff', fontSize: size * 0.55, fontWeight: '800' }}>G</Text>
-  </View>
-);
+const createLetterIcon = (letter: string, color: string) => {
+  return ({ size = 16 }: { size?: number }) => (
+    <View style={{
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      backgroundColor: color,
+      justifyContent: 'center',
+      alignItems: 'center',
+    }}>
+      <Text style={{
+        color: '#ffffff',
+        fontSize: size * 0.65,
+        fontWeight: 'bold',
+        lineHeight: size * 0.75,
+        textAlign: 'center',
+      }}>{letter}</Text>
+    </View>
+  );
+};
+
+const DeepSeekIcon = createLetterIcon('D', '#007AFF');
+const QwenIcon = createLetterIcon('Q', '#00A896');
+const NemotronIcon = createLetterIcon('N', '#8A2BE2');
+const MiniMaxIcon = createLetterIcon('M', '#FF4500');
+const BigPickleIcon = createLetterIcon('B', '#FFD700');
 
 export const AI_MODELS = [
-  { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, hasThinking: true, thinkingLevels: ['medium'] },
-  { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
-  { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['low', 'high'] },
-  { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'minimal', 'low', 'medium', 'high'] },
+  { id: 'deepseek-v4-flash-free', name: 'DeepSeek v4 Flash', IconComponent: DeepSeekIcon, hasThinking: false, thinkingLevels: [] as readonly string[] },
+  { id: 'qwen3.6-plus-free', name: 'Qwen 3.6 Plus', IconComponent: QwenIcon, hasThinking: false, thinkingLevels: [] as readonly string[] },
+  { id: 'nemotron-3-super-free', name: 'Nemotron 3 Super', IconComponent: NemotronIcon, hasThinking: false, thinkingLevels: [] as readonly string[] },
+  { id: 'minimax-m2.5-free', name: 'MiniMax m2.5', IconComponent: MiniMaxIcon, hasThinking: false, thinkingLevels: [] as readonly string[] },
+  { id: 'big-pickle', name: 'Zen Big Pickle', IconComponent: BigPickleIcon, hasThinking: false, thinkingLevels: [] as readonly string[] },
 ] as const;
 
 // ── Props ───────────────────────────────────────────────────────────
@@ -339,9 +351,11 @@ export const ChatInputBar = React.memo(({
       {/* ── Context Info Tooltip ── */}
       {showContextInfo && (() => {
         const contextWindows: Record<string, number> = {
-          'claude-4-7-opus': 1000000, 'claude-opus-4-7': 1000000, 'claude-4-6-opus': 1000000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
-          'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3-0-flash': 1000000, 'gemini-3.1-pro': 1000000, 'gemini-3-1-pro': 1000000,
-          'gpt-5-4': 128000, 'glm-5.1': 202752, 'llama-3.3-70b': 128000,
+          'deepseek-v4-flash-free': 128000,
+          'qwen3.6-plus-free': 128000,
+          'nemotron-3-super-free': 128000,
+          'minimax-m2.5-free': 128000,
+          'big-pickle': 128000,
         };
         const windowK = Math.round((contextWindows[selectedModel] || 200000) / 1000);
         const compactionAt = 90;

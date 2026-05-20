@@ -193,7 +193,7 @@ REGOLE:
         body: JSON.stringify({
           prompt,
           projectId,
-          model: 'gemini-3-flash',
+          model: 'deepseek-v4-flash-free',
           conversationHistory: conversationRef.current,
           images,
           thinkingLevel: 'low',

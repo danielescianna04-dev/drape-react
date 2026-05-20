@@ -141,7 +141,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     hasInteracted: false,
 
     // Initial state - UI
-    selectedModel: 'gemini-3-flash',
+    selectedModel: 'deepseek-v4-flash-free',
     isTerminalMode: true,
     autoApprove: false,
     isRecording: false,
