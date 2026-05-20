@@ -5,6 +5,7 @@ import { env } from './config/env';
 import { healthRouter } from './routes/health.routes';
 import { appwriteRouter } from './routes/appwrite.routes';
 import { agentRouter } from './routes/agent.routes';
+import { agentStreamRouter } from './routes/agent-stream.routes';
 import { aiRouter } from './routes/ai.routes';
 import { filesRouter } from './routes/files.routes';
 import { workstationRouter } from './routes/workstation.routes';
@@ -25,6 +26,8 @@ app.use('/sandpack', express.static(path.join(__dirname, '../public/sandpack')))
 app.use('/health', healthRouter);
 app.use('/api/appwrite', appwriteRouter);
 app.use('/api/agent', agentRouter);
+// Legacy v1 path che il frontend chiama: /agent/create, /agent/run/fast, ecc.
+app.use('/agent', agentStreamRouter);
 app.use('/api/ai', aiRouter);
 // Alias legacy: frontend chiama /ai/* (senza /api). Mantieni per compat.
 app.use('/ai', aiRouter);
