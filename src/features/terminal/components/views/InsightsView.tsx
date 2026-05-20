@@ -67,7 +67,7 @@ const GlassCard: React.FC<{ children: React.ReactNode; style?: any; innerStyle?:
 }) => {
   return (
     <SystemGlass style={[s.glassCard, style]}>
-      <View style={[s.glassInner, s.glassReadableSurface, innerStyle]}>
+      <View style={[s.glassInner, (s as any).glassReadableSurface, innerStyle]}>
         {children}
       </View>
     </SystemGlass>

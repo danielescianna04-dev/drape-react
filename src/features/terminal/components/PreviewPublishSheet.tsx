@@ -164,7 +164,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
         <Pressable onPress={(e) => e.stopPropagation()}>
         <Glass radius={28} style={styles.publishModalContent}>
         <View style={styles.publishModalInner}>
-          {isFreeUser && !existingPublish ? (
+          {false ? (
             <>
               <View style={{ alignItems: 'center', marginBottom: 16 }}>
                 <View style={{

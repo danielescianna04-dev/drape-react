@@ -25,6 +25,8 @@ app.use('/health', healthRouter);
 app.use('/api/appwrite', appwriteRouter);
 app.use('/api/agent', agentRouter);
 app.use('/api/ai', aiRouter);
+// Alias legacy: frontend chiama /ai/* (senza /api). Mantieni per compat.
+app.use('/ai', aiRouter);
 app.use('/api/files', filesRouter);
 
 // 404 fallback

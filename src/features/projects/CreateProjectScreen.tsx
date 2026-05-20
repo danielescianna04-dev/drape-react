@@ -751,17 +751,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       setIsCreating(false);
       resetStream();
       agentProjectIdRef.current = null;
-      // Show post-creation paywall for free users (once)
-      try {
-        const userPlan = useAuthStore.getState().user?.plan || 'free';
-        const seenPaywall = await AsyncStorage.getItem('hasSeenPostCreationPaywall');
-        if (userPlan === 'free' && !seenPaywall) {
-          setPendingWorkstation(workstation);
-          setShowPostCreationPaywall(true);
-          await AsyncStorage.setItem('hasSeenPostCreationPaywall', 'true');
-          return;
-        }
-      } catch {}
       tracciaEntrataNelProgetto(workstation.name);
       onCreate(workstation);
     }, 800);

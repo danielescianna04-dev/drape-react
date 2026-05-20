@@ -42,7 +42,7 @@ export const useIAPStore = create<IAPState>((set) => ({
     set({ products: [] });
   },
   async purchase(_plan, _cycle) {
-    set({ error: { code: 'NOT_IMPLEMENTED', message: 'IAP non disponibile in v2' } as IAPError });
+    set({ error: { code: 'NOT_IMPLEMENTED', message: 'IAP non disponibile in v2' } as unknown as IAPError });
   },
   async restorePurchases() {
     return { success: false };

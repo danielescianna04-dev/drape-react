@@ -690,9 +690,9 @@ const CompactRow: React.FC<{
         <View style={s.compactTitleRow}>
           <Text style={s.compactSlash}>/{skill.slash}</Text>
           {skill.isOfficial && (
-            <View style={s.officialBadge}>
+            <View style={(s as any).officialBadge}>
               <Ionicons name="checkmark" size={9} color="#0a0a0c" />
-              <Text style={s.officialBadgeText}>OFFICIAL</Text>
+              <Text style={(s as any).officialBadgeText}>OFFICIAL</Text>
             </View>
           )}
         </View>

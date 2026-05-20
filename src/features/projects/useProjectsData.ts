@@ -41,8 +41,8 @@ export function useProjectsData() {
   const [projectCounts, setProjectCounts] = useState({ created: 0, cloned: 0, local: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'pro' | 'team'>((user?.plan || 'free') as 'free' | 'go' | 'pro' | 'team');
-  const [showUpgradeCta, setShowUpgradeCta] = useState(true);
+  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'pro' | 'team'>('pro');
+  const [showUpgradeCta, setShowUpgradeCta] = useState(false);
   const [focusKey, setFocusKey] = useState(0);
 
   // Loading overlay state
@@ -59,6 +59,7 @@ export function useProjectsData() {
   // Keep currentPlan in sync with auth store
   useEffect(() => {
     if (user?.plan) setCurrentPlan(user.plan);
+    else setCurrentPlan('pro');
   }, [user?.plan]);
 
   // Reload projects when screen comes into focus

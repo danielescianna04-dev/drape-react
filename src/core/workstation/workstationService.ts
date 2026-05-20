@@ -127,27 +127,38 @@ export const workstationService = {
   // Legacy stubs (v1 API surface preserved for caller compat)
   // ============================================================
 
-  async getLifetimeCreationCounts(_userId: string): Promise<{ total: number; today: number }> {
-    return { total: 0, today: 0 };
+  async getLifetimeCreationCounts(
+    _userId: string,
+  ): Promise<{ total: number; today: number; created: number; cloned: number; local: number }> {
+    return { total: 0, today: 0, created: 0, cloned: 0, local: 0 };
   },
 
-  async checkExistingProject(_userId: string, _name: string): Promise<boolean> {
-    return false;
+  async checkExistingProject(
+    _userId: string,
+    _identifier: string,
+  ): Promise<(WorkstationInfo & { cloned?: boolean }) | null> {
+    return null;
   },
 
   async countExistingCopies(_userId: string, _baseName: string): Promise<number> {
     return 0;
   },
 
-  async createWorkstation(name: string): Promise<WorkstationInfo> {
+  async createWorkstation(nameOrProject: string | { name: string }): Promise<WorkstationInfo> {
+    const name = typeof nameOrProject === 'string' ? nameOrProject : nameOrProject.name;
     return this.createEmptyWorkstation(name);
   },
 
   async createWorkstationForProject(
     project: { id: string; name: string },
-    _githubToken?: string,
-  ): Promise<{ workstationId: string }> {
-    return { workstationId: project.id };
+    _githubToken?: string | null,
+    _branch?: string,
+  ): Promise<{
+    workstationId: string;
+    status?: 'creating' | 'running' | 'stopped' | 'idle' | 'ready';
+    files?: string[];
+  }> {
+    return { workstationId: project.id, status: 'running', files: [] };
   },
 
   async deleteProject(projectId: string): Promise<void> {
@@ -155,7 +166,11 @@ export const workstationService = {
     if (error) throw error;
   },
 
-  async getFileContent(_projectId: string, _path: string): Promise<string | null> {
+  async getFileContent(
+    _projectId: string,
+    _path: string,
+    _repositoryUrl?: string,
+  ): Promise<string | null> {
     return null;
   },
 
@@ -175,7 +190,7 @@ export const workstationService = {
     if (error) throw error;
   },
 
-  async saveGitProject(repositoryUrl: string, userId: string): Promise<WorkstationInfo> {
+  async saveGitProject(repositoryUrl: string, userId: string, _copyNumber?: number): Promise<WorkstationInfo> {
     const { data, error } = await supabase
       .from('projects')
       .insert({
@@ -190,7 +205,7 @@ export const workstationService = {
     return data as unknown as WorkstationInfo;
   },
 
-  async savePersonalProject(name: string, userId: string): Promise<WorkstationInfo> {
+  async savePersonalProject(name: string, userId: string, _kind?: string): Promise<WorkstationInfo> {
     const { data, error } = await supabase
       .from('projects')
       .insert({ user_id: userId, name, template: 'personal' })

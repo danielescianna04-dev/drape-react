@@ -45,8 +45,8 @@ export const userConfigService = {
     if (!data) return null;
     return {
       userId: data.user_id,
-      credentials: (data.credentials as UserCredentials) ?? {},
-      preferences: (data.preferences as UserPreferences) ?? {
+      credentials: (data.credentials as unknown as UserCredentials) ?? {},
+      preferences: (data.preferences as unknown as UserPreferences) ?? {
         defaultAiModel: 'auto',
         theme: 'dark',
         terminalSettings: { fontSize: 14, fontFamily: 'monospace' },

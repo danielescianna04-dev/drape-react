@@ -27,7 +27,7 @@ function showReloginAlert(): void {
   authAlertShown = true;
 
   import('../auth/authStore').then(({ useAuthStore }) => {
-    const { user, logout } = useAuthStore.getState();
+    const { user, signOut: logout } = useAuthStore.getState();
     if (!user) {
       authAlertShown = false;
       return;

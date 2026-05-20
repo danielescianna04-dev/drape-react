@@ -2,8 +2,9 @@ import { supabase } from './client';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 export type AppleSignInOptions = {
-  identityToken: string;
+  identityToken?: string;
   nonce?: string;
+  legalAcceptance?: { tosAcceptedAt?: boolean; ageConfirmedAt?: boolean };
 };
 
 export async function signInWithEmail(email: string, password: string) {
@@ -32,7 +33,8 @@ export async function sendPasswordReset(email: string) {
   if (error) throw error;
 }
 
-export async function signInWithApple(opts: AppleSignInOptions) {
+export async function signInWithApple(opts: AppleSignInOptions = {}) {
+  if (!opts.identityToken) throw new Error('identityToken required for Apple sign-in');
   const { data, error } = await supabase.auth.signInWithIdToken({
     provider: 'apple',
     token: opts.identityToken,

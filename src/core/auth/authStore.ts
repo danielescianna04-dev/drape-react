@@ -22,9 +22,12 @@ export type DrapeUser = {
   uid: string;
   email: string | null;
   displayName: string | null;
-  plan: 'free' | 'pro' | 'enterprise';
+  plan: 'free' | 'go' | 'pro' | 'team';
   emailVerified: boolean;
   photoURL: string | null;
+  onboardingCompleted?: boolean;
+  hasCreatedFirstProject?: boolean;
+  firstProjectChoiceSkipped?: boolean;
 };
 
 type AuthState = {
@@ -41,15 +44,17 @@ type AuthState = {
   signInWithGoogle: (idToken: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  logout: () => Promise<void>;
+  deleteAccount: (password?: string) => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
-  checkEmailVerified: () => Promise<boolean>;
+  checkEmailVerified: (email?: string, password?: string) => Promise<boolean>;
   updateDisplayName: (name: string) => Promise<void>;
   refreshConsentAwareServices: () => Promise<void>;
   clearError: () => void;
   initialize: () => Promise<() => void>;
 };
 
-function mapSupabaseUser(supaUser: SupabaseUser | null, plan: DrapeUser['plan'] = 'free'): DrapeUser | null {
+function mapSupabaseUser(supaUser: SupabaseUser | null, plan: DrapeUser['plan'] = 'pro'): DrapeUser | null {
   if (!supaUser) return null;
   return {
     uid: supaUser.id,
@@ -58,7 +63,7 @@ function mapSupabaseUser(supaUser: SupabaseUser | null, plan: DrapeUser['plan'] 
       (supaUser.user_metadata?.display_name as string | undefined) ??
       (supaUser.user_metadata?.full_name as string | undefined) ??
       null,
-    plan,
+    plan: 'pro',
     emailVerified: !!supaUser.email_confirmed_at,
     photoURL: (supaUser.user_metadata?.avatar_url as string | undefined) ?? null,
   };
@@ -71,7 +76,7 @@ async function fetchProfile(userId: string): Promise<{ plan: DrapeUser['plan']; 
     .eq('id', userId)
     .single();
   if (error || !data) return null;
-  return { plan: 'free', displayName: data.display_name ?? null };
+  return { plan: 'pro', displayName: data.display_name ?? null };
 }
 
 /**
@@ -169,6 +174,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  async logout() {
+    return this.signOut();
+  },
+
+  async deleteAccount(_password?: string) {
+    // v2: account deletion non implementata client-side (richiede backend con service_role).
+    // TODO: endpoint /api/auth/delete-account che cancella su Supabase + revoca DB Appwrite.
+    throw new Error('Account deletion non disponibile in v2 (richiede endpoint backend dedicato)');
+  },
+
   async resetPassword(email) {
     set({ isLoading: true, error: null });
     try {
@@ -187,7 +202,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (error) throw error;
   },
 
-  async checkEmailVerified() {
+  async checkEmailVerified(_email?: string, _password?: string) {
     const { data } = await supabase.auth.getUser();
     const verified = !!data.user?.email_confirmed_at;
     const user = get().user;
