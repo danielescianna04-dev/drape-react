@@ -44,18 +44,8 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
 
   // Sync translateX when currentIndex or containerWidth changes
   useEffect(() => {
-    const previousIndex = previousIndexRef.current;
-    const previousTabType = tabs[previousIndex] && (tabs[previousIndex] as any).type;
-    const currentTabType = tabs[currentIndex] && (tabs[currentIndex] as any).type;
-    const touchesPreview = previousTabType === 'preview' || currentTabType === 'preview';
     const nextTranslateX = -currentIndex * containerWidth;
-
-    if (touchesPreview) {
-      translateX.value = nextTranslateX;
-    } else {
-      translateX.value = withSpring(nextTranslateX, SPRING_CONFIG);
-    }
-
+    translateX.value = withSpring(nextTranslateX, SPRING_CONFIG);
     previousIndexRef.current = currentIndex;
   }, [currentIndex, containerWidth, tabs]);
 

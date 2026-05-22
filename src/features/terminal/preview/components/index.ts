@@ -4,6 +4,9 @@
 export { PreviewStateStart } from './PreviewStateStart';
 export type { PreviewStateStartProps } from './PreviewStateStart';
 
+export { PreviewPreparingState } from './PreviewPreparingState';
+export type { PreviewPreparingStateProps } from './PreviewPreparingState';
+
 export { PreviewStateLoading } from './PreviewStateLoading';
 export type { PreviewStateLoadingProps } from './PreviewStateLoading';
 

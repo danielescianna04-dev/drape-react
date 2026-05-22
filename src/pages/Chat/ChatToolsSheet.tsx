@@ -8,7 +8,7 @@ interface RecentPhoto {
   uri: string;
 }
 
-export type ProjectToolSection = 'files' | 'preview' | 'terminal' | 'git' | 'database' | 'plugin' | 'mcp';
+export type ProjectToolSection = 'files' | 'git' | 'database';
 
 interface ChatToolsSheetProps {
   styles: any;
@@ -36,12 +36,8 @@ interface ChatToolsSheetProps {
 
 const PROJECT_TOOLS: Array<{ section: ProjectToolSection; icon: keyof typeof Ionicons.glyphMap; label: string }> = [
   { section: 'files', icon: 'folder-outline', label: 'File del progetto' },
-  { section: 'preview', icon: 'eye-outline', label: 'Preview' },
-  { section: 'terminal', icon: 'terminal-outline', label: 'Terminale' },
   { section: 'git', icon: 'git-branch-outline', label: 'Git' },
   { section: 'database', icon: 'server-outline', label: 'Database' },
-  { section: 'plugin', icon: 'cube-outline', label: 'Plugin' },
-  { section: 'mcp', icon: 'extension-puzzle-outline', label: 'MCP' },
 ];
 
 export const ChatToolsSheet: React.FC<ChatToolsSheetProps> = ({

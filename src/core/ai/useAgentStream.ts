@@ -65,6 +65,9 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
   const currentJobIdRef = useRef<string | null>(null);
   const currentProjectIdRef = useRef<string | null>(null);
   const completionHandledRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const attachToJobRef = useRef<((projectId: string, jobId: string) => void) | null>(null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -94,6 +97,11 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
       completionHandledRef.current = false;
       currentJobIdRef.current = null;
       currentProjectIdRef.current = projectId;
+      reconnectAttemptsRef.current = 0;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
 
       try {
         const token = await getAuthToken();
@@ -230,18 +238,28 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
           } catch (_) {}
         });
 
-        // Handle connection errors
+        // Handle connection errors — try to auto-resume via attachToJob if we
+        // have a durable jobId (mobile networks drop SSE frequently).
         es.addEventListener('error', (e: any) => {
           console.error('[useAgentStream] SSE error:', e);
-          // Only treat as fatal if we haven't completed
-          if (status !== 'complete') {
-            setStatus('error');
-            setIsStreaming(false);
-            const errorMsg = e?.message || 'Connection error';
-            optionsRef.current.onError?.(errorMsg);
-            es.close();
-            esRef.current = null;
+          if (completionHandledRef.current) return;
+          es.close();
+          esRef.current = null;
+          const jobId = currentJobIdRef.current;
+          const projectId = currentProjectIdRef.current;
+          if (jobId && projectId && reconnectAttemptsRef.current < 5) {
+            const attempt = ++reconnectAttemptsRef.current;
+            const delay = Math.min(1000 * attempt, 5000);
+            console.warn(`[useAgentStream] SSE dropped, reattaching to job ${jobId} in ${delay}ms (attempt ${attempt}/5)`);
+            if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = setTimeout(() => {
+              attachToJobRef.current?.(projectId, jobId);
+            }, delay);
+            return;
           }
+          setStatus('error');
+          setIsStreaming(false);
+          optionsRef.current.onError?.(e?.message || 'Connection error');
         });
 
       } catch (error: any) {
@@ -259,6 +277,11 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
       esRef.current.close();
       esRef.current = null;
     }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    reconnectAttemptsRef.current = 0;
     completionHandledRef.current = false;
     setIsStreaming(false);
     setStatus('idle');
@@ -289,10 +312,10 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
       esRef.current = null;
     }
     setIsStreaming(true);
-    setEvents([]);
+    // Keep already-accumulated events when reattaching after a drop — the
+    // snapshot replay will fill in any gaps.
     setCurrentTool(null);
     setStatus('running');
-    setResult(null);
     completionHandledRef.current = false;
     currentJobIdRef.current = jobId;
     currentProjectIdRef.current = projectId;
@@ -325,6 +348,11 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
       // Still running — open the SSE replay+tail stream.
       const es = await jobsApi.attachStream(jobId);
       esRef.current = es;
+
+      // Reset reconnect counter once we have a fresh stream open.
+      es.addEventListener('open', () => {
+        reconnectAttemptsRef.current = 0;
+      });
 
       const eventTypes = [
         'job_snapshot', 'job_end', 'phase', 'phase_start', 'phase_complete',
@@ -363,14 +391,30 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
         });
       }
 
-      es.addEventListener('error', () => {
+      es.addEventListener('error', (e: any) => {
         // Don't clear pendingJobs here — the job may still be running, the
-        // network just dropped. Next mount will retry.
+        // network just dropped. Auto-reattach with backoff.
         if (esRef.current) {
           esRef.current.close();
           esRef.current = null;
         }
+        if (completionHandledRef.current) {
+          setIsStreaming(false);
+          return;
+        }
+        if (reconnectAttemptsRef.current < 5) {
+          const attempt = ++reconnectAttemptsRef.current;
+          const delay = Math.min(1000 * attempt, 5000);
+          console.warn(`[useAgentStream] attach SSE dropped, retrying in ${delay}ms (attempt ${attempt}/5)`);
+          if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            attachToJobRef.current?.(projectId, jobId);
+          }, delay);
+          return;
+        }
         setIsStreaming(false);
+        setStatus('error');
+        optionsRef.current.onError?.(e?.message || 'Connection lost');
       });
     } catch (err: any) {
       setStatus('error');
@@ -378,6 +422,10 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
       optionsRef.current.onError?.(err?.message || 'Failed to attach to job');
     }
   }, []);
+
+  // Expose attachToJob via a ref so SSE error handlers (declared before
+  // attachToJob) can invoke it for auto-reconnect without a circular dep.
+  attachToJobRef.current = attachToJob;
 
   return {
     startStream,

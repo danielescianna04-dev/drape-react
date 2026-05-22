@@ -66,6 +66,7 @@ export { usePreviewNavigation } from './hooks/usePreviewNavigation';
 export {
   PreviewStateStart,
   PreviewStateLoading,
+  PreviewPreparingState,
   PreviewStateFixing,
   PreviewStateEnvRequired,
   PreviewStateSessionExpired,

@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, Pressable,
-  StyleSheet, Platform,
+  StyleSheet, Platform, Image, ScrollView,
 } from 'react-native';
 import Animated, { SharedValue, useAnimatedStyle } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -69,6 +69,8 @@ export interface ChatInputBarProps {
 
   // Images
   hasImages: boolean;
+  selectedImages?: Array<{ uri: string }>;
+  onRemoveImage?: (index: number) => void;
 
   // Model
   selectedModel: string;
@@ -120,6 +122,36 @@ const TYPEWRITER_PHRASES = [
   'Ask Drape to design an app that…',
   'Ask Drape to make a dashboard for…',
   'Ask Drape to generate a report on…',
+  'Ask Drape to build a SaaS for…',
+  'Ask Drape to clone Airbnb but for…',
+  'Ask Drape to design a portfolio site for…',
+  'Ask Drape to make a CRM that…',
+  'Ask Drape to build an AI chatbot for…',
+  'Ask Drape to create a marketplace for…',
+  'Ask Drape to build a habit tracker that…',
+  'Ask Drape to design a todo app with…',
+  'Ask Drape to make a recipe app for…',
+  'Ask Drape to build a budget tracker that…',
+  'Ask Drape to create a meditation app for…',
+  'Ask Drape to design a fitness tracker that…',
+  'Ask Drape to build a chat app for…',
+  'Ask Drape to make a blog for…',
+  'Ask Drape to build a booking system for…',
+  'Ask Drape to design a pricing page for…',
+  'Ask Drape to create an admin panel for…',
+  'Ask Drape to build a kanban board for…',
+  'Ask Drape to make a quiz app about…',
+  'Ask Drape to build a music player that…',
+  'Ask Drape to design a checkout flow for…',
+  'Ask Drape to create a survey tool for…',
+  'Ask Drape to build a calendar app for…',
+  'Ask Drape to make an invoice generator for…',
+  'Ask Drape to build a notes app with…',
+  'Ask Drape to design an analytics dashboard for…',
+  'Ask Drape to clone Twitter but for…',
+  'Ask Drape to build a course platform for…',
+  'Ask Drape to make a job board for…',
+  'Ask Drape to build a recipe sharing site for…',
 ];
 
 const useTypewriter = (phrases: string[]): string => {
@@ -175,6 +207,8 @@ export const ChatInputBar = React.memo(({
   isStreaming,
   isLoading,
   hasImages,
+  selectedImages,
+  onRemoveImage,
   selectedModel,
   currentModelName,
   showModelSelector,
@@ -225,7 +259,7 @@ export const ChatInputBar = React.memo(({
       <View
         testID={inputBarGlassId}
         nativeID={inputBarGlassId}
-        style={[styles.container, hasImages && styles.containerWithImages]}
+        style={[styles.container, hasImages && styles.containerCompactTop]}
         onLayout={onLayout}
       >
         {!glassApplied && (
@@ -238,12 +272,35 @@ export const ChatInputBar = React.memo(({
         {/* ── Slash menu (active when input starts with `/`) ── */}
         <SlashMenu value={input} onSelect={(v) => onChangeText(v)} />
 
+        {/* ── Selected images preview (inside the input card, above the text) ── */}
+        {selectedImages && selectedImages.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.imagesRow}
+          >
+            {selectedImages.map((image, index) => (
+              <View key={`${image.uri}-${index}`} style={styles.imageItem}>
+                <Image source={{ uri: image.uri }} style={styles.imageThumb} />
+                <TouchableOpacity
+                  style={styles.imageRemoveBtn}
+                  onPress={() => onRemoveImage?.(index)}
+                  activeOpacity={0.7}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={11} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        )}
+
         {/* ── Main Input (Lovable-style) ── */}
         <TextInput
           style={styles.input}
           value={input}
           onChangeText={onChangeText}
-          placeholder={agentMode === 'terminal' ? '$ comando...' : animatedPlaceholder || t('chat:placeholderFast')}
+          placeholder={agentMode === 'terminal' ? '$ comando...' : animatedPlaceholder || 'Ask Drape to…'}
           placeholderTextColor="rgba(255,255,255,0.45)"
           multiline
           maxLength={1000}
@@ -480,6 +537,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
     overflow: 'hidden',
   },
+  containerCompactTop: {
+    paddingTop: 6,
+  },
   containerWithImages: {
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
@@ -683,6 +743,38 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     minHeight: 32,
     maxHeight: 240,
+  },
+  imagesRow: {
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 22,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  imageItem: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    marginRight: 8,
+    position: 'relative',
+  },
+  imageThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+  },
+  imageRemoveBtn: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   sendBtn: {
     width: 38,

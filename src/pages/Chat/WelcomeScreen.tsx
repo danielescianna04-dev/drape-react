@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-nati
 import Animated, { useAnimatedStyle, interpolate, Extrapolate, SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '../../core/auth/authStore';
 
 const { height: SH } = Dimensions.get('window');
 const AVAILABLE = SH * 0.50 - 8 - 88;
@@ -21,6 +22,8 @@ const ITEMS = [
 
 export const WelcomeScreen = ({ keyboardHeight, onSuggestionPress }: WelcomeScreenProps) => {
   const { t } = useTranslation('chat');
+  const user = useAuthStore((state) => state.user);
+  const username = (user?.displayName?.trim() || user?.email?.split('@')[0] || '').trim();
   const renderCountRef = useRef(0);
   renderCountRef.current += 1;
   if (renderCountRef.current <= 25) {
@@ -36,8 +39,7 @@ export const WelcomeScreen = ({ keyboardHeight, onSuggestionPress }: WelcomeScre
 
   return (
     <Animated.View style={[styles.wrap, animStyle]}>
-      <Text style={styles.title}>{t('welcomeTitle')}</Text>
-      <Text style={styles.sub}>{t('welcomeSubtitle')}</Text>
+      <Text style={styles.title}>{t('welcomeTitle', { username })}</Text>
     </Animated.View>
   );
 };

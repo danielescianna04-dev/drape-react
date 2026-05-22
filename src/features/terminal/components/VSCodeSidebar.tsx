@@ -683,6 +683,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                 closeMenu();
                 setTimeout(() => handleBuildReportClick(), 280);
               }}
+              currentWorkstationName={currentWorkstation?.name}
             />
           )}
 

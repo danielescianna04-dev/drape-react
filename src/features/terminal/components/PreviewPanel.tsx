@@ -28,6 +28,7 @@ import { derivePreviewPhase } from '../preview/derivePreviewPhase';
 import {
   PreviewStateStart,
   PreviewStateLoading,
+  PreviewPreparingState,
   PreviewStateEnvRequired,
   PreviewStateSessionExpired,
   PreviewStateFatalError,
@@ -554,26 +555,25 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   t={t}
                 />
               ) : previewState.phase === 'idle' ? (
-                <PreviewStateStart
-                  projectName={currentWorkstation?.name}
-                  technology={currentWorkstation?.technology}
-                  language={currentWorkstation?.language}
-                  projectId={currentWorkstation?.id}
-                  isStartTransitioning={startup.isStartTransitioning}
-                  startTransitionAnim={startup.startTransitionAnim}
+                <PreviewPreparingState
+                  projectName={currentWorkstation?.name || 'bynot cloud'}
+                  isStarting={false}
                   onStart={handleStartWithTransition}
-                  t={t}
+                  onClose={handleClose}
+                  onRefresh={handleStartWithTransition}
+                  previewUrl={currentPreviewUrl}
+                  onUrlChange={setCurrentPreviewUrl}
                 />
               ) : previewState.phase === 'starting' || previewState.phase === 'waiting_health' || previewState.phase === 'fixing' ? (
-                /* During 'checking'/'fixing', show ONLY loading screen — no WebView, no fix banner. */
-                <PreviewStateLoading
-                  terminalLines={previewTerminalLines}
-                  displayedMessage={previewState.displayedMessage}
-                  startingMessage={startup.startingMessage}
-                  smoothProgress={startup.smoothProgress}
-                  elapsedSeconds={startup.elapsedSeconds}
-                  pulseAnim={startup.pulseAnim}
-                  t={t}
+                <PreviewPreparingState
+                  projectName={currentWorkstation?.name || 'bynot cloud'}
+                  isStarting={true}
+                  statusMessage={previewState.displayedMessage || startup.startingMessage || 'Getting ready...'}
+                  onStart={handleStartWithTransition}
+                  onClose={handleClose}
+                  onRefresh={handleStartWithTransition}
+                  previewUrl={currentPreviewUrl}
+                  onUrlChange={setCurrentPreviewUrl}
                 />
               ) : previewCapability === 'console' && previewState.phase === 'ready' ? (
                 /* Phase 6: Console surface for non-web projects */

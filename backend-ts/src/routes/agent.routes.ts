@@ -7,6 +7,8 @@ import { workspaceService } from '../services/workspace.service';
 import { log } from '../utils/logger';
 import { auditService } from '../services/audit.service';
 import { runAgentChatStream } from '../services/agent-chat-stream.service';
+import { runAgentChatStreamV2 } from '../services/agent-chat-stream-v2.service';
+import { startAiSdkStream } from '../services/ai-sdk-stream';
 import { fileService } from '../services/file.service';
 import { config as appConfig, planAiBudgets } from '../config';
 import { BuildReportTracker } from '../services/build-report.service';
@@ -391,6 +393,139 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     }
   } finally {
     cleanup();
+  }
+}));
+
+// ── POST /v2/chat ─ AI SDK UI Message Stream protocol (Vercel ai v6) ────────
+// Parallel route to /stream — emits parts conforming to AI SDK so the RN client
+// can drive the chat via useChat from @ai-sdk/react. Body shape matches the
+// AI SDK transport: { id?, messages: UIMessage[], projectId, model? }
+agentRouter.post('/v2/chat', asyncHandler(async (req, res) => {
+  const { messages, projectId, model, previewContext } = req.body || {};
+  const userId = getAgentUserId(req);
+
+  requireField(projectId, 'projectId is required');
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new ValidationError('messages is required');
+  }
+
+  // Extract last user message text from AI SDK UIMessage parts
+  const lastUserMessage = [...messages].reverse().find((m: any) => m?.role === 'user');
+  const promptText: string = Array.isArray(lastUserMessage?.parts)
+    ? lastUserMessage.parts.filter((p: any) => p?.type === 'text').map((p: any) => p.text).join('')
+    : typeof lastUserMessage?.content === 'string' ? lastUserMessage.content : '';
+
+  if (!promptText.trim()) throw new ValidationError('last user message must contain text');
+
+  const isOwner = await verifyProjectOwnership(userId, projectId);
+  if (!isOwner) {
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
+  log.info(`[Agent/v2] Incoming prompt for ${projectId}: ${JSON.stringify(promptText.slice(0, 200))}`);
+
+  const userPlan = await getUserPlan(userId);
+  const normalizedPlan = normalizePlan(userPlan);
+  const requestedModel = model || FREE_AGENT_MODEL;
+  const effectiveModel = normalizedPlan === 'free' ? FREE_AGENT_MODEL : requestedModel;
+  const budget = getMonthlyAgentBudget(userId, normalizedPlan);
+
+  const stream = startAiSdkStream(res, () => {
+    log.info(`[Agent/v2] Client disconnected for project ${projectId}`);
+  });
+
+  if (!canUseModel(normalizedPlan, effectiveModel)) {
+    stream.writePart({ type: 'error', errorText: `Model ${effectiveModel} is not available on plan ${normalizedPlan}.` });
+    stream.end();
+    return;
+  }
+
+  if (budget.budgetEur > 0 && budget.spentEur >= budget.budgetEur) {
+    stream.writePart({
+      type: 'error',
+      errorText: `Budget esaurito: speso €${budget.spentEur.toFixed(2)} su €${budget.budgetEur.toFixed(2)} (piano ${normalizedPlan}).`,
+    });
+    stream.end();
+    return;
+  }
+
+  try {
+    const session = await workspaceService.getOrCreateContainer(projectId, userId);
+    if (!session?.containerId) {
+      stream.writePart({ type: 'error', errorText: 'Container not ready' });
+      stream.end();
+      return;
+    }
+    const container = await dockerService.getDockerContainer(session.containerId);
+
+    let promptForRun = promptText;
+    let skillBody: string | null = null;
+    let skillSlash: string | null = null;
+    const slashMatch = promptText.match(/^\/([a-z][a-z0-9-]{1,30})(?=\s|$)/);
+    if (slashMatch) {
+      try {
+        const { findInstalledBySlash } = await import('../services/skills.service');
+        const skill = await findInstalledBySlash(userId, slashMatch[1]);
+        if (skill) {
+          skillBody = skill.body;
+          skillSlash = skill.slash;
+          promptForRun = promptText.slice(slashMatch[0].length).trimStart();
+        }
+      } catch (err: any) {
+        log.warn(`[Agent/v2] Skill lookup failed for /${slashMatch[1]}: ${err?.message || err}`);
+      }
+    }
+
+    auditService.log({ userId, action: 'agent_v2_chat_start', resource: projectId, details: `model: ${effectiveModel}`, ip: req.ip });
+
+    await runAgentChatStreamV2({
+      container,
+      projectId,
+      userId,
+      prompt: promptForRun,
+      model: effectiveModel,
+      previewContext,
+      skillBody,
+      skillSlash,
+      stream,
+    });
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    log.error(`[Agent/v2] Stream error for project ${projectId}:`, errMsg);
+    if (!stream.isClosed()) {
+      stream.writePart({ type: 'error', errorText: errMsg });
+      stream.end();
+    }
+  }
+}));
+
+// POST /v2/answer-question — forward a user's reply to a pending opencode
+// `question` tool. Required by the HITL flow: when the agent invokes the
+// question tool, /v2/chat emits a `data-question-meta` part carrying the
+// opencode requestID; the client renders an answer UI and POSTs here.
+agentRouter.post('/v2/answer-question', asyncHandler(async (req, res) => {
+  const { projectId, requestID, answer } = req.body || {};
+  const userId = getAgentUserId(req);
+
+  requireField(projectId, 'projectId is required');
+  requireField(requestID, 'requestID is required');
+  if (typeof answer !== 'string' || !answer.trim()) {
+    throw new ValidationError('answer must be a non-empty string');
+  }
+
+  const isOwner = await verifyProjectOwnership(userId, projectId);
+  if (!isOwner) {
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
+  try {
+    const { replyToQuestion } = await import('../services/opencode-http-client');
+    await replyToQuestion(requestID, [[answer]]);
+    log.info(`[Agent/v2] question ${requestID} answered for project ${projectId}`);
+    res.json({ success: true });
+  } catch (err: any) {
+    log.error(`[Agent/v2] answer-question failed for ${requestID}: ${err?.message || err}`);
+    res.status(502).json({ error: err?.message || 'opencode reply failed' });
   }
 }));
 

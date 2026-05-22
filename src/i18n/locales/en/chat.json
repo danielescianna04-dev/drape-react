@@ -1,5 +1,5 @@
 {
-  "welcomeTitle": "How can I help you?",
+  "welcomeTitle": "What should we build, {{username}}?",
   "welcomeSubtitle": "Write what you want to do or try a suggestion",
   "suggestionFeature": "Add a new feature",
   "suggestionBugs": "Find and fix bugs",

@@ -18,7 +18,7 @@
     "@google/generative-ai": "^0.24.1",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@types/apn": "^0.0.31",
-    "ai": "^6.0.105",
+    "ai": "^6.0.190",
     "apn": "^2.2.0",
     "axios": "^1.7.0",
     "bcrypt": "^6.0.0",
@@ -41,7 +41,7 @@
     "resend": "^6.9.1",
     "turndown": "^7.2.2",
     "ws": "^8.18.0",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

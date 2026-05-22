@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { BlurView } from 'expo-blur';
 import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeIn, FadeOut, Layout, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
@@ -243,6 +244,130 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
     handleSelectChat(chat);
   }, [handleSelectChat]);
 
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [newProjectNameInput, setNewProjectNameInput] = useState('');
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [renameProject, setRenameProject] = useState<WorkstationInfo | null>(null);
+  const [renameInput, setRenameInput] = useState('');
+  const [renamingProject, setRenamingProject] = useState(false);
+
+  const refreshProjects = useCallback(async () => {
+    try {
+      const list = await workstationService.getWorkstations();
+      const sorted = [...list].sort((a, b) => {
+        const da = a.lastOpened ? new Date(a.lastOpened).getTime() : new Date(a.createdAt).getTime();
+        const db = b.lastOpened ? new Date(b.lastOpened).getTime() : new Date(b.createdAt).getTime();
+        return db - da;
+      });
+      setProjects(sorted);
+    } catch {/* ignore */}
+  }, []);
+
+  const handleDeleteProject = useCallback((project: WorkstationInfo) => {
+    Alert.alert(
+      `Elimina "${project.name}"?`,
+      'Questa azione non può essere annullata.',
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Elimina',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await workstationService.deleteWorkstation(project.id);
+              if (currentWorkstation?.id === project.id) {
+                setWorkstation(null);
+              }
+              await refreshProjects();
+            } catch (err: any) {
+              Alert.alert('Errore', err?.message ?? "Impossibile eliminare il progetto");
+            }
+          },
+        },
+      ],
+    );
+  }, [currentWorkstation?.id, setWorkstation, refreshProjects]);
+
+  const openRenameProject = useCallback((project: WorkstationInfo) => {
+    setRenameInput(project.name);
+    setRenameProject(project);
+  }, []);
+
+  const confirmRenameProject = useCallback(async () => {
+    if (!renameProject) return;
+    const newName = renameInput.trim();
+    if (!newName || newName === renameProject.name || renamingProject) {
+      setRenameProject(null);
+      return;
+    }
+    setRenamingProject(true);
+    try {
+      await workstationService.updateWorkstation(renameProject.id, { name: newName });
+      if (currentWorkstation?.id === renameProject.id) {
+        setWorkstation({ ...currentWorkstation, name: newName });
+      }
+      await refreshProjects();
+      setRenameProject(null);
+      setRenameInput('');
+    } catch (err: any) {
+      Alert.alert('Errore', err?.message ?? "Impossibile rinominare il progetto");
+    } finally {
+      setRenamingProject(false);
+    }
+  }, [renameProject, renameInput, renamingProject, currentWorkstation, setWorkstation, refreshProjects]);
+
+  const onProjectLongPress = useCallback((project: WorkstationInfo) => {
+    Alert.alert(
+      project.name,
+      undefined,
+      [
+        { text: 'Annulla', style: 'cancel' },
+        { text: 'Rinomina', onPress: () => openRenameProject(project) },
+        { text: 'Elimina', style: 'destructive', onPress: () => handleDeleteProject(project) },
+      ],
+    );
+  }, [openRenameProject, handleDeleteProject]);
+
+  const openNewProjectModal = useCallback(() => {
+    setNewProjectNameInput('');
+    setShowNewProjectModal(true);
+  }, []);
+
+  const confirmNewProject = useCallback(async () => {
+    const name = newProjectNameInput.trim();
+    if (!name || creatingProject) return;
+    setCreatingProject(true);
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      const res = await fetch(`${config.apiUrl}/workstation/create-with-template`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName: name, technology: 'react' }),
+      });
+      const data = await res.json();
+      if (!data?.success) return;
+      const list = await workstationService.getWorkstations();
+      const sorted = [...list].sort((a, b) => {
+        const da = a.lastOpened ? new Date(a.lastOpened).getTime() : new Date(a.createdAt).getTime();
+        const db = b.lastOpened ? new Date(b.lastOpened).getTime() : new Date(b.createdAt).getTime();
+        return db - da;
+      });
+      setProjects(sorted);
+      const created = sorted.find((p) => p.id === data.projectId);
+      if (created) {
+        setWorkstation(created);
+        setShowNewProjectModal(false);
+        setNewProjectNameInput('');
+        onClose?.();
+      }
+    } catch (err: any) {
+      console.warn('[ChatPanel.confirmNewProject] failed', err?.message);
+    } finally {
+      setCreatingProject(false);
+    }
+  }, [newProjectNameInput, creatingProject, setWorkstation, onClose]);
+
   const handleNewChat = () => {
     const chatId = Date.now().toString();
     const newChat = {
@@ -271,6 +396,46 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
     tracciaNuovaChat('fullpage');
     handleClose();
   };
+
+  /**
+   * Open a project: select its single chat (auto-create one if missing).
+   * No expansion, no chevron — projects map 1:1 to their chat.
+   */
+  const handleOpenProject = useCallback((project: WorkstationInfo) => {
+    setWorkstation(project);
+    const existingChat = chatHistory.find(
+      (c) => c.repositoryId === project.id || c.repositoryName === project.name,
+    );
+    if (existingChat) {
+      handleSelectChat(existingChat);
+      return;
+    }
+    // Inline chat creation for this project — same shape as handleNewChat
+    const chatId = Date.now().toString();
+    const newChat = {
+      id: chatId,
+      title: t('terminal:chat.newConversation'),
+      createdAt: new Date(),
+      lastUsed: new Date(),
+      messages: [],
+      aiModel: 'gemini-2.0-flash-exp',
+      repositoryId: project.id,
+      repositoryName: project.name,
+    };
+    useChatStore.getState().addChat(newChat);
+    const newTabId = `chat-${chatId}`;
+    addTab({
+      id: newTabId,
+      type: 'chat',
+      title: t('terminal:chat.newConversation'),
+      data: { chatId },
+    });
+    const otherChatTabs = useTabStore.getState().tabs.filter(
+      (tab) => tab.type === 'chat' && tab.id !== newTabId,
+    );
+    otherChatTabs.forEach((tab) => removeTab(tab.id));
+    handleClose();
+  }, [chatHistory, setWorkstation, handleSelectChat, addTab, removeTab, t]);
 
   const handleMenuToggle = useCallback((chatId: string) => {
     if (openMenuId === chatId) {
@@ -644,57 +809,36 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
   };
 
   const renderProjectFolder = (project: WorkstationInfo) => {
-    const projectChats = getChatsForProject(project.id, project.name);
-    const hasChats = projectChats.length > 0;
-    const isExpanded = hasChats && !collapsedProjects[project.id];
-    const isSelectedProject = currentWorkstation?.id === project.id || currentWorkstation?.projectId === project.id;
+    const isSelectedProject =
+      currentWorkstation?.id === project.id ||
+      currentWorkstation?.projectId === project.id;
 
     return (
-      <Animated.View key={project.id} layout={Layout.springify().mass(0.5).damping(18)} style={styles.projectFolderContainer}>
+      <View key={project.id} style={styles.projectFolderContainer}>
         <TouchableOpacity
           style={styles.projectFolderRow}
-          onPress={() => {
-            if (hasChats) {
-              toggleProjectCollapse(project.id);
-            } else {
-              setWorkstation(project);
-              onClose?.();
-            }
-          }}
+          onPress={() => handleOpenProject(project)}
+          onLongPress={() => onProjectLongPress(project)}
+          delayLongPress={350}
           activeOpacity={0.7}
         >
           <Ionicons
-            name={isExpanded ? "folder-open-outline" : "folder-outline"}
+            name="folder-outline"
             size={18}
-            color="rgba(255,255,255,0.5)"
+            color="rgba(255,255,255,0.55)"
             style={{ marginRight: 10 }}
           />
           <Text
             style={[
               styles.projectFolderName,
-              isSelectedProject && styles.projectFolderNameSelected
+              isSelectedProject && styles.projectFolderNameSelected,
             ]}
             numberOfLines={1}
           >
             {project.name}
           </Text>
-          <ProjectChevron expanded={isExpanded} />
         </TouchableOpacity>
-
-        {isExpanded && (
-          <Animated.View
-            entering={FadeIn.duration(180)}
-            exiting={FadeOut.duration(120)}
-            layout={Layout.springify().mass(0.5).damping(18)}
-            style={styles.projectChatsContainer}
-          >
-            <View style={styles.treeIndentationGuide} />
-            <View style={styles.projectChatsList}>
-              {projectChats.map(chat => renderChatLeaf(chat, project))}
-            </View>
-          </Animated.View>
-        )}
-      </Animated.View>
+      </View>
     );
   };
 
@@ -784,37 +928,65 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
       <LinearGradient colors={['#151515', '#131313', '#111111']} locations={[0, 0.5, 1]} style={styles.container}>
         <View style={styles.containerInner}>
 
-          {/* ═══ Top Action Panel ═══ */}
-          <View style={styles.topActionsContainer}>
-            <View style={styles.topActionsRow}>
-              <TouchableOpacity style={styles.newConversationButton} onPress={handleNewChat} activeOpacity={0.7}>
-                {isLiquidGlassSupported && (
-                  <LiquidGlassView
-                    style={[StyleSheet.absoluteFill, { borderRadius: 22, overflow: 'hidden' }]}
-                    interactive={true}
-                    effect="clear"
-                    colorScheme="dark"
+          {/* New Conversation pill removed — actions live in the Projects header below. */}
+
+          {/* ═══ Scrollable Sidebar Tree ═══ */}
+          <ScrollView
+            style={styles.content}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+
+            {/* Projects Section Header */}
+            <View style={styles.projectsHeaderRow}>
+              <Text style={styles.projectsHeaderTitle}>Projects</Text>
+              <View style={styles.projectsHeaderActions}>
+                <TouchableOpacity
+                  onPress={toggleSearch}
+                  activeOpacity={0.7}
+                  style={styles.projectsHeaderActionButton}
+                  hitSlop={6}
+                >
+                  {isLiquidGlassSupported && (
+                    <LiquidGlassView
+                      style={[StyleSheet.absoluteFill, { borderRadius: 14, overflow: 'hidden' }]}
+                      interactive={true}
+                      effect="clear"
+                      colorScheme="dark"
+                    />
+                  )}
+                  <Ionicons
+                    name={showSearch ? 'close' : 'search-outline'}
+                    size={16}
+                    color="rgba(255,255,255,0.7)"
                   />
-                )}
-                <Ionicons name="add" size={16} color="#ffffff" style={{ marginRight: 6 }} />
-                <Text style={styles.newConversationButtonText}>New Conversation</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity style={styles.searchCircleButton} onPress={toggleSearch} activeOpacity={0.7}>
-                {isLiquidGlassSupported && (
-                  <LiquidGlassView
-                    style={[StyleSheet.absoluteFill, { borderRadius: 22, overflow: 'hidden' }]}
-                    interactive={true}
-                    effect="clear"
-                    colorScheme="dark"
-                  />
-                )}
-                <Ionicons name={showSearch ? "close" : "search-outline"} size={18} color="#ffffff" />
-              </TouchableOpacity>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={openNewProjectModal}
+                  activeOpacity={0.7}
+                  style={styles.projectsHeaderActionButton}
+                  hitSlop={6}
+                >
+                  {isLiquidGlassSupported && (
+                    <LiquidGlassView
+                      style={[StyleSheet.absoluteFill, { borderRadius: 14, overflow: 'hidden' }]}
+                      interactive={true}
+                      effect="clear"
+                      colorScheme="dark"
+                    />
+                  )}
+                  <Ionicons name="add" size={18} color="rgba(255,255,255,0.85)" />
+                </TouchableOpacity>
+              </View>
             </View>
 
             {showSearch && (
-              <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.collapsibleSearchContainer}>
+              <Animated.View
+                entering={FadeIn}
+                exiting={FadeOut}
+                style={styles.collapsibleSearchContainer}
+              >
                 {isLiquidGlassSupported && (
                   <LiquidGlassView
                     style={[StyleSheet.absoluteFill, { borderRadius: 18, overflow: 'hidden' }]}
@@ -839,28 +1011,6 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
                 ) : null}
               </Animated.View>
             )}
-          </View>
-
-          {/* ═══ Scrollable Sidebar Tree ═══ */}
-          <ScrollView
-            style={styles.content}
-            contentContainerStyle={styles.contentContainer}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-
-            {/* Projects Section Header */}
-            <View style={styles.projectsHeaderRow}>
-              <Text style={styles.projectsHeaderTitle}>Projects</Text>
-              <View style={styles.projectsHeaderActions}>
-                <TouchableOpacity onPress={toggleProjectSearch} activeOpacity={0.7} style={styles.projectsHeaderActionButton} hitSlop={6}>
-                  <Ionicons name="filter-outline" size={16} color="rgba(255,255,255,0.6)" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => onClose?.()} activeOpacity={0.7} style={styles.projectsHeaderActionButton} hitSlop={6}>
-                  <Ionicons name="folder-outline" size={16} color="rgba(255,255,255,0.6)" />
-                </TouchableOpacity>
-              </View>
-            </View>
 
             {/* Projects Filter Search Input */}
             {showProjectSearch && (
@@ -1000,6 +1150,215 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
         currentFolderId={folderPickerChat?.folderId}
       />
 
+      {/* Rename project modal — same liquid glass style as the new-project modal */}
+      <Modal
+        visible={!!renameProject}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRenameProject(null)}
+        statusBarTranslucent
+      >
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        <TouchableOpacity
+          style={styles.newProjectBackdrop}
+          activeOpacity={1}
+          onPress={() => !renamingProject && setRenameProject(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.newProjectCardWrap}>
+            <View style={styles.newProjectCard}>
+              {isLiquidGlassSupported ? (
+                <LiquidGlassView
+                  style={[StyleSheet.absoluteFill, { borderRadius: 28, overflow: 'hidden' }]}
+                  interactive={true}
+                  effect="clear"
+                  colorScheme="dark"
+                />
+              ) : (
+                <LinearGradient
+                  colors={['rgba(40, 38, 60, 0.85)', 'rgba(20, 18, 32, 0.92)']}
+                  style={[StyleSheet.absoluteFill, { borderRadius: 28 }]}
+                />
+              )}
+              <Text style={styles.newProjectTitle}>Rinomina progetto</Text>
+              <Text style={styles.newProjectSubtitle}>Scegli un nuovo nome</Text>
+              <View style={styles.newProjectInputWrap}>
+                {isLiquidGlassSupported && (
+                  <LiquidGlassView
+                    style={[StyleSheet.absoluteFill, { borderRadius: 16, overflow: 'hidden' }]}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  />
+                )}
+                <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.45)" style={{ marginLeft: 14 }} />
+                <TextInput
+                  value={renameInput}
+                  onChangeText={setRenameInput}
+                  placeholder="Nome progetto"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  style={styles.newProjectInput}
+                  autoFocus
+                  keyboardAppearance="dark"
+                  maxLength={50}
+                  onSubmitEditing={confirmRenameProject}
+                  returnKeyType="done"
+                  selectTextOnFocus
+                />
+              </View>
+              <View style={styles.newProjectActions}>
+                <TouchableOpacity
+                  style={styles.newProjectCancelBtn}
+                  onPress={() => setRenameProject(null)}
+                  disabled={renamingProject}
+                  activeOpacity={0.7}
+                >
+                  {isLiquidGlassSupported && (
+                    <LiquidGlassView
+                      style={[StyleSheet.absoluteFill, { borderRadius: 14, overflow: 'hidden' }]}
+                      interactive={true}
+                      effect="clear"
+                      colorScheme="dark"
+                    />
+                  )}
+                  <Text style={styles.newProjectCancelText}>Annulla</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.newProjectConfirmBtn,
+                    (!renameInput.trim() || renamingProject) && styles.newProjectConfirmBtnDisabled,
+                  ]}
+                  onPress={confirmRenameProject}
+                  disabled={!renameInput.trim() || renamingProject}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient
+                    colors={[AppColors.primary, '#8B6CFF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  {renamingProject ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.newProjectConfirmText}>Salva</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* New project modal — liquid glass */}
+      <Modal
+        visible={showNewProjectModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNewProjectModal(false)}
+        statusBarTranslucent
+      >
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        <TouchableOpacity
+          style={styles.newProjectBackdrop}
+          activeOpacity={1}
+          onPress={() => !creatingProject && setShowNewProjectModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.newProjectCardWrap}>
+            <View style={styles.newProjectCard}>
+              {isLiquidGlassSupported ? (
+                <LiquidGlassView
+                  style={[StyleSheet.absoluteFill, { borderRadius: 28, overflow: 'hidden' }]}
+                  interactive={true}
+                  effect="clear"
+                  colorScheme="dark"
+                />
+              ) : (
+                <LinearGradient
+                  colors={['rgba(40, 38, 60, 0.85)', 'rgba(20, 18, 32, 0.92)']}
+                  style={[StyleSheet.absoluteFill, { borderRadius: 28 }]}
+                />
+              )}
+
+              <Text style={styles.newProjectTitle}>Nuovo progetto</Text>
+              <Text style={styles.newProjectSubtitle}>Dai un nome al tuo prossimo capolavoro</Text>
+
+              <View style={styles.newProjectInputWrap}>
+                {isLiquidGlassSupported && (
+                  <LiquidGlassView
+                    style={[StyleSheet.absoluteFill, { borderRadius: 16, overflow: 'hidden' }]}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  />
+                )}
+                <Ionicons
+                  name="cube-outline"
+                  size={16}
+                  color="rgba(255,255,255,0.45)"
+                  style={{ marginLeft: 14 }}
+                />
+                <TextInput
+                  value={newProjectNameInput}
+                  onChangeText={setNewProjectNameInput}
+                  placeholder="Es. La mia app"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  style={styles.newProjectInput}
+                  autoFocus
+                  keyboardAppearance="dark"
+                  maxLength={50}
+                  onSubmitEditing={confirmNewProject}
+                  returnKeyType="done"
+                />
+              </View>
+
+              <View style={styles.newProjectActions}>
+                <TouchableOpacity
+                  style={styles.newProjectCancelBtn}
+                  onPress={() => setShowNewProjectModal(false)}
+                  disabled={creatingProject}
+                  activeOpacity={0.7}
+                >
+                  {isLiquidGlassSupported && (
+                    <LiquidGlassView
+                      style={[StyleSheet.absoluteFill, { borderRadius: 14, overflow: 'hidden' }]}
+                      interactive={true}
+                      effect="clear"
+                      colorScheme="dark"
+                    />
+                  )}
+                  <Text style={styles.newProjectCancelText}>Annulla</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.newProjectConfirmBtn,
+                    (!newProjectNameInput.trim() || creatingProject) && styles.newProjectConfirmBtnDisabled,
+                  ]}
+                  onPress={confirmNewProject}
+                  disabled={!newProjectNameInput.trim() || creatingProject}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient
+                    colors={[AppColors.primary, '#8B6CFF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  {creatingProject ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="arrow-forward" size={16} color="#fff" style={{ marginRight: 4 }} />
+                      <Text style={styles.newProjectConfirmText}>Crea</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
     </>
   );
 };
@@ -1116,6 +1475,115 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  newProjectBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  newProjectCardWrap: {
+    width: '100%',
+    maxWidth: 380,
+  },
+  newProjectCard: {
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+    paddingTop: 28,
+    paddingBottom: 22,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(28, 26, 40, 0.55)',
+  },
+  newProjectIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginBottom: 14,
+    shadowColor: AppColors.primary,
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  newProjectTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  newProjectSubtitle: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    marginBottom: 22,
+    textAlign: 'center',
+  },
+  newProjectInputWrap: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    marginBottom: 20,
+    overflow: 'hidden',
+    minHeight: 50,
+  },
+  newProjectInput: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    color: '#fff',
+    fontSize: 15,
+  },
+  newProjectActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    width: '100%',
+  },
+  newProjectCancelBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  newProjectCancelText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  newProjectConfirmBtn: {
+    flexDirection: 'row',
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 14,
+    minWidth: 110,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  newProjectConfirmBtnDisabled: {
+    opacity: 0.4,
+  },
+  newProjectConfirmText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
   },
   projectSearchContainer: {
     flexDirection: 'row',

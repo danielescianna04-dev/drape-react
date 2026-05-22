@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Keyboard, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Keyboard, Dimensions, Modal, ActionSheetIOS, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withDelay, withRepeat, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,6 +14,9 @@ import { TerminalItemType, TerminalItem } from '../../shared/types';
 import { AppColors } from '../../shared/theme/colors';
 import { githubService } from '../../core/github/githubService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
+import { workstationService } from '../../core/workstation/workstationService';
+import { getAuthToken } from '../../core/api/getAuthToken';
+import { config } from '../../config/config';
 import { tracciaModelloSelezionato, tracciaImmagineCaricata, tracciaModalitaChatCambiata, tracciaPaginaPianiVista } from '../../core/services/analyticsService';
 import { useAuthStore } from '../../core/auth/authStore';
 
@@ -274,6 +279,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const setGitHubUser = useWorkstationStore((state) => state.setGitHubUser);
   const setGitHubRepositories = useWorkstationStore((state) => state.setGitHubRepositories);
   const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
+  const setWorkstationGlobal = useWorkstationStore((state) => state.setWorkstation);
+  const [pendingFirstPrompt, setPendingFirstPrompt] = useState<string | null>(null);
+  const [creatingProjectFromPrompt, setCreatingProjectFromPrompt] = useState(false);
+  const [homeMenuVisible, setHomeMenuVisible] = useState(false);
+  const [homeMenuView, setHomeMenuView] = useState<'root' | 'attach'>('root');
   const inputMountDelay = hasChatStarted ? 0 : 300;
   const inputGlassRevealDelay = hasChatStarted ? 0 : inputMountDelay + 140;
   const inputMountKey = `${currentWorkstation?.id ?? 'none'}:${currentTab?.id ?? 'none'}`;
@@ -320,6 +330,42 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       maxImagesPartialMessage: (count) => t('composer.maxImagesPartialMessage', { count }),
     },
   });
+
+  const showAttachActionSheet = useCallback(() => {
+    const labelsList = ['Annulla', 'Libreria foto', 'Scatta una foto o registra un video', 'Scegli file'];
+    const handle = async (idx: number) => {
+      if (idx === 1) {
+        pickImageFromLibrary();
+      } else if (idx === 2) {
+        const cam = await ImagePicker.requestCameraPermissionsAsync();
+        if (cam.status !== 'granted') return;
+        const res = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', quality: 0.8, base64: true });
+        if (!res.canceled && res.assets?.[0]) {
+          const a = res.assets[0];
+          setSelectedInputImages((prev) => [...prev, { uri: a.uri, base64: a.base64 ?? '', type: a.mimeType ?? 'image/jpeg' }].slice(0, 4));
+        }
+      } else if (idx === 3) {
+        const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+        if (!res.canceled && res.assets?.[0]) {
+          const a = res.assets[0];
+          setSelectedInputImages((prev) => [...prev, { uri: a.uri, base64: '', type: a.mimeType ?? 'application/octet-stream' }].slice(0, 4));
+        }
+      }
+    };
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: labelsList, cancelButtonIndex: 0 },
+        (i) => handle(i),
+      );
+    } else {
+      Alert.alert('Attach', undefined, [
+        { text: labelsList[0], style: 'cancel' },
+        { text: labelsList[1], onPress: () => handle(1) },
+        { text: labelsList[2], onPress: () => handle(2) },
+        { text: labelsList[3], onPress: () => handle(3) },
+      ]);
+    }
+  }, [pickImageFromLibrary, setSelectedInputImages]);
 
   // Use tabTerminalItems directly (already memoized above)
   const terminalItems = tabTerminalItems;
@@ -1035,6 +1081,81 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   }, [currentTab?.terminalItems, selectedModel, engine.contextUsagePercent]);
 
   // handleSend, handleStop, handleRetryTool are provided by useChatSendHandler above
+
+  // Auto-create a project when the user sends the first prompt from the
+  // empty home (no current workstation). Generates a title via the AI,
+  // creates a workstation, then resumes the normal send pipeline so the
+  // prompt becomes the first message in the freshly created project.
+  const handleSendWithAutoProject = useCallback(async () => {
+    const text = input.trim();
+    if (currentWorkstation || !text || creatingProjectFromPrompt) {
+      handleSend();
+      return;
+    }
+    setCreatingProjectFromPrompt(true);
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        handleSend();
+        return;
+      }
+      // 1. Ask the AI for a short project name
+      let title = text.split(/\s+/).slice(0, 5).join(' ').slice(0, 40);
+      try {
+        const titleRes = await fetch(`${config.apiUrl}/ai/chat/generate-title`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text }),
+        });
+        const titleData = await titleRes.json();
+        if (titleData?.title) title = String(titleData.title).trim();
+      } catch (_e) {
+        /* fallback to the truncated prompt */
+      }
+
+      // 2. Create the project on the backend
+      const createRes = await fetch(`${config.apiUrl}/workstation/create-with-template`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName: title, technology: 'react', description: text }),
+      });
+      const createData = await createRes.json();
+      if (!createData?.success) {
+        handleSend();
+        return;
+      }
+
+      // 3. Fetch the freshly created workstation and select it
+      const list = await workstationService.getWorkstations();
+      const created = list.find((p) => p.id === createData.projectId);
+      if (created) {
+        setWorkstationGlobal(created);
+        setPendingFirstPrompt(text);
+      }
+    } catch (err) {
+      console.warn('[ChatPage.handleSendWithAutoProject] failed', err);
+      handleSend();
+    } finally {
+      setCreatingProjectFromPrompt(false);
+    }
+  }, [input, currentWorkstation, creatingProjectFromPrompt, handleSend, setWorkstationGlobal]);
+
+  // Resume the send once the workstation has been set (zustand update
+  // re-renders this component, then this effect fires the deferred send).
+  useEffect(() => {
+    if (currentWorkstation && pendingFirstPrompt) {
+      // Re-populate the input and trigger the original send pipeline.
+      setInput(pendingFirstPrompt);
+      const prompt = pendingFirstPrompt;
+      setPendingFirstPrompt(null);
+      // Defer to the next tick so setInput value is observed by handleSend.
+      setTimeout(() => {
+        if (input !== prompt) setInput(prompt);
+        handleSend();
+      }, 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWorkstation, pendingFirstPrompt]);
   // Memoized filtered and processed terminal items for FlatList
   const processedTerminalItems = useMemo(() => (
     getProcessedTerminalItems(
@@ -1184,7 +1305,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 showScrollToBottom={showScrollToBottom}
                 input={input}
                 handleInputChange={handleInputChange}
-                handleSend={() => handleSend()}
+                handleSend={() => handleSendWithAutoProject()}
                 handleStop={handleStop}
                 agentMode={agentMode}
                 handleToggleMode={handleToggleMode}
@@ -1208,7 +1329,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   tracciaPaginaPianiVista('chat');
                   navigateTo('plans');
                 }}
-                toggleToolsSheet={toggleToolsSheet}
+                toggleToolsSheet={(currentWorkstation && hasChatStarted) ? toggleToolsSheet : () => setHomeMenuVisible(true)}
                 inputBarGlassId={inputBarGlassId}
                 glassApplied={glassApplied}
                 widgetHeight={widgetHeight}
@@ -1228,6 +1349,79 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 onOpenEnvVars={() => useUIStore.getState().requestOpenEnvVars()}
                 labels={{ scrollToBottom: t('composer.scrollToBottom') }}
               />
+              {/* Home popover — anchored to the input bar so it always sits just
+                  below the +, regardless of screen size or input bar height. */}
+              {homeMenuVisible && !(currentWorkstation && hasChatStarted) && (
+                <View pointerEvents="box-none" style={styles.homeMenuAnchor}>
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    style={StyleSheet.absoluteFill}
+                    onPress={() => {
+                      setHomeMenuVisible(false);
+                      setHomeMenuView('root');
+                    }}
+                  />
+                  <View style={styles.homeMenuPopover}>
+                    {homeMenuView === 'root' ? (
+                      <>
+                        <View style={styles.homeMenuSearchRow}>
+                          <Ionicons name="search" size={16} color="rgba(255,255,255,0.45)" />
+                          <Text style={styles.homeMenuSearchPlaceholder}>Search…</Text>
+                        </View>
+                        <View style={styles.homeMenuDivider} />
+                        {[
+                          { id: 'attach', icon: 'attach' as const, label: 'Attach' },
+                          { id: 'databases', icon: 'server-outline' as const, label: 'Databases' },
+                        ].map((item) => (
+                          <TouchableOpacity
+                            key={item.id}
+                            style={styles.homeMenuItem}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              if (item.id === 'attach') {
+                                setHomeMenuView('attach');
+                              } else {
+                                setHomeMenuVisible(false);
+                              }
+                            }}
+                          >
+                            <Ionicons name={item.icon} size={18} color="rgba(255,255,255,0.85)" />
+                            <Text style={styles.homeMenuItemText}>{item.label}</Text>
+                            <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.35)" style={{ marginLeft: 'auto' }} />
+                          </TouchableOpacity>
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.homeMenuSearchRow}>
+                          <TouchableOpacity
+                            onPress={() => setHomeMenuView('root')}
+                            style={styles.homeMenuBackBtn}
+                            activeOpacity={0.7}
+                            hitSlop={6}
+                          >
+                            <Ionicons name="chevron-back" size={14} color="rgba(255,255,255,0.85)" />
+                          </TouchableOpacity>
+                          <Text style={styles.homeMenuSearchPlaceholder}>Search…</Text>
+                        </View>
+                        <View style={styles.homeMenuDivider} />
+                        <TouchableOpacity
+                          style={styles.homeMenuItem}
+                          activeOpacity={0.7}
+                          onPress={() => {
+                            setHomeMenuVisible(false);
+                            setHomeMenuView('root');
+                            setTimeout(showAttachActionSheet, 80);
+                          }}
+                        >
+                          <Ionicons name="document-outline" size={18} color="rgba(255,255,255,0.85)" />
+                          <Text style={styles.homeMenuItemText}>File</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                </View>
+              )}
             </Animated.View>
             </DelayedMount>
           </>
@@ -1267,23 +1461,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             case 'files':
               openOrFocus('files', 'files', 'File del progetto');
               break;
-            case 'preview':
-              useUIStore.getState().requestOpenPreview();
-              break;
-            case 'terminal':
-              openOrFocus('interactive-terminal', 'pty', 'Terminal');
-              break;
             case 'git':
               useUIStore.getState().requestOpenGitSheet(null);
               break;
             case 'database':
               openOrFocus('database', 'database', 'Database');
-              break;
-            case 'plugin':
-              openOrFocus('plugins', 'plugins', 'Plugin');
-              break;
-            case 'mcp':
-              openOrFocus('mcps', 'mcps', 'MCP');
               break;
           }
         }}
@@ -1309,6 +1491,62 @@ const styles = StyleSheet.create({
   },
   background: {
     ...StyleSheet.absoluteFillObject,
+  },
+  homeMenuAnchor: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '100%',
+    paddingLeft: 18,
+    paddingTop: 8,
+    alignItems: 'flex-start',
+    zIndex: 100,
+  },
+  homeMenuPopover: {
+    width: 240,
+    backgroundColor: 'rgba(28, 26, 40, 0.95)',
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+    paddingVertical: 6,
+  },
+  homeMenuSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  homeMenuBackBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: -2,
+  },
+  homeMenuSearchPlaceholder: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 14,
+  },
+  homeMenuDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginVertical: 2,
+  },
+  homeMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  homeMenuItemText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '500',
   },
   inputWrapper: {
     position: 'absolute',

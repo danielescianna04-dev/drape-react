@@ -1,10 +1,12 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigationStore } from '../../core/navigation/navigationStore';
 
 const IS_DEV = process.env.EXPO_PUBLIC_ENV === 'development' || process.env.EXPO_PUBLIC_ENV === 'preview';
 
 export const DevBanner = () => {
+  const navigateTo = useNavigationStore((s) => s.navigateTo);
   if (!IS_DEV) return null;
 
   return (
@@ -18,6 +20,9 @@ export const DevBanner = () => {
           Firebase: drape-dev  •  API: dev.drape.info
         </Text>
       </View>
+      <TouchableOpacity style={styles.aiSdkButton} onPress={() => navigateTo('aiSdkTest')}>
+        <Text style={styles.aiSdkButtonText}>AI SDK</Text>
+      </TouchableOpacity>
       <View style={styles.dot} />
     </View>
   );
@@ -64,5 +69,20 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#22C55E',
+  },
+  aiSdkButton: {
+    backgroundColor: 'rgba(154, 166, 255, 0.18)',
+    borderColor: 'rgba(154, 166, 255, 0.4)',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  aiSdkButtonText: {
+    color: '#9aa6ff',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });
