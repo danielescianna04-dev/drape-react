@@ -207,3 +207,80 @@ agentStreamRouter.post('/cancel', requireAuth, async (req: AuthedRequest, res) =
   }
   res.json({ ok: true });
 });
+
+// ── /v2 — Vercel AI SDK v6 UI Message Stream protocol ────────────────────────
+// Parallel to the legacy /create + /run/* endpoints. Used by useAgentChat on
+// the client side (src/core/ai/useAgentChat.ts). Body shape matches the
+// DefaultChatTransport contract from `ai`:
+//   { messages: UIMessage[], id?, projectId, model? }
+import { startAiSdkStream } from '../services/ai-sdk-stream';
+import { runAgentChatStreamV2 } from '../services/agent-chat-stream-v2.service';
+
+const v2BodySchema = z.object({
+  projectId: z.string().min(1),
+  messages: z.array(z.any()).min(1),
+  model: z.string().optional(),
+}).passthrough();
+
+agentStreamRouter.post('/v2/chat', requireAuth, async (req: AuthedRequest, res: any) => {
+  const parsed = v2BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+  const { projectId, messages, model } = parsed.data;
+
+  // Extract last user message text from AI SDK UIMessage parts
+  const lastUserMessage = [...messages].reverse().find((m: any) => m?.role === 'user');
+  const promptText: string = Array.isArray(lastUserMessage?.parts)
+    ? lastUserMessage.parts.filter((p: any) => p?.type === 'text').map((p: any) => p.text).join('')
+    : typeof lastUserMessage?.content === 'string' ? lastUserMessage.content : '';
+  if (!promptText.trim()) {
+    res.status(400).json({ error: 'last user message must contain text' });
+    return;
+  }
+
+  const stream = startAiSdkStream(res, () => {
+    console.log(`[Agent/v2] client disconnected for project ${projectId}`);
+  });
+
+  try {
+    await runAgentChatStreamV2({
+      projectId,
+      userId: req.userId || 'anonymous',
+      prompt: promptText,
+      model,
+      stream,
+    });
+  } catch (err: any) {
+    console.error(`[Agent/v2] stream failed:`, err?.message ?? err);
+    if (!stream.isClosed()) {
+      stream.writePart({ type: 'error', errorText: err?.message || 'stream failed' });
+      stream.end();
+    }
+  }
+});
+
+// ── /v2/answer-question — HITL: forward user's answer to opencode ───────────
+const answerSchema = z.object({
+  projectId: z.string().min(1),
+  requestID: z.string().min(1),
+  answer: z.string().min(1),
+});
+
+agentStreamRouter.post('/v2/answer-question', requireAuth, async (req: AuthedRequest, res) => {
+  const parsed = answerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+  const { requestID, answer } = parsed.data;
+  try {
+    const { replyToQuestion } = await import('../services/opencode-http-client');
+    await replyToQuestion(requestID, [[answer]]);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error(`[Agent/v2] answer-question failed for ${requestID}:`, err?.message);
+    res.status(502).json({ error: err?.message || 'opencode reply failed' });
+  }
+});
