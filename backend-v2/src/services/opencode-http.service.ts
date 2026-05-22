@@ -23,7 +23,7 @@ import { env } from '../config/env';
 export type AgentEvent =
   | { type: 'token'; content: string }
   | { type: 'tool_use'; name: string; input: Record<string, any>; id: string }
-  | { type: 'tool_result'; id: string; output: any; error?: string }
+  | { type: 'tool_result'; id: string; output: any; error?: string; name?: string }
   | { type: 'message_start'; messageId: string; model: string }
   | { type: 'message_end'; messageId: string; tokensIn: number; tokensOut: number }
   | { type: 'session_end'; reason: 'completed' | 'cancelled' | 'error'; error?: string }
@@ -258,6 +258,7 @@ export class OpencodeHttpService {
                   type: 'tool_result',
                   id: part.id,
                   output: state.output ?? null,
+                  name: part.tool ?? undefined,
                 };
               } else if (status === 'error') {
                 yield {
@@ -265,6 +266,7 @@ export class OpencodeHttpService {
                   id: part.id,
                   output: null,
                   error: state.error ?? 'tool error',
+                  name: part.tool ?? undefined,
                 };
               }
             }

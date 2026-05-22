@@ -111,6 +111,18 @@ export async function runAgentChatStreamV2({
       case 'tool_result': {
         const toolCallId = ev.id;
         if (!toolCallId) return;
+
+        // opencode often skips the "running" state for fast tools and emits
+        // only the "completed" event. Backfill the AI SDK tool-input lifecycle
+        // so the client sees a coherent tool-call → result sequence.
+        if (!knownTools.has(toolCallId)) {
+          closeTextBlock();
+          knownTools.add(toolCallId);
+          const toolName = ev.name || 'unknown';
+          stream.writePart({ type: 'tool-input-start', toolCallId, toolName });
+          stream.writePart({ type: 'tool-input-available', toolCallId, toolName, input: {} });
+        }
+
         if (ev.error) {
           stream.writePart({ type: 'tool-output-error', toolCallId, errorText: String(ev.error) });
         } else {
