@@ -65,13 +65,11 @@ export async function runAgentChatStreamV2({
       systemContext,
     })) {
       if (stream.isClosed()) break;
-      // TEMP debug: surface every event from opencode so we can see why tools
-      // aren't reaching the client. Remove once v2 is validated.
-      console.log(`[Agent/v2 debug] event type=${ev.type}`,
-        ev.type === 'tool_use' ? `name=${(ev as any).name} id=${(ev as any).id}` :
-        ev.type === 'tool_result' ? `id=${(ev as any).id} name=${(ev as any).name} err=${(ev as any).error || ''}` :
-        ev.type === 'token' ? `len=${(ev as any).content?.length || 0}` :
-        '');
+      // Surface tool events at info level so we can verify model behaviour
+      // without flooding logs with token deltas.
+      if (ev.type === 'tool_use' || ev.type === 'tool_result') {
+        console.log(`[Agent/v2] ${ev.type} id=${(ev as any).id} name=${(ev as any).name || ''}`);
+      }
       translate(ev);
     }
   } catch (err: any) {
