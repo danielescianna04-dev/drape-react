@@ -209,9 +209,9 @@ export const useChatMediaTools = ({
 
     return {
       transform: [{ translateY: toolsSheetAnim.value }],
-      left: sidebarLeft + 8,
-      right: 8,
-      bottom: 8,
+      left: sidebarLeft,
+      right: 0,
+      bottom: 0,
       opacity: interpolate(toolsSheetAnim.value, [screenHeight, 0], [0, 1]),
     };
   });

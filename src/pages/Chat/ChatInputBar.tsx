@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, Pressable,
   StyleSheet, Platform,
@@ -114,6 +114,57 @@ export interface ChatInputBarProps {
   onOpenEnvVars?: () => void;
 }
 
+const TYPEWRITER_PHRASES = [
+  'Ask Drape to create a presentation about…',
+  'Ask Drape to build a landing page for my…',
+  'Ask Drape to design an app that…',
+  'Ask Drape to make a dashboard for…',
+  'Ask Drape to generate a report on…',
+];
+
+const useTypewriter = (phrases: string[]): string => {
+  const [text, setText] = useState('');
+  const idxRef = useRef(0);
+  const charRef = useRef(0);
+  const deletingRef = useRef(false);
+
+  useEffect(() => {
+    let mounted = true;
+    let timeout: ReturnType<typeof setTimeout>;
+
+    const tick = () => {
+      if (!mounted) return;
+      const current = phrases[idxRef.current % phrases.length];
+      if (!deletingRef.current) {
+        charRef.current += 1;
+        setText(current.slice(0, charRef.current));
+        if (charRef.current >= current.length) {
+          deletingRef.current = true;
+          timeout = setTimeout(tick, 1800);
+          return;
+        }
+        timeout = setTimeout(tick, 38);
+      } else {
+        charRef.current -= 1;
+        setText(current.slice(0, Math.max(0, charRef.current)));
+        if (charRef.current <= 0) {
+          deletingRef.current = false;
+          idxRef.current += 1;
+          timeout = setTimeout(tick, 250);
+          return;
+        }
+        timeout = setTimeout(tick, 18);
+      }
+    };
+
+    timeout = setTimeout(tick, 400);
+    return () => { mounted = false; clearTimeout(timeout); };
+  }, [phrases]);
+
+  return text;
+};
+
+
 export const ChatInputBar = React.memo(({
   input,
   onChangeText,
@@ -154,6 +205,8 @@ export const ChatInputBar = React.memo(({
 }: ChatInputBarProps) => {
   const { t } = useTranslation(['chat', 'terminal']);
   const currentPlan = useAuthStore((s) => s.user?.plan);
+  const [buildPlanMode, setBuildPlanMode] = useState<'build' | 'plan'>('build');
+  const [showBuildPlanSelector, setShowBuildPlanSelector] = useState(false);
 
   const thinkingLevelLabels = useMemo<Record<string, string>>(() => ({
     none: t('terminal:chat.reasoningLevels.off'),
@@ -165,6 +218,7 @@ export const ChatInputBar = React.memo(({
 
   const isBusy = isStreaming || isLoading;
   const hasContent = input.trim().length > 0 || hasImages;
+  const animatedPlaceholder = useTypewriter(TYPEWRITER_PHRASES);
 
   return (
     <>
@@ -181,76 +235,49 @@ export const ChatInputBar = React.memo(({
           />
         )}
 
-        {/* ── Top Controls ── */}
-        <View style={styles.topControls}>
-          {/* Spacer — mode toggle removed, all input goes through AI */}
-          <View />
-
-          {/* Right controls */}
-          <View style={styles.rightControls}>
-            {/* Budget bar */}
-            {!isPaidUser && budgetInfo && (
-              <TouchableOpacity onPress={onBudgetPress} activeOpacity={0.7} style={styles.budgetBtn}>
-                <View style={styles.budgetTrack}>
-                  <View style={[styles.budgetFill, {
-                    width: `${Math.min(budgetInfo.percent, 100)}%` as `${number}%`,
-                    backgroundColor: budgetInfo.percent >= 85 ? '#FF6B6B' : budgetInfo.percent >= 60 ? '#FFB86C' : '#10B981',
-                  }]} />
-                </View>
-              </TouchableOpacity>
-            )}
-
-            {/* Context usage ring */}
-            {contextUsage > 0 && (() => {
-              const sz = 18, sw = 2;
-              const r = (sz - sw) / 2;
-              const c = 2 * Math.PI * r;
-              const off = c * (1 - contextUsage / 100);
-              const col = contextUsage >= 90 ? '#FF6B6B' : contextUsage >= 60 ? '#FFB86C' : 'rgba(255,255,255,0.25)';
-              return (
-                <TouchableOpacity onPress={() => onToggleContextInfo(true)} activeOpacity={0.7} style={{ width: sz, height: sz, justifyContent: 'center', alignItems: 'center' }}>
-                  <Svg width={sz} height={sz} style={{ transform: [{ rotate: '-90deg' }] }}>
-                    <Circle cx={sz / 2} cy={sz / 2} r={r} stroke="rgba(255,255,255,0.08)" strokeWidth={sw} fill="none" />
-                    <Circle cx={sz / 2} cy={sz / 2} r={r} stroke={col} strokeWidth={sw} fill="none" strokeDasharray={`${c}`} strokeDashoffset={off} strokeLinecap="round" />
-                  </Svg>
-                </TouchableOpacity>
-              );
-            })()}
-
-            {/* Model selector */}
-            <TouchableOpacity style={styles.modelBtn} onPress={onToggleModelSelector}>
-              <SafeText style={styles.modelText}>{currentModelName}</SafeText>
-              <Ionicons name={showModelSelector ? 'chevron-up' : 'chevron-down'} size={12} color="rgba(255,255,255,0.4)" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
         {/* ── Slash menu (active when input starts with `/`) ── */}
         <SlashMenu value={input} onSelect={(v) => onChangeText(v)} />
 
-        {/* ── Main Input Row ── */}
-        <View collapsable={false} style={styles.inputRow}>
+        {/* ── Main Input (Lovable-style) ── */}
+        <TextInput
+          style={styles.input}
+          value={input}
+          onChangeText={onChangeText}
+          placeholder={agentMode === 'terminal' ? '$ comando...' : animatedPlaceholder || t('chat:placeholderFast')}
+          placeholderTextColor="rgba(255,255,255,0.45)"
+          multiline
+          maxLength={1000}
+          onSubmitEditing={onSend}
+          keyboardAppearance="dark"
+          autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+          autoComplete="off"
+          textContentType="none"
+          keyboardType="default"
+        />
+
+        <View collapsable={false} style={styles.actionsRow}>
           <TouchableOpacity style={styles.toolsBtn} onPress={onToolsPress} activeOpacity={0.7}>
-            <Ionicons name="add" size={24} color="rgba(255,255,255,0.4)" />
+            <Ionicons name="add" size={24} color="rgba(255,255,255,0.9)" />
           </TouchableOpacity>
 
-          <TextInput
-            style={styles.input}
-            value={input}
-            onChangeText={onChangeText}
-            placeholder={agentMode === 'terminal' ? '$ comando...' : t('chat:placeholderFast')}
-            placeholderTextColor={AppColors.dark.bodyText}
-            multiline
-            maxLength={1000}
-            onSubmitEditing={onSend}
-            keyboardAppearance="dark"
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck={false}
-            autoComplete="off"
-            textContentType="none"
-            keyboardType="default"
-          />
+          <View style={{ flex: 1 }} />
+
+          <TouchableOpacity
+            style={styles.planBuildPill}
+            onPress={() => setShowBuildPlanSelector(true)}
+            activeOpacity={0.7}
+          >
+            <SafeText style={styles.planBuildText}>
+              {buildPlanMode === 'build' ? 'Build' : 'Plan'}
+            </SafeText>
+            <Ionicons name="chevron-down" size={14} color="#fff" />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.micBtn} activeOpacity={0.7}>
+            <Ionicons name="mic-outline" size={20} color="rgba(255,255,255,0.9)" />
+          </TouchableOpacity>
 
           <TouchableOpacity
             onPress={isBusy ? onStop : onSend}
@@ -260,15 +287,15 @@ export const ChatInputBar = React.memo(({
               isBusy
                 ? { backgroundColor: 'rgba(255,80,80,0.15)' }
                 : hasContent
-                  ? { backgroundColor: AppColors.primary }
-                  : { backgroundColor: 'transparent', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+                  ? { backgroundColor: '#E5E5E5' }
+                  : { backgroundColor: 'rgba(255,255,255,0.18)' },
             ]}
             activeOpacity={0.7}
           >
             <Ionicons
               name={isBusy ? 'stop' : 'arrow-up'}
-              size={16}
-              color={isBusy ? '#FF5050' : hasContent ? '#fff' : 'rgba(255,255,255,0.3)'}
+              size={18}
+              color={isBusy ? '#FF5050' : hasContent ? '#000' : 'rgba(255,255,255,0.85)'}
             />
           </TouchableOpacity>
         </View>
@@ -348,6 +375,57 @@ export const ChatInputBar = React.memo(({
         </>
       )}
 
+      {/* ── Build / Plan Dropdown ── */}
+      {showBuildPlanSelector && (
+        <>
+          <Pressable
+            style={styles.dropdownOverlay}
+            onPress={() => setShowBuildPlanSelector(false)}
+          />
+          <View style={styles.buildPlanDropdown}>
+            <TouchableOpacity
+              style={styles.buildPlanDropdownItem}
+              onPress={() => {
+                setBuildPlanMode('build');
+                setShowBuildPlanSelector(false);
+              }}
+            >
+              <View style={styles.buildPlanItemLeft}>
+                {buildPlanMode === 'build' ? (
+                  <Ionicons name="checkmark" size={16} color="#fff" />
+                ) : (
+                  <View style={{ width: 16 }} />
+                )}
+              </View>
+              <View style={styles.buildPlanItemTextContainer}>
+                <SafeText style={styles.buildPlanItemTitle}>Build</SafeText>
+                <SafeText style={styles.buildPlanItemSubtitle}>Make changes directly</SafeText>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.buildPlanDropdownItem}
+              onPress={() => {
+                setBuildPlanMode('plan');
+                setShowBuildPlanSelector(false);
+              }}
+            >
+              <View style={styles.buildPlanItemLeft}>
+                {buildPlanMode === 'plan' ? (
+                  <Ionicons name="checkmark" size={16} color="#fff" />
+                ) : (
+                  <View style={{ width: 16 }} />
+                )}
+              </View>
+              <View style={styles.buildPlanItemTextContainer}>
+                <SafeText style={styles.buildPlanItemTitle}>Plan</SafeText>
+                <SafeText style={styles.buildPlanItemSubtitle}>Discuss before building</SafeText>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
+
       {/* ── Context Info Tooltip ── */}
       {showContextInfo && (() => {
         const contextWindows: Record<string, number> = {
@@ -390,11 +468,15 @@ ChatInputBar.displayName = 'ChatInputBar';
 // ── Styles ──────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 28,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#1F1F25',
     elevation: 8,
-    marginHorizontal: 20,
+    marginHorizontal: 14,
+    paddingTop: 16,
+    paddingBottom: 10,
+    paddingHorizontal: 6,
     zIndex: 10,
     overflow: 'hidden',
   },
@@ -477,6 +559,68 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.4)',
     fontWeight: '500',
   },
+  planBuildPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: 'transparent',
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  planBuildText: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '500',
+    letterSpacing: 0.2,
+  },
+  buildPlanDropdown: {
+    position: 'absolute',
+    bottom: 60,
+    right: 76,
+    backgroundColor: '#121214',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    minWidth: 220,
+    zIndex: 999,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.7,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  buildPlanDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    borderRadius: 12,
+    marginVertical: 2,
+  },
+  buildPlanItemLeft: {
+    width: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buildPlanItemTextContainer: {
+    flex: 1,
+    flexDirection: 'column',
+    gap: 2,
+  },
+  buildPlanItemTitle: {
+    fontSize: 14,
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  buildPlanItemSubtitle: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
 
   // Main input row
   inputRow: {
@@ -484,6 +628,20 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 10,
     paddingVertical: 6,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingTop: 4,
+    gap: 6,
+  },
+  micBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   // Project context bar (inside input bar)
@@ -511,28 +669,27 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   toolsBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
   },
   input: {
-    flex: 1,
-    fontSize: 15,
+    fontSize: 16,
     color: AppColors.dark.titleText,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    maxHeight: 300,
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 14,
+    minHeight: 32,
+    maxHeight: 240,
   },
   sendBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,
   },
 
   // Model dropdown

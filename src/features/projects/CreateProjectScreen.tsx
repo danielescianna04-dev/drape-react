@@ -63,16 +63,11 @@ interface Props {
 }
 
 const languages = [
-  { id: 'react', name: 'React', icon: 'logo-react', color: '#61DAFB' },
-  { id: 'nextjs', name: 'Next.js', icon: 'server-outline', color: '#FFFFFF' },
-  { id: 'vue', name: 'Vue', icon: 'logo-vue', color: '#4FC08D' },
-  { id: 'astro', name: 'Astro', icon: 'planet-outline', color: '#BC52EE' },
-  { id: 'html', name: 'HTML/CSS/JS', icon: 'logo-html5', color: '#E34F26' },
-  { id: 'expo', name: 'React Native', icon: 'phone-portrait-outline', color: '#61DAFB' },
+  { id: 'react', name: 'React + Vite', icon: 'logo-react', color: '#61DAFB' },
 ];
 
 const languageCategories = [
-  { id: 'all', labelKey: '', items: ['react', 'nextjs', 'html', 'vue', 'astro', 'expo'] },
+  { id: 'all', labelKey: '', items: ['react'] },
 ];
 
 const PROJECT_CREATION_MODEL = 'big-pickle';
@@ -342,7 +337,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const { t } = useTranslation('projects');
   const [step, setStep] = useState(1);
   const [projectName, setProjectName] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState('nextjs');
+  const [selectedLanguage, setSelectedLanguage] = useState('react');
   const [description, setDescription] = useState('');
   const [isListening, setIsListening] = useState(false);
   const micPulse = useRef(new Animated.Value(1)).current;
@@ -1000,7 +995,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       const result = await response.json();
       if (isMounted && result.success && result.recommendation) {
         const match = languages.find(l => l.id === result.recommendation);
-        const resolvedTech = match ? match.id : 'nextjs';
+        const resolvedTech = match ? match.id : 'react';
         setSelectedLanguage(resolvedTech);
         if (match) {
           setAiRecommendedLang(match.id);
@@ -1011,8 +1006,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         fetchPreviewContract(resolvedTech);
       } else {
         if (isMounted) {
-          setSelectedLanguage('nextjs');
-          fetchPreviewContract('nextjs');
+          setSelectedLanguage('react');
+          fetchPreviewContract('react');
         }
       }
     } catch (error) {

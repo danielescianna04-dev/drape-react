@@ -122,11 +122,10 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
       opacity: exitOpacity,
       transform: [{ scale: exitScale }],
     }]}>
-      {/* Deep gradient background — matches onboarding */}
+      {/* Background matches ChatPage */}
       <LinearGradient
-        colors={['#0C0816', '#1a0a2e', '#2d0845', '#0C0816']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        colors={AppColors.gradient.dark}
+        locations={[0, 0.3, 0.7, 1]}
         style={StyleSheet.absoluteFill}
       />
 

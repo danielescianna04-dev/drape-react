@@ -338,6 +338,25 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     return { transform: [{ translateX: drawerProgress.value * DRAWER_WIDTH }] };
   });
 
+  // Edge-left swipe → open the ChatPanel drawer (only when on chat).
+  const openChatDrawer = useCallback(() => {
+    if (activePanel !== 'chat') {
+      setActivePanel('chat');
+    }
+  }, [activePanel]);
+
+  const openDrawerSwipe = React.useMemo(() => {
+    return Gesture.Pan()
+      .activeOffsetX(10)
+      .failOffsetY([-30, 30])
+      .onEnd((e) => {
+        'worklet';
+        if (e.translationX > 40) {
+          runOnJS(openChatDrawer)();
+        }
+      });
+  }, [openChatDrawer]);
+
   // Border decoration: opacity-only animation on a separate layer (GPU-only, no clip recalc)
   const borderDecorationStyle = useAnimatedStyle(() => {
     'worklet';
@@ -359,16 +378,15 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     setIsSidebarOpen(isOverlayOpen);
   }, [renderedPanel, isVerticalPanelMounted, activePanel, isGitSheetVisible, setIsSidebarOpen]);
 
-  // Auto-close sidebar when opening a preview (either as tab or panel)
-  // Auto-hide sidebar when preview tab becomes active
+  // Auto-hide sidebar/topbar when preview is active, restore immediately when not.
   useEffect(() => {
     if (isPreviewActive && !isSidebarHidden) {
       setForceHideToggle(false);
-      const task = InteractionManager.runAfterInteractions(() => {
-        sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
-        setIsSidebarHidden(true);
-      });
-      return () => task.cancel();
+      sidebarTranslateX.value = withTiming(-50, { duration: 180, easing: Easing.out(Easing.cubic) });
+      setIsSidebarHidden(true);
+    } else if (!isPreviewActive && isSidebarHidden) {
+      sidebarTranslateX.value = withTiming(0, { duration: 180, easing: Easing.out(Easing.cubic) });
+      setIsSidebarHidden(false);
     }
   }, [isPreviewActive]);
 
@@ -554,8 +572,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   // Memoize heavy content so drawer state changes don't re-render it
   const memoizedContent = React.useMemo(() => (
-    <Animated.View style={{ flex: 1 }} entering={FadeInDown.delay(300).duration(800)}>
-      <ContentRenderer children={children} animatedStyle={{}} swipeEnabled={false} />
+    <Animated.View style={{ flex: 1 }} entering={FadeIn.duration(180)}>
+      <ContentRenderer children={children} animatedStyle={{}} swipeEnabled={true} />
     </Animated.View>
   ), [children]);
 
@@ -591,6 +609,24 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           <View style={styles.drawerPanel} pointerEvents={activePanel === 'chat' ? 'auto' : 'none'}>
             {memoizedChatPanel}
           </View>
+        )}
+
+        {/* Edge-left swipe area that opens the drawer when the drawer is
+            closed and we are on the chat tab. Sits above the content but is
+            only a thin strip so it doesn't steal touches from the chat. */}
+        {!isPreviewActive && activePanel !== 'chat' && (
+          <GestureDetector gesture={openDrawerSwipe}>
+            <View
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 18,
+                zIndex: 50,
+              }}
+            />
+          </GestureDetector>
         )}
 
         {/* Main content — outer: GPU translateX only; inner: fixed borderRadius clip */}

@@ -916,15 +916,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // DRAPEMOB: sidebar removed, always 0
     const sidebarLeft = 0;
 
-    // Calcola la posizione base
-    const baseTranslateY = interpolate(
-      animProgress,
-      [0, 1],
-      [0, 280],
-      Extrapolate.CLAMP
-    );
-    const heightDiff = Math.max(0, widgetHeight.value - 90);
-
     // iPad: centra la input bar nell'area di contenuto
     const MAX_INPUT_WIDTH = 720;
     const isIPad = SCREEN_WIDTH >= 768;
@@ -947,18 +938,24 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       };
     }
 
-    // Altrimenti usa top + translateY (comportamento normale)
-    const translateY = baseTranslateY - heightDiff;
+    // Altrimenti usa top calcolato in base a insets.bottom e interpolato in base a inputPositionAnim (da welcome a chat attiva)
+    const welcomeTop = Math.round(SCREEN_HEIGHT * 0.50 - 8);
+    const bottomInset = Math.max(insets.bottom, 12);
+    const activeTop = SCREEN_HEIGHT - bottomInset - widgetHeight.value - 12;
 
-    // Posiziona l'input bar a ~48% dell'altezza schermo (funziona su iPhone e iPad)
-    const baseTop = Math.round(SCREEN_HEIGHT * 0.48);
+    const top = interpolate(
+      animProgress,
+      [0.45, 1],
+      [welcomeTop, activeTop],
+      Extrapolate.CLAMP
+    );
 
     return {
-      top: baseTop,
+      top,
       left: computedLeft,
       right: computedRight,
       opacity: revealProgress,
-      transform: [{ translateY: translateY + revealLift }]
+      transform: [{ translateY: revealLift }]
     };
   });
 
@@ -1255,6 +1252,41 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         }}
         onSendSelectedPhotos={sendSelectedPhotos}
         onPickImageFromLibrary={pickImageFromLibrary}
+        onOpenProjectSection={(section) => {
+          const { addTab, setActiveTab, tabs: currentTabs } = useTabStore.getState();
+          toggleToolsSheet();
+          const openOrFocus = (id: string, type: any, title: string) => {
+            const existing = currentTabs.find((t) => t.id === id);
+            if (existing) {
+              setActiveTab(id);
+            } else {
+              addTab({ id, type, title, data: {} });
+            }
+          };
+          switch (section) {
+            case 'files':
+              openOrFocus('files', 'files', 'File del progetto');
+              break;
+            case 'preview':
+              useUIStore.getState().requestOpenPreview();
+              break;
+            case 'terminal':
+              openOrFocus('interactive-terminal', 'pty', 'Terminal');
+              break;
+            case 'git':
+              useUIStore.getState().requestOpenGitSheet(null);
+              break;
+            case 'database':
+              openOrFocus('database', 'database', 'Database');
+              break;
+            case 'plugin':
+              openOrFocus('plugins', 'plugins', 'Plugin');
+              break;
+            case 'mcp':
+              openOrFocus('mcps', 'mcps', 'MCP');
+              break;
+          }
+        }}
         labels={{
           allPhotos: t('composer.allPhotos'),
           maxImagesTitle: t('composer.maxImagesTitle'),
@@ -1330,11 +1362,15 @@ const styles = StyleSheet.create({
   },
   toolsSheet: {
     position: 'absolute',
-    borderRadius: 28,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     zIndex: 2000,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  toolsSheetSolid: {
+    backgroundColor: '#181820',
   },
   sheetBlur: {
     flex: 1,

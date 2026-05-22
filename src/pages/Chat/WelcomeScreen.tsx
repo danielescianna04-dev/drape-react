@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 
 const { height: SH } = Dimensions.get('window');
-const AVAILABLE = SH - 88 - 130 - 34;
+const AVAILABLE = SH * 0.50 - 8 - 88;
 
 interface WelcomeScreenProps {
   keyboardHeight: SharedValue<number>;
@@ -38,19 +38,6 @@ export const WelcomeScreen = ({ keyboardHeight, onSuggestionPress }: WelcomeScre
     <Animated.View style={[styles.wrap, animStyle]}>
       <Text style={styles.title}>{t('welcomeTitle')}</Text>
       <Text style={styles.sub}>{t('welcomeSubtitle')}</Text>
-
-      <View style={styles.grid}>
-        {ITEMS.map((it, i) => (
-          <TouchableOpacity key={i} activeOpacity={0.7} style={styles.chip} onPress={() => onSuggestionPress(t(it.key))}>
-            <View style={styles.chipGlassFallback}>
-              <View style={styles.chipInner}>
-                <Ionicons name={it.icon} size={15} color="rgba(255,255,255,0.45)" />
-                <Text style={styles.chipText} numberOfLines={1}>{t(it.key)}</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </View>
     </Animated.View>
   );
 };
@@ -58,22 +45,23 @@ export const WelcomeScreen = ({ keyboardHeight, onSuggestionPress }: WelcomeScre
 const styles = StyleSheet.create({
   wrap: {
     height: AVAILABLE,
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     alignItems: 'center',
     paddingHorizontal: 24,
+    paddingBottom: 16,
   },
   title: {
     fontSize: 22,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.85)',
     textAlign: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   sub: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.25)',
     textAlign: 'center',
-    marginBottom: 28,
+    marginBottom: 0,
   },
   grid: {
     flexDirection: 'row',

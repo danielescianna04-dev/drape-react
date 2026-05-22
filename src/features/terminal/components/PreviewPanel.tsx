@@ -92,19 +92,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const { sidebarTranslateX } = useSidebarOffset();
 
-  // Animated container position
+  // Animated container position — disabled: the preview now lives in a
+  // FluidTabSwitcher slot, so any sidebar-driven horizontal offset would
+  // expose the underlying chat as a vertical "band" during the slide.
   const containerAnimatedStyle = useAnimatedStyle(() => {
     'worklet';
-    return {
-      transform: [{
-        translateX: interpolate(
-          sidebarTranslateX.value,
-          [-50, 0],
-          [0, 44],
-          Extrapolate.CLAMP
-        ),
-      }],
-    };
+    return { transform: [{ translateX: 0 }] };
   });
 
   const isExpandedShared = useSharedValue(false);

@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { requireAuth, type AuthedRequest } from '../middleware/auth.middleware';
 import { supabaseAdmin } from '../lib/supabase';
 import { findStarter } from '../templates/appwrite-starters';
+import { LOVABLE_STARTER_FILES } from '../templates/lovable-starter';
+import { supabaseStorageService } from '../services/supabase-storage.service';
 
 export const workstationRouter = Router();
 
@@ -42,6 +44,25 @@ workstationRouter.post('/create-with-template', requireAuth, async (req: AuthedR
       .select('id')
       .single();
     if (error) throw error;
+
+    // Seed every new project with the Lovable starter (Vite + React + TS + Tailwind + shadcn/ui + Appwrite SDK).
+    try {
+      const mimeFor = (path: string): string => {
+        if (path.endsWith('.tsx') || path.endsWith('.ts')) return 'text/typescript';
+        if (path.endsWith('.js') || path.endsWith('.mjs')) return 'text/javascript';
+        if (path.endsWith('.json')) return 'application/json';
+        if (path.endsWith('.css')) return 'text/css';
+        if (path.endsWith('.html')) return 'text/html';
+        return 'text/plain';
+      };
+      await Promise.all(
+        LOVABLE_STARTER_FILES.map((f) =>
+          supabaseStorageService.uploadFile(req.userId!, data.id, f.path, f.content, mimeFor(f.path)),
+        ),
+      );
+    } catch (seedErr: any) {
+      console.warn('[workstation.create] seed starter failed:', seedErr?.message);
+    }
 
     res.json({
       success: true,
@@ -93,7 +114,7 @@ workstationRouter.post('/agent-prompt', requireAuth, async (req: AuthedRequest, 
   // Append Appwrite/Sandpack constraints if cloud enabled
   if (cloudEnabled !== false) {
     prompt += `Stack constraints:
-- Frontend only (Sandpack-compatible): React/Vite, Vue, Svelte, vanilla HTML/JS. NO backend custom.
+- Frontend only (Sandpack-compatible): React + Vite + TypeScript + TailwindCSS + shadcn/ui. No other frameworks.
 - Persistence: Appwrite SDK \`appwrite\` (env: VITE_APPWRITE_ENDPOINT, VITE_APPWRITE_PROJECT_ID, VITE_APPWRITE_DATABASE_ID)
 - Payments: Stripe Checkout link (no webhook)
 - Email: Resend or Formspree (direct fetch)

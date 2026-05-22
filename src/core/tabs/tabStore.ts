@@ -46,7 +46,15 @@ export const useTabStore = create<TabStore>((set, get) => ({
       type: 'chat',
       title: 'Nuova Conversazione',
       data: { chatId: Date.now().toString() }
-    }
+    },
+    // Pre-mount the preview tab so the FluidTabSwitcher can show it during the
+    // edge-swipe slide instead of waiting for a first request to open it.
+    {
+      id: 'preview',
+      type: 'preview',
+      title: 'Preview',
+      data: {},
+    },
   ],
   activeTabId: 'chat-main',
   savedProjects: {},

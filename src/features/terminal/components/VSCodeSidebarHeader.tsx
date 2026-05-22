@@ -85,16 +85,6 @@ export const VSCodeSidebarHeader: React.FC<Props> = ({
             </GlassCard>
           </TouchableOpacity>
 
-          {activeTabType !== 'terminal' && activeTabType !== 'chat' && chatTab && (
-            <TouchableOpacity activeOpacity={0.7} onPress={() => setActiveTab(chatTab.id)}>
-              <GlassCard style={styles.headerButtonGlass}>
-                <View style={styles.headerButton}>
-                  <Ionicons name="chatbubble-ellipses-outline" size={18} color="#fff" />
-                </View>
-              </GlassCard>
-            </TouchableOpacity>
-          )}
-
           {activeTabType === 'database' && databaseBackHandler && (
             <TouchableOpacity activeOpacity={0.7} onPress={() => databaseBackHandler()}>
               <GlassCard style={styles.headerButtonGlass}>
@@ -140,14 +130,13 @@ export const VSCodeSidebarHeader: React.FC<Props> = ({
         </TouchableWithoutFeedback>
       )}
 
+      {!isPreviewShowing && (
       <View style={styles.morphButtonWrapper} pointerEvents="box-none">
-        <TouchableOpacity activeOpacity={1} onPress={showHeaderMenu ? closeMenu : openMenu}>
+        <TouchableOpacity activeOpacity={0.7} onPress={onOpenPreview}>
           <GlassCard style={{ borderRadius: 20, overflow: 'visible' }}>
             <Animated.View style={[styles.morphButton, morphStyle]}>
               <Animated.View style={[styles.dotsContainer, dotsOpacity]}>
-                <View style={localStyles.dot} />
-                <View style={localStyles.dot} />
-                <View style={localStyles.dot} />
+                <Ionicons name="play" size={18} color="#fff" style={{ marginLeft: 2 }} />
               </Animated.View>
               <Animated.View style={[styles.menuContent, menuItemsOpacity]}>
                 <TouchableOpacity style={styles.menuItem} activeOpacity={0.6} onPress={onOpenPreview}>
@@ -199,6 +188,7 @@ export const VSCodeSidebarHeader: React.FC<Props> = ({
           </GlassCard>
         </TouchableOpacity>
       </View>
+      )}
     </>
   );
 };
