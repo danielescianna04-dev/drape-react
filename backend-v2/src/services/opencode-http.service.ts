@@ -165,6 +165,7 @@ export class OpencodeHttpService {
     const partTypeById = new Map<string, string>();   // partID → 'text' | 'reasoning' | 'tool' | ...
     const emittedToolStart = new Set<string>();       // partID for tool_use already emitted
     let assistantMsgId: string | null = null;
+    let lastTokens = { in: 0, out: 0 };
     let buffer = '';
     let finished = false;
 
@@ -235,7 +236,12 @@ export class OpencodeHttpService {
           if (type === 'message.updated') {
             const info = props.info;
             if (info?.role !== 'assistant') continue;
-            if (!assistantMsgId) assistantMsgId = info.id;
+            // Track the LATEST assistant message ID and its token usage —
+            // opencode emits one message per "step" of an agentic loop (the
+            // tool-calling steps each get their own message, and the final
+            // visible summary is its own message too). We can't exit when
+            // any one of them completes — that's session.idle's job below.
+            assistantMsgId = info.id;
             if (info.error) {
               const errMsg = info.error?.data?.message ?? info.error?.name ?? 'opencode error';
               yield { type: 'error', message: errMsg };
@@ -243,14 +249,29 @@ export class OpencodeHttpService {
               finished = true;
               return;
             }
-            if (info.time?.completed && !finished) {
-              finished = true;
+            if (info.time?.completed) {
               const tokens = info.tokens ?? {};
-              yield { type: 'message_end', messageId: info.id, tokensIn: tokens.input ?? 0, tokensOut: tokens.output ?? 0 };
+              lastTokens = { in: tokens.input ?? 0, out: tokens.output ?? 0 };
+            }
+            continue;
+          }
+
+          // session.idle is the definitive "agent is done" signal — it fires
+          // after the full multi-message agentic loop (reasoning → tool → text)
+          // wraps up. Use it as the end-of-stream marker instead of any single
+          // message.updated completion.
+          if (type === 'session.idle' || (type === 'session.status' && props?.status?.type === 'idle')) {
+            if (!finished) {
+              finished = true;
+              yield {
+                type: 'message_end',
+                messageId: assistantMsgId ?? `msg-${Date.now()}`,
+                tokensIn: lastTokens.in,
+                tokensOut: lastTokens.out,
+              };
               yield { type: 'session_end', reason: 'completed' };
               return;
             }
-            continue;
           }
 
           if (type === 'session.error') {
