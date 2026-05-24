@@ -13,12 +13,16 @@ function wrapAsync(fn: (req: Request, res: Response) => Promise<any>) {
 
 // Helper to query OpenCode with prioritised models list
 async function callOpencode(prompt: string, modelOverride?: string): Promise<string> {
+  // Priority chain: DeepSeek V4-Pro paid → free fallback chain.
+  // OpenRouter is configured in opencode.jsonc with OPENROUTER_API_KEY in env.
   const models = modelOverride ? [modelOverride] : [
-    'big-pickle',
-    'deepseek-v4-flash-free',
-    'qwen3.6-plus-free',
-    'nemotron-3-super-free',
-    'minimax-m2.5-free'
+    'openrouter/deepseek/deepseek-v4-pro',
+    'openrouter/deepseek/deepseek-v4-flash',
+    'openrouter/qwen/qwen3-coder',
+    'openrouter/google/gemma-4-31b-it:free',
+    // Last-resort Zen models if OpenRouter saturated
+    'opencode/big-pickle',
+    'opencode/deepseek-v4-flash-free',
   ];
 
   const crypto = require('crypto');
@@ -173,7 +177,7 @@ aiRouter.post('/chat', wrapAsync(async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'prompt is required' });
   }
 
-  const model = selectedModel || 'deepseek-v4-flash-free';
+  const model = selectedModel || 'openrouter/deepseek/deepseek-v4-pro';
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',

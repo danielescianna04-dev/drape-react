@@ -11,13 +11,18 @@ import { env } from '../config/env';
  *   4. Filtra eventi per sessionID nostro, traduce in AgentEvent
  *
  * Modelli Zen disponibili (provider="opencode"):
- *   - opencode/big-pickle (premium)
- *   - opencode/deepseek-v4-flash-free
+ *   - openrouter/deepseek/deepseek-v4-pro (default, pay-per-use via $5 OpenRouter deposit)
+ *   - openrouter/deepseek/deepseek-v4-flash (cheaper alternative)
+ *   - openrouter/qwen/qwen3-coder (code-specialized)
+ *   - openrouter/google/gemma-4-31b-it:free (free tier fallback w/ vision+tools)
+ *   - opencode/big-pickle (Zen free fallback)
+ *   - opencode/deepseek-v4-flash-free (Zen free fallback)
  *   - opencode/minimax-m2.5-free
  *   - opencode/nemotron-3-super-free
  *   - opencode/qwen3.6-plus-free
  *
- * Default: deepseek-v4-flash-free (gratis, performant per code).
+ * Default: openrouter/deepseek/deepseek-v4-pro (paid via $5 OpenRouter deposit,
+ *          tool calling + 1M context + price-to-quality leader).
  */
 
 export type AgentEvent =
@@ -42,17 +47,24 @@ export interface AgentChatRequest {
   starterId?: string;
 }
 
-const DEFAULT_MODEL = 'deepseek-v4-flash-free';
-const DEFAULT_PROVIDER = 'opencode';
+// Default ora è OpenRouter → DeepSeek V4-Pro (zero markup vs DeepSeek diretto,
+// pricing $0.435/$0.87 per M tokens, tool calling + cache aggressivo).
+// OpenRouter API key viene letta da OPENROUTER_API_KEY nell'env del processo
+// opencode serve (vedi /etc/systemd/system/opencode.service.d/openrouter-env.conf).
+const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro';
+const DEFAULT_PROVIDER = 'openrouter';
 
 // Map nostro sessionId (UUID Drape) → opencode sessionID (ses_xxx)
 const sessionMap = new Map<string, string>();
 
 function parseModel(raw?: string): { providerID: string; modelID: string } {
   if (!raw) return { providerID: DEFAULT_PROVIDER, modelID: DEFAULT_MODEL };
-  if (raw.includes('/')) {
-    const [providerID, modelID] = raw.split('/', 2);
-    return { providerID, modelID };
+  // Split only on first '/' so OpenRouter-style IDs like
+  // "openrouter/deepseek/deepseek-v4-pro" map correctly to
+  // providerID="openrouter", modelID="deepseek/deepseek-v4-pro".
+  const idx = raw.indexOf('/');
+  if (idx > 0) {
+    return { providerID: raw.substring(0, idx), modelID: raw.substring(idx + 1) };
   }
   return { providerID: DEFAULT_PROVIDER, modelID: raw };
 }
@@ -341,7 +353,7 @@ export class OpencodeHttpService {
     if (this.isMock) return [];
     const { data } = await this.client!.get('/api/model');
     if (Array.isArray(data)) {
-      return data.map((m: any) => ({ providerID: m.providerID ?? 'opencode', modelID: m.modelID ?? m.id }));
+      return data.map((m: any) => ({ providerID: m.providerID ?? DEFAULT_PROVIDER, modelID: m.modelID ?? m.id }));
     }
     return [];
   }
