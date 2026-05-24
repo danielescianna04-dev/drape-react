@@ -131,7 +131,7 @@ export const FirstProjectChoiceScreen: React.FC<Props> = ({ onBack, onCreate, on
                     <Text style={styles.optionDescription}>
                       {t(
                         'onboardingFlow.projectChoice.createDescription',
-                        'Parti da un’idea e lascia che Drape ti aiuti a costruirla.'
+                        'Parti da un’idea e lascia che Bynot ti aiuti a costruirla.'
                       )}
                     </Text>
                   </View>
@@ -148,7 +148,7 @@ export const FirstProjectChoiceScreen: React.FC<Props> = ({ onBack, onCreate, on
                   <Text style={styles.optionDescription}>
                     {t(
                       'onboardingFlow.projectChoice.createDescription',
-                      'Parti da un’idea e lascia che Drape ti aiuti a costruirla.'
+                      'Parti da un’idea e lascia che Bynot ti aiuti a costruirla.'
                     )}
                   </Text>
                 </View>
@@ -178,7 +178,7 @@ export const FirstProjectChoiceScreen: React.FC<Props> = ({ onBack, onCreate, on
                     <Text style={styles.optionDescription}>
                       {t(
                         'onboardingFlow.projectChoice.cloneDescription',
-                        'Importa una repository GitHub e continua a lavorarci dentro Drape.'
+                        'Importa una repository GitHub e continua a lavorarci dentro Bynot.'
                       )}
                     </Text>
                   </View>
@@ -195,7 +195,7 @@ export const FirstProjectChoiceScreen: React.FC<Props> = ({ onBack, onCreate, on
                   <Text style={styles.optionDescription}>
                     {t(
                       'onboardingFlow.projectChoice.cloneDescription',
-                      'Importa una repository GitHub e continua a lavorarci dentro Drape.'
+                      'Importa una repository GitHub e continua a lavorarci dentro Bynot.'
                     )}
                   </Text>
                 </View>

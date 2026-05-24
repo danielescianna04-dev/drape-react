@@ -88,18 +88,18 @@ export function SandpackPreview({
     if (!bridgeReady) return;
     if (Object.keys(files).length === 0) return;
     webviewRef.current?.postMessage(
-      JSON.stringify({ source: 'drape-host', type: 'set_template', payload: { template } }),
+      JSON.stringify({ source: 'bynot-host', type: 'set_template', payload: { template } }),
     );
     webviewRef.current?.postMessage(
-      JSON.stringify({ source: 'drape-host', type: 'set_theme', payload: { theme } }),
+      JSON.stringify({ source: 'bynot-host', type: 'set_theme', payload: { theme } }),
     );
     if (appwrite) {
       webviewRef.current?.postMessage(
-        JSON.stringify({ source: 'drape-host', type: 'set_appwrite', payload: appwrite }),
+        JSON.stringify({ source: 'bynot-host', type: 'set_appwrite', payload: appwrite }),
       );
     }
     webviewRef.current?.postMessage(
-      JSON.stringify({ source: 'drape-host', type: 'set_files', payload: { files } }),
+      JSON.stringify({ source: 'bynot-host', type: 'set_files', payload: { files } }),
     );
   }, [bridgeReady, files, appwrite, template, theme]);
 

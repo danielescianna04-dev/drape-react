@@ -1,10 +1,10 @@
-# Drape backend v2
+# Bynot backend v2
 
 Express + Supabase Admin + Appwrite (self-hosted) Management. No Docker workspaces.
 
 ## Stack
 - Express 4 + TypeScript
-- Supabase Admin SDK (Drape internal: auth, profiles, projects, files metadata)
+- Supabase Admin SDK (Bynot internal: auth, profiles, projects, files metadata)
 - node-appwrite SDK (provisioning DB utenti su Appwrite self-hosted)
 - Zod per env validation
 

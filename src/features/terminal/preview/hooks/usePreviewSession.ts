@@ -72,8 +72,8 @@ export function usePreviewSession({
     try {
       const parsed = new URL(url);
       const isSubdomainPreview =
-        parsed.hostname.endsWith('.drape.info') &&
-        !['www.drape.info', 'dev.drape.info', 'api.drape.info', 'drape.info'].includes(parsed.hostname);
+        parsed.hostname.endsWith('.bynot.it') &&
+        !['www.bynot.it', 'dev.bynot.it', 'api.bynot.it', 'bynot.it'].includes(parsed.hostname);
       const isPathPreview = parsed.pathname.startsWith('/preview/');
       if (!isSubdomainPreview && !isPathPreview) return url;
       if (isPathPreview && parsed.pathname.match(/^\/preview\/[^/]+$/)) {
@@ -92,7 +92,7 @@ export function usePreviewSession({
     const globalBelongsToProject =
       globalServerUrl &&
       projectId &&
-      (globalServerUrl.includes(`/preview/${projectId}`) || globalServerUrl.includes(`${projectId}.drape.info`));
+      (globalServerUrl.includes(`/preview/${projectId}`) || globalServerUrl.includes(`${projectId}.bynot.it`));
     let url = projectSpecificUrl || (globalBelongsToProject ? globalServerUrl : null) || previewUrl || '';
     if (!url.includes('localhost:3000') && url) {
       try {
@@ -100,9 +100,9 @@ export function usePreviewSession({
         const match = parsed.pathname.match(/^\/preview\/([^/]+)/);
         if (match) {
           const projId = match[1];
-          url = `https://${projId}.drape.info/`;
-        } else if (projectId && (parsed.hostname === 'drape.info' || parsed.hostname === 'dev.drape.info')) {
-          url = `https://${projectId}.drape.info/`;
+          url = `https://${projId}.bynot.it/`;
+        } else if (projectId && (parsed.hostname === 'bynot.it' || parsed.hostname === 'dev.bynot.it')) {
+          url = `https://${projectId}.bynot.it/`;
         }
       } catch {}
     }

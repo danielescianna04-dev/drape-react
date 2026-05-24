@@ -1052,7 +1052,7 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
                 </Text>
               </View>
               <Text style={styles.bottomUserName} numberOfLines={1} ellipsizeMode="tail">
-                {user?.displayName || user?.email || 'Drape'}
+                {user?.displayName || user?.email || 'Bynot'}
               </Text>
             </View>
             <TouchableOpacity

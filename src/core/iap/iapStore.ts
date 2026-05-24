@@ -1,4 +1,4 @@
-// v2 stub: IAP non in scope per il lancio (Drape è free, vedi piano sez. 10).
+// v2 stub: IAP non in scope per il lancio (Bynot è free, vedi piano sez. 10).
 // TODO post-PMF: integrare RevenueCat o reintrodurre IAP nativa.
 
 import { create } from 'zustand';

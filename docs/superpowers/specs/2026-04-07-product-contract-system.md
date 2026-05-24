@@ -76,7 +76,7 @@ interface ProductContract {
 }
 ```
 
-**Where it lives:** `.drape/product-contract.json`
+**Where it lives:** `.bynot/product-contract.json`
 
 ---
 
@@ -127,11 +127,11 @@ The architecture planning step receives the preview contract and may refine it.
 
 If architecture step fails, the preview contract becomes the final contract unchanged.
 
-**Saved to:** `.drape/product-contract.json`
+**Saved to:** `.bynot/product-contract.json`
 
 ### 2c. Contract at Gate Time
 
-The fast usability gate reads `.drape/product-contract.json`. It is never absent — the fallback guarantee ensures this.
+The fast usability gate reads `.bynot/product-contract.json`. It is never absent — the fallback guarantee ensures this.
 
 ---
 
@@ -160,7 +160,7 @@ UI Step 4: Existing review/confirmation screen ("Tutto pronto!")
   └─ User reviews, then presses "Crea Progetto"
 Step 4: Generation
   a. Architecture step → refines contract (or uses preview as fallback)
-  b. Contract saved to .drape/product-contract.json
+  b. Contract saved to .bynot/product-contract.json
   c. Contract injected into generation prompt as hard constraint
   d. AI generates code
 Step 5: CSS repair + install + build + start
@@ -343,7 +343,7 @@ runDeepQA(projectId, userId, technology).catch(err => {
 ```
 
 Deep QA runs the full qa-agent.js (multi-viewport, vision, clicks, forms) and writes results to:
-- `.drape/qa-report.json`
+- `.bynot/qa-report.json`
 - Build report actions
 - Project History
 
@@ -401,7 +401,7 @@ Do NOT create dynamic routes like [id] unless concrete instances are navigable.
 | `backend-ts/src/services/product-contract.ts` | **NEW** | `ProductContract` type, `buildPreviewContract()`, `contractToPromptConstraint()`, `contractToGateChecks()` |
 | `backend-ts/src/routes/ai.routes.ts` | MODIFY | New `POST /ai/preview-contract` endpoint. Riformulate question prompt. |
 | `backend-ts/src/routes/workstation.routes.ts` | MODIFY | Architecture prompt → contract refinement. Save contract. Inject into generation. Fast gate replaces slow verify on critical path. Deep QA as background fire-and-forget. |
-| `backend-ts/src/services/verify-project.service.ts` | MODIFY | `verifyAndFixProject()` becomes the fast contract gate. Reads `.drape/product-contract.json`. Checks only blocking criteria. Single autofix + reverify. |
+| `backend-ts/src/services/verify-project.service.ts` | MODIFY | `verifyAndFixProject()` becomes the fast contract gate. Reads `.bynot/product-contract.json`. Checks only blocking criteria. Single autofix + reverify. |
 | `backend-ts/scripts/qa-agent.js` | MODIFY | Becomes deep QA only (non-blocking). No changes to logic, just moved off critical path. |
 | `src/features/projects/CreateProjectScreen.tsx` | MODIFY | UI Step 4 (renderStep3 / review screen): call `/ai/preview-contract`, render summary above "Crea Progetto" button. Pass contract to creation. UI Step 2 (renderStep3Interview): send stable questionId+optionId instead of free text. |
 

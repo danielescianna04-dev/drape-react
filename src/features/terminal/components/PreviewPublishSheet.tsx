@@ -313,7 +313,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                   <Text style={styles.editUrlSlug}>
                     {existingPublish ? existingPublish.slug : (publishSlug || 'slug')}
                   </Text>
-                  <Text style={styles.editUrlDomain}>.drape.info</Text>
+                  <Text style={styles.editUrlDomain}>.bynot.it</Text>
                 </View>
               </View>
 

@@ -9,7 +9,7 @@ import * as Crypto from 'expo-crypto';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 
-const DEVICE_ID_KEY = 'drape_device_id';
+const DEVICE_ID_KEY = 'bynot_device_id';
 
 class DeviceService {
   private deviceId: string | null = null;

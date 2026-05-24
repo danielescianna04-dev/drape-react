@@ -959,7 +959,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const revealProgress = inputRevealAnim.value;
     const revealLift = interpolate(revealProgress, [0, 1], [18, 0], Extrapolate.CLAMP);
 
-    // DRAPEMOB: sidebar removed, always 0
+    // BYNOTMOB: sidebar removed, always 0
     const sidebarLeft = 0;
 
     // iPad: centra la input bar nell'area di contenuto

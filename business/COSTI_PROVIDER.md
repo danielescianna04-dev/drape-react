@@ -1,4 +1,4 @@
-# Drape IDE - Schema Costi e Provider
+# Bynot IDE - Schema Costi e Provider
 
 ## Provider Utilizzati
 

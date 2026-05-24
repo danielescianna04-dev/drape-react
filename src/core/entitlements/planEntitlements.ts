@@ -59,7 +59,7 @@ const FREE_MODELS: ReadonlyArray<ModelId> = [
 ];
 
 /**
- * v2: Drape è free per tutti gli utenti — ogni account ha feature Pro sbloccate.
+ * v2: Bynot è free per tutti gli utenti — ogni account ha feature Pro sbloccate.
  * Quando reintrodurremo tier paid, qui andrà il mapping da auth.plan → CanonicalPlan.
  */
 export function normalizePlan(_raw: AnyPlan | string | null | undefined): CanonicalPlan {

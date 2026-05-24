@@ -54,7 +54,7 @@ This adds ~300MB to the image but is essential for the verification system. Play
 - [ ] **Step 2: Rebuild the workspace image**
 
 ```bash
-docker build -f Dockerfile.workspace -t drape-workspace:latest .
+docker build -f Dockerfile.workspace -t bynot-workspace:latest .
 ```
 
 - [ ] **Step 3: Commit**
@@ -525,7 +525,7 @@ git commit -m "feat: integrate page verification into project creation flow"
 - [ ] **Step 1: Rebuild workspace Docker image with Playwright**
 
 ```bash
-docker build -f Dockerfile.workspace -t drape-workspace:latest .
+docker build -f Dockerfile.workspace -t bynot-workspace:latest .
 ```
 
 - [ ] **Step 2: Build and deploy backend**
@@ -539,7 +539,7 @@ cd backend-ts && npm run build && ./deploy.sh
 - [ ] **Step 4: Monitor logs for verification output**
 
 ```bash
-ssh root@server 'tail -f /var/log/drape-backend.log' | grep -E "Verification|Screenshot|Vision"
+ssh root@server 'tail -f /var/log/bynot-backend.log' | grep -E "Verification|Screenshot|Vision"
 ```
 
 Expected output:

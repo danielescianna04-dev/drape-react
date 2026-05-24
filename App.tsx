@@ -100,7 +100,7 @@ function MaintenanceScreen() {
         Manutenzione in corso
       </Text>
       <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 16, textAlign: 'center', lineHeight: 24 }}>
-        Stiamo migliorando Drape per offrirti un'esperienza ancora migliore.{'\n\n'}Torneremo online il{' '}
+        Stiamo migliorando Bynot per offrirti un'esperienza ancora migliore.{'\n\n'}Torneremo online il{' '}
         <Text style={{ color: '#A78BFA', fontWeight: '600' }}>9 Aprile 2026</Text>.
       </Text>
       <View style={{ marginTop: 40, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 16, backgroundColor: 'rgba(139, 92, 246, 0.12)', borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.25)' }}>

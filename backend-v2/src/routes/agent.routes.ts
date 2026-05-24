@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, type AuthedRequest } from '../middleware/auth.middleware';
 import { opencodeHttpService } from '../services/opencode-http.service';
-import { buildDrapeSystemPrompt } from '../templates/opencode-system-prompt';
+import { buildBynotSystemPrompt } from '../templates/opencode-system-prompt';
 import { supabaseAdmin } from '../lib/supabase';
 
 export const agentRouter = Router();
@@ -27,7 +27,7 @@ const chatBodySchema = z.object({
  *
  * Body:
  *  - sessionId: UUID sessione (client-managed, persisti su Supabase ai_sessions)
- *  - projectId: UUID del progetto Drape
+ *  - projectId: UUID del progetto Bynot
  *  - message: prompt dell'utente
  *  - model?: forza un modello specifico
  *  - starterId?: template scelto (todo, blog, ecc.) per arricchire system prompt
@@ -74,7 +74,7 @@ agentRouter.post('/chat', requireAuth, async (req: AuthedRequest, res) => {
         }
       : undefined;
 
-  const enrichedSystemContext = buildDrapeSystemPrompt({
+  const enrichedSystemContext = buildBynotSystemPrompt({
     starterId,
     extraContext: systemContext,
   });

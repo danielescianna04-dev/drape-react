@@ -332,7 +332,7 @@ const DomainTab: React.FC<{ projectId: string }> = ({ projectId }) => {
         setErr(j?.message || j?.error || 'Errore');
         return;
       }
-      setInstructions({ name: j.instructions?.name || domain, value: j.instructions?.value || 'cname.drape.app' });
+      setInstructions({ name: j.instructions?.name || domain, value: j.instructions?.value || 'cname.bynot.app' });
       setInput('');
       await load();
     } catch (e: any) {

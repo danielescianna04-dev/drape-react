@@ -37,7 +37,7 @@ export const LANGUAGES = {
 export type LanguageCode = keyof typeof LANGUAGES;
 
 // Storage key for persisted language preference
-const LANGUAGE_STORAGE_KEY = '@drape/language';
+const LANGUAGE_STORAGE_KEY = '@bynot/language';
 
 // Resources object with all translations
 const resources = {

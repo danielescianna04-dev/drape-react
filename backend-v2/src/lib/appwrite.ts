@@ -3,7 +3,7 @@ import { env } from '../config/env';
 
 /**
  * Appwrite server-side client con API key.
- * Bypassa permissions — usalo per provisioning, ne fa uso solo il backend Drape.
+ * Bypassa permissions — usalo per provisioning, ne fa uso solo il backend Bynot.
  */
 const appwriteClient = new Client()
   .setEndpoint(env.APPWRITE_ENDPOINT)

@@ -175,7 +175,7 @@ export const GitAuthPopup = React.memo(() => {
     setError(null);
     try {
       const redirectUri = AuthSession.makeRedirectUri({
-        scheme: 'drape',
+        scheme: 'bynot',
         path: 'auth/callback',
       });
 

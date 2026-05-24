@@ -13,7 +13,7 @@ interface Props {
 /**
  * Bottone "Connetti database" — UX trasparente per provisioning Appwrite.
  *
- * Nessun signup, nessun magic link richiesto all'utente: il backend Drape gestisce
+ * Nessun signup, nessun magic link richiesto all'utente: il backend Bynot gestisce
  * tutto via la sua Server API key. L'utente vede solo "Database pronto".
  */
 export function ConnectDatabaseButton({ projectId, onConnected, alwaysVisible }: Props) {

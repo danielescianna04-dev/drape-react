@@ -460,11 +460,11 @@ export function usePreviewServerLifecycle({
     if (!session.currentPreviewUrl || !projectId) return;
     try {
       const parsed = new URL(session.currentPreviewUrl);
-      const isSubdomain = parsed.hostname.endsWith('.drape.info') && !['www.drape.info', 'dev.drape.info', 'api.drape.info', 'drape.info'].includes(parsed.hostname);
+      const isSubdomain = parsed.hostname.endsWith('.bynot.it') && !['www.bynot.it', 'dev.bynot.it', 'api.bynot.it', 'bynot.it'].includes(parsed.hostname);
       if (isSubdomain) return;
       const match = parsed.pathname.match(/^\/preview\/([^/]+)/);
-      if (!match) session.setCurrentPreviewUrl(`https://${projectId}.drape.info/`);
-      else if (match[1] !== projectId) session.setCurrentPreviewUrl(`https://${projectId}.drape.info/`);
+      if (!match) session.setCurrentPreviewUrl(`https://${projectId}.bynot.it/`);
+      else if (match[1] !== projectId) session.setCurrentPreviewUrl(`https://${projectId}.bynot.it/`);
     } catch {}
   }, [session.currentPreviewUrl, projectId]);
 

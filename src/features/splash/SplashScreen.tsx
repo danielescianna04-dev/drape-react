@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
 import { AppColors } from '../../shared/theme/colors';
-import { DrapeLogo } from '../../shared/components/icons';
+import { BynotLogo } from '../../shared/components/icons';
 
 const APP_VERSION = Constants.expoConfig?.version ?? '2.2.0';
 
@@ -148,7 +148,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
           ],
         }]}>
           <View style={styles.iconBox}>
-            <DrapeLogo size={88} />
+            <BynotLogo size={88} />
           </View>
         </Animated.View>
 
@@ -160,7 +160,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
             { scale: nameScale },
           ],
         }}>
-          <Text style={styles.brandName}>Drape</Text>
+          <Text style={styles.brandName}>Bynot</Text>
         </Animated.View>
 
         {/* Tagline with shimmer */}

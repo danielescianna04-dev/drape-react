@@ -961,11 +961,11 @@ Single file with factory functions. All DOM manipulation uses `createElement`, `
 ```javascript
 // backend-ts/templates/html/blocks.js
 /**
- * Drape Feature Blocks - vanilla JS functional UI components.
+ * Bynot Feature Blocks - vanilla JS functional UI components.
  * Each function returns a DOM element with working event handlers.
- * Usage: document.getElementById('target').appendChild(Drape.likeButton({ id: '1' }));
+ * Usage: document.getElementById('target').appendChild(Bynot.likeButton({ id: '1' }));
  */
-const Drape = {
+const Bynot = {
   _toast(message) {
     const t = document.createElement('div');
     t.textContent = message;
@@ -988,7 +988,7 @@ const Drape = {
       btn.style.color = liked ? '#ef4444' : '#9ca3af';
     };
     update();
-    btn.onclick = () => { liked = !liked; update(); Drape._toast(liked ? 'Added to favorites' : 'Removed'); onToggle?.(liked); };
+    btn.onclick = () => { liked = !liked; update(); Bynot._toast(liked ? 'Added to favorites' : 'Removed'); onToggle?.(liked); };
     btn.onmouseenter = () => { btn.style.transform = 'scale(1.2)'; };
     btn.onmouseleave = () => { btn.style.transform = 'scale(1)'; };
     return btn;
@@ -1002,7 +1002,7 @@ const Drape = {
       const u = url || location.href;
       if (navigator.share) { try { await navigator.share({ title: title || document.title, url: u }); return; } catch {} }
       await navigator.clipboard.writeText(u);
-      Drape._toast('Link copied!');
+      Bynot._toast('Link copied!');
     };
     return btn;
   },
@@ -1037,7 +1037,7 @@ const Drape = {
     for (let i = 0; i < maxStars; i++) {
       const s = document.createElement('button');
       s.style.cssText = 'background:none;border:none;font-size:24px;cursor:pointer;transition:transform 0.15s;padding:2px;';
-      s.onclick = () => { rating = i + 1; update(); Drape._toast('Rated ' + rating + ' star' + (rating > 1 ? 's' : '')); onRate?.(rating); };
+      s.onclick = () => { rating = i + 1; update(); Bynot._toast('Rated ' + rating + ' star' + (rating > 1 ? 's' : '')); onRate?.(rating); };
       s.onmouseenter = () => { s.style.transform = 'scale(1.3)'; };
       s.onmouseleave = () => { s.style.transform = 'scale(1)'; };
       stars.push(s);
@@ -1058,7 +1058,7 @@ const Drape = {
         setTimeout(() => { confirming = false; btn.textContent = label; btn.style.background = '#fff'; btn.style.color = '#dc2626'; }, 3000);
         return;
       }
-      onDelete?.(); confirming = false; Drape._toast('Deleted');
+      onDelete?.(); confirming = false; Bynot._toast('Deleted');
     };
     return btn;
   },

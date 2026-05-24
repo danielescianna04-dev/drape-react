@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../shared/theme/colors';
-import { DrapeLogo } from '../../shared/components/icons/DrapeLogo';
+import { BynotLogo } from '../../shared/components/icons/BynotLogo';
 import { supabase } from '../../lib/supabase/client';
 import {
   tracciaSchermata,
@@ -219,7 +219,7 @@ export const OnboardingFlowScreen: React.FC<Props> = ({
       {/* Logo */}
       <Animated.View style={[styles.logoWrap, { opacity: logoFade, transform: [{ scale: logoScale }] }]}>
         <View style={styles.logoRing}>
-          <DrapeLogo size={96} />
+          <BynotLogo size={96} />
         </View>
       </Animated.View>
 

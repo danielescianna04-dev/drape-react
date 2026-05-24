@@ -19,8 +19,8 @@ interface DbState {
   pgDetected: boolean;
   supabaseDetected: boolean;
   supabaseUrl: string;
-  /** Project uses the Drape Cloud shared backend. Renders __drape__ pseudo-db. */
-  drapeCloudDetected: boolean;
+  /** Project uses the Bynot Cloud shared backend. Renders __bynot__ pseudo-db. */
+  bynotCloudDetected: boolean;
   containerReady: boolean;
   selectedDb: string | null;
   tables: { name: string; rowCount: number; system?: boolean }[];
@@ -32,7 +32,7 @@ interface DbState {
 type DbAction =
   | { type: 'SET_LOADING'; loading: boolean }
   | { type: 'SET_ERROR'; error: string | null }
-  | { type: 'SET_DATABASES'; databases: DbState['databases']; pgDetected: boolean; supabaseDetected?: boolean; supabaseUrl?: string; drapeCloudDetected?: boolean; containerReady: boolean }
+  | { type: 'SET_DATABASES'; databases: DbState['databases']; pgDetected: boolean; supabaseDetected?: boolean; supabaseUrl?: string; bynotCloudDetected?: boolean; containerReady: boolean }
   | { type: 'SELECT_DB'; dbPath: string }
   | { type: 'SET_TABLES'; tables: DbState['tables'] }
   | { type: 'SELECT_TABLE'; table: string }
@@ -52,7 +52,7 @@ function reducer(state: DbState, action: DbAction): DbState {
         pgDetected: action.pgDetected,
         supabaseDetected: action.supabaseDetected || false,
         supabaseUrl: action.supabaseUrl || '',
-        drapeCloudDetected: action.drapeCloudDetected || false,
+        bynotCloudDetected: action.bynotCloudDetected || false,
         containerReady: action.containerReady,
         screen: action.databases.length === 1 ? 'table-list' : 'db-list',
         selectedDb: action.databases.length === 1 ? action.databases[0].path : null,
@@ -84,7 +84,7 @@ const initialState: DbState = {
   pgDetected: false,
   supabaseDetected: false,
   supabaseUrl: '',
-  drapeCloudDetected: false,
+  bynotCloudDetected: false,
   containerReady: true,
   selectedDb: null,
   tables: [],
@@ -117,7 +117,7 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
     if (!projectId) return;
     dispatch({ type: 'SET_LOADING', loading: true });
     api.discover().then(data => {
-      dispatch({ type: 'SET_DATABASES', databases: data.databases, pgDetected: data.pgDetected, supabaseDetected: data.supabaseDetected, supabaseUrl: data.supabaseUrl, drapeCloudDetected: data.drapeCloudDetected, containerReady: data.containerReady !== false });
+      dispatch({ type: 'SET_DATABASES', databases: data.databases, pgDetected: data.pgDetected, supabaseDetected: data.supabaseDetected, supabaseUrl: data.supabaseUrl, bynotCloudDetected: data.bynotCloudDetected, containerReady: data.containerReady !== false });
     }).catch(() => {
       dispatch({ type: 'SET_DATABASES', databases: [], pgDetected: false, containerReady: false });
     });
@@ -144,17 +144,17 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
     }
   }, [state.supabaseDetected, state.databases, state.isLoading, state.screen]);
 
-  // Same thing for Drape Cloud: if the project opted into the shared
+  // Same thing for Bynot Cloud: if the project opted into the shared
   // backend, skip the discovery screen and jump straight to the table
   // list — there's only ever one "database" to show.
   useEffect(() => {
-    if (state.drapeCloudDetected && !state.isLoading && state.screen === 'db-list') {
-      const drapeDb = state.databases.find(d => d.path === '__drape__');
-      if (drapeDb && state.selectedDb !== '__drape__') {
-        dispatch({ type: 'SELECT_DB', dbPath: drapeDb.path });
+    if (state.bynotCloudDetected && !state.isLoading && state.screen === 'db-list') {
+      const bynotDb = state.databases.find(d => d.path === '__bynot__');
+      if (bynotDb && state.selectedDb !== '__bynot__') {
+        dispatch({ type: 'SELECT_DB', dbPath: bynotDb.path });
       }
     }
-  }, [state.drapeCloudDetected, state.databases, state.isLoading, state.screen, state.selectedDb]);
+  }, [state.bynotCloudDetected, state.databases, state.isLoading, state.screen, state.selectedDb]);
 
   return (
     <View style={styles.container}>
@@ -172,7 +172,7 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
           pgDetected={state.pgDetected}
           supabaseDetected={state.supabaseDetected}
           supabaseUrl={state.supabaseUrl}
-          drapeCloudDetected={state.drapeCloudDetected}
+          bynotCloudDetected={state.bynotCloudDetected}
           containerReady={state.containerReady}
           isLoading={state.isLoading}
           error={state.error}
@@ -180,7 +180,7 @@ export const DatabaseView: React.FC<Props> = ({ tab }) => {
           onRetry={() => {
             dispatch({ type: 'SET_LOADING', loading: true });
             api.discover().then(data => {
-              dispatch({ type: 'SET_DATABASES', databases: data.databases, pgDetected: data.pgDetected, supabaseDetected: data.supabaseDetected, supabaseUrl: data.supabaseUrl, drapeCloudDetected: data.drapeCloudDetected, containerReady: data.containerReady !== false });
+              dispatch({ type: 'SET_DATABASES', databases: data.databases, pgDetected: data.pgDetected, supabaseDetected: data.supabaseDetected, supabaseUrl: data.supabaseUrl, bynotCloudDetected: data.bynotCloudDetected, containerReady: data.containerReady !== false });
             }).catch(() => {
               dispatch({ type: 'SET_DATABASES', databases: [], pgDetected: false, containerReady: false });
             });

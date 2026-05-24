@@ -8,7 +8,7 @@ export interface AppwriteCredentials {
 
 export const appwriteApi = {
   /**
-   * Provisiona (o riusa) il database Appwrite per il progetto Drape.
+   * Provisiona (o riusa) il database Appwrite per il progetto Bynot.
    * Idempotent — chiamabile più volte senza side effect.
    */
   provision(projectId: string): Promise<AppwriteCredentials> {

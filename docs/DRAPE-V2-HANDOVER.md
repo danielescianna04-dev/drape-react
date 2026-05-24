@@ -1,9 +1,9 @@
-# Drape v2 — Handover completo
+# Bynot v2 — Handover completo
 
 **Data**: 20 maggio 2026
 **Stato**: Produzione live
 **Branch**: `v2/main`
-**Repo**: `git@github-daniele:danielescianna04-dev/drape-react.git`
+**Repo**: `git@github-daniele:danielescianna04-dev/bynot-react.git`
 
 ⚠️ **Questo documento contiene secrets.** È stato committato per scelta esplicita del proprietario. Considera che chiunque abbia accesso al repository ha accesso a tutta l'infrastruttura. Ruota le chiavi quando avrai utenti reali in produzione.
 
@@ -11,13 +11,13 @@
 
 ## 1. Sommario esecutivo
 
-Drape v2 è un rebuild completo (frontend RN preservato, backend riscritto, stack DB sostituito) per ridurre i costi infrastrutturali da **140€/mese → 30€/mese (-79%)** e modernizzare lo stack.
+Bynot v2 è un rebuild completo (frontend RN preservato, backend riscritto, stack DB sostituito) per ridurre i costi infrastrutturali da **140€/mese → 30€/mese (-79%)** e modernizzare lo stack.
 
 ### Stack finale
 
 - **Frontend**: React Native + Expo (riusato)
 - **Backend interno**: Supabase Cloud (auth, DB, storage)
-- **Backend Drape**: Express + opencode su Netcup VPS ARM
+- **Backend Bynot**: Express + opencode su Netcup VPS ARM
 - **DB per app utenti**: Appwrite self-hosted sullo stesso VPS
 - **Preview**: Sandpack in WebView (client-side)
 - **AI**: opencode 1.15.5 + Zen models (free tier)
@@ -37,7 +37,7 @@ Drape v2 è un rebuild completo (frontend RN preservato, backend riscritto, stac
 | Let's Encrypt | €0 |
 | **TOTALE** | **€29.99** |
 
-Vs vecchio Hetzner Drape (140€): **-79% (~110€ risparmiati al mese, ~1.320€/anno)**.
+Vs vecchio Hetzner Bynot (140€): **-79% (~110€ risparmiati al mese, ~1.320€/anno)**.
 
 ---
 
@@ -74,26 +74,26 @@ Vs vecchio Hetzner Drape (140€): **-79% (~110€ risparmiati al mese, ~1.320�
 
 ### 2.4 SSH al VPS
 
-**Chiave privata locale**: `~/.ssh/drape_netcup` (Mac di Daniele)
+**Chiave privata locale**: `~/.ssh/bynot_netcup` (Mac di Daniele)
 **Chiave pubblica caricata su Netcup SCP** come "daniele-mac":
 ```
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHdkY8E6uMREL6ZHj1nGxPajOM0/GsgDoCBIyMr39Z/6 daniele@drape-netcup
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHdkY8E6uMREL6ZHj1nGxPajOM0/GsgDoCBIyMr39Z/6 daniele@bynot-netcup
 ```
 
 **Alias SSH config** in `~/.ssh/config`:
 ```
-Host drape-vps
+Host bynot-vps
     HostName 89.58.27.238
     User root
-    IdentityFile ~/.ssh/drape_netcup
+    IdentityFile ~/.ssh/bynot_netcup
     StrictHostKeyChecking accept-new
 ```
 
 Connessione:
 ```bash
-ssh drape-vps
+ssh bynot-vps
 # oppure
-ssh -i ~/.ssh/drape_netcup root@89.58.27.238
+ssh -i ~/.ssh/bynot_netcup root@89.58.27.238
 ```
 
 **Root password originale Debian iniziale** (sostituita con SSH key, non più usabile):
@@ -161,7 +161,7 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmZWpxeWl
 
 ```
 public.profiles         — estende auth.users (display_name, plan, ecc.)
-public.projects         — app create dagli utenti Drape (+ appwrite_database_id)
+public.projects         — app create dagli utenti Bynot (+ appwrite_database_id)
 public.ai_sessions      — sessioni chat agent per progetto
 public.ai_runs          — turni agent (prompt, response, tokens, cost, tool_calls)
 public.files            — metadata file di ogni progetto (storage_key in bucket)
@@ -203,7 +203,7 @@ SUPABASE_DB_PASSWORD='Rotolone01#@' supabase migration list --linked
 - **Password admin**: `Rotolone01#@##0` ⚠️ (in chat history)
 - Organization: `Personal projects`
 
-### 5.2 Project Drape
+### 5.2 Project Bynot
 
 | Voce | Valore |
 |---|---|
@@ -240,11 +240,11 @@ docker compose down                # stop
 docker compose up -d               # restart
 ```
 
-### 5.5 Pattern provisioning per utenti Drape
+### 5.5 Pattern provisioning per utenti Bynot
 
-- 1 utente Drape → 1 database Appwrite logico (no overhead)
-- Backend Drape crea il database via Management API (`appwriteManagementService.provisionUserDatabase`)
-- Database ID format: `drape-user-{supabase_user_id_no_dashes}`
+- 1 utente Bynot → 1 database Appwrite logico (no overhead)
+- Backend Bynot crea il database via Management API (`appwriteManagementService.provisionUserDatabase`)
+- Database ID format: `bynot-user-{supabase_user_id_no_dashes}`
 - Le credenziali pubbliche (endpoint + project_id) vanno nel codice generato dall'AI
 - Il database_id isola l'utente
 
@@ -269,9 +269,9 @@ Setup Resend (raccomandato):
 
 ---
 
-## 6. Backend Drape v2
+## 6. Backend Bynot v2
 
-**Path sul VPS**: `/root/drape/backend-v2/`
+**Path sul VPS**: `/root/bynot/backend-v2/`
 **Process manager**: pm2 (autostart abilitato)
 **Porta interna**: 3000 (dietro Caddy)
 **URL pubblica**: `https://api.bynot.it`
@@ -287,7 +287,7 @@ Setup Resend (raccomandato):
 
 ### 6.2 .env del backend
 
-File: `/root/drape/backend-v2/.env` (chmod 600)
+File: `/root/bynot/backend-v2/.env` (chmod 600)
 
 ```bash
 NODE_ENV=production
@@ -322,7 +322,7 @@ OPENCODE_API_URL=http://127.0.0.1:4000
 
 | Path | Auth | Cosa fa |
 |---|---|---|
-| `GET /health` | no | Liveness: `{"ok":true,"service":"drape-backend-v2"}` |
+| `GET /health` | no | Liveness: `{"ok":true,"service":"bynot-backend-v2"}` |
 | `GET /health/deep` | no | Verifica Supabase + Appwrite |
 | `POST /api/appwrite/provision` | Bearer | Crea DB Appwrite per progetto utente |
 | `POST /api/appwrite/collections` | Bearer | Crea collection con schema |
@@ -342,11 +342,11 @@ OPENCODE_API_URL=http://127.0.0.1:4000
 
 ```bash
 pm2 list                                    # vedi processi
-pm2 logs drape-backend                      # logs in real-time
-pm2 logs drape-backend --lines 100 --nostream  # ultime 100 linee
-pm2 restart drape-backend --update-env      # restart (rilegge .env)
-pm2 stop drape-backend                      # ferma
-pm2 start drape-backend                     # avvia
+pm2 logs bynot-backend                      # logs in real-time
+pm2 logs bynot-backend --lines 100 --nostream  # ultime 100 linee
+pm2 restart bynot-backend --update-env      # restart (rilegge .env)
+pm2 stop bynot-backend                      # ferma
+pm2 start bynot-backend                     # avvia
 pm2 monit                                   # monitoring TUI
 pm2 save                                    # persisti lista processi
 ```
@@ -354,13 +354,13 @@ pm2 save                                    # persisti lista processi
 ### 6.6 Update + redeploy backend
 
 ```bash
-ssh drape-vps
-cd /root/drape
+ssh bynot-vps
+cd /root/bynot
 git pull
 cd backend-v2
 npm install
 npm run build
-pm2 restart drape-backend --update-env
+pm2 restart bynot-backend --update-env
 ```
 
 ---
@@ -431,7 +431,7 @@ GET  /doc                                → OpenAPI spec (per debug)
 ### 7.4 Upgrade opencode
 
 ```bash
-ssh drape-vps
+ssh bynot-vps
 /root/.opencode/bin/opencode upgrade
 systemctl restart opencode
 ```
@@ -517,9 +517,9 @@ tail -f /var/log/caddy/api.bynot.it.log
 
 ## 9. Frontend RN (Expo)
 
-**Repo**: stesso (`drape-react`)
+**Repo**: stesso (`bynot-react`)
 **Branch v2**: `v2/main` (origin)
-**Path locale Daniele**: `/Users/daniele/drape-react`
+**Path locale Daniele**: `/Users/daniele/bynot-react`
 
 ### 9.1 `.env.development.local`
 
@@ -538,7 +538,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_Rg0fM6KPoq_Yq_Csk4IY4Q_FhSZLd1q
 ### 9.2 Avvio dev
 
 ```bash
-cd /Users/daniele/drape-react
+cd /Users/daniele/bynot-react
 npx expo start --clear      # --clear pulisce Metro cache
 ```
 
@@ -579,10 +579,10 @@ eas build --platform android --profile production
 ### 10.1 Riavviare tutto lo stack sul VPS
 
 ```bash
-ssh drape-vps
+ssh bynot-vps
 
 # Backend
-pm2 restart drape-backend
+pm2 restart bynot-backend
 
 # Appwrite
 cd /opt/appwrite && docker compose restart
@@ -602,7 +602,7 @@ systemctl status opencode caddy
 ### 10.2 Backup completo
 
 ```bash
-ssh drape-vps
+ssh bynot-vps
 
 # Backup MariaDB di Appwrite
 cd /opt/appwrite
@@ -612,7 +612,7 @@ docker compose exec -T mariadb mysqldump --all-databases -uroot -p$(grep _APP_DB
 tar czf /var/backups/appwrite-storage-$(date +%Y%m%d).tar.gz -C /var/lib/docker/volumes/ appwrite_appwrite-uploads appwrite_appwrite-functions
 
 # Backup .env files
-tar czf /var/backups/env-$(date +%Y%m%d).tar.gz /opt/appwrite/.env /root/drape/backend-v2/.env /etc/caddy/Caddyfile
+tar czf /var/backups/env-$(date +%Y%m%d).tar.gz /opt/appwrite/.env /root/bynot/backend-v2/.env /etc/caddy/Caddyfile
 ```
 
 Snapshot Hetzner: configurati settimanali su CCP Netcup (5€/mese opzionale).
@@ -621,7 +621,7 @@ Snapshot Hetzner: configurati settimanali su CCP Netcup (5€/mese opzionale).
 
 ```bash
 # Sul Mac
-cd /Users/daniele/drape-react
+cd /Users/daniele/bynot-react
 
 # Crea nuovo file
 cat > supabase/migrations/$(date +%Y%m%d%H%M%S)_descrizione.sql << EOF
@@ -642,16 +642,16 @@ SUPABASE_DB_PASSWORD='Rotolone01#@' supabase gen types typescript --linked > src
 git push origin v2/main
 
 # Sul VPS
-ssh drape-vps
-cd /root/drape && git pull
+ssh bynot-vps
+cd /root/bynot && git pull
 cd backend-v2 && npm install && npm run build
-pm2 restart drape-backend --update-env
+pm2 restart bynot-backend --update-env
 ```
 
 ### 10.5 Monitoring rapido
 
 ```bash
-ssh drape-vps
+ssh bynot-vps
 
 htop                                # RAM/CPU
 docker stats                        # container Appwrite
@@ -659,7 +659,7 @@ pm2 monit                           # backend
 df -h                               # disco
 journalctl -u opencode -f           # opencode logs
 journalctl -u caddy -f              # caddy logs
-pm2 logs drape-backend              # backend logs
+pm2 logs bynot-backend              # backend logs
 docker compose -f /opt/appwrite/docker-compose.yml logs -f --tail=50 appwrite
 ```
 
@@ -683,7 +683,7 @@ docker compose -f /opt/appwrite/docker-compose.yml logs -f --tail=50 appwrite
 
 ### 11.3 Perché Sandpack (no Docker workspace)
 
-- Vecchio Drape: 1 container Docker per utente attivo = costo lineare
+- Vecchio Bynot: 1 container Docker per utente attivo = costo lineare
 - Sandpack runa nel client (WebView) = compute lato utente = COSTO ZERO per noi
 - Apple-safe (JS interpretato in WebKit, no native code download)
 - Limitazione accettata: solo progetti frontend (no Python/backend custom)
@@ -717,7 +717,7 @@ f27394f feat(v2): supabase client + auth helpers + rewritten authStore
 86a701a feat(v2): backend-v2 scaffold + Appwrite Management service + opencode prompts
 ec17387 feat(v2): backend agent route + opencode HTTP + supabase storage adapter
 32f60c3 feat(v2): SandpackPreview RN + database provisioning UI + backend bridge
-5653151 chore(v2): switch domain drape.info → bynot.it + provider Netcup ARM
+5653151 chore(v2): switch domain bynot.it → bynot.it + provider Netcup ARM
 abfba63 chore(v2): deploy artifacts backend — Caddy, systemd, Dockerfile
 3ab7a51 fix(v2): aggiungi isInitialized + pending new user + stub workstationService
 e8804bb feat(v2): real opencode HTTP protocol integration
@@ -756,8 +756,8 @@ e8804bb feat(v2): real opencode HTTP protocol integration
 
 ### Fuori scope (per ora)
 
-- Drape Pro paid tier (free per il lancio)
-- Drape Mobile companion app
+- Bynot Pro paid tier (free per il lancio)
+- Bynot Mobile companion app
 - Plugin marketplace
 - White-label / multi-tenant
 
@@ -807,7 +807,7 @@ Restart: `cd /opt/appwrite && docker compose down && docker compose up -d`.
 
 Controlla logs:
 ```bash
-pm2 logs drape-backend --lines 50 --nostream
+pm2 logs bynot-backend --lines 50 --nostream
 ```
 Spesso errore env mancante (zod validation fallisce).
 
@@ -816,7 +816,7 @@ Spesso errore env mancante (zod validation fallisce).
 ## 15. Contatti e riferimenti
 
 - **Owner**: Daniele Scianna
-- **Repo**: https://github.com/danielescianna04-dev/drape-react (branch `v2/main`)
+- **Repo**: https://github.com/danielescianna04-dev/bynot-react (branch `v2/main`)
 - **Netcup support**: mail@netcup.de
 - **Supabase status**: https://status.supabase.com
 - **Appwrite docs**: https://appwrite.io/docs
@@ -824,4 +824,4 @@ Spesso errore env mancante (zod validation fallisce).
 
 ---
 
-**Fine documento.** Drape v2 è in produzione.
+**Fine documento.** Bynot v2 è in produzione.

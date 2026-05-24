@@ -3,7 +3,7 @@
     "allow": [
       "Bash(/Users/getmad/.claude/plugins:*)",
       "Bash(setup-ralph-loop:*)",
-      "Bash(curl -s -X POST https://drape-workspaces.fly.dev/exec -H \"Content-Type: application/json\" -d '{\"\"command\"\": \"\"grep -i background /home/coder/project/components/Header.tsx | head -5\"\"}')",
+      "Bash(curl -s -X POST https://bynot-workspaces.fly.dev/exec -H \"Content-Type: application/json\" -d '{\"\"command\"\": \"\"grep -i background /home/coder/project/components/Header.tsx | head -5\"\"}')",
       "Bash(npm run dev:*)",
       "Bash(git log:*)",
       "Bash(git fsck:*)",
@@ -15,7 +15,7 @@
       "Bash(netstat:*)",
       "Bash(findstr:*)",
       "Bash(taskkill:*)",
-      "Bash(dir \"c:\\\\Users\\\\rivas\\\\Projects\\\\drape-react\\\\backend\")",
+      "Bash(dir \"c:\\\\Users\\\\rivas\\\\Projects\\\\bynot-react\\\\backend\")",
       "Bash(cat:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",

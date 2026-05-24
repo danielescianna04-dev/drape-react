@@ -1,5 +1,5 @@
 /**
- * Design tokens from Drape app — keeps video consistent with the real product.
+ * Design tokens from Bynot app — keeps video consistent with the real product.
  */
 export const Colors = {
   // Brand

@@ -237,7 +237,7 @@ class LiveActivityService {
       // their staleDate or when the OS reclaims them.
       if (this.activityId) {
         LiveActivity.stopActivity(this.activityId, {
-          title: this.currentProjectName || 'Drape',
+          title: this.currentProjectName || 'Bynot',
           progressBar: { progress: 1 },
         });
         this.activityId = null;

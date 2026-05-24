@@ -7,7 +7,7 @@
 - Xcode (iOS development)
 - Android Studio (Android development)
 - EAS CLI (`npm install -g eas-cli`)
-- Firebase project (drapev2)
+- Firebase project (bynotv2)
 
 ## Initial Setup
 
@@ -15,7 +15,7 @@
 
 ```bash
 git clone <repo-url>
-cd drape-react
+cd bynot-react
 
 # Automated setup (installs deps + creates .env)
 npm run setup
@@ -43,14 +43,14 @@ npm run build
 **Frontend** (`.env` in root):
 ```
 EXPO_PUBLIC_FIREBASE_API_KEY=<your-key>
-EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=drapev2.firebaseapp.com
-EXPO_PUBLIC_FIREBASE_PROJECT_ID=drapev2
-EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=drapev2.appspot.com
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=bynotv2.firebaseapp.com
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=bynotv2
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=bynotv2.appspot.com
 EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=<your-id>
 EXPO_PUBLIC_FIREBASE_APP_ID=<your-id>
 EXPO_PUBLIC_GITHUB_CLIENT_ID=<your-id>
-EXPO_PUBLIC_API_URL=https://drape.info
-EXPO_PUBLIC_WS_URL=wss://drape.info
+EXPO_PUBLIC_API_URL=https://bynot.it
+EXPO_PUBLIC_WS_URL=wss://bynot.it
 ```
 
 **Backend** (`.env` in `backend-ts/`):
@@ -205,19 +205,19 @@ cd backend-ts
 npm run build
 
 # Deploy (via SCP)
-scp -i ~/.ssh/id_ed25519_drape -r dist/ root@77.42.1.116:/opt/drape-backend/
-scp -i ~/.ssh/id_ed25519_drape package.json root@77.42.1.116:/opt/drape-backend/
+scp -i ~/.ssh/id_ed25519_bynot -r dist/ root@77.42.1.116:/opt/bynot-backend/
+scp -i ~/.ssh/id_ed25519_bynot package.json root@77.42.1.116:/opt/bynot-backend/
 
 # On server
-ssh -i ~/.ssh/id_ed25519_drape root@77.42.1.116
-cd /opt/drape-backend
+ssh -i ~/.ssh/id_ed25519_bynot root@77.42.1.116
+cd /opt/bynot-backend
 npm install --production
-systemctl restart drape-backend
+systemctl restart bynot-backend
 ```
 
 ### Static Website
 
-The marketing website (drape-dev.it) deploys automatically:
+The marketing website (bynot-dev.it) deploys automatically:
 ```bash
 git push origin main   # Triggers GitHub Actions → rsync to server
 ```

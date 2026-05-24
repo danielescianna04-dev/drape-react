@@ -106,8 +106,8 @@ export function usePreviewHealth({
         headers: {
           'Coder-Session-Token': coderToken || '',
           'Accept': 'text/html',
-          'X-Drape-Check': 'true',
-          ...(previewAccessTokenRef.current ? { 'X-Drape-Preview-Token': previewAccessTokenRef.current } : {}),
+          'X-Bynot-Check': 'true',
+          ...(previewAccessTokenRef.current ? { 'X-Bynot-Preview-Token': previewAccessTokenRef.current } : {}),
           ...(flyMachineIdRef.current ? { 'Fly-Force-Instance-Id': flyMachineIdRef.current } : {}),
         },
         signal: controller.signal,
@@ -120,7 +120,7 @@ export function usePreviewHealth({
         return;
       }
 
-      const agentStatus = response.headers.get('X-Drape-Agent-Status');
+      const agentStatus = response.headers.get('X-Bynot-Agent-Status');
       const contentType = response.headers.get('Content-Type') || '';
 
       if (agentStatus === 'waiting') {

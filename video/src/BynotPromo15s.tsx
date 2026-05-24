@@ -7,14 +7,14 @@ import { Scene4AIFeature } from "./scenes/Scene4AIFeature";
 import { Scene7CTA } from "./scenes/Scene7CTA";
 
 /**
- * Drape — 15 second YouTube Ad cut (16:9, 1920x1080, 30fps = 450 frames)
+ * Bynot — 15 second YouTube Ad cut (16:9, 1920x1080, 30fps = 450 frames)
  *
  *   Hook:     0:00 - 0:03.3 (frames 0-99)     100f
  *   Reveal:   0:03.3- 0:05.8(frames 100-174)   75f
  *   Feature:  0:05.8- 0:10.5(frames 175-314)  140f
  *   CTA:      0:10.5- 0:15  (frames 315-449)  135f
  */
-export const DrapePromo15s: React.FC = () => {
+export const BynotPromo15s: React.FC = () => {
   return (
     <AbsoluteFill style={{ background: Colors.bg }} className="notranslate" translate="no">
       <Sequence from={0} durationInFrames={100}>

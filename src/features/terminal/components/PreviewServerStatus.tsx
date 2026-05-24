@@ -147,7 +147,7 @@ const CustomStartCommand: React.FC<{ projectId?: string; t: any }> = ({ projectI
   const handleTap = useCallback(async () => {
     if (!loaded && projectId) {
       try {
-        const content = await WorkstationAPI.readFile(projectId, '.drape.json');
+        const content = await WorkstationAPI.readFile(projectId, '.bynot.json');
         if (content) {
           const config = JSON.parse(content);
           if (config.startCommand) setCommand(config.startCommand);
@@ -164,9 +164,9 @@ const CustomStartCommand: React.FC<{ projectId?: string; t: any }> = ({ projectI
     try {
       const trimmed = command.trim();
       if (trimmed) {
-        await WorkstationAPI.writeFile(projectId, '.drape.json', JSON.stringify({ startCommand: trimmed }, null, 2));
+        await WorkstationAPI.writeFile(projectId, '.bynot.json', JSON.stringify({ startCommand: trimmed }, null, 2));
       } else {
-        try { await WorkstationAPI.deleteFile(projectId, '.drape.json'); } catch {}
+        try { await WorkstationAPI.deleteFile(projectId, '.bynot.json'); } catch {}
       }
       setEditing(false);
     } catch {}

@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { requireAuth, type AuthedRequest } from '../middleware/auth.middleware';
 import { opencodeHttpService } from '../services/opencode-http.service';
-import { buildDrapeSystemPrompt } from '../templates/opencode-system-prompt';
+import { buildBynotSystemPrompt } from '../templates/opencode-system-prompt';
 import { supabaseAdmin } from '../lib/supabase';
 
 /**
@@ -83,7 +83,7 @@ async function handleAgentStream(req: AuthedRequest, res: any): Promise<void> {
     // non-blocking
   }
 
-  const systemContext = buildDrapeSystemPrompt({
+  const systemContext = buildBynotSystemPrompt({
     extraContext: projectName ? `Project name: ${projectName}` : undefined,
   });
 

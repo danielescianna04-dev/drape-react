@@ -4,7 +4,7 @@
 
 **Goal:** Make the preview invisible until verification passes, use Claude Sonnet 4.6 in dev for all AI agents, persist all verification data (screenshots, clicks, paths, fixes), and show a full QA report in Project History.
 
-**Architecture:** Three layers of change: (1) Frontend preview gate + model switch in `usePreviewAutoFix`, (2) Backend persistence of verification data in `.drape/verification-report.json` with a new API endpoint, (3) New UI section in `BuildReportView` to render the full QA report with screenshot grid and navigation test results.
+**Architecture:** Three layers of change: (1) Frontend preview gate + model switch in `usePreviewAutoFix`, (2) Backend persistence of verification data in `.bynot/verification-report.json` with a new API endpoint, (3) New UI section in `BuildReportView` to render the full QA report with screenshot grid and navigation test results.
 
 **Tech Stack:** React Native, Expo, TypeScript, Puppeteer (backend), react-native-view-shot (frontend)
 
@@ -21,7 +21,7 @@
 | `src/features/terminal/components/views/VerificationSection.tsx` | Create | QA report section with screenshot grid + nav results |
 | `src/features/terminal/components/views/ScreenshotModal.tsx` | Create | Fullscreen screenshot viewer modal |
 | `backend-ts/scripts/e2e-check.js` | Modify | Return ALL screenshots (not just errors) |
-| `backend-ts/src/services/verify-project.service.ts` | Modify | Persist full VerificationReport to .drape/verification-report.json |
+| `backend-ts/src/services/verify-project.service.ts` | Modify | Persist full VerificationReport to .bynot/verification-report.json |
 | `backend-ts/src/routes/workstation.routes.ts` | Modify | Add GET/POST verification-report endpoints |
 
 ---
@@ -274,7 +274,7 @@ verificationReport.backendVerification.totalDuration = Date.now() - reportStartT
 
 // Persist to project directory
 try {
-  await fileService.writeFile(projectId, '.drape/verification-report.json',
+  await fileService.writeFile(projectId, '.bynot/verification-report.json',
     JSON.stringify(verificationReport, null, 2));
 } catch (err) {
   console.warn('[Verify] Failed to save verification report:', err);
@@ -310,7 +310,7 @@ workstationRouter.get('/:projectId/verification-report', asyncHandler(async (req
     return res.status(403).json({ error: 'Access denied' });
   }
 
-  const result = await fileService.readFile(projectId, '.drape/verification-report.json');
+  const result = await fileService.readFile(projectId, '.bynot/verification-report.json');
   if (!result.success || !result.data) {
     return res.json({ success: true, report: null });
   }
@@ -342,7 +342,7 @@ workstationRouter.post('/:projectId/verification-report', asyncHandler(async (re
 
   // Read existing report (from backend E2E) or create new
   let report: any = { projectId, backendVerification: null, previewVerification: null };
-  const existing = await fileService.readFile(projectId, '.drape/verification-report.json');
+  const existing = await fileService.readFile(projectId, '.bynot/verification-report.json');
   if (existing.success && existing.data) {
     try { report = JSON.parse(existing.data.content); } catch {}
   }
@@ -351,7 +351,7 @@ workstationRouter.post('/:projectId/verification-report', asyncHandler(async (re
   report.previewVerification = previewVerification;
   report.completedAt = new Date().toISOString();
 
-  await fileService.writeFile(projectId, '.drape/verification-report.json',
+  await fileService.writeFile(projectId, '.bynot/verification-report.json',
     JSON.stringify(report, null, 2));
 
   res.json({ success: true });

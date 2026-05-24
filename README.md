@@ -1,4 +1,4 @@
-# Drape - Mobile AI IDE
+# Bynot - Mobile AI IDE
 
 > React Native + Expo + TypeScript
 
@@ -118,7 +118,7 @@ Backend sources live in `backend-ts/`.
 ## Project Structure
 
 ```
-drape-react/
+bynot-react/
 ├── src/
 │   ├── core/                  # Business logic & state
 │   │   ├── auth/              # Firebase authentication
@@ -208,13 +208,13 @@ drape-react/
 ```
 EXPO_PUBLIC_FIREBASE_API_KEY=
 EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=
-EXPO_PUBLIC_FIREBASE_PROJECT_ID=drapev2
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=bynotv2
 EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=
 EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 EXPO_PUBLIC_FIREBASE_APP_ID=
 EXPO_PUBLIC_GITHUB_CLIENT_ID=
-EXPO_PUBLIC_API_URL=https://drape.info
-EXPO_PUBLIC_WS_URL=wss://drape.info
+EXPO_PUBLIC_API_URL=https://bynot.it
+EXPO_PUBLIC_WS_URL=wss://bynot.it
 EXPO_PUBLIC_ENV=production
 ```
 
@@ -244,14 +244,14 @@ GITHUB_CLIENT_SECRET=
 
 | | |
 |---|---|
-| Bundle ID | com.drape.app |
+| Bundle ID | com.bynot.app |
 | Version | 2.0.2 |
 | Platforms | iOS, Android, Web |
 | Orientation | Portrait |
 | Theme | Dark mode default |
-| Firebase Project | drapev2 |
-| Backend URL | https://drape.info |
-| App Store | [Download](https://apps.apple.com/app/drape/id6758354741) |
+| Firebase Project | bynotv2 |
+| Backend URL | https://bynot.it |
+| App Store | [Download](https://apps.apple.com/app/bynot/id6758354741) |
 
 ## License
 

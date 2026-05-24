@@ -11,7 +11,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const STORAGE_KEY = 'drape:pending_jobs:v1';
+const STORAGE_KEY = 'bynot:pending_jobs:v1';
 
 type Map_ = Record<string /* projectId */, string /* jobId */>;
 

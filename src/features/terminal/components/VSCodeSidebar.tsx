@@ -596,7 +596,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   return (
     <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden, hideSidebar, showSidebar, forceHideToggle, setForceHideToggle }}>
-      {/* ─── DRAPEMOB: Sidebar, TabBar, Panels — COMMENTED OUT ─── */}
+      {/* ─── BYNOTMOB: Sidebar, TabBar, Panels — COMMENTED OUT ─── */}
       {/* Old sidebar edge swipe pill */}
       {/* Old sidebar icon bar (GestureDetector + Animated.View with styles.iconBar) */}
       {/* Old TabBar */}

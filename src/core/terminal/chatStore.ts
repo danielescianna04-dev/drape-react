@@ -8,8 +8,8 @@ import { AppColors } from '../../shared/theme/colors';
 
 // AsyncStorage keys
 const STORAGE_KEYS = {
-  CHAT_HISTORY: '@drape_chat_history',
-  CHAT_FOLDERS: '@drape_chat_folders',
+  CHAT_HISTORY: '@bynot_chat_history',
+  CHAT_FOLDERS: '@bynot_chat_folders',
 };
 
 // Helper functions for AsyncStorage

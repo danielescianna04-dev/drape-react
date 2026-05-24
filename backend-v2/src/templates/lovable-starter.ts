@@ -1,5 +1,5 @@
 /**
- * Lovable-style starter — the exact boilerplate every new Drape project
+ * Lovable-style starter — the exact boilerplate every new Bynot project
  * begins from. Mirrors the Lovable.dev base: Vite + React 18 + TypeScript +
  * TailwindCSS + shadcn/ui + react-router-dom + @tanstack/react-query.
  *
@@ -14,7 +14,7 @@ export interface StarterFile {
 
 const packageJson = JSON.stringify(
   {
-    name: 'drape-app',
+    name: 'bynot-app',
     private: true,
     version: '0.1.0',
     type: 'module',
@@ -154,7 +154,7 @@ const indexHtml = `<!doctype html>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Drape App</title>
+    <title>Bynot App</title>
   </head>
   <body>
     <div id="root"></div>
@@ -256,7 +256,7 @@ export default function Index() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
       <div className="text-center space-y-4">
-        <h1 className="text-4xl font-bold tracking-tight">Welcome to your Drape app</h1>
+        <h1 className="text-4xl font-bold tracking-tight">Welcome to your Bynot app</h1>
         <p className="text-muted-foreground">Start editing src/pages/Index.tsx to build something amazing.</p>
         <Button>Get started</Button>
       </div>

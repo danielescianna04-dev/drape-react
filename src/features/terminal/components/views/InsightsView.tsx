@@ -1,4 +1,4 @@
-// Insights — page-level dossier for a published Drape project.
+// Insights — page-level dossier for a published Bynot project.
 // Visual style matches the rest of the app (Settings/Chat): purple gradient
 // backdrop, Liquid Glass cards, standard typography. Renders inside a tab.
 
@@ -223,7 +223,7 @@ const AnalyticsSection: React.FC<{ projectId: string }> = ({ projectId }) => {
     [data],
   );
 
-  const url = slug ? `https://${slug}.drape.info` : '';
+  const url = slug ? `https://${slug}.bynot.it` : '';
 
   const onShare = useCallback(() => {
     if (url) Share.share({ url, message: url }).catch(() => {});
@@ -632,7 +632,7 @@ const DomainSection: React.FC<{ projectId: string }> = ({ projectId }) => {
       }
       setInstructions({
         name: j.instructions?.name || domain,
-        value: j.instructions?.value || 'cname.drape.app',
+        value: j.instructions?.value || 'cname.bynot.app',
       });
       setInput('');
       await load();
@@ -772,7 +772,7 @@ const DomainSection: React.FC<{ projectId: string }> = ({ projectId }) => {
         <EmptyBlock
           icon="globe-outline"
           title="Nessun dominio personalizzato"
-          copy="Aggiungine uno qui sopra. Il progetto resta raggiungibile sul subdominio drape.info."
+          copy="Aggiungine uno qui sopra. Il progetto resta raggiungibile sul subdominio bynot.it."
         />
       )}
     </View>

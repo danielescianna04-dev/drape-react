@@ -48,7 +48,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 const server = app.listen(env.PORT, () => {
-  console.log(`drape-backend-v2 listening on :${env.PORT}`);
+  console.log(`bynot-backend-v2 listening on :${env.PORT}`);
   console.log(`  Supabase: ${env.SUPABASE_URL}`);
   console.log(`  Appwrite: ${env.APPWRITE_ENDPOINT}`);
 });

@@ -1,8 +1,8 @@
-# Drape Ops Handbook
+# Bynot Ops Handbook
 
-Come è fatta Drape oggi (May 2026), come si lavora, come si deploya.
+Come è fatta Bynot oggi (May 2026), come si lavora, come si deploya.
 
-Setup precedente (Hetzner, dev/prod split, `./drape` CLI, backend-ts) è **dismesso**. Vedi git history pre-cleanup se serve archeologia.
+Setup precedente (Hetzner, dev/prod split, `./bynot` CLI, backend-ts) è **dismesso**. Vedi git history pre-cleanup se serve archeologia.
 
 ---
 
@@ -10,7 +10,7 @@ Setup precedente (Hetzner, dev/prod split, `./drape` CLI, backend-ts) è **disme
 
 ```
 ┌────────────────────────────────────────────┐
-│ Drape App (RN + Expo + iOS native)         │
+│ Bynot App (RN + Expo + iOS native)         │
 │ Branch: v2/main                            │
 │ Deploy: EAS OTA + TestFlight                │
 └────────┬───────────────────────────────────┘
@@ -19,7 +19,7 @@ Setup precedente (Hetzner, dev/prod split, `./drape` CLI, backend-ts) è **disme
 ┌────────────────────────────────────────────┐
 │ api.bynot.it (Netcup VPS)                  │
 │ Express backend (backend-v2/)              │
-│ Process: pm2 unit "drape-backend"          │
+│ Process: pm2 unit "bynot-backend"          │
 │ Port: 3000 (dietro Caddy reverse proxy)    │
 └────────┬───────────────────────────────────┘
          │ HTTP 127.0.0.1:4000
@@ -46,33 +46,33 @@ Setup precedente (Hetzner, dev/prod split, `./drape` CLI, backend-ts) è **disme
 
 | | |
 |---|---|
-| Host SSH | `drape-vps` (alias in `~/.ssh/config`) |
+| Host SSH | `bynot-vps` (alias in `~/.ssh/config`) |
 | IP | `89.58.27.238` |
 | Specs | 8 vCPU ARM / 32 GB RAM / ~400 GB SSD |
 | OS | Ubuntu (rolling) |
-| Key | `~/.ssh/drape_netcup` |
+| Key | `~/.ssh/bynot_netcup` |
 | API esposto | `https://api.bynot.it` |
 | Reverse proxy | Caddy (HTTPS + auto-cert Let's Encrypt) |
 
 Accesso:
 
 ```bash
-ssh drape-vps
-# Stessa cosa di: ssh -i ~/.ssh/drape_netcup root@89.58.27.238
+ssh bynot-vps
+# Stessa cosa di: ssh -i ~/.ssh/bynot_netcup root@89.58.27.238
 ```
 
 ### Cosa gira sul server
 
 | Servizio | Manager | Path | Note |
 |---|---|---|---|
-| `drape-backend` | pm2 | `/root/drape/backend-v2` | Express + Supabase + opencode client |
+| `bynot-backend` | pm2 | `/root/bynot/backend-v2` | Express + Supabase + opencode client |
 | `opencode.service` | systemd | binary in `/root/.opencode/bin` | LLM gateway su 127.0.0.1:4000 |
 | `caddy.service` | systemd | `/etc/caddy/` | HTTPS reverse proxy |
 | `appwrite-*` (varie) | docker | `/root/appwrite` | Backend Appwrite self-hosted |
 
 Status check:
 ```bash
-ssh drape-vps "pm2 status drape-backend && systemctl status opencode --no-pager -n 5"
+ssh bynot-vps "pm2 status bynot-backend && systemctl status opencode --no-pager -n 5"
 ```
 
 ---
@@ -86,15 +86,15 @@ Niente più script automatici. Workflow manuale ma semplice:
 git push origin <branch>
 
 # 2. SSH al Netcup
-ssh drape-vps
+ssh bynot-vps
 
 # 3. Pull + build + restart
-cd /root/drape
+cd /root/bynot
 git fetch origin <branch> && git reset --hard FETCH_HEAD
 cd backend-v2
 npm install --no-audit --no-fund     # solo se package.json cambiato
 npm run build
-pm2 restart drape-backend
+pm2 restart bynot-backend
 sleep 3
 curl -s https://api.bynot.it/health
 ```
@@ -104,24 +104,24 @@ Il branch attuale di produzione è `feat/vercel-ai-sdk-migration` (transizione i
 ### Logs
 
 ```bash
-ssh drape-vps "pm2 logs drape-backend --lines 100 --nostream"
+ssh bynot-vps "pm2 logs bynot-backend --lines 100 --nostream"
 # oppure live:
-ssh drape-vps "pm2 logs drape-backend"
+ssh bynot-vps "pm2 logs bynot-backend"
 ```
 
 ### Restart manuale (se non hai cambi)
 
 ```bash
-ssh drape-vps "pm2 restart drape-backend"
+ssh bynot-vps "pm2 restart bynot-backend"
 ```
 
 ### .env
 
 ```bash
-ssh drape-vps "cat /root/drape/backend-v2/.env"
+ssh bynot-vps "cat /root/bynot/backend-v2/.env"
 ```
 
-Modifiche `.env` → `pm2 restart drape-backend --update-env` per ricaricare.
+Modifiche `.env` → `pm2 restart bynot-backend --update-env` per ricaricare.
 
 Variabili chiave:
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
@@ -140,7 +140,7 @@ Default model: `openrouter/deepseek/deepseek-v4-pro` (parseModel in `opencode-ht
 
 1. Account: openrouter.ai
 2. Deposito $5 minimum (caricato)
-3. API key in `/root/drape/backend-v2/.env` come `OPENROUTER_API_KEY`
+3. API key in `/root/bynot/backend-v2/.env` come `OPENROUTER_API_KEY`
 4. **systemd drop-in** propaga la key a opencode:
    ```
    /etc/systemd/system/opencode.service.d/openrouter-env.conf
@@ -155,7 +155,7 @@ Default model: `openrouter/deepseek/deepseek-v4-pro` (parseModel in `opencode-ht
 ### Verificare che opencode veda OpenRouter
 
 ```bash
-ssh drape-vps "curl -s http://127.0.0.1:4000/config/providers | python3 -c 'import sys,json; print([p[\"id\"] for p in json.load(sys.stdin)[\"providers\"]])'"
+ssh bynot-vps "curl -s http://127.0.0.1:4000/config/providers | python3 -c 'import sys,json; print([p[\"id\"] for p in json.load(sys.stdin)[\"providers\"]])'"
 # Output atteso: ['opencode', 'openrouter']
 ```
 
@@ -163,13 +163,13 @@ ssh drape-vps "curl -s http://127.0.0.1:4000/config/providers | python3 -c 'impo
 
 ```bash
 # 1. Aggiorna .env backend
-ssh drape-vps "nano /root/drape/backend-v2/.env"   # cambia OPENROUTER_API_KEY=...
+ssh bynot-vps "nano /root/bynot/backend-v2/.env"   # cambia OPENROUTER_API_KEY=...
 
 # 2. Aggiorna drop-in systemd
-ssh drape-vps "nano /etc/systemd/system/opencode.service.d/openrouter-env.conf"
+ssh bynot-vps "nano /etc/systemd/system/opencode.service.d/openrouter-env.conf"
 
 # 3. Reload + restart
-ssh drape-vps "systemctl daemon-reload && systemctl restart opencode && pm2 restart drape-backend --update-env"
+ssh bynot-vps "systemctl daemon-reload && systemctl restart opencode && pm2 restart bynot-backend --update-env"
 ```
 
 ### Monitorare consumo
@@ -192,7 +192,7 @@ Se DeepSeek V4-Pro fallisce/satura:
 
 ---
 
-## 5. Frontend (Drape app)
+## 5. Frontend (Bynot app)
 
 ### Run locale
 
@@ -264,13 +264,13 @@ Dashboard: https://supabase.com/dashboard/project/pfejqyiakkywzdzfoxce
 ```bash
 git add -A && git commit -m "fix: ..."
 git push
-ssh drape-vps "cd /root/drape && git pull && cd backend-v2 && npm run build && pm2 restart drape-backend"
+ssh bynot-vps "cd /root/bynot && git pull && cd backend-v2 && npm run build && pm2 restart bynot-backend"
 ```
 
 ### Vedo errori in produzione
 
 ```bash
-ssh drape-vps "pm2 logs drape-backend --lines 200 --nostream"
+ssh bynot-vps "pm2 logs bynot-backend --lines 200 --nostream"
 ```
 
 Cerca per `Error:`, `error`, `ECONNREFUSED`, ecc.
@@ -283,7 +283,7 @@ Cerca per `Error:`, `error`, `ECONNREFUSED`, ecc.
 ### opencode non risponde
 
 ```bash
-ssh drape-vps "systemctl restart opencode && sleep 5 && curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4000/"
+ssh bynot-vps "systemctl restart opencode && sleep 5 && curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4000/"
 ```
 
 ### Voglio testare un modello AI diverso
@@ -305,11 +305,11 @@ Lista completa: `curl https://openrouter.ai/api/v1/models`.
 | Sintomo | Causa probabile | Fix |
 |---|---|---|
 | `Missing bearer token` su /agent/v2/chat | OK, auth richiesta — dall'app è transparente | usa header `Authorization: Bearer <supabase_token>` |
-| Backend 502/503 | pm2 down o opencode down | `ssh drape-vps "pm2 restart drape-backend && systemctl restart opencode"` |
+| Backend 502/503 | pm2 down o opencode down | `ssh bynot-vps "pm2 restart bynot-backend && systemctl restart opencode"` |
 | `Missing Authentication header` da OpenRouter | env var non propagata | check `/etc/systemd/system/opencode.service.d/openrouter-env.conf` + `systemctl daemon-reload + restart opencode` |
 | Costi OpenRouter sospetti | qualcuno usa l'API key | rotala su openrouter.ai/keys + aggiorna .env e systemd drop-in |
 | App stuck su splash | Firebase token issue | re-login su app, controlla `googleServicesFile` in `app.config.ts` |
-| Stream SSE si chiude prematuramente | nginx/Caddy timeout o pm2 timeout | check Caddy log: `ssh drape-vps "journalctl -u caddy -n 50"` |
+| Stream SSE si chiude prematuramente | nginx/Caddy timeout o pm2 timeout | check Caddy log: `ssh bynot-vps "journalctl -u caddy -n 50"` |
 | `npm run build` errori TS | type drift dopo merge | `cd backend-v2 && npx tsc --noEmit` per vedere tutti gli errori |
 
 ---
@@ -318,21 +318,21 @@ Lista completa: `curl https://openrouter.ai/api/v1/models`.
 
 ```bash
 # Connettersi
-ssh drape-vps
+ssh bynot-vps
 
 # Deploy backend (sul mac)
-git push && ssh drape-vps "cd /root/drape && git pull && cd backend-v2 && npm run build && pm2 restart drape-backend"
+git push && ssh bynot-vps "cd /root/bynot && git pull && cd backend-v2 && npm run build && pm2 restart bynot-backend"
 
 # Logs live
-ssh drape-vps "pm2 logs drape-backend"
+ssh bynot-vps "pm2 logs bynot-backend"
 
 # Health
 curl https://api.bynot.it/health
 
 # Restart services
-ssh drape-vps "pm2 restart drape-backend"
-ssh drape-vps "systemctl restart opencode"
-ssh drape-vps "systemctl restart caddy"
+ssh bynot-vps "pm2 restart bynot-backend"
+ssh bynot-vps "systemctl restart opencode"
+ssh bynot-vps "systemctl restart caddy"
 
 # Frontend OTA
 EXPO_PUBLIC_ENV=production EXPO_PUBLIC_API_URL=https://api.bynot.it \
@@ -342,7 +342,7 @@ EXPO_PUBLIC_ENV=production EXPO_PUBLIC_API_URL=https://api.bynot.it \
 curl -H "Authorization: Bearer $OPENROUTER_API_KEY" https://openrouter.ai/api/v1/auth/key
 
 # opencode providers/modelli
-ssh drape-vps "curl -s http://127.0.0.1:4000/config/providers | python3 -c 'import sys,json; d=json.load(sys.stdin); [print(p[\"id\"], len(p.get(\"models\") or {})) for p in d[\"providers\"]]'"
+ssh bynot-vps "curl -s http://127.0.0.1:4000/config/providers | python3 -c 'import sys,json; d=json.load(sys.stdin); [print(p[\"id\"], len(p.get(\"models\") or {})) for p in d[\"providers\"]]'"
 ```
 
 ---
@@ -352,8 +352,8 @@ ssh drape-vps "curl -s http://127.0.0.1:4000/config/providers | python3 -c 'impo
 Tutto quello che è stato rimosso nel cleanup del 2026-05-24:
 
 - ❌ `backend-ts/` (era il vecchio backend, ora morto)
-- ❌ `./drape` script (era CLI per Hetzner, ora dismesso)
-- ❌ `dev.drape.info` / `drape.info` (vecchi domini Hetzner)
+- ❌ `./bynot` script (era CLI per Hetzner, ora dismesso)
+- ❌ `dev.bynot.it` / `bynot.it` (vecchi domini Hetzner)
 - ❌ `update-dev.sh`, `update-prod.sh`, `deploy-backend.sh` (script Hetzner)
-- ❌ Systemd unit `drape-backend-dev` / `drape-backend` separati (era setup Hetzner)
+- ❌ Systemd unit `bynot-backend-dev` / `bynot-backend` separati (era setup Hetzner)
 - ❌ Big-pickle / deepseek-v4-flash-free come default (sostituiti da DeepSeek V4-Pro via OpenRouter)

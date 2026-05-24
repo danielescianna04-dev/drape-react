@@ -109,7 +109,7 @@ export const useWorkstationStore = create<WorkstationState>((set, get) => ({
         name: cp.name,
         type: 'local' as const,
         status: 'idle' as const,
-        cloudPath: `gs://drape-projects/projects/${cp.id}`
+        cloudPath: `gs://bynot-projects/projects/${cp.id}`
       }));
       
       set({ projects });

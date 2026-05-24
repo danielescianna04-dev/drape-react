@@ -15,8 +15,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../shared/theme/colors';
 import { useConsentStore, isConsentComplete } from '../services/consentService';
 
-const TERMS_URL = 'https://www.drape-dev.it/terms-of-service.html';
-const PRIVACY_URL = 'https://www.drape-dev.it/privacy-policy.html';
+const TERMS_URL = 'https://www.bynot-dev.it/terms-of-service.html';
+const PRIVACY_URL = 'https://www.bynot-dev.it/privacy-policy.html';
 
 interface ConsentBannerProps {
   mode?: 'modal' | 'screen' | 'embedded' | 'step';

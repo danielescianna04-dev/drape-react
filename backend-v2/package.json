@@ -1,7 +1,7 @@
 {
-  "name": "drape-backend-v2",
+  "name": "bynot-backend-v2",
   "version": "0.1.0",
-  "description": "Drape v2 backend — Express + Supabase + Appwrite (no Docker workspaces)",
+  "description": "Bynot v2 backend — Express + Supabase + Appwrite (no Docker workspaces)",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",

@@ -1,14 +1,14 @@
 // Hetzner Docker-Native backend (TypeScript)
-// HTTPS via drape.info (nginx reverse proxy + Let's Encrypt)
-const PRODUCTION_URL = 'https://drape.info';
-const PRODUCTION_WS_URL = 'wss://drape.info';
+// HTTPS via bynot.it (nginx reverse proxy + Let's Encrypt)
+const PRODUCTION_URL = 'https://bynot.it';
+const PRODUCTION_WS_URL = 'wss://bynot.it';
 
 // Dev: point to Hetzner dev backend
-const LOCAL_URL = 'https://dev.drape.info';
-const LOCAL_WS_URL = 'wss://dev.drape.info';
+const LOCAL_URL = 'https://dev.bynot.it';
+const LOCAL_WS_URL = 'wss://dev.bynot.it';
 
 // Coder (workspace) URL
-const CODER_URL = process.env.EXPO_PUBLIC_CODER_URL || 'https://drape.info';
+const CODER_URL = process.env.EXPO_PUBLIC_CODER_URL || 'https://bynot.it';
 
 // @ts-ignore - __DEV__ is a React Native global (false in release builds)
 const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || (typeof __DEV__ !== 'undefined' && !__DEV__);
@@ -41,14 +41,14 @@ export const config = {
   // GitHub OAuth
   github: {
     clientId: process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || '',
-    redirectUri: 'drape://github-callback',
+    redirectUri: 'bynot://github-callback',
   },
 
   // Google Cloud Project
   googleCloud: {
-    projectId: 'drapev2',
+    projectId: 'bynotv2',
     region: 'us-central1',
-    repository: 'drape-repo',
+    repository: 'bynot-repo',
   },
 
   // Configuration

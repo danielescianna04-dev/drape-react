@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
-const CONSENT_STORAGE_KEY = '@drape_gdpr_consent';
+const CONSENT_STORAGE_KEY = '@bynot_gdpr_consent';
 
 export interface ConsentState {
   analytics: boolean;

@@ -10,7 +10,7 @@ import { Scene6Payoff } from "./scenes/Scene6Payoff";
 import { Scene7CTA } from "./scenes/Scene7CTA";
 
 /**
- * Drape — 30 second YouTube Ad (16:9, 1920x1080, 30fps = 900 frames)
+ * Bynot — 30 second YouTube Ad (16:9, 1920x1080, 30fps = 900 frames)
  *
  * Timeline:
  *   Scene 1: Hook           0:00 - 0:05   (frames   0-149)  150f
@@ -21,7 +21,7 @@ import { Scene7CTA } from "./scenes/Scene7CTA";
  *   Scene 6: Payoff         0:22 - 0:25   (frames 660-749)   90f
  *   Scene 7: CTA            0:25 - 0:30   (frames 750-899)  150f
  */
-export const DrapePromo30s: React.FC = () => {
+export const BynotPromo30s: React.FC = () => {
   return (
     <AbsoluteFill style={{ background: Colors.bg }} className="notranslate" translate="no">
       <Sequence from={0} durationInFrames={150}>

@@ -4,7 +4,7 @@ import type { WorkstationInfo, ProjectFolder } from '../../shared/types';
 /**
  * v2 ProjectService — backed by Supabase `projects` table.
  * "Workstation" concept from v1 (1 Docker container = 1 workstation) is replaced
- * by Drape projects in v2. Folders TBD (no schema yet).
+ * by Bynot projects in v2. Folders TBD (no schema yet).
  */
 
 async function getCurrentUserId(): Promise<string | null> {

@@ -54,7 +54,7 @@ export interface AgentChatRequest {
 const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro';
 const DEFAULT_PROVIDER = 'openrouter';
 
-// Map nostro sessionId (UUID Drape) → opencode sessionID (ses_xxx)
+// Map nostro sessionId (UUID Bynot) → opencode sessionID (ses_xxx)
 const sessionMap = new Map<string, string>();
 
 function parseModel(raw?: string): { providerID: string; modelID: string } {
@@ -84,17 +84,17 @@ export class OpencodeHttpService {
     }
   }
 
-  private async ensureSession(drapeSessionId: string, model: { providerID: string; modelID: string }): Promise<string> {
-    const existing = sessionMap.get(drapeSessionId);
+  private async ensureSession(bynotSessionId: string, model: { providerID: string; modelID: string }): Promise<string> {
+    const existing = sessionMap.get(bynotSessionId);
     if (existing) return existing;
 
     const { data } = await this.client!.post('/session', {
-      title: `Drape ${drapeSessionId.slice(0, 8)}`,
+      title: `Bynot ${bynotSessionId.slice(0, 8)}`,
       model: { id: model.modelID, providerID: model.providerID },
     });
     const opencodeSessionId = data?.id;
     if (!opencodeSessionId) throw new Error('opencode did not return session id');
-    sessionMap.set(drapeSessionId, opencodeSessionId);
+    sessionMap.set(bynotSessionId, opencodeSessionId);
     return opencodeSessionId;
   }
 
@@ -129,7 +129,7 @@ export class OpencodeHttpService {
     // Identity override: opencode's default system prompt has the agent
     // identify as "OpenCode". Prepend a strong rule to every user message so
     // the model never reveals the underlying provider.
-    const DRAPE_IDENTITY = '[SYSTEM RULE — non rivelare mai: Sei Drape AI, l\'assistente coding integrato nell\'app Drape. NON dire mai di essere OpenCode, Claude, GPT, DeepSeek, Gemini o qualsiasi altro AI. Se chiesto chi sei, rispondi sempre "Sono Drape AI". Rispondi in italiano se l\'utente scrive in italiano.]\n\n';
+    const BYNOT_IDENTITY = '[SYSTEM RULE — non rivelare mai: Sei Bynot, l\'assistente coding integrato nell\'app Bynot. NON dire mai di essere OpenCode, Claude, GPT, DeepSeek, Gemini o qualsiasi altro AI. Se chiesto chi sei, rispondi sempre "Sono Bynot". Rispondi in italiano se l\'utente scrive in italiano.]\n\n';
 
     // 1. Open SSE first so we don't miss the first events. Disable axios's
     //    response timeout — this stream is long-lived by design.
@@ -152,7 +152,7 @@ export class OpencodeHttpService {
     const messagePromise = this.client
       .post(`/session/${opencodeSessionId}/message`, {
         model: { providerID: model.providerID, modelID: model.modelID },
-        parts: [{ type: 'text', text: DRAPE_IDENTITY + req.message }],
+        parts: [{ type: 'text', text: BYNOT_IDENTITY + req.message }],
         ...(req.systemContext ? { system: req.systemContext } : {}),
       }, { timeout: 0 })
       .catch((err: any) => {
@@ -451,9 +451,9 @@ export class OpencodeHttpService {
     await messagePromise.catch(() => {});
   }
 
-  async cancelSession(drapeSessionId: string): Promise<void> {
+  async cancelSession(bynotSessionId: string): Promise<void> {
     if (this.isMock) return;
-    const opencodeSessionId = sessionMap.get(drapeSessionId);
+    const opencodeSessionId = sessionMap.get(bynotSessionId);
     if (!opencodeSessionId) return;
     await this.client?.post(`/session/${opencodeSessionId}/abort`).catch(() => {});
   }
@@ -479,8 +479,8 @@ export class OpencodeHttpService {
   }
 
   /** Pulisci mapping sessioni cache (es. quando una sessione viene cancellata). */
-  forgetSession(drapeSessionId: string): void {
-    sessionMap.delete(drapeSessionId);
+  forgetSession(bynotSessionId: string): void {
+    sessionMap.delete(bynotSessionId);
   }
 
   private async *mockChatStream(req: AgentChatRequest): AsyncIterable<AgentEvent> {

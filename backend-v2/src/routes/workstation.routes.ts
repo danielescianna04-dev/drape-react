@@ -10,7 +10,7 @@ export const workstationRouter = Router();
 
 /**
  * POST /workstation/create-with-template
- * Crea un progetto Drape (riga in `projects`) e ritorna il projectId.
+ * Crea un progetto Bynot (riga in `projects`) e ritorna il projectId.
  * Sostituisce l'endpoint v1 che provisionava un Docker workspace.
  */
 const createBodySchema = z.object({

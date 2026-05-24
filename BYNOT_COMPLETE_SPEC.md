@@ -1,4 +1,4 @@
-# DRAPE AI - Specifica Tecnica Completa Unificata
+# BYNOT AI - Specifica Tecnica Completa Unificata
 
 > Documento unificato che copre: Agent Loop, Tool System, Fast/Planning Mode, Context Persistence, Chat UI
 
@@ -100,7 +100,7 @@ while (iteration < maxIterations && !completionSignal) {
 │  │                              │                                      │ │
 │  │                              ▼                                      │ │
 │  │    ┌─────────────────────────────────────────────────────────────┐ │ │
-│  │    │ SAVE CONTEXT → .drape/project.json                          │ │ │
+│  │    │ SAVE CONTEXT → .bynot/project.json                          │ │ │
 │  │    │ {                                                            │ │ │
 │  │    │   "description": "sito per negozio vape...",                │ │ │
 │  │    │   "industry": "vape-shop",                                   │ │ │
@@ -124,7 +124,7 @@ while (iteration < maxIterations && !completionSignal) {
 │  ┌────────────────────────────────────────────────────────────────────┐ │
 │  │ 3. USER OPENS AI CHAT                                               │ │
 │  │                                                                     │ │
-│  │    System reads .drape/project.json                                │ │
+│  │    System reads .bynot/project.json                                │ │
 │  │    → Injects context into system prompt                            │ │
 │  │                                                                     │ │
 │  │    User: "il sito che hai creato di cosa è?"                       │ │
@@ -296,13 +296,13 @@ while (iteration < maxIterations && !completionSignal) {
 /**
  * Build system prompt based on mode and project context
  * @param {string} mode - 'fast' | 'planning' | 'executing'
- * @param {object} projectContext - From .drape/project.json
+ * @param {object} projectContext - From .bynot/project.json
  * @param {object} additionalContext - Plan content, etc.
  */
 function buildSystemPrompt(mode = 'fast', projectContext = null, additionalContext = {}) {
 
     // === BASE PROMPT ===
-    let prompt = `You are DRAPE AI, an autonomous software development agent.
+    let prompt = `You are BYNOT AI, an autonomous software development agent.
 You operate inside a Linux VM with direct filesystem and terminal access.
 
 ## YOUR CAPABILITIES
@@ -488,7 +488,7 @@ When errors occur:
 ### 4.1 Project Context Schema
 
 ```javascript
-// .drape/project.json - Created when project is generated
+// .bynot/project.json - Created when project is generated
 {
     "name": "vape-shop-website",
     "description": "Crea un sito per un negozio di vape con prodotti e carrello",
@@ -550,8 +550,8 @@ async function saveProjectContext(vmInfo, projectData) {
         features: extractFeatures(projectData.description)
     };
 
-    // Create .drape folder and save context
-    const cmd = `mkdir -p /home/coder/project/.drape && cat > /home/coder/project/.drape/project.json << 'EOF'
+    // Create .bynot folder and save context
+    const cmd = `mkdir -p /home/coder/project/.bynot && cat > /home/coder/project/.bynot/project.json << 'EOF'
 ${JSON.stringify(context, null, 2)}
 EOF`;
 
@@ -590,7 +590,7 @@ async function loadProjectContext(vmInfo) {
     try {
         const result = await flyService.exec(
             vmInfo.agentUrl,
-            'cat /home/coder/project/.drape/project.json',
+            'cat /home/coder/project/.bynot/project.json',
             '/home/coder/project',
             vmInfo.machineId,
             5000
@@ -973,7 +973,7 @@ class AgentLoop extends EventEmitter {
         try {
             const result = await flyService.exec(
                 vmInfo.agentUrl,
-                'cat /home/coder/project/.drape/project.json',
+                'cat /home/coder/project/.bynot/project.json',
                 '/home/coder/project',
                 vmInfo.machineId,
                 5000
@@ -1054,7 +1054,7 @@ class AgentLoop extends EventEmitter {
 
     // Tool implementations...
     async _writeFile(agentUrl, machineId, path, content) {
-        const cmd = `mkdir -p "$(dirname "/home/coder/project/${path}")" && cat > "/home/coder/project/${path}" << 'DRAPE_EOF'\n${content}\nDRAPE_EOF`;
+        const cmd = `mkdir -p "$(dirname "/home/coder/project/${path}")" && cat > "/home/coder/project/${path}" << 'BYNOT_EOF'\n${content}\nBYNOT_EOF`;
         const result = await flyService.exec(agentUrl, cmd, '/home/coder/project', machineId, 30000);
         return result.exitCode === 0 ? `SUCCESS: Written ${path}` : `ERROR: ${result.stderr}`;
     }
@@ -1646,7 +1646,7 @@ src/
 backend/
 ├── index.js           # Add routes
 └── routes/
-    └── workstation.js # Save .drape/project.json
+    └── workstation.js # Save .bynot/project.json
 
 src/
 └── features/ai-chat/
@@ -1659,7 +1659,7 @@ src/
 
 | Feature | Description |
 |---------|-------------|
-| **Context Persistence** | `.drape/project.json` stores original description |
+| **Context Persistence** | `.bynot/project.json` stores original description |
 | **Industry Detection** | Auto-detects from description (vape, restaurant, etc.) |
 | **Fast Mode** | Immediate execution, all tools, self-correction |
 | **Planning Mode** | Read-only → Plan → Approve → Execute |

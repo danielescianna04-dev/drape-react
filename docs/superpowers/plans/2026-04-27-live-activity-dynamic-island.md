@@ -5,7 +5,7 @@
 **Goal:** Show real-time generation progress in iOS Dynamic Island + Lock Screen Live Activity while user is outside the app, with remote APNs updates so the activity keeps refreshing even after iOS suspends the app.
 
 **Architecture:**
-1. **Widget Extension target** (`DrapeDevWidgetExtension`) hosts the SwiftUI UI for Dynamic Island + Lock Screen.
+1. **Widget Extension target** (`BynotDevWidgetExtension`) hosts the SwiftUI UI for Dynamic Island + Lock Screen.
 2. **Shared `ActivityAttributes` framework** (compiled into both app + widget via shared Swift file) defines the data contract.
 3. **`PreviewActivityModule`** — RN bridge module (Swift + Obj-C `.m`) implements all methods JS already calls (`startActivity`, `updateActivity`, `endActivity`, `endActivityWithSuccess`, `beginBackgroundTask`, `endBackgroundTask`, `endAllActivities`, `requestNotificationPermission`).
 4. **Backend APNs Live Activity push** (Phase 2) sends `apns-push-type: liveactivity` updates so Dynamic Island reflects real progress when the JS poller is suspended.
@@ -17,10 +17,10 @@
 - Info.plist: `NSSupportsLiveActivities=true` (already set)
 
 **Bundle IDs:**
-- App (dev): `com.drape.app.dev`
-- Widget Ext (dev): `com.drape.app.dev.LiveActivityWidget`
-- App (prod): `com.drape.app`
-- Widget Ext (prod): `com.drape.app.LiveActivityWidget`
+- App (dev): `com.bynot.app.dev`
+- Widget Ext (dev): `com.bynot.app.dev.LiveActivityWidget`
+- App (prod): `com.bynot.app`
+- Widget Ext (prod): `com.bynot.app.LiveActivityWidget`
 
 **Min iOS:** 16.1 (Live Activities) — gated at runtime; older devices get no-op.
 
@@ -34,16 +34,16 @@
 
 **Create (Xcode-managed, native):**
 - `ios/Shared/PreviewActivityAttributes.swift` — shared `ActivityAttributes` struct (compiled into both targets)
-- `ios/DrapeDev/PreviewActivityModule.swift` — RN bridge implementation
-- `ios/DrapeDev/PreviewActivityModule.m` — Obj-C bridge declarations
-- `ios/DrapeDevWidgetExtension/DrapeDevWidgetExtension.swift` — `Widget` + Dynamic Island UI
-- `ios/DrapeDevWidgetExtension/Info.plist` — widget bundle plist
-- `ios/DrapeDevWidgetExtension/DrapeDevWidgetExtension.entitlements` — App Group entitlement
+- `ios/BynotDev/PreviewActivityModule.swift` — RN bridge implementation
+- `ios/BynotDev/PreviewActivityModule.m` — Obj-C bridge declarations
+- `ios/BynotDevWidgetExtension/BynotDevWidgetExtension.swift` — `Widget` + Dynamic Island UI
+- `ios/BynotDevWidgetExtension/Info.plist` — widget bundle plist
+- `ios/BynotDevWidgetExtension/BynotDevWidgetExtension.entitlements` — App Group entitlement
 
 **Modify:**
-- `ios/DrapeDev.xcodeproj/project.pbxproj` — add Widget Extension target + shared file membership (done via Xcode UI, plan documents the steps)
-- `ios/DrapeDev/DrapeDev.entitlements` — add `com.apple.security.application-groups`
-- `ios/DrapeDev/Info.plist` — add background mode `processing` (for activity updates)
+- `ios/BynotDev.xcodeproj/project.pbxproj` — add Widget Extension target + shared file membership (done via Xcode UI, plan documents the steps)
+- `ios/BynotDev/BynotDev.entitlements` — add `com.apple.security.application-groups`
+- `ios/BynotDev/Info.plist` — add background mode `processing` (for activity updates)
 - `src/core/services/liveActivityService.ts:1-219` — add `getPushToken(activityId)` method to retrieve APNs token for backend
 - `src/core/services/liveActivityService.ts:36` — extend `PreviewActivityState` with optional `taskId` for remote updates
 - `App.tsx` — register Live Activity push token with backend on activity start
@@ -63,7 +63,7 @@
 ### Task 1: Add App Group entitlement to main app
 
 **Files:**
-- Modify: `ios/DrapeDev/DrapeDev.entitlements`
+- Modify: `ios/BynotDev/BynotDev.entitlements`
 
 - [ ] **Step 1: Edit entitlements file**
 
@@ -82,7 +82,7 @@ Add the App Group key. Final file content:
     </array>
     <key>com.apple.security.application-groups</key>
     <array>
-      <string>group.com.drape.app.dev.shared</string>
+      <string>group.com.bynot.app.dev.shared</string>
     </array>
   </dict>
 </plist>
@@ -92,16 +92,16 @@ Add the App Group key. Final file content:
 
 Manual web step:
 1. Open https://developer.apple.com/account/resources/identifiers/list/applicationGroup
-2. Click `+`, identifier: `group.com.drape.app.dev.shared`, description: `Drape Dev shared`
-3. Open the app's App ID `com.drape.app.dev`, enable "App Groups" capability, check the new group, save.
-4. Repeat for prod (`group.com.drape.app.shared` + `com.drape.app`).
+2. Click `+`, identifier: `group.com.bynot.app.dev.shared`, description: `Bynot Dev shared`
+3. Open the app's App ID `com.bynot.app.dev`, enable "App Groups" capability, check the new group, save.
+4. Repeat for prod (`group.com.bynot.app.shared` + `com.bynot.app`).
 
 Expected: both app IDs show "App Groups" enabled in capabilities.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add ios/DrapeDev/DrapeDev.entitlements
+git add ios/BynotDev/BynotDev.entitlements
 git commit -m "feat(ios): add App Group entitlement for live activity sharing"
 ```
 
@@ -150,10 +150,10 @@ public struct PreviewActivityAttributes: ActivityAttributes {
 - [ ] **Step 2: Add file to BOTH targets in Xcode**
 
 Manual Xcode step:
-1. Open `ios/DrapeDev.xcworkspace`
-2. Right-click project root → "Add Files to DrapeDev"
+1. Open `ios/BynotDev.xcworkspace`
+2. Right-click project root → "Add Files to BynotDev"
 3. Select `ios/Shared/PreviewActivityAttributes.swift`
-4. Check both targets: `DrapeDev` and `DrapeDevWidgetExtension` (the widget target will be created in Task 3 — re-do this after Task 3 if needed).
+4. Check both targets: `BynotDev` and `BynotDevWidgetExtension` (the widget target will be created in Task 3 — re-do this after Task 3 if needed).
 
 - [ ] **Step 3: Commit**
 
@@ -167,36 +167,36 @@ git commit -m "feat(ios): add shared ActivityAttributes for Live Activity"
 ### Task 3: Create Widget Extension target
 
 **Files:**
-- Create: `ios/DrapeDevWidgetExtension/Info.plist`
-- Create: `ios/DrapeDevWidgetExtension/DrapeDevWidgetExtension.entitlements`
-- Create: `ios/DrapeDevWidgetExtension/DrapeDevWidgetExtension.swift`
-- Modify: `ios/DrapeDev.xcodeproj/project.pbxproj` (via Xcode UI)
+- Create: `ios/BynotDevWidgetExtension/Info.plist`
+- Create: `ios/BynotDevWidgetExtension/BynotDevWidgetExtension.entitlements`
+- Create: `ios/BynotDevWidgetExtension/BynotDevWidgetExtension.swift`
+- Modify: `ios/BynotDev.xcodeproj/project.pbxproj` (via Xcode UI)
 
 - [ ] **Step 1: Create Widget Extension target via Xcode**
 
 Manual:
-1. Open `ios/DrapeDev.xcworkspace`
+1. Open `ios/BynotDev.xcworkspace`
 2. File → New → Target → "Widget Extension"
-3. Product Name: `DrapeDevWidgetExtension`
-4. Bundle ID: `com.drape.app.dev.LiveActivityWidget`
+3. Product Name: `BynotDevWidgetExtension`
+4. Bundle ID: `com.bynot.app.dev.LiveActivityWidget`
 5. Language: Swift, "Include Live Activity" CHECKED
 6. Click Finish, "Activate" if prompted
 7. Set min iOS deployment target on the new target to 16.1
 
-Verify: target `DrapeDevWidgetExtension` appears in scheme list.
+Verify: target `BynotDevWidgetExtension` appears in scheme list.
 
-- [ ] **Step 2: Replace generated `DrapeDevWidgetExtension.swift`**
+- [ ] **Step 2: Replace generated `BynotDevWidgetExtension.swift`**
 
 Overwrite Xcode-generated file with:
 
 ```swift
-// ios/DrapeDevWidgetExtension/DrapeDevWidgetExtension.swift
+// ios/BynotDevWidgetExtension/BynotDevWidgetExtension.swift
 import ActivityKit
 import WidgetKit
 import SwiftUI
 
 @available(iOS 16.1, *)
-struct DrapeDevWidgetExtension: Widget {
+struct BynotDevWidgetExtension: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: PreviewActivityAttributes.self) { context in
             // Lock Screen / Notification Center
@@ -277,11 +277,11 @@ struct DrapeDevWidgetExtension: Widget {
 }
 
 @main
-struct DrapeDevWidgetExtensionBundle: WidgetBundle {
+struct BynotDevWidgetExtensionBundle: WidgetBundle {
     @WidgetBundleBuilder
     var body: some Widget {
         if #available(iOS 16.1, *) {
-            DrapeDevWidgetExtension()
+            BynotDevWidgetExtension()
         }
     }
 }
@@ -289,7 +289,7 @@ struct DrapeDevWidgetExtensionBundle: WidgetBundle {
 
 - [ ] **Step 3: Add App Group entitlement to widget target**
 
-Edit `ios/DrapeDevWidgetExtension/DrapeDevWidgetExtension.entitlements` (Xcode created this file, may need to replace):
+Edit `ios/BynotDevWidgetExtension/BynotDevWidgetExtension.entitlements` (Xcode created this file, may need to replace):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -298,7 +298,7 @@ Edit `ios/DrapeDevWidgetExtension/DrapeDevWidgetExtension.entitlements` (Xcode c
   <dict>
     <key>com.apple.security.application-groups</key>
     <array>
-      <string>group.com.drape.app.dev.shared</string>
+      <string>group.com.bynot.app.dev.shared</string>
     </array>
   </dict>
 </plist>
@@ -306,13 +306,13 @@ Edit `ios/DrapeDevWidgetExtension/DrapeDevWidgetExtension.entitlements` (Xcode c
 
 - [ ] **Step 4: Add shared `PreviewActivityAttributes.swift` to widget target**
 
-In Xcode: select `ios/Shared/PreviewActivityAttributes.swift` → File Inspector (right pane) → Target Membership → check `DrapeDevWidgetExtension`.
+In Xcode: select `ios/Shared/PreviewActivityAttributes.swift` → File Inspector (right pane) → Target Membership → check `BynotDevWidgetExtension`.
 
 - [ ] **Step 5: Build the widget scheme to verify it compiles**
 
 Run from project root:
 ```bash
-cd ios && xcodebuild -workspace DrapeDev.xcworkspace -scheme DrapeDevWidgetExtension -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16e' build 2>&1 | tail -20
+cd ios && xcodebuild -workspace BynotDev.xcworkspace -scheme BynotDevWidgetExtension -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16e' build 2>&1 | tail -20
 ```
 
 Expected: `** BUILD SUCCEEDED **` at the end. If errors about missing types, re-check Step 4 (target membership of shared file).
@@ -320,7 +320,7 @@ Expected: `** BUILD SUCCEEDED **` at the end. If errors about missing types, re-
 - [ ] **Step 6: Commit**
 
 ```bash
-git add ios/DrapeDevWidgetExtension ios/DrapeDev.xcodeproj
+git add ios/BynotDevWidgetExtension ios/BynotDev.xcodeproj
 git commit -m "feat(ios): add widget extension with Dynamic Island UI"
 ```
 
@@ -329,14 +329,14 @@ git commit -m "feat(ios): add widget extension with Dynamic Island UI"
 ### Task 4: Implement `PreviewActivityModule` Swift bridge
 
 **Files:**
-- Create: `ios/DrapeDev/PreviewActivityModule.swift`
-- Create: `ios/DrapeDev/PreviewActivityModule.m`
-- Modify: `ios/DrapeDev/DrapeDev-Bridging-Header.h` (if not auto-managed)
+- Create: `ios/BynotDev/PreviewActivityModule.swift`
+- Create: `ios/BynotDev/PreviewActivityModule.m`
+- Modify: `ios/BynotDev/BynotDev-Bridging-Header.h` (if not auto-managed)
 
 - [ ] **Step 1: Create the Swift module**
 
 ```swift
-// ios/DrapeDev/PreviewActivityModule.swift
+// ios/BynotDev/PreviewActivityModule.swift
 import Foundation
 import ActivityKit
 import UIKit
@@ -488,7 +488,7 @@ class PreviewActivityModule: NSObject {
         rejecter: @escaping RCTPromiseRejectBlock
     ) {
         DispatchQueue.main.async {
-            self.bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "DrapePreviewPolling") {
+            self.bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "BynotPreviewPolling") {
                 if self.bgTaskId != .invalid {
                     UIApplication.shared.endBackgroundTask(self.bgTaskId)
                     self.bgTaskId = .invalid
@@ -535,7 +535,7 @@ class PreviewActivityModule: NSObject {
 - [ ] **Step 2: Create the Obj-C bridge declarations**
 
 ```objc
-// ios/DrapeDev/PreviewActivityModule.m
+// ios/BynotDev/PreviewActivityModule.m
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
 
@@ -578,17 +578,17 @@ RCT_EXTERN_METHOD(requestNotificationPermission:(RCTPromiseResolveBlock)resolve
 @end
 ```
 
-- [ ] **Step 3: Add both files to `DrapeDev` target in Xcode**
+- [ ] **Step 3: Add both files to `BynotDev` target in Xcode**
 
 Manual:
-1. Right-click `DrapeDev` group → Add Files
+1. Right-click `BynotDev` group → Add Files
 2. Select `PreviewActivityModule.swift` and `PreviewActivityModule.m`
-3. Target membership: only `DrapeDev` (NOT widget)
+3. Target membership: only `BynotDev` (NOT widget)
 
 - [ ] **Step 4: Build app to verify module compiles + registers**
 
 ```bash
-cd /Users/leon/Desktop/nexbit/drape/drape-react && npx expo run:ios --device "iPhone 16e" 2>&1 | tail -40
+cd /Users/leon/Desktop/nexbit/bynot/bynot-react && npx expo run:ios --device "iPhone 16e" 2>&1 | tail -40
 ```
 
 Expected: build succeeds, app launches, JS console shows:
@@ -600,7 +600,7 @@ Expected: build succeeds, app launches, JS console shows:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add ios/DrapeDev/PreviewActivityModule.swift ios/DrapeDev/PreviewActivityModule.m ios/DrapeDev.xcodeproj
+git add ios/BynotDev/PreviewActivityModule.swift ios/BynotDev/PreviewActivityModule.m ios/BynotDev.xcodeproj
 git commit -m "feat(ios): implement PreviewActivityModule RN bridge for Live Activities"
 ```
 
@@ -732,7 +732,7 @@ Trigger a project creation. JS console should log a POST to `/workstation/live-a
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/core/services/liveActivityService.ts App.tsx ios/DrapeDev/PreviewActivityModule.swift ios/DrapeDev/PreviewActivityModule.m
+git add src/core/services/liveActivityService.ts App.tsx ios/BynotDev/PreviewActivityModule.swift ios/BynotDev/PreviewActivityModule.m
 git commit -m "feat(live-activity): register APNs push token with backend"
 ```
 
@@ -835,31 +835,31 @@ git commit -m "feat(backend): accept Live Activity APNs push tokens"
 
 **Files:**
 - Create: `backend-ts/src/services/apns-live-activity.service.ts`
-- Modify: `backend-ts/.env` and `/opt/drape-backend-dev/.env` on server (manual)
+- Modify: `backend-ts/.env` and `/opt/bynot-backend-dev/.env` on server (manual)
 - Modify: `backend-ts/src/routes/workstation.routes.ts` (call sender at each progress step)
 
 - [ ] **Step 1: Provision APNs auth key**
 
 Manual web steps:
 1. Open https://developer.apple.com/account/resources/authkeys/list
-2. Click `+`, name "Drape APNs", check "Apple Push Notifications service (APNs)", continue, register.
+2. Click `+`, name "Bynot APNs", check "Apple Push Notifications service (APNs)", continue, register.
 3. Download the `.p8` file (one-time download — save securely).
 4. Note the Key ID (10 chars) and your Team ID (top right of dev portal).
-5. Move `.p8` to a safe path on the server: `/opt/drape-backend-dev/secrets/AuthKey_XXXXXXXXXX.p8`.
+5. Move `.p8` to a safe path on the server: `/opt/bynot-backend-dev/secrets/AuthKey_XXXXXXXXXX.p8`.
 
 - [ ] **Step 2: Add env vars (local + server)**
 
-Edit `backend-ts/.env` (local) and `/opt/drape-backend-dev/.env` (via SSH):
+Edit `backend-ts/.env` (local) and `/opt/bynot-backend-dev/.env` (via SSH):
 
 ```
 APNS_KEY_ID=XXXXXXXXXX
 APNS_TEAM_ID=YYYYYYYYYY
-APNS_KEY_PATH=/opt/drape-backend-dev/secrets/AuthKey_XXXXXXXXXX.p8
-APNS_BUNDLE_ID=com.drape.app.dev
+APNS_KEY_PATH=/opt/bynot-backend-dev/secrets/AuthKey_XXXXXXXXXX.p8
+APNS_BUNDLE_ID=com.bynot.app.dev
 APNS_ENVIRONMENT=development
 ```
 
-For prod backend, point to the prod key + `com.drape.app` + `production`.
+For prod backend, point to the prod key + `com.bynot.app` + `production`.
 
 - [ ] **Step 3: Install `apn` package**
 
@@ -906,7 +906,7 @@ class ApnsLiveActivityService {
   async sendUpdate(token: string, state: LiveActivityState): Promise<boolean> {
     const provider = this.getProvider();
     if (!provider) return false;
-    const bundleId = process.env.APNS_BUNDLE_ID || 'com.drape.app.dev';
+    const bundleId = process.env.APNS_BUNDLE_ID || 'com.bynot.app.dev';
 
     const note = new apn.Notification();
     note.topic = `${bundleId}.push-type.liveactivity`;
@@ -1031,7 +1031,7 @@ Expected: no errors.
 - [ ] **Step 8: Deploy backend dev**
 
 ```bash
-cd /Users/leon/Desktop/nexbit/drape/drape-react && ./drape dev deploy
+cd /Users/leon/Desktop/nexbit/bynot/bynot-react && ./bynot dev deploy
 ```
 
 Expected: `npm run build` succeeds, rsync copies to server, systemd restart succeeds, health check returns 200.
@@ -1072,7 +1072,7 @@ The Expo push (`Progetto pronto`) implemented earlier should also arrive. Tap it
 - [ ] **Step 5: Tail backend logs to verify pushes sent**
 
 ```bash
-./drape logs dev
+./bynot logs dev
 ```
 
 Expected lines like:
@@ -1095,7 +1095,7 @@ git commit -m "fix(live-activity): final tuning after device test"
 
 - **Spec coverage:** Phase 1 = native module + widget + manual QA. Phase 2 = APNs remote push. Together they implement the user's request: Dynamic Island visible during generation + keeps updating in background after iOS suspension.
 - **Type consistency:** `PreviewActivityAttributes.PreviewContentState` fields (`remainingSeconds`, `currentStep`, `progress`, `status`) match between Swift, JS service, and APNs payload.
-- **Bundle ID assumptions:** Plan uses `com.drape.app.dev` for the dev target. If production rollout is needed, repeat Tasks 1, 3, 8 with prod bundle ID + prod APNs env.
+- **Bundle ID assumptions:** Plan uses `com.bynot.app.dev` for the dev target. If production rollout is needed, repeat Tasks 1, 3, 8 with prod bundle ID + prod APNs env.
 - **Manual steps flagged:** Apple Developer portal capability provisioning, Xcode target creation, `.p8` key download — none of these can be automated; plan calls them out explicitly.
 - **Risk:** ActivityKit `pushType: .token` requires the activity to be requested while app is in foreground (iOS limitation). Plan respects this — `startActivity` is only called from `CreateProjectScreen` while user is actively in the app.
 

@@ -1,4 +1,4 @@
 export { AnthropicIcon } from './AnthropicIcon';
-export { DrapeLogo } from './DrapeLogo';
+export { BynotLogo } from './BynotLogo';
 export { GoogleIcon } from './GoogleIcon';
 export { OpenAIIcon } from './OpenAIIcon';

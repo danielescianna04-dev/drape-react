@@ -49,17 +49,17 @@ describe('previewReducer', () => {
     };
     const next = dispatch(starting, {
       type: 'HEALTH_OK',
-      url: 'https://proj-1.drape.info',
+      url: 'https://proj-1.bynot.it',
     });
     expect(next.phase).toBe('loading_webview');
-    expect(next.previewUrl).toBe('https://proj-1.drape.info');
+    expect(next.previewUrl).toBe('https://proj-1.bynot.it');
   });
 
   it('WEBVIEW_READY transitions loading_webview -> ready', () => {
     const loading: PreviewState = {
       ...INITIAL_PREVIEW_STATE,
       phase: 'loading_webview',
-      previewUrl: 'https://proj-1.drape.info',
+      previewUrl: 'https://proj-1.bynot.it',
     };
     const next = dispatch(loading, { type: 'WEBVIEW_READY' });
     expect(next.phase).toBe('ready');
@@ -159,7 +159,7 @@ describe('previewReducer', () => {
       ...INITIAL_PREVIEW_STATE,
       phase: 'ready',
       projectId: 'proj-1',
-      previewUrl: 'https://x.drape.info',
+      previewUrl: 'https://x.bynot.it',
     };
     const next = dispatch(ready, { type: 'RESET' });
     expect(next).toEqual(INITIAL_PREVIEW_STATE);

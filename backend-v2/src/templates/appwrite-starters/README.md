@@ -1,6 +1,6 @@
 # Appwrite Starter Templates
 
-Schema dichiarativi per le app più comuni che gli utenti Drape generano.
+Schema dichiarativi per le app più comuni che gli utenti Bynot generano.
 L'AI può referenziarli, l'utente può sceglierli da menu, e il backend
 li passa a `appwriteManagementService.createCollection()`.
 

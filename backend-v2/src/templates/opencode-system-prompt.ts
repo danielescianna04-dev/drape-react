@@ -1,7 +1,7 @@
 import { APPWRITE_STARTERS } from './appwrite-starters';
 
 /**
- * System prompt addendum per opencode quando genera codice frontend per utenti Drape.
+ * System prompt addendum per opencode quando genera codice frontend per utenti Bynot.
  * Da concatenare al system prompt base di opencode.
  *
  * Obiettivi:
@@ -11,8 +11,8 @@ import { APPWRITE_STARTERS } from './appwrite-starters';
  * - Deve usare le credenziali iniettate via env (VITE_APPWRITE_*)
  */
 
-export const DRAPE_APPWRITE_SYSTEM_PROMPT = `
-# Contesto Drape v2
+export const BYNOT_APPWRITE_SYSTEM_PROMPT = `
+# Contesto Bynot v2
 
 Stai generando codice per un'app web che girerà in **Sandpack** (un sandbox JavaScript dentro un WebView mobile).
 Non hai accesso a un backend custom. NON generare codice server-side (Express, FastAPI, ecc.).
@@ -33,8 +33,8 @@ Tutto il codice gira nel browser dell'utente.
 
 Le credenziali sono già iniettate come env vars Vite:
 - \`VITE_APPWRITE_ENDPOINT\` — endpoint Appwrite (es. \`https://appwrite.bynot.it/v1\`)
-- \`VITE_APPWRITE_PROJECT_ID\` — sempre \`drape-platform\`
-- \`VITE_APPWRITE_DATABASE_ID\` — database UNICO dell'utente Drape
+- \`VITE_APPWRITE_PROJECT_ID\` — sempre \`bynot-platform\`
+- \`VITE_APPWRITE_DATABASE_ID\` — database UNICO dell'utente Bynot
 
 Inizializzazione standard:
 
@@ -79,7 +79,7 @@ const url = storage.getFileView('bucket_id', file.\$id);
 ## Quando hai bisogno di una nuova collection
 
 NON puoi creare collection da codice client (richiede server key).
-Quando il tuo codice necessita di una nuova collection, **chiedi all'utente di crearla via la UI Drape** che chiamerà l'endpoint backend \`POST /api/appwrite/collections\`.
+Quando il tuo codice necessita di una nuova collection, **chiedi all'utente di crearla via la UI Bynot** che chiamerà l'endpoint backend \`POST /api/appwrite/collections\`.
 
 Includi sempre lo schema della collection nella tua risposta (formato \`AppwriteCollectionSchema\`).
 
@@ -105,7 +105,7 @@ Aggiungi nuovi componenti shadcn in \`src/components/ui/\` (segui lo stile del B
 ## Collection Appwrite
 
 NON puoi creare collection da codice client (richiede server key).
-Quando il tuo codice necessita di una nuova collection, **chiedi all'utente di crearla via la UI Drape** che chiamerà \`POST /api/appwrite/collections\`.
+Quando il tuo codice necessita di una nuova collection, **chiedi all'utente di crearla via la UI Bynot** che chiamerà \`POST /api/appwrite/collections\`.
 
 Includi sempre lo schema della collection nella tua risposta (formato \`AppwriteCollectionSchema\`).
 
@@ -124,7 +124,7 @@ ${APPWRITE_STARTERS.map(
 - ❌ NON usare \`fs\`, \`child_process\`, \`net\` (Sandpack non li runna)
 - ❌ NON installare pacchetti che richiedono native binaries
 - ❌ NON aspettarti file system persistente — usa Appwrite Storage per file utente
-- ❌ NON usare Firebase (Drape v2 non lo supporta)
+- ❌ NON usare Firebase (Bynot v2 non lo supporta)
 - ❌ NON usare altri framework CSS oltre Tailwind + shadcn/ui (no MUI, Bootstrap, Chakra)
 
 ## Cosa fare invece
@@ -150,13 +150,13 @@ Includi sempre:
 /**
  * Build prompt completo da concatenare al system prompt opencode standard.
  */
-export function buildDrapeSystemPrompt(opts: {
+export function buildBynotSystemPrompt(opts: {
   /** Template scelto dall'utente (es. 'todo'), passato dal context */
   starterId?: string;
   /** Eventuali constraint extra */
   extraContext?: string;
 }): string {
-  let prompt = DRAPE_APPWRITE_SYSTEM_PROMPT;
+  let prompt = BYNOT_APPWRITE_SYSTEM_PROMPT;
 
   if (opts.starterId) {
     const starter = APPWRITE_STARTERS.find((s) => s.id === opts.starterId);

@@ -3,13 +3,13 @@ import { ExpoConfig, ConfigContext } from 'expo/config';
 const IS_DEV = process.env.EXPO_PUBLIC_ENV === 'development' || process.env.EXPO_PUBLIC_ENV === 'preview';
 
 const config: ExpoConfig = {
-  name: IS_DEV ? 'Drape Dev' : 'Drape',
-  slug: 'drape-react',
+  name: IS_DEV ? 'Bynot Dev' : 'Bynot',
+  slug: 'bynot-react',
   version: '2.2.1',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
-  scheme: IS_DEV ? 'drape-dev' : 'drape',
+  scheme: IS_DEV ? 'bynot-dev' : 'bynot',
   newArchEnabled: true,
   splash: {
     image: './assets/splash-icon.png',
@@ -18,7 +18,7 @@ const config: ExpoConfig = {
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: IS_DEV ? 'com.drape.app.dev' : 'com.drape.app',
+    bundleIdentifier: IS_DEV ? 'com.bynot.app.dev' : 'com.bynot.app',
     infoPlist: {
       UIUserInterfaceStyle: 'Dark',
       NSPhotoLibraryUsageDescription: "L'app necessita di accedere alla tua galleria per caricare immagini nella chat.",
@@ -33,7 +33,7 @@ const config: ExpoConfig = {
         NSAllowsLocalNetworking: true,
         NSAllowsArbitraryLoadsInWebContent: true,
         NSExceptionDomains: {
-          'drape.info': {
+          'bynot.it': {
             NSExceptionAllowsInsecureHTTPLoads: false,
             NSIncludesSubdomains: true,
           },
@@ -43,7 +43,7 @@ const config: ExpoConfig = {
     appleTeamId: 'S84DZA2LR9',
   },
   android: {
-    package: IS_DEV ? 'com.drape.app.dev' : 'com.drape.app',
+    package: IS_DEV ? 'com.bynot.app.dev' : 'com.bynot.app',
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#0A0618',
@@ -74,7 +74,7 @@ const config: ExpoConfig = {
       'expo-channel-name': IS_DEV ? 'preview' : 'production',
     },
   },
-  owner: 'drape01',
+  owner: 'bynot01',
   plugins: [
     'expo-web-browser',
     'expo-apple-authentication',

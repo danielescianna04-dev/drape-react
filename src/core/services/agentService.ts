@@ -1,5 +1,5 @@
 /**
- * Agent Service - Direct communication with Drape Agent in workspace
+ * Agent Service - Direct communication with Bynot Agent in workspace
  * Features: Hot Reload, Terminal, AI Context
  */
 
@@ -27,7 +27,7 @@ interface ProjectContext {
  * Build the Agent URL for a workspace
  */
 const getAgentUrl = (username: string, workstationId: string): string => {
-    // Use configured Coder URL (e.g., http://drape.info)
+    // Use configured Coder URL (e.g., http://bynot.it)
     const coderBaseUrl = config.coderUrl;
     return `${coderBaseUrl}/@${username.toLowerCase()}/${workstationId}/apps/agent`;
 };

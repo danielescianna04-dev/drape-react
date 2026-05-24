@@ -144,7 +144,7 @@ interface FixAction {
 ### Storage
 
 **Backend (Agente 1):**
-- Salvare in `.drape/verification-report.json` nella directory del progetto
+- Salvare in `.bynot/verification-report.json` nella directory del progetto
 - Modificare `verify-project.service.ts` per accumulare `VerificationReport` e scriverlo a fine verifica
 - Modificare `e2e-check.js` per restituire TUTTI gli screenshot (non solo quelli con errore)
 

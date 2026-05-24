@@ -1,4 +1,4 @@
-# Drape v2 — Architecture (rebuild from scratch)
+# Bynot v2 — Architecture (rebuild from scratch)
 
 **Data**: 19 maggio 2026
 **Branch**: `v2/main`
@@ -11,16 +11,16 @@
 
 ### Stack
 - **Frontend**: React Native + Expo (riutilizzato 80%)
-- **Drape backend**: Express + opencode su Netcup VPS (no Docker workspaces)
-- **Drape internal DB**: Supabase Cloud (auth, profiles, projects, files metadata)
+- **Bynot backend**: Express + opencode su Netcup VPS (no Docker workspaces)
+- **Bynot internal DB**: Supabase Cloud (auth, profiles, projects, files metadata)
 - **User-generated apps DB**: **Appwrite self-hosted su Netcup VPS 4000 ARM G11**
 - **Preview**: Sandpack in WebView (client-side)
-- **Domain**: bynot.it (landing + subdomain Drape app)
+- **Domain**: bynot.it (landing + subdomain Bynot app)
 
 ### Infrastruttura VPS
 
 **Setup unificato Netcup VPS 4000 ARM G11** (14 ARM cores, 32 GB RAM, 1 TB NVMe — €29.99/mese):
-- Drape Express backend
+- Bynot Express backend
 - opencode serve
 - Appwrite Docker stack (self-hosted)
 - Reverse proxy Traefik o Caddy
@@ -32,9 +32,9 @@
 - A 5.000+ utenti: dedicated MariaDB managed + Appwrite cluster
 
 ### Provisioning utenti
-- 1 utente Drape (un progetto) = 1 database Appwrite (logical, no overhead)
-- Auth utente Drape su Supabase (Magic Link / email / Google / Apple)
-- Provisioning Appwrite trasparente via backend Drape (Server API key)
+- 1 utente Bynot (un progetto) = 1 database Appwrite (logical, no overhead)
+- Auth utente Bynot su Supabase (Magic Link / email / Google / Apple)
+- Provisioning Appwrite trasparente via backend Bynot (Server API key)
 
 ---
 
@@ -42,7 +42,7 @@
 
 ```
 [App RN / Expo]
-  ├─ Supabase JS (auth + DB + storage Drape)
+  ├─ Supabase JS (auth + DB + storage Bynot)
   ├─ <SandpackPreview> in WebView (preview client-side)
   └─ Appwrite JS SDK (chiamato dal codice generato dall'AI)
          ↓
@@ -57,12 +57,12 @@
   └─ Traefik (reverse proxy + SSL automatico)
          ↓
 [Supabase Cloud free]
-  └─ Drape internal (auth, profiles, projects, files, ai_*)
+  └─ Bynot internal (auth, profiles, projects, files, ai_*)
 ```
 
 DNS:
 - `bynot.it` → landing page (statica, Cloudflare Pages o equivalente)
-- `api.bynot.it` → Drape Express backend (porta interna 3000)
+- `api.bynot.it` → Bynot Express backend (porta interna 3000)
 - `appwrite.bynot.it` → Appwrite Docker stack (porta interna 80)
 
 ---
@@ -92,7 +92,7 @@ Appwrite si distribuisce come Docker Compose stack ufficiale, compatibile multi-
 ssh root@<vps-ip>
 bash 01-bootstrap.sh
 
-ssh drape@<vps-ip>
+ssh bynot@<vps-ip>
 bash 02-install-appwrite.sh
 # Wizard chiede domain: appwrite.bynot.it
 ```
@@ -106,11 +106,11 @@ bash 02-install-appwrite.sh
 - `_APP_SMTP_*` per email transazionali (Resend free / SendGrid)
 - `_APP_OPENSSL_KEY_V1=<segreto-32-char>`
 
-### Setup admin + Drape internal project
+### Setup admin + Bynot internal project
 1. Vai a `https://appwrite.bynot.it/console`
 2. Crea account admin (mail + password)
-3. Crea organizzazione "Drape"
-4. Crea progetto "drape-platform"
+3. Crea organizzazione "Bynot"
+4. Crea progetto "bynot-platform"
 5. Settings → API Keys → crea Server key con scopes:
    - users, teams, databases, collections, attributes, indexes, documents, files, buckets
 
@@ -118,13 +118,13 @@ bash 02-install-appwrite.sh
 
 ## Backend integration
 
-### Variabili .env backend Drape
+### Variabili .env backend Bynot
 ```
 SUPABASE_URL=https://pfejqyiakkywzdzfoxce.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<from-supabase-dashboard>
 
 APPWRITE_ENDPOINT=https://appwrite.bynot.it/v1
-APPWRITE_PROJECT_ID=drape-platform
+APPWRITE_PROJECT_ID=bynot-platform
 APPWRITE_API_KEY=<server-api-key-from-self-hosted>
 
 CORS_ORIGINS=https://bynot.it,exp://*
@@ -136,11 +136,11 @@ CORS_ORIGINS=https://bynot.it,exp://*
 - `deleteUserDatabase(databaseId)` → cleanup quando utente cancella progetto
 - `health()` → check connessione Appwrite
 
-### Mapping Drape project ↔ Appwrite database
+### Mapping Bynot project ↔ Appwrite database
 In Supabase `projects` table:
 - `appwrite_database_id` text
 - `appwrite_endpoint` text (sempre = `https://appwrite.bynot.it/v1`)
-- `appwrite_project_id` text (sempre = `drape-platform`)
+- `appwrite_project_id` text (sempre = `bynot-platform`)
 
 Le credenziali per il **client Appwrite generato** (nel codice utente) sono pubbliche: endpoint + project_id. Il database_id isola l'utente.
 
@@ -148,7 +148,7 @@ Le credenziali per il **client Appwrite generato** (nel codice utente) sono pubb
 
 ## Permissions Appwrite per isolamento
 
-Ogni database creato per un utente Drape ha:
+Ogni database creato per un utente Bynot ha:
 - Collection permissions: per MVP — pubbliche (chiunque conosce database_id può leggere/scrivere)
 - v2.1: aggiunge auth Appwrite user mappato a supabase user_id per restringere accesso
 
@@ -156,7 +156,7 @@ Ogni database creato per un utente Drape ha:
 
 ## Out of scope (post-PMF)
 
-- IAP / paid tier (Drape free per il lancio)
+- IAP / paid tier (Bynot free per il lancio)
 - Push notifications (stub, todo expo-notifications)
 - Analytics (stub, todo PostHog)
 - Backup automatico Appwrite MariaDB (todo cron settimanale)
@@ -169,11 +169,11 @@ Ogni database creato per un utente Drape ha:
 
 | Servizio | Costo |
 |---|---|
-| Netcup VPS 4000 ARM G11 (Drape backend + Appwrite + opencode) | €29.99 |
+| Netcup VPS 4000 ARM G11 (Bynot backend + Appwrite + opencode) | €29.99 |
 | Supabase Cloud (free) | €0 |
 | Sandpack (client-side) | €0 |
 | Cloudflare DNS + Pages landing (free) | €0 |
 | Resend SMTP (free tier 3k/mese) | €0 |
 | **Totale baseline** | **€30/mese** |
 
-**Vs Drape originale (Hetzner 140€): -78%.**
+**Vs Bynot originale (Hetzner 140€): -78%.**

@@ -1,4 +1,4 @@
-# Strategia Drape — App Builder per Vibecoder
+# Strategia Bynot — App Builder per Vibecoder
 
 > Documento generato il 26 marzo 2026, basato sull'analisi completa del codebase.
 > Visione: **Un click, app funzionante. Zero competenze richieste. Ma gli strumenti per andare in profondità ci sono.**
@@ -9,17 +9,17 @@
 
 Il vibecoder è una persona con un'idea e zero (o poche) competenze tecniche. Vuole un'app funzionante. Non gli interessa il codice, non vuole imparare React, non vuole debuggare errori. Vuole dire cosa vuole e ottenerlo.
 
-Ma — e qui sta la differenza — alcuni vibecoder crescono. Iniziano a voler modificare, personalizzare, capire. E quando lo fanno, Drape deve essere pronto con gli strumenti giusti. Non costringerli a usarli, ma averli lì.
+Ma — e qui sta la differenza — alcuni vibecoder crescono. Iniziano a voler modificare, personalizzare, capire. E quando lo fanno, Bynot deve essere pronto con gli strumenti giusti. Non costringerli a usarli, ma averli lì.
 
-**Drape serve il 100% dei vibecoder al giorno 1 (generazione one-shot) e il 20% che vuole andare più in profondità al giorno 30 (strumenti di controllo).**
+**Bynot serve il 100% dei vibecoder al giorno 1 (generazione one-shot) e il 20% che vuole andare più in profondità al giorno 30 (strumenti di controllo).**
 
 ---
 
-## 1. Qual è il punto più debole di Drape che rischia di farlo fallire?
+## 1. Qual è il punto più debole di Bynot che rischia di farlo fallire?
 
 **L'agente non garantisce che l'app generata funzioni.**
 
-Questo è il problema numero uno. Un vibecoder chiede "fammi un e-commerce", e Drape genera codice. Ma se quel codice ha errori di build, dipendenze mancanti, pagina bianca nella preview — il vibecoder non sa cosa fare. Non può aprire la console, non può leggere un errore TypeScript, non può debuggare. Per lui, semplicemente non funziona. E se la prima esperienza è "non funziona", non torna mai più.
+Questo è il problema numero uno. Un vibecoder chiede "fammi un e-commerce", e Bynot genera codice. Ma se quel codice ha errori di build, dipendenze mancanti, pagina bianca nella preview — il vibecoder non sa cosa fare. Non può aprire la console, non può leggere un errore TypeScript, non può debuggare. Per lui, semplicemente non funziona. E se la prima esperienza è "non funziona", non torna mai più.
 
 La debolezza non è nel numero di feature. È che **il flusso core (chiedi → ottieni app funzionante) non è abbastanza affidabile**.
 
@@ -45,7 +45,7 @@ Onestamente? Poco, se parliamo di feature singole:
 
 1. **L'integrazione verticale mobile-first** — Nessuno sta facendo un IDE nativo mobile serio. Tutti puntano al web o al desktop. Questo è un vantaggio temporale, non strutturale. Ma è reale: chi replica da zero parte 6-12 mesi indietro.
 
-2. **Il contesto di progetto persistente** — Il file `.drape/context.json` e la consapevolezza continua dell'AI su cosa sta costruendo l'utente è sottovalutata. È un embrione di qualcosa di molto più potente.
+2. **Il contesto di progetto persistente** — Il file `.bynot/context.json` e la consapevolezza continua dell'AI su cosa sta costruendo l'utente è sottovalutata. È un embrione di qualcosa di molto più potente.
 
 3. **Il loop completo su mobile** — Non è solo "editor". È file explorer + editor + preview + AI + git + deploy, tutto in una singola app nativa. Il valore è nell'integrazione, non nelle singole parti.
 
@@ -65,14 +65,14 @@ Il mercato oggi:
 
 **Nessuno fa questo**: genera app completa e funzionante, verifica che funzioni, consegna pronta, e se vuoi puoi anche lavorarci sopra — tutto dal telefono.
 
-### Il posizionamento di Drape
+### Il posizionamento di Bynot
 
 ```
 "Dimmi cosa vuoi. Te lo costruisco, te lo verifico, te lo consegno funzionante.
 E se domani vuoi cambiare qualcosa, basta chiedere."
 ```
 
-Drape è:
+Bynot è:
 1. **Un app builder one-shot** — come Bolt, ma che funziona davvero
 2. **Un assistente continuo** — l'utente torna e dice "aggiungi un carrello", "cambia i colori"
 3. **Un IDE sotto il cofano** — per il vibecoder che cresce e vuole capire/modificare direttamente
@@ -89,11 +89,11 @@ Il layer 3 è il bonus che trasforma i vibecoder più curiosi in utenti power.
 
 ### Giorno 1: "Voglio un'app"
 
-1. Apro Drape
+1. Apro Bynot
 2. Scrivo: "Voglio un'app per il mio negozio di fiori. Catalogo prodotti, carrello, pagina contatti."
-3. Drape mi dice: "Sto creando la tua app. Ecco cosa farò:" e mi mostra le fasi
+3. Bynot mi dice: "Sto creando la tua app. Ecco cosa farò:" e mi mostra le fasi
 4. Vedo l'app prendere forma in tempo reale nella preview
-5. Se qualcosa si rompe, Drape lo sistema da solo — io vedo solo "Errore trovato → Corretto"
+5. Se qualcosa si rompe, Bynot lo sistema da solo — io vedo solo "Errore trovato → Corretto"
 6. Dopo 1-2 minuti: app funzionante nella preview. Posso navigarla, testarla.
 7. "Tutto OK?" → Sì → L'app è mia.
 
@@ -101,7 +101,7 @@ Il layer 3 è il bonus che trasforma i vibecoder più curiosi in utenti power.
 
 ### Giorno 7: "Voglio cambiare qualcosa"
 
-1. Apro il progetto in Drape
+1. Apro il progetto in Bynot
 2. Scrivo: "Aggiungi una sezione 'Chi siamo' con la nostra storia e foto del team"
 3. L'agente aggiunge la sezione. Vedo la preview aggiornata.
 4. "Il colore non mi piace, rendilo più caldo" → fatto.
@@ -120,9 +120,9 @@ Il layer 3 è il bonus che trasforma i vibecoder più curiosi in utenti power.
 
 ---
 
-## 5. Perché un vibecoder sceglie Drape e continua a usarlo?
+## 5. Perché un vibecoder sceglie Bynot e continua a usarlo?
 
-**Giorno 1 — Sceglie Drape perché:**
+**Giorno 1 — Sceglie Bynot perché:**
 - È sul telefono (non deve accendere il PC)
 - Un click e ha un'app funzionante
 - Non deve sapere nulla di codice
@@ -155,7 +155,7 @@ Chiedi → Ottieni app funzionante → Vuoi cambiare qualcosa → Chiedi → Fat
 
 ## 6. Le 5 feature per "One-Click App Builder per Vibecoder"
 
-> Principio: L'utente chiede, Drape consegna. Funzionante. Senza che l'utente debba fare nulla di tecnico. Gli strumenti per andare in profondità esistono, ma sono sotto il cofano — visibili solo a chi li cerca.
+> Principio: L'utente chiede, Bynot consegna. Funzionante. Senza che l'utente debba fare nulla di tecnico. Gli strumenti per andare in profondità esistono, ma sono sotto il cofano — visibili solo a chi li cerca.
 
 ### Feature 1: Self-Healing Agent ("Genera, Verifica, Sistema")
 
@@ -169,7 +169,7 @@ Chiedi → Ottieni app funzionante → Vuoi cambiare qualcosa → Chiedi → Fat
 
 **Cosa avete già**: L'agente OpenCode ha accesso a bash e file system. Il dev server c'è. Manca il loop di verifica automatica.
 
-**Perché è importante**: È quello che differenzia Drape da Bolt. Bolt genera e spera che funzioni. Drape genera, verifica, e consegna qualcosa che funziona davvero. L'utente riceve un'app che gira, non un codice che forse compila.
+**Perché è importante**: È quello che differenzia Bynot da Bolt. Bolt genera e spera che funzioni. Bynot genera, verifica, e consegna qualcosa che funziona davvero. L'utente riceve un'app che gira, non un codice che forse compila.
 
 **Impatto sull'utente**: "Ho chiesto un'app e-commerce e me l'ha data funzionante. Con Bolt dovevo sistemare 3 errori a mano." Questo è il passaparola che fa crescere.
 
@@ -217,7 +217,7 @@ Chiedi → Ottieni app funzionante → Vuoi cambiare qualcosa → Chiedi → Fat
 
 ### Feature 5: Project Memory ("L'AI Ricorda Tutto")
 
-**Cosa fare**: Espandere `.drape/context.json` in un sistema di memoria completo:
+**Cosa fare**: Espandere `.bynot/context.json` in un sistema di memoria completo:
 - L'AI ricorda cosa ha costruito e perché ("autenticazione con Supabase, scelto per il tier free")
 - L'AI ricorda i problemi che ha risolto ("CORS fix applicato al backend")
 - L'AI ricorda le preferenze dell'utente ("preferisce design minimale, colori scuri")
@@ -233,7 +233,7 @@ Chiedi → Ottieni app funzionante → Vuoi cambiare qualcosa → Chiedi → Fat
 ## 7. Piano operativo — Prossime 4 settimane
 
 ### Settimana 1-2: Self-Healing Agent + Live Build Pipeline
-**Perché prima**: È il cuore della proposta di valore. "Drape genera app che funzionano davvero."
+**Perché prima**: È il cuore della proposta di valore. "Bynot genera app che funzionano davvero."
 - Implementare il loop di verifica post-generazione nell'agente (build → dev server → check errori → fix → retry)
 - UI con step tracker in tempo reale: cosa sta facendo l'agente, a che punto è, cosa ha corretto
 - Indicatori visivi per ogni fase (pending → in corso → completato/errore → corretto)
@@ -254,20 +254,20 @@ Chiedi → Ottieni app funzionante → Vuoi cambiare qualcosa → Chiedi → Fat
 
 ### Settimana 4: Project Memory + Polish
 **Perché ultima**: La memoria ha senso quando il flusso principale funziona bene.
-- Estendere `.drape/context.json` con: decisions, issues_resolved, user_preferences, project_state
+- Estendere `.bynot/context.json` con: decisions, issues_resolved, user_preferences, project_state
 - L'AI inietta il contesto ad ogni nuova sessione
 - L'AI aggiorna la memoria dopo ogni operazione significativa
 - Schermata minimale "Project Brain" accessibile dal menu
 - Polish e bug fix delle feature delle settimane precedenti
 
-**Deliverable**: Riaprendo un progetto dopo giorni, l'AI parte dal contesto completo. L'utente sente che il progetto "vive" in Drape.
+**Deliverable**: Riaprendo un progetto dopo giorni, l'AI parte dal contesto completo. L'utente sente che il progetto "vive" in Bynot.
 
 ---
 
 ## 8. Cosa NON fare — Errori strategici da evitare
 
 ### NON aggiungere più modelli AI
-Avete già Claude, Gemini, GPT-4, Groq. Aggiungerne altri è vanity, non valore. L'utente non sceglie Drape perché ha 8 modelli. L'utente sceglie Drape perché il modello che usa **conosce il suo progetto**.
+Avete già Claude, Gemini, GPT-4, Groq. Aggiungerne altri è vanity, non valore. L'utente non sceglie Bynot perché ha 8 modelli. L'utente sceglie Bynot perché il modello che usa **conosce il suo progetto**.
 
 ### NON inseguire le feature dei competitor
 Ogni settimana esce un nuovo tool AI. Se reagite a ogni lancio, non costruirete mai il vostro differenziatore. Bolt ha aggiunto X? Non importa. Voi state costruendo controllo, non generazione.
@@ -279,14 +279,14 @@ La generazione one-shot va bene — anzi, è il punto di forza. Ma generare SENZ
 Condivisione, team workspace, commenti — tutto questo ha senso quando avete product-market fit. Ora no. È dispersione.
 
 ### NON aggiungere deploy proprietario
-Fly.io integration è sufficiente. Costruire un hosting Drape è una trappola: costi altissimi, manutenzione infinita, differenziamento zero.
+Fly.io integration è sufficiente. Costruire un hosting Bynot è una trappola: costi altissimi, manutenzione infinita, differenziamento zero.
 
 ### NON fare pricing per token/richiesta AI
 Il modello subscription fisso ($19.99/$34.99) è corretto. Il pricing per token crea ansia nell'utente e disincentiva l'uso dell'AI, che è il contrario di quello che volete.
 
 ---
 
-## 9. Sintesi finale — Chi è Drape
+## 9. Sintesi finale — Chi è Bynot
 
 **Oggi**: "Genera app dal telefono con AI"
 **Domani**: "Dimmi cosa vuoi. Te lo costruisco dal telefono. Funziona. E domani puoi cambiarlo."
@@ -294,14 +294,14 @@ Il modello subscription fisso ($19.99/$34.99) è corretto. Il pricing per token 
 ### Il pitch
 
 Per il vibecoder:
-> **"Hai un'idea? Drape la trasforma in un'app funzionante. Dal telefono. In un minuto."**
+> **"Hai un'idea? Bynot la trasforma in un'app funzionante. Dal telefono. In un minuto."**
 
 Per l'investitore:
 > **"L'unico app builder mobile che genera, verifica, e consegna app funzionanti — e crea retention attraverso contesto persistente e iterazione in linguaggio naturale."**
 
 ### La differenza in una tabella
 
-| | Bolt/Lovable | ChatGPT/Claude | Drape |
+| | Bolt/Lovable | ChatGPT/Claude | Bynot |
 |---|---|---|---|
 | Genera app completa | Si | Solo codice | **Si** |
 | L'app funziona davvero | A volte | Mai (solo testo) | **Sempre (self-healing)** |
@@ -322,7 +322,7 @@ Per l'investitore:
 Non è "quante app vengono generate" (vanity metric).
 È **"quanti utenti tornano dopo 7 giorni per modificare il proprio progetto"** (retention reale).
 
-Se questa metrica sale, Drape vince. Tutto il resto è secondario.
+Se questa metrica sale, Bynot vince. Tutto il resto è secondario.
 
 ---
 

@@ -9,11 +9,11 @@ type ProvisionState = {
 };
 
 /**
- * Hook per provisionare (o riusare) il database Appwrite per un progetto Drape.
+ * Hook per provisionare (o riusare) il database Appwrite per un progetto Bynot.
  *
  * Flow trasparente per l'utente:
  *   1. Click "Connetti database" nella UI
- *   2. Backend Drape chiama Appwrite Management API
+ *   2. Backend Bynot chiama Appwrite Management API
  *   3. Database creato (o riusato se già esiste)
  *   4. Credenziali ritornate e salvate in projects.appwrite_* su Supabase
  *

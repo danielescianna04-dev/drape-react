@@ -9,7 +9,7 @@ interface Props {
 
 const logoSource = require('../../../../assets/icon.png');
 
-export const DrapeLogo = ({ size = 48 }: Props) => {
+export const BynotLogo = ({ size = 48 }: Props) => {
   return (
     <Image
       source={logoSource}

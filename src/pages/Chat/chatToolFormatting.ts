@@ -8,7 +8,7 @@ type ToolPayload = Record<string, unknown>;
 
 const PROJECT_ROOT_PREFIXES = [
   '/home/coder/project/',
-  '/Users/daniele/drape-react/',
+  '/Users/daniele/bynot-react/',
 ];
 
 /** Safely parse a tool input that may be a string or object */

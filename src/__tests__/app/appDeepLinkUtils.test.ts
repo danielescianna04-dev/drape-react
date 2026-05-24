@@ -8,12 +8,12 @@ describe('appDeepLinkUtils', () => {
 
   it('extracts GitHub repo from app deep links containing encoded urls', () => {
     expect(
-      extractGitHubRepoUrlFromDeepLink('drape://import?url=https%3A%2F%2Fgithub.com%2Fopenai%2Fcodex'),
+      extractGitHubRepoUrlFromDeepLink('bynot://import?url=https%3A%2F%2Fgithub.com%2Fopenai%2Fcodex'),
     ).toBe('https://github.com/openai/codex');
   });
 
   it('returns null for unrelated deep links', () => {
-    expect(extractGitHubRepoUrlFromDeepLink('drape://settings')).toBeNull();
+    expect(extractGitHubRepoUrlFromDeepLink('bynot://settings')).toBeNull();
   });
 });
 

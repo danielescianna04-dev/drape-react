@@ -152,7 +152,7 @@
   },
   "offline": {
     "title": "Nessuna Connessione",
-    "message": "Drape richiede una connessione internet per funzionare. Controlla la connessione e riprova.",
+    "message": "Bynot richiede una connessione internet per funzionare. Controlla la connessione e riprova.",
     "retry": "Riprova"
   },
   "ota": {
@@ -162,7 +162,7 @@
     "restartNow": "Riavvia ora",
     "later": "Più tardi",
     "forceTitle": "Aggiornamento richiesto",
-    "forceMessage": "È disponibile una nuova versione di Drape.\nAggiorna l'app per continuare.",
+    "forceMessage": "È disponibile una nuova versione di Bynot.\nAggiorna l'app per continuare.",
     "forceButton": "Aggiorna su App Store"
   },
   "splash": {
@@ -181,7 +181,7 @@
     "title": "La tua Privacy Conta",
     "subtitle": "Rispettiamo la tua privacy. Scegli quali attivit\u00e0 di trattamento dati autorizzare.",
     "analytics": "Analytics",
-    "analyticsDesc": "Aiutaci a migliorare Drape raccogliendo dati anonimi sull'utilizzo come visualizzazioni e funzionalit\u00e0 usate.",
+    "analyticsDesc": "Aiutaci a migliorare Bynot raccogliendo dati anonimi sull'utilizzo come visualizzazioni e funzionalit\u00e0 usate.",
     "pushNotifications": "Notifiche Push",
     "pushNotificationsDesc": "Ricevi aggiornamenti sui tuoi progetti, stato delle build e annunci importanti.",
     "presenceTracking": "Tracciamento Presenza",
@@ -190,7 +190,7 @@
     "savePreferences": "Salva Preferenze",
     "rejectAll": "Rifiuta Tutto",
     "rejectedTitle": "Consenso Necessario",
-    "rejectedMessage": "Per utilizzare Drape, devi accettare almeno il trattamento dati essenziale. Senza il consenso, non possiamo fornire il servizio. Torna indietro e seleziona le tue preferenze.",
+    "rejectedMessage": "Per utilizzare Bynot, devi accettare almeno il trattamento dati essenziale. Senza il consenso, non possiamo fornire il servizio. Torna indietro e seleziona le tue preferenze.",
     "goBack": "Torna alle Preferenze",
     "legalPrefix": "Leggi la nostra",
     "privacyPolicy": "Informativa sulla Privacy",

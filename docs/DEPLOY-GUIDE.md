@@ -1,11 +1,11 @@
-# Drape — Guida Deploy & OTA
+# Bynot — Guida Deploy & OTA
 
 ## Struttura Branch
 
 | Branch | Ambiente | Bundle ID | API | TestFlight App |
 |--------|----------|-----------|-----|----------------|
-| `main` | Produzione | `com.drape.app` | `https://drape.info` | **Drape** |
-| `dev` | Sviluppo | `com.drape.app.dev` | `https://dev.drape.info` | **Drape Dev** |
+| `main` | Produzione | `com.bynot.app` | `https://bynot.it` | **Bynot** |
+| `dev` | Sviluppo | `com.bynot.app.dev` | `https://dev.bynot.it` | **Bynot Dev** |
 
 ### Differenze chiave
 
@@ -22,7 +22,7 @@
 
 ## OTA Updates (App)
 
-### OTA Dev (Drape Dev su TestFlight)
+### OTA Dev (Bynot Dev su TestFlight)
 
 ```bash
 git checkout dev
@@ -31,10 +31,10 @@ git checkout dev
 
 Cosa fa:
 - Setta le env var Firebase dev + API dev
-- Pusha su canale `preview` (quello del build Drape Dev)
+- Pusha su canale `preview` (quello del build Bynot Dev)
 - L'app scarica l'update al prossimo avvio
 
-### OTA Prod (Drape su App Store)
+### OTA Prod (Bynot su App Store)
 
 ```bash
 git checkout main
@@ -76,10 +76,10 @@ cd backend-ts
 ./deploy-dev.sh
 ```
 
-- Deploya su `/opt/drape-backend-dev`
-- Service: `drape-backend-dev`
-- URL: `https://dev.drape.info`
-- Logs: `ssh -i ~/.ssh/id_ed25519_drape -p 49222 root@77.42.1.116 'tail -f /var/log/drape-backend-dev.log'`
+- Deploya su `/opt/bynot-backend-dev`
+- Service: `bynot-backend-dev`
+- URL: `https://dev.bynot.it`
+- Logs: `ssh -i ~/.ssh/id_ed25519_bynot -p 49222 root@77.42.1.116 'tail -f /var/log/bynot-backend-dev.log'`
 
 ### Backend Prod
 
@@ -88,17 +88,17 @@ cd backend-ts
 ./deploy.sh
 ```
 
-- Deploya su `/opt/drape-backend`
-- Service: `drape-backend`
-- URL: `https://drape.info`
-- Logs: `ssh -i ~/.ssh/id_ed25519_drape -p 49222 root@77.42.1.116 'tail -f /var/log/drape-backend.log'`
+- Deploya su `/opt/bynot-backend`
+- Service: `bynot-backend`
+- URL: `https://bynot.it`
+- Logs: `ssh -i ~/.ssh/id_ed25519_bynot -p 49222 root@77.42.1.116 'tail -f /var/log/bynot-backend.log'`
 
 ### Cosa fanno gli script di deploy
 
 1. `npm run build` (compila TypeScript)
 2. `rsync` al server (esclude node_modules, src, .env, secrets)
 3. `npm ci --omit=dev` sul server
-4. `systemctl restart drape-backend[-dev]`
+4. `systemctl restart bynot-backend[-dev]`
 5. Health check su `/health`
 
 ---
@@ -115,8 +115,8 @@ cd backend-ts
 | Submit App Store | `eas submit --profile production --platform ios --latest` |
 | Deploy backend dev | `cd backend-ts && ./deploy-dev.sh` |
 | Deploy backend prod | `cd backend-ts && ./deploy.sh` |
-| Logs backend dev | `ssh -p 49222 root@77.42.1.116 'tail -f /var/log/drape-backend-dev.log'` |
-| Logs backend prod | `ssh -p 49222 root@77.42.1.116 'tail -f /var/log/drape-backend.log'` |
+| Logs backend dev | `ssh -p 49222 root@77.42.1.116 'tail -f /var/log/bynot-backend-dev.log'` |
+| Logs backend prod | `ssh -p 49222 root@77.42.1.116 'tail -f /var/log/bynot-backend.log'` |
 
 ---
 
@@ -125,5 +125,5 @@ cd backend-ts
 | Profile | Canale OTA | Distribuzione | Uso |
 |---------|-----------|---------------|-----|
 | `development` | `development` | internal | Dev client locale (Expo Go) |
-| `preview` | `preview` | store | TestFlight — Drape Dev |
-| `production` | `production` | store | App Store — Drape |
+| `preview` | `preview` | store | TestFlight — Bynot Dev |
+| `production` | `production` | store | App Store — Bynot |

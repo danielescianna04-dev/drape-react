@@ -14,11 +14,11 @@ import {
 } from '../../lib/supabase/auth';
 
 /**
- * Drape user shape — backward compatible con Firebase consumers.
+ * Bynot user shape — backward compatible con Firebase consumers.
  * `uid` rimane (mappa supabase user.id), così tutti i consumer esistenti
  * (terminalStore, projectStore, components che leggono user?.uid) funzionano.
  */
-export type DrapeUser = {
+export type BynotUser = {
   uid: string;
   email: string | null;
   displayName: string | null;
@@ -31,7 +31,7 @@ export type DrapeUser = {
 };
 
 type AuthState = {
-  user: DrapeUser | null;
+  user: BynotUser | null;
   session: Session | null;
   isNewUser: boolean;
   isInitialized: boolean;
@@ -54,7 +54,7 @@ type AuthState = {
   initialize: () => Promise<() => void>;
 };
 
-function mapSupabaseUser(supaUser: SupabaseUser | null, plan: DrapeUser['plan'] = 'pro'): DrapeUser | null {
+function mapSupabaseUser(supaUser: SupabaseUser | null, plan: BynotUser['plan'] = 'pro'): BynotUser | null {
   if (!supaUser) return null;
   return {
     uid: supaUser.id,
@@ -69,7 +69,7 @@ function mapSupabaseUser(supaUser: SupabaseUser | null, plan: DrapeUser['plan'] 
   };
 }
 
-async function fetchProfile(userId: string): Promise<{ plan: DrapeUser['plan']; displayName: string | null } | null> {
+async function fetchProfile(userId: string): Promise<{ plan: BynotUser['plan']; displayName: string | null } | null> {
   const { data, error } = await supabase
     .from('profiles')
     .select('display_name')

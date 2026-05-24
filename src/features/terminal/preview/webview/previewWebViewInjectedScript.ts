@@ -21,7 +21,7 @@ export function buildPreviewInjectedScript(options: InjectedScriptOptions): stri
 
   return `
     (function() {
-      if (window.__drapeInit) return; window.__drapeInit = true;
+      if (window.__bynotInit) return; window.__bynotInit = true;
       var token = ${JSON.stringify(coderToken)};
       var vmId = ${JSON.stringify(globalFlyMachineId)};
       var previewToken = ${JSON.stringify(previewAccessToken)};
@@ -32,11 +32,11 @@ export function buildPreviewInjectedScript(options: InjectedScriptOptions): stri
         document.cookie = "session_token=" + token + "; path=/; SameSite=Lax";
       }
       if (vmId) {
-        document.cookie = "drape_vm_id=" + vmId + "; path=/; SameSite=Lax";
+        document.cookie = "bynot_vm_id=" + vmId + "; path=/; SameSite=Lax";
         document.cookie = "fly-force-instance-id=" + vmId + "; path=/; SameSite=Lax";
       }
       if (previewToken) {
-        document.cookie = "drape_preview_token=" + previewToken + "; path=/; SameSite=Lax";
+        document.cookie = "bynot_preview_token=" + previewToken + "; path=/; SameSite=Lax";
       }
 
       // Set viewport based on mode (mobile or desktop)
@@ -57,11 +57,11 @@ export function buildPreviewInjectedScript(options: InjectedScriptOptions): stri
 
       // Block ALL forms of page reload — prevents any flash in WebView
       location.reload = function() {
-        console.log('[Drape] Blocked location.reload');
+        console.log('[Bynot] Blocked location.reload');
       };
       var origHistoryGo = history.go;
       history.go = function(delta) {
-        if (!delta || delta === 0) { console.log('[Drape] Blocked history.go(0)'); return; }
+        if (!delta || delta === 0) { console.log('[Bynot] Blocked history.go(0)'); return; }
         origHistoryGo.call(history, delta);
       };
 
@@ -172,7 +172,7 @@ export function buildRenderHeartbeatScript(): string {
   return `
     (function() {
       try {
-        if (window.__drapeHeartbeatInstalled) {
+        if (window.__bynotHeartbeatInstalled) {
           // Already installed: just post the current timestamp so the host
           // knows the observer survived a same-page navigation (SPA route).
           window.ReactNativeWebView?.postMessage(JSON.stringify({
@@ -181,8 +181,8 @@ export function buildRenderHeartbeatScript(): string {
           }));
           return;
         }
-        window.__drapeHeartbeatInstalled = true;
-        window.__drapeLastRender = Date.now();
+        window.__bynotHeartbeatInstalled = true;
+        window.__bynotLastRender = Date.now();
         var pending = false;
         function post() {
           if (pending) return;
@@ -191,7 +191,7 @@ export function buildRenderHeartbeatScript(): string {
             pending = false;
             window.ReactNativeWebView?.postMessage(JSON.stringify({
               type: 'RENDER_HEARTBEAT',
-              at: window.__drapeLastRender
+              at: window.__bynotLastRender
             }));
           }, 200);
         }
@@ -199,7 +199,7 @@ export function buildRenderHeartbeatScript(): string {
         post();
         try {
           var obs = new MutationObserver(function() {
-            window.__drapeLastRender = Date.now();
+            window.__bynotLastRender = Date.now();
             post();
           });
           obs.observe(document.documentElement, {

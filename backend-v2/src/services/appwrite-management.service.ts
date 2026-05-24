@@ -6,8 +6,8 @@ import { supabaseAdmin } from '../lib/supabase';
  * Appwrite Management service.
  *
  * Architettura provisioning:
- * - 1 progetto Appwrite (`drape-platform`, gestito da Drape)
- * - Per ogni utente Drape: 1 database Appwrite con ID `drape-user-{supabase_user_id}`
+ * - 1 progetto Appwrite (`bynot-platform`, gestito da Bynot)
+ * - Per ogni utente Bynot: 1 database Appwrite con ID `bynot-user-{supabase_user_id}`
  * - Dentro al database: collections create on-demand (todo, blog, shop, ecc.)
  *
  * Le credenziali Appwrite (endpoint + project_id) sono pubbliche e vengono
@@ -40,7 +40,7 @@ export interface ProvisionResult {
   projectId: string;
 }
 
-const DB_ID_PREFIX = 'drape-user-';
+const DB_ID_PREFIX = 'bynot-user-';
 
 function userDatabaseId(userId: string): string {
   return `${DB_ID_PREFIX}${userId.replace(/-/g, '')}`.slice(0, 36); // Appwrite ID max 36 char
@@ -48,7 +48,7 @@ function userDatabaseId(userId: string): string {
 
 export class AppwriteManagementService {
   /**
-   * Provisiona (o riusa se già esiste) il database Appwrite per un utente Drape.
+   * Provisiona (o riusa se già esiste) il database Appwrite per un utente Bynot.
    * Salva il database_id sul Supabase project record per lookup futuro.
    */
   async provisionUserDatabase(userId: string, supabaseProjectId: string): Promise<ProvisionResult> {
@@ -56,7 +56,7 @@ export class AppwriteManagementService {
 
     // Idempotent: tenta create, se exists prosegui
     try {
-      await appwriteDatabases.create(dbId, `Drape user ${userId.slice(0, 8)}`);
+      await appwriteDatabases.create(dbId, `Bynot user ${userId.slice(0, 8)}`);
     } catch (err: any) {
       if (err?.code !== 409) throw err;
       // 409 = already exists, ok
@@ -205,7 +205,7 @@ export class AppwriteManagementService {
   }
 
   /**
-   * Cancella il database Appwrite di un utente (per delete progetto Drape).
+   * Cancella il database Appwrite di un utente (per delete progetto Bynot).
    */
   async deleteUserDatabase(databaseId: string): Promise<void> {
     try {

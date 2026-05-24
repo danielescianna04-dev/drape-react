@@ -1,18 +1,18 @@
 # Ambiente Dev — Piano di Lavoro
 
-Questa cartella contiene la documentazione e i piani per l'ambiente di sviluppo di Drape.
+Questa cartella contiene la documentazione e i piani per l'ambiente di sviluppo di Bynot.
 
 ## Configurazione attuale
 
 | Risorsa | Valore |
 |---------|--------|
-| Firebase Project | `drape-dev` |
-| Backend API | `https://dev.drape.info` |
-| WebSocket | `wss://dev.drape.info` |
-| GCP Project | `drape-dev` |
+| Firebase Project | `bynot-dev` |
+| Backend API | `https://dev.bynot.it` |
+| WebSocket | `wss://dev.bynot.it` |
+| GCP Project | `bynot-dev` |
 | GCP Region | `europe-west1` |
-| Bundle ID | `com.drape.app.dev` |
-| Nome App | Drape Dev |
+| Bundle ID | `com.bynot.app.dev` |
+| Nome App | Bynot Dev |
 | Branch | `dev` |
 | EAS Profile | `preview` |
 | OTA Channel | `preview` |
@@ -32,7 +32,7 @@ dev-environment/
 # 1. Checkout branch dev
 git checkout dev
 
-# 2. Assicurati che .env punti a drape-dev (vedi docs/DEPLOY-OTA.md)
+# 2. Assicurati che .env punti a bynot-dev (vedi docs/DEPLOY-OTA.md)
 
 # 3. Installa dipendenze
 yarn install

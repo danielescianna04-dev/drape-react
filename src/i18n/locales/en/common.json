@@ -152,7 +152,7 @@
   },
   "offline": {
     "title": "No Connection",
-    "message": "Drape requires an internet connection to work. Check your connection and try again.",
+    "message": "Bynot requires an internet connection to work. Check your connection and try again.",
     "retry": "Try Again"
   },
   "ota": {
@@ -162,7 +162,7 @@
     "restartNow": "Restart now",
     "later": "Later",
     "forceTitle": "Update required",
-    "forceMessage": "A new version of Drape is available.\nUpdate the app to continue.",
+    "forceMessage": "A new version of Bynot is available.\nUpdate the app to continue.",
     "forceButton": "Update on App Store"
   },
   "splash": {
@@ -181,7 +181,7 @@
     "title": "Your Privacy Matters",
     "subtitle": "We respect your privacy. Choose which data processing activities you consent to.",
     "analytics": "Analytics",
-    "analyticsDesc": "Help us improve Drape by collecting anonymous usage data like screen views and feature usage.",
+    "analyticsDesc": "Help us improve Bynot by collecting anonymous usage data like screen views and feature usage.",
     "pushNotifications": "Push Notifications",
     "pushNotificationsDesc": "Receive updates about your projects, build status, and important announcements.",
     "presenceTracking": "Presence Tracking",
@@ -190,7 +190,7 @@
     "savePreferences": "Save Preferences",
     "rejectAll": "Reject All",
     "rejectedTitle": "Consent Required",
-    "rejectedMessage": "To use Drape, you need to accept at least the essential data processing. Without consent, we cannot provide the service. Please go back and select your preferences.",
+    "rejectedMessage": "To use Bynot, you need to accept at least the essential data processing. Without consent, we cannot provide the service. Please go back and select your preferences.",
     "goBack": "Go Back to Preferences",
     "legalPrefix": "Read our",
     "privacyPolicy": "Privacy Policy",

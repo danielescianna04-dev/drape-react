@@ -222,7 +222,7 @@ Aggiungi Phase 3: fix automatico + re-test completo.
 Se dopo 3 fix una pagina è ancora rotta, rigenerala da zero.
 
 - [ ] Aggiungi `regeneratePage(pagePath, projectDescription)`:
-  - Leggi la descrizione originale del progetto da `.drape/project-meta.json` (se esiste)
+  - Leggi la descrizione originale del progetto da `.bynot/project-meta.json` (se esiste)
   - Invia a Gemini: "Rigenera questa pagina da zero per un progetto {technology} chiamato {name}: {description}"
   - Scrivi il nuovo file
 - [ ] Modifica `main()`: dopo 3 cicli falliti, identifica pagine ancora rotte → chiama `regeneratePage()` per ognuna → re-test finale

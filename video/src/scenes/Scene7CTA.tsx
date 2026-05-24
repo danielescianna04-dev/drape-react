@@ -2,7 +2,7 @@ import React from "react";
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { Colors } from "../design/colors";
 import { fontFamily, fontSize, borderRadius } from "../design/tokens";
-import { DrapeLogo } from "../components/DrapeLogo";
+import { BynotLogo } from "../components/BynotLogo";
 
 /**
  * Scene 7: CTA finale (22-30s, 240 frames)
@@ -117,7 +117,7 @@ export const Scene7CTA: React.FC = () => {
       >
         {/* Logo */}
         <div style={{ transform: `scale(${logoScale})` }}>
-          <DrapeLogo size={110} animate={false} glowIntensity={0.5} />
+          <BynotLogo size={110} animate={false} glowIntensity={0.5} />
         </div>
 
         {/* App name */}
@@ -135,7 +135,7 @@ export const Scene7CTA: React.FC = () => {
             transform: `scale(${interpolate(nameSpring, [0, 1], [0.7, 1])})`,
           }}
         >
-          Drape
+          Bynot
         </div>
 
         {/* CTA Button with shine sweep */}
@@ -220,7 +220,7 @@ export const Scene7CTA: React.FC = () => {
             letterSpacing: "0.05em",
           }}
         >
-          drape-dev.it
+          bynot-dev.it
         </div>
       </div>
     </AbsoluteFill>

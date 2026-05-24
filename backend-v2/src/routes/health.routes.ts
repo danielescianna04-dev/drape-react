@@ -5,7 +5,7 @@ import { appwriteManagementService } from '../services/appwrite-management.servi
 export const healthRouter = Router();
 
 healthRouter.get('/', (_req, res) => {
-  res.json({ ok: true, service: 'drape-backend-v2' });
+  res.json({ ok: true, service: 'bynot-backend-v2' });
 });
 
 healthRouter.get('/deep', async (_req, res) => {

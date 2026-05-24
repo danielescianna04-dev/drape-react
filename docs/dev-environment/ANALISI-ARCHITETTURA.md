@@ -1,4 +1,4 @@
-# Analisi Architetturale — Drape (Aprile 2026)
+# Analisi Architetturale — Bynot (Aprile 2026)
 
 ## 1. Sistema di Creazione Progetto
 

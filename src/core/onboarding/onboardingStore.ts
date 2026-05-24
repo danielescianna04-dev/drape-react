@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const ONBOARDING_KEY_PREFIX = '@drape_onboarding_v3_';
-const OLD_KEY_PREFIX_V2 = '@drape_onboarding_v2_';
-const OLD_GLOBAL_KEY = '@drape_onboarding_v2';
-const OLD_TUTORIAL_KEY = '@drape_tutorial_completed';
+const ONBOARDING_KEY_PREFIX = '@bynot_onboarding_v3_';
+const OLD_KEY_PREFIX_V2 = '@bynot_onboarding_v2_';
+const OLD_GLOBAL_KEY = '@bynot_onboarding_v2';
+const OLD_TUTORIAL_KEY = '@bynot_tutorial_completed';
 
 export interface OnboardingStep {
   id: string;

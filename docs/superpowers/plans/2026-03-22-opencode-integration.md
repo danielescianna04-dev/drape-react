@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace Drape's custom agent loop with OpenCode running inside containers, translating its JSON output to Drape's SSE events so the frontend stays unchanged.
+**Goal:** Replace Bynot's custom agent loop with OpenCode running inside containers, translating its JSON output to Bynot's SSE events so the frontend stays unchanged.
 
-**Architecture:** OpenCode `serve` runs in each container on port 4096. Backend adapter receives user messages, forwards to OpenCode via `run --attach --format json`, parses JSONL output, and emits Drape SSE events. Frontend is untouched.
+**Architecture:** OpenCode `serve` runs in each container on port 4096. Backend adapter receives user messages, forwards to OpenCode via `run --attach --format json`, parses JSONL output, and emits Bynot SSE events. Frontend is untouched.
 
 **Tech Stack:** OpenCode CLI (npm opencode-ai), Node.js adapter, existing SSE infrastructure
 
@@ -107,8 +107,8 @@ Modify `backend-ts/src/services/docker.service.ts` createContainer Env array —
 - [ ] **Step 6: Build and test Docker image**
 
 ```bash
-cd backend-ts && docker build -f Dockerfile.workspace -t drape-workspace:latest .
-docker run --rm drape-workspace:latest opencode --version
+cd backend-ts && docker build -f Dockerfile.workspace -t bynot-workspace:latest .
+docker run --rm bynot-workspace:latest opencode --version
 # Expected: 1.2.27
 ```
 
@@ -128,7 +128,7 @@ git commit -m "feat: install OpenCode in workspace container"
 
 - [ ] **Step 1: Create the adapter service**
 
-This service translates OpenCode JSONL output → Drape SSE events.
+This service translates OpenCode JSONL output → Bynot SSE events.
 
 ```typescript
 // backend-ts/src/services/opencode-adapter.service.ts
@@ -166,8 +166,8 @@ interface OpenCodeEvent {
   };
 }
 
-// Drape SSE event (existing format)
-interface DrapeSSEEvent {
+// Bynot SSE event (existing format)
+interface BynotSSEEvent {
   type: string;
   data?: any;
 }
@@ -182,23 +182,23 @@ const MODEL_MAP: Record<string, string> = {
   'claude-3.5-haiku': 'anthropic/claude-haiku-4-20250414',
 };
 
-export function mapDrapeModelToOpenCode(drapeModel: string): string {
-  return MODEL_MAP[drapeModel] || drapeModel;
+export function mapBynotModelToOpenCode(bynotModel: string): string {
+  return MODEL_MAP[bynotModel] || bynotModel;
 }
 
 /**
  * Send a message to OpenCode serve and stream the response,
- * translating each OpenCode JSON event to a Drape SSE event.
+ * translating each OpenCode JSON event to a Bynot SSE event.
  */
 export async function streamOpenCodeResponse(
   agentUrl: string,
   message: string,
   model: string,
   sessionId?: string,
-  onEvent: (event: DrapeSSEEvent) => void = () => {},
+  onEvent: (event: BynotSSEEvent) => void = () => {},
 ): Promise<void> {
   const openCodeUrl = agentUrl.replace(/:\d+$/, ':4096');
-  const openCodeModel = mapDrapeModelToOpenCode(model);
+  const openCodeModel = mapBynotModelToOpenCode(model);
 
   // Build command args
   const args = ['run', '--format', 'json', '--model', openCodeModel];
@@ -240,8 +240,8 @@ export async function streamOpenCodeResponse(
         if (!line.trim()) continue;
         try {
           const event: OpenCodeEvent = JSON.parse(line);
-          const drapeEvents = translateEvent(event, iterationCount);
-          for (const de of drapeEvents) {
+          const bynotEvents = translateEvent(event, iterationCount);
+          for (const de of bynotEvents) {
             onEvent(de);
           }
 
@@ -286,10 +286,10 @@ export async function streamOpenCodeResponse(
 }
 
 /**
- * Translate a single OpenCode event to one or more Drape SSE events.
+ * Translate a single OpenCode event to one or more Bynot SSE events.
  */
-function translateEvent(event: OpenCodeEvent, iteration: number): DrapeSSEEvent[] {
-  const events: DrapeSSEEvent[] = [];
+function translateEvent(event: OpenCodeEvent, iteration: number): BynotSSEEvent[] {
+  const events: BynotSSEEvent[] = [];
 
   switch (event.type) {
     case 'step_start':
@@ -409,7 +409,7 @@ git commit -m "feat: create OpenCode adapter service"
 
 At top of `agent.routes.ts`:
 ```typescript
-import { streamOpenCodeResponse, mapDrapeModelToOpenCode, isOpenCodeReady } from '../services/opencode-adapter.service';
+import { streamOpenCodeResponse, mapBynotModelToOpenCode, isOpenCodeReady } from '../services/opencode-adapter.service';
 ```
 
 - [ ] **Step 2: Replace the POST /agent/run/fast handler**
@@ -611,7 +611,7 @@ git commit -am "fix: map GEMINI_API_KEY to GOOGLE_GENERATIVE_AI_API_KEY for Open
 
 - [ ] **Step 1: Build Docker image**
 ```bash
-docker build -f Dockerfile.workspace -t drape-workspace:latest .
+docker build -f Dockerfile.workspace -t bynot-workspace:latest .
 ```
 
 - [ ] **Step 2: Deploy backend**

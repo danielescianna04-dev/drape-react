@@ -9,10 +9,10 @@ interface Props {
 }
 
 /**
- * Drape logo — matches the SVG from the real app icon.
+ * Bynot logo — matches the SVG from the real app icon.
  * Organic rounded shape with flowing inner channel.
  */
-export const DrapeLogo: React.FC<Props> = ({
+export const BynotLogo: React.FC<Props> = ({
   size = 120,
   animate = true,
   glowIntensity = 0.6,

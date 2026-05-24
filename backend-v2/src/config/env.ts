@@ -5,7 +5,7 @@ const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3000),
 
-  // Supabase (Drape internal)
+  // Supabase (Bynot internal)
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
   SUPABASE_ANON_KEY: z.string().min(20).optional(),

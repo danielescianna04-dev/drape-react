@@ -10,7 +10,7 @@ export const appwriteRouter = Router();
  * POST /api/appwrite/provision
  * Body: { projectId: uuid }
  * Provisiona (o riusa) il database Appwrite per l'utente autenticato
- * e lo collega al progetto Drape indicato.
+ * e lo collega al progetto Bynot indicato.
  */
 appwriteRouter.post('/provision', requireAuth, async (req: AuthedRequest, res) => {
   const parsed = z.object({ projectId: z.string().uuid() }).safeParse(req.body);
@@ -20,7 +20,7 @@ appwriteRouter.post('/provision', requireAuth, async (req: AuthedRequest, res) =
   }
   const { projectId } = parsed.data;
 
-  // Verifica che il progetto Drape appartenga all'utente
+  // Verifica che il progetto Bynot appartenga all'utente
   const { data: project, error: projectError } = await supabaseAdmin
     .from('projects')
     .select('id, user_id, appwrite_database_id')
@@ -92,7 +92,7 @@ appwriteRouter.post('/collections', requireAuth, async (req: AuthedRequest, res)
 
 /**
  * DELETE /api/appwrite/database/:projectId
- * Cancella tutto il database Appwrite associato al progetto Drape.
+ * Cancella tutto il database Appwrite associato al progetto Bynot.
  */
 appwriteRouter.delete('/database/:projectId', requireAuth, async (req: AuthedRequest, res) => {
   const projectId = req.params.projectId;

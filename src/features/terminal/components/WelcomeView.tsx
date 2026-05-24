@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { DrapeLogo } from '../../../shared/components/icons';
+import { BynotLogo } from '../../../shared/components/icons';
 
 interface WelcomeViewProps {
   onStartChat?: () => void;
@@ -15,11 +15,11 @@ export const WelcomeView: React.FC<WelcomeViewProps> = ({ onStartChat }) => {
       <View style={styles.content}>
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <DrapeLogo size={74} />
+          <BynotLogo size={74} />
         </View>
 
         {/* Title */}
-        <Text style={styles.title}>Drape</Text>
+        <Text style={styles.title}>Bynot</Text>
         <Text style={styles.subtitle}>
           {t('terminal:welcome.subtitle')}
         </Text>

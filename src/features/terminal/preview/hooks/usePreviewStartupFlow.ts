@@ -183,7 +183,7 @@ export function usePreviewStartupFlow({
           redirect: 'manual' as RequestRedirect,
           headers: {
             'Fly-Force-Instance-Id': session.flyMachineIdRef.current!,
-            ...(session.previewAccessTokenRef.current ? { 'X-Drape-Preview-Token': session.previewAccessTokenRef.current } : {}),
+            ...(session.previewAccessTokenRef.current ? { 'X-Bynot-Preview-Token': session.previewAccessTokenRef.current } : {}),
           },
           signal: controller.signal,
         });
@@ -226,7 +226,7 @@ export function usePreviewStartupFlow({
 
     try {
       const userId = useWorkstationStore.getState().userId || 'anonymous';
-      const userEmail = useAuthStore.getState().user?.email || 'anonymous@drape.dev';
+      const userEmail = useAuthStore.getState().user?.email || 'anonymous@bynot.dev';
       let githubToken: string | null = null;
       const repoUrl = currentWorkstation.repositoryUrl || currentWorkstation.githubUrl;
       if (repoUrl) {

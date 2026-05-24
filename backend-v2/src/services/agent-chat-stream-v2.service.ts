@@ -52,14 +52,14 @@ export async function runAgentChatStreamV2({
   stream.writePart({ type: 'start', messageId });
   stream.writePart({ type: 'start-step' });
 
-  // We reuse projectId as the drape session id — opencodeHttpService memoizes
+  // We reuse projectId as the bynot session id — opencodeHttpService memoizes
   // a mapping to its own opencode session, so consecutive turns on the same
   // project resume the same opencode session automatically.
-  const drapeSessionId = `proj:${projectId}:user:${userId}`;
+  const bynotSessionId = `proj:${projectId}:user:${userId}`;
 
   try {
     for await (const ev of opencodeHttpService.chatStream({
-      sessionId: drapeSessionId,
+      sessionId: bynotSessionId,
       message: prompt,
       model,
       systemContext,
@@ -108,7 +108,7 @@ export async function runAgentChatStreamV2({
         if (CLIENT_RESOLVED_TOOLS.has(toolName)) {
           stream.writePart({
             type: 'data-question-meta',
-            data: { toolCallId, requestID: ev.id, sessionID: drapeSessionId },
+            data: { toolCallId, requestID: ev.id, sessionID: bynotSessionId },
           });
         }
         return;
