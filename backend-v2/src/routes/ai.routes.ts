@@ -188,6 +188,14 @@ aiRouter.post('/chat', wrapAsync(async (req: Request, res: Response) => {
   res.socket?.setNoDelay(true);
   res.write(': connected\n\n');
 
+  // opencode /message is synchronous: it blocks for the full LLM generation
+  // (often 60-180s for code tasks) before returning anything. Without periodic
+  // traffic the client XHR ("Request timeout — AI non risponde") and any proxy
+  // would kill the connection. Send an SSE comment every 10s as a keep-alive.
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) res.write(': keep-alive\n\n');
+  }, 10000);
+
   const crypto = require('crypto');
   const sessionId = crypto.randomUUID();
 
@@ -218,6 +226,7 @@ aiRouter.post('/chat', wrapAsync(async (req: Request, res: Response) => {
       res.write(`data: ${JSON.stringify({ error: errorMessage, text: `Errore AI: ${errorMessage}` })}\n\n`);
     }
   } finally {
+    clearInterval(heartbeat);
     opencodeHttpService.forgetSession(sessionId);
     if (!res.writableEnded) {
       res.end();

@@ -152,9 +152,11 @@ export default function App() {
   const { initialize } = useAuthStore();
   const consent = useConsentStore((state) => state.consent);
 
-  // Stream backend logs to terminal (always enabled when logged in)
+  // Stream backend logs to terminal — disabled: backend-v2 doesn't expose
+  // /ws yet (was a Hetzner-era WebSocket endpoint). Keeping the hook call so
+  // re-enabling later is a single-flag flip once the endpoint is back.
   const { isInitialized, user } = useAuthStore();
-  useBackendLogs({ enabled: isInitialized && !!user });
+  useBackendLogs({ enabled: false });
 
   // Reconcile any background generation jobs that may have completed while
   // the app was closed. Cleans up pendingJobs entries for terminal jobs;

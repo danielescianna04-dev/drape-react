@@ -55,7 +55,11 @@ export const streamLegacyAiChat = async ({
     if (chatAuthToken) {
       xhr.setRequestHeader('Authorization', `Bearer ${chatAuthToken}`);
     }
-    xhr.timeout = 60000;
+    // 60s was too tight for code-gen prompts (landing pages, multi-file
+     // scaffolds) — DeepSeek V4-Pro via OpenRouter routinely takes 90-180s.
+     // The backend now emits a heartbeat every 10s so the XHR stays active;
+     // 3 min is a safety upper bound rather than a normal wait.
+    xhr.timeout = 180000;
 
     let buffer = '';
     let thinkingContent = '';
