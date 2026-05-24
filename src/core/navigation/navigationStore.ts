@@ -13,8 +13,7 @@ export type Screen =
   | 'allProjects'
   | 'settings'
   | 'plans'
-  | 'explore'
-  | 'aiSdkTest';
+  | 'explore';
 
 interface NavigationStore {
   // Pending navigation request (consumed by App.tsx)

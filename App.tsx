@@ -12,7 +12,6 @@ import i18n from './src/i18n';
 import { useLanguageStore } from './src/i18n/languageStore';
 
 import { ProjectsHomeScreen } from './src/features/projects/ProjectsHomeScreen';
-import AiSdkTestScreen from './src/pages/AiSdkTestScreen';
 import { NavigationContainer } from '@react-navigation/native';
 import { CreateProjectScreen } from './src/features/projects/CreateProjectScreen';
 import { AllProjectsScreen } from './src/features/projects/AllProjectsScreen';
@@ -300,13 +299,6 @@ export default function App() {
 
   if (currentScreen === 'splash') {
     return <SplashRoute onFinish={handleSplashFinish} />;
-  }
-
-  // Dev-only AI SDK migration test surface. Reachable via DevBanner once the
-  // user is past splash/auth. Safe to bypass auth gates because the screen
-  // itself doesn't render anything sensitive until you tap "send".
-  if (currentScreen === 'aiSdkTest') {
-    return <AiSdkTestScreen />;
   }
 
   // Show seamless dark screen while auth is initializing (must be BEFORE auth check)

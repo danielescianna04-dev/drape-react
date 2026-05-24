@@ -8,7 +8,7 @@
  * The legacy `useAgentStream` is unchanged — both hooks can coexist while we
  * migrate the chat surface incrementally.
  */
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from 'ai';
 import { fetch as expoFetch } from 'expo/fetch';
@@ -22,25 +22,30 @@ export interface UseAgentChatOptions {
 }
 
 export function useAgentChat({ projectId, model, previewContext }: UseAgentChatOptions) {
+  // Stash latest props in a ref so the transport's fetch — created once —
+  // always reads the current projectId/model. useMemo with [projectId] would
+  // recreate the transport on every change, but useChat ignores that and
+  // keeps using the original. Refs sidestep both problems.
+  const propsRef = useRef({ projectId, model, previewContext });
+  propsRef.current = { projectId, model, previewContext };
+
   const transport = useMemo(() => {
     return new DefaultChatTransport({
       api: `${config.apiUrl}/agent/v2/chat`,
-      // Inject auth + project metadata on every request.
       fetch: (async (input: any, init: any = {}) => {
         const token = await getAuthToken();
         const headers = new Headers(init.headers || {});
         if (token) headers.set('Authorization', `Bearer ${token}`);
         headers.set('Content-Type', 'application/json');
 
-        // The AI SDK transport posts { messages, id, trigger, ... }.
-        // We splice in the fields our backend needs.
         let bodyObj: any = {};
         if (init.body) {
           try { bodyObj = JSON.parse(init.body as string); } catch { bodyObj = {}; }
         }
-        bodyObj.projectId = projectId;
-        if (model) bodyObj.model = model;
-        if (previewContext) bodyObj.previewContext = previewContext;
+        const current = propsRef.current;
+        bodyObj.projectId = current.projectId;
+        if (current.model) bodyObj.model = current.model;
+        if (current.previewContext) bodyObj.previewContext = current.previewContext;
 
         return expoFetch(input, {
           ...init,
@@ -49,7 +54,10 @@ export function useAgentChat({ projectId, model, previewContext }: UseAgentChatO
         }) as unknown as Response;
       }) as any,
     });
-  }, [projectId, model, previewContext]);
+    // Intentionally [] — we want a stable transport. Latest props are read
+    // via propsRef on every request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const chat = useChat({
     transport,
