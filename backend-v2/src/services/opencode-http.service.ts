@@ -370,9 +370,12 @@ export class OpencodeHttpService {
               const cache = tokens.cache ?? {};
               const cacheRead = cache.read ?? 0;
               const cacheWrite = cache.write ?? 0;
-              const totalIn = tokens.input ?? 0;
-              const hitPct = totalIn > 0 ? Math.round((cacheRead / totalIn) * 100) : 0;
-              console.log(`[cache] session=${opencodeSessionId.slice(-8)} in=${totalIn} cached=${cacheRead} (${hitPct}%) write=${cacheWrite} out=${tokens.output ?? 0}`);
+              const newInput = tokens.input ?? 0;
+              // tokens.input is the count of NEW input tokens this turn
+              // (not cached). Total tokens the model actually saw = new + cache.read.
+              const totalSeen = newInput + cacheRead;
+              const hitPct = totalSeen > 0 ? Math.round((cacheRead / totalSeen) * 100) : 0;
+              console.log(`[cache] session=${opencodeSessionId.slice(-8)} new=${newInput} cached=${cacheRead}/${totalSeen} (${hitPct}% hit) write=${cacheWrite} out=${tokens.output ?? 0}`);
             }
             continue;
           }
