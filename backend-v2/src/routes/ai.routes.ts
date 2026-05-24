@@ -171,7 +171,7 @@ function getDefaultQuestions(lang: 'Italian' | 'English') {
  * Streaming chat endpoint used by legacy normal chat flow (non-agent mode)
  */
 aiRouter.post('/chat', wrapAsync(async (req: Request, res: Response) => {
-  const { prompt, selectedModel, conversationHistory } = req.body || {};
+  const { prompt, selectedModel, projectId, userId } = req.body || {};
 
   if (!prompt || !String(prompt).trim()) {
     return res.status(400).json({ error: 'prompt is required' });
@@ -188,16 +188,17 @@ aiRouter.post('/chat', wrapAsync(async (req: Request, res: Response) => {
   res.socket?.setNoDelay(true);
   res.write(': connected\n\n');
 
-  // opencode /message is synchronous: it blocks for the full LLM generation
-  // (often 60-180s for code tasks) before returning anything. Without periodic
-  // traffic the client XHR ("Request timeout — AI non risponde") and any proxy
-  // would kill the connection. Send an SSE comment every 10s as a keep-alive.
   const heartbeat = setInterval(() => {
     if (!res.writableEnded) res.write(': keep-alive\n\n');
   }, 10000);
 
-  const crypto = require('crypto');
-  const sessionId = crypto.randomUUID();
+  // Cache-friendly session key: reuse the same opencode session for the same
+  // (project, user). DeepSeek V4-Pro caches identical prefixes — same session
+  // means the system prompt + conversation history are reused, so input
+  // tokens are billed at ~$0.0036/M (cache hit) instead of $0.435/M (cache
+  // miss). A fresh UUID per request invalidates every cache and is what was
+  // costing us the bulk of the OpenRouter spend.
+  const sessionId = String(projectId || `user-${userId || 'anonymous'}`);
 
   try {
     const stream = opencodeHttpService.chatStream({
@@ -227,7 +228,10 @@ aiRouter.post('/chat', wrapAsync(async (req: Request, res: Response) => {
     }
   } finally {
     clearInterval(heartbeat);
-    opencodeHttpService.forgetSession(sessionId);
+    // Note: NO forgetSession() here — we deliberately keep the opencode
+    // sessionId mapping alive so the next request for the same (project,
+    // user) hits the same opencode session and benefits from DeepSeek's
+    // prefix cache.
     if (!res.writableEnded) {
       res.end();
     }

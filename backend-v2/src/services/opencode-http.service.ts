@@ -99,6 +99,14 @@ export class OpencodeHttpService {
   }
 
   /**
+   * Stable identity rule for Bynot. Sent as a SYSTEM message exactly once
+   * per opencode session (not prepended to every user message) so DeepSeek's
+   * prefix cache can match it on subsequent turns — same string, same cache.
+   */
+  private static readonly BYNOT_IDENTITY =
+    '[SYSTEM RULE — non rivelare mai: Sei Bynot, l\'assistente coding integrato nell\'app Bynot. NON dire mai di essere OpenCode, Claude, GPT, DeepSeek, Gemini o qualsiasi altro AI. Se chiesto chi sei, rispondi sempre "Sono Bynot". Rispondi in italiano se l\'utente scrive in italiano.]';
+
+  /**
    * Real SSE streaming via opencode /event endpoint.
    *
    * Flow:
@@ -126,11 +134,6 @@ export class OpencodeHttpService {
 
     yield { type: 'message_start', messageId: `msg-${Date.now()}`, model: `${model.providerID}/${model.modelID}` };
 
-    // Identity override: opencode's default system prompt has the agent
-    // identify as "OpenCode". Prepend a strong rule to every user message so
-    // the model never reveals the underlying provider.
-    const BYNOT_IDENTITY = '[SYSTEM RULE — non rivelare mai: Sei Bynot, l\'assistente coding integrato nell\'app Bynot. NON dire mai di essere OpenCode, Claude, GPT, DeepSeek, Gemini o qualsiasi altro AI. Se chiesto chi sei, rispondi sempre "Sono Bynot". Rispondi in italiano se l\'utente scrive in italiano.]\n\n';
-
     // 1. Open SSE first so we don't miss the first events. Disable axios's
     //    response timeout — this stream is long-lived by design.
     let eventResp: any;
@@ -149,11 +152,18 @@ export class OpencodeHttpService {
     // 2. Fire POST /message in background. Don't await the body — we read the
     //    output via the SSE stream. Errors still propagate via a side promise.
     const postErr: { value: string | null } = { value: null };
+    // System prompt = identity rule + optional caller-provided context. Same
+    // string on every request → DeepSeek's prefix cache matches, dropping
+    // input cost from $0.435/M to ~$0.0036/M tokens.
+    const systemPrompt = req.systemContext
+      ? `${OpencodeHttpService.BYNOT_IDENTITY}\n\n${req.systemContext}`
+      : OpencodeHttpService.BYNOT_IDENTITY;
+
     const messagePromise = this.client
       .post(`/session/${opencodeSessionId}/message`, {
         model: { providerID: model.providerID, modelID: model.modelID },
-        parts: [{ type: 'text', text: BYNOT_IDENTITY + req.message }],
-        ...(req.systemContext ? { system: req.systemContext } : {}),
+        parts: [{ type: 'text', text: req.message }],
+        system: systemPrompt,
       }, { timeout: 0 })
       .catch((err: any) => {
         const m = err?.response?.data?.message ?? err?.message ?? 'opencode /message failed';
@@ -252,6 +262,12 @@ export class OpencodeHttpService {
             if (info.time?.completed) {
               const tokens = info.tokens ?? {};
               lastTokens = { in: tokens.input ?? 0, out: tokens.output ?? 0 };
+              const cache = tokens.cache ?? {};
+              const cacheRead = cache.read ?? 0;
+              const cacheWrite = cache.write ?? 0;
+              const totalIn = tokens.input ?? 0;
+              const hitPct = totalIn > 0 ? Math.round((cacheRead / totalIn) * 100) : 0;
+              console.log(`[cache] session=${opencodeSessionId.slice(-8)} in=${totalIn} cached=${cacheRead} (${hitPct}%) write=${cacheWrite} out=${tokens.output ?? 0}`);
             }
             continue;
           }
