@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { opencodeHttpService } from '../services/opencode-http.service';
 import { buildPreviewContract, contractToSummary, StructuredAnswers } from '../services/product-contract';
+import { requireAuth, type AuthedRequest } from '../middleware/auth.middleware';
+import { checkQuota, recordUsage } from '../services/usage-quota.service';
 
 export const aiRouter = Router();
 
@@ -170,11 +172,28 @@ function getDefaultQuestions(lang: 'Italian' | 'English') {
  * POST /ai/chat
  * Streaming chat endpoint used by legacy normal chat flow (non-agent mode)
  */
-aiRouter.post('/chat', wrapAsync(async (req: Request, res: Response) => {
-  const { prompt, selectedModel, projectId, userId } = req.body || {};
+aiRouter.post('/chat', requireAuth, wrapAsync(async (req: Request, res: Response) => {
+  const authed = req as AuthedRequest;
+  const userId = authed.userId!;
+  const { prompt, selectedModel, projectId } = req.body || {};
 
   if (!prompt || !String(prompt).trim()) {
     return res.status(400).json({ error: 'prompt is required' });
+  }
+
+  // Quota check BEFORE streaming starts. If the user is over their 5h
+  // sliding window, reject with 429 and a Retry-After hint so the UI can
+  // show a friendly "wait X min" message and link to the Plus upgrade.
+  const quota = await checkQuota(userId);
+  if (!quota.allowed) {
+    res.setHeader('Retry-After', String(quota.retryAfterSec ?? 3600));
+    return res.status(429).json({
+      error: 'quota_exceeded',
+      used: quota.used,
+      limit: quota.limit,
+      retryAfterSec: quota.retryAfterSec,
+      message: 'Hai esaurito il quota della tua finestra di 5 ore. Aspetta o passa a Plus per quota 5x più alta.',
+    });
   }
 
   const model = selectedModel || 'openrouter/deepseek/deepseek-v4-pro';
@@ -192,13 +211,16 @@ aiRouter.post('/chat', wrapAsync(async (req: Request, res: Response) => {
     if (!res.writableEnded) res.write(': keep-alive\n\n');
   }, 10000);
 
-  // Cache-friendly session key: reuse the same opencode session for the same
-  // (project, user). DeepSeek V4-Pro caches identical prefixes — same session
-  // means the system prompt + conversation history are reused, so input
-  // tokens are billed at ~$0.0036/M (cache hit) instead of $0.435/M (cache
-  // miss). A fresh UUID per request invalidates every cache and is what was
-  // costing us the bulk of the OpenRouter spend.
-  const sessionId = String(projectId || `user-${userId || 'anonymous'}`);
+  // Cache-friendly session key: reuse the same opencode session per (project,
+  // user). Identical prefixes → DeepSeek cache hits → 120x cheaper input.
+  const sessionId = String(projectId || `user-${userId}`);
+
+  // Track for recordUsage at the end.
+  const startedAt = Date.now();
+  let assembledText = '';
+  let usageTokensIn = 0;
+  let usageTokensOut = 0;
+  let usageError: string | null = null;
 
   try {
     const stream = opencodeHttpService.chatStream({
@@ -211,8 +233,13 @@ aiRouter.post('/chat', wrapAsync(async (req: Request, res: Response) => {
       if (res.writableEnded) break;
 
       if (event.type === 'token' && event.content) {
+        assembledText += event.content;
         res.write(`data: ${JSON.stringify({ text: event.content })}\n\n`);
+      } else if (event.type === 'message_end') {
+        usageTokensIn += event.tokensIn ?? 0;
+        usageTokensOut += event.tokensOut ?? 0;
       } else if (event.type === 'error') {
+        usageError = event.message;
         throw new Error(event.message);
       }
     }
@@ -222,19 +249,26 @@ aiRouter.post('/chat', wrapAsync(async (req: Request, res: Response) => {
     }
   } catch (error: any) {
     console.error('[AI] /chat streaming error:', error);
+    usageError = error?.message || 'AI chat failed';
     if (!res.writableEnded) {
-      const errorMessage = error?.message || 'AI chat failed';
-      res.write(`data: ${JSON.stringify({ error: errorMessage, text: `Errore AI: ${errorMessage}` })}\n\n`);
+      res.write(`data: ${JSON.stringify({ error: usageError, text: `Errore AI: ${usageError}` })}\n\n`);
     }
   } finally {
     clearInterval(heartbeat);
-    // Note: NO forgetSession() here — we deliberately keep the opencode
-    // sessionId mapping alive so the next request for the same (project,
-    // user) hits the same opencode session and benefits from DeepSeek's
-    // prefix cache.
-    if (!res.writableEnded) {
-      res.end();
-    }
+    if (!res.writableEnded) res.end();
+    // Best-effort persist for quota accounting + analytics. Don't await —
+    // the response is already sent; let it land in the background.
+    void recordUsage({
+      userId,
+      sessionId: null,
+      model,
+      prompt: String(prompt),
+      response: assembledText,
+      tokensIn: usageTokensIn,
+      tokensOut: usageTokensOut,
+      durationMs: Date.now() - startedAt,
+      error: usageError,
+    });
   }
 }));
 

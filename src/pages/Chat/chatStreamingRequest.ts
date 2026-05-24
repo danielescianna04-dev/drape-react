@@ -216,6 +216,19 @@ export const streamLegacyAiChat = async ({
     xhr.onload = () => {
       if (xhr.status === 200) {
         resolve();
+      } else if (xhr.status === 429) {
+        // Quota exceeded — surface the friendly message + retry-after from
+        // the backend so the chat UI can offer the Plus upgrade flow.
+        let body: any = {};
+        try { body = JSON.parse(xhr.responseText); } catch {}
+        const retrySec = body.retryAfterSec ?? 3600;
+        const min = Math.ceil(retrySec / 60);
+        const human = min >= 60 ? `${Math.ceil(min / 60)}h` : `${min} min`;
+        const message = body.message || `Hai esaurito il quota. Riprova fra ${human} o passa a Plus.`;
+        const err = new Error(message) as Error & { code?: string; retryAfterSec?: number };
+        err.code = 'quota_exceeded';
+        err.retryAfterSec = retrySec;
+        reject(err);
       } else {
         reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
       }

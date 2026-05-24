@@ -5,6 +5,7 @@ import { requireAuth, type AuthedRequest } from '../middleware/auth.middleware';
 import { opencodeHttpService } from '../services/opencode-http.service';
 import { buildBynotSystemPrompt } from '../templates/opencode-system-prompt';
 import { supabaseAdmin } from '../lib/supabase';
+import { checkQuota } from '../services/usage-quota.service';
 
 /**
  * Legacy v1 endpoints per agent streaming.
@@ -42,6 +43,24 @@ async function handleAgentStream(req: AuthedRequest, res: any): Promise<void> {
     return;
   }
   const { projectId, prompt, model, projectName } = parsed.data;
+
+  // Quota check BEFORE opening SSE — same 5h sliding window as /ai/chat.
+  // Reject early with 429 so the frontend can show "wait/upgrade" without
+  // burning an open EventSource.
+  if (req.userId) {
+    const quota = await checkQuota(req.userId);
+    if (!quota.allowed) {
+      res.setHeader('Retry-After', String(quota.retryAfterSec ?? 3600));
+      res.status(429).json({
+        error: 'quota_exceeded',
+        used: quota.used,
+        limit: quota.limit,
+        retryAfterSec: quota.retryAfterSec,
+        message: 'Hai esaurito il quota della tua finestra di 5 ore. Aspetta o passa a Plus.',
+      });
+      return;
+    }
+  }
 
   // SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
