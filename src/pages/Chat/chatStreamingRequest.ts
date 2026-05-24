@@ -55,11 +55,13 @@ export const streamLegacyAiChat = async ({
     if (chatAuthToken) {
       xhr.setRequestHeader('Authorization', `Bearer ${chatAuthToken}`);
     }
-    // 60s was too tight for code-gen prompts (landing pages, multi-file
-     // scaffolds) — DeepSeek V4-Pro via OpenRouter routinely takes 90-180s.
-     // The backend now emits a heartbeat every 10s so the XHR stays active;
-     // 3 min is a safety upper bound rather than a normal wait.
-    xhr.timeout = 180000;
+    // Code-gen prompts (landing pages, multi-file scaffolds) routinely take
+     // 1-4 min through opencode: the LLM call itself is fast but opencode runs
+     // an agentic loop with tool calls (write/bash/read) before the final
+     // reply. The backend emits a heartbeat every 10s so this is an idle
+     // timeout, not a wall-clock budget — 5 min covers the heaviest cases
+     // we've seen empirically.
+    xhr.timeout = 300000;
 
     let buffer = '';
     let thinkingContent = '';
