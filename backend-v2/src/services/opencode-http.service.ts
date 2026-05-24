@@ -1,4 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
+import fs from 'fs';
+import path from 'path';
 import { env } from '../config/env';
 
 /**
@@ -55,7 +57,47 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro';
 const DEFAULT_PROVIDER = 'openrouter';
 
 // Map nostro sessionId (UUID Bynot) → opencode sessionID (ses_xxx)
+// Persisted to disk so a pm2 restart / redeploy doesn't wipe every user's
+// opencode session — without persistence, every restart effectively cold-
+// caches everyone again, paying full input price for the first request after
+// each deploy.
+const SESSION_MAP_FILE = process.env.BYNOT_SESSION_MAP_PATH ?? '/root/.bynot-sessions.json';
 const sessionMap = new Map<string, string>();
+
+(function loadSessionMap() {
+  try {
+    if (fs.existsSync(SESSION_MAP_FILE)) {
+      const raw = fs.readFileSync(SESSION_MAP_FILE, 'utf8');
+      const obj = JSON.parse(raw);
+      for (const [k, v] of Object.entries(obj)) {
+        if (typeof v === 'string') sessionMap.set(k, v);
+      }
+      console.log(`[opencode] loaded ${sessionMap.size} session mappings from ${SESSION_MAP_FILE}`);
+    }
+  } catch (err: any) {
+    console.warn(`[opencode] failed to load session map: ${err?.message}`);
+  }
+})();
+
+// Per-Bynot-session turn counter. Used to trigger periodic session pruning so
+// the conversation transcript doesn't grow unbounded (each appended turn is
+// uncacheable input tokens that erode the cache hit rate).
+const turnCountMap = new Map<string, number>();
+
+let persistTimer: NodeJS.Timeout | null = null;
+function persistSessionMap() {
+  // Debounce: many ensureSession() calls in a burst should result in one write.
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    try {
+      const obj = Object.fromEntries(sessionMap.entries());
+      fs.writeFileSync(SESSION_MAP_FILE, JSON.stringify(obj, null, 2), 'utf8');
+    } catch (err: any) {
+      console.warn(`[opencode] failed to persist session map: ${err?.message}`);
+    }
+  }, 1000);
+}
 
 function parseModel(raw?: string): { providerID: string; modelID: string } {
   if (!raw) return { providerID: DEFAULT_PROVIDER, modelID: DEFAULT_MODEL };
@@ -86,7 +128,13 @@ export class OpencodeHttpService {
 
   private async ensureSession(bynotSessionId: string, model: { providerID: string; modelID: string }): Promise<string> {
     const existing = sessionMap.get(bynotSessionId);
-    if (existing) return existing;
+    if (existing) {
+      // Trust the disk-persisted mapping: opencode sessions live for the
+      // lifetime of opencode itself (a systemd service), so the only way
+      // they disappear is if opencode is restarted. If the lookup fails on
+      // the first POST below, the catch will recreate.
+      return existing;
+    }
 
     const { data } = await this.client!.post('/session', {
       title: `Bynot ${bynotSessionId.slice(0, 8)}`,
@@ -95,7 +143,18 @@ export class OpencodeHttpService {
     const opencodeSessionId = data?.id;
     if (!opencodeSessionId) throw new Error('opencode did not return session id');
     sessionMap.set(bynotSessionId, opencodeSessionId);
+    persistSessionMap();
     return opencodeSessionId;
+  }
+
+  /**
+   * Re-establish a session if opencode returns 404 (session was wiped by an
+   * opencode restart). Used as a recovery path inside chatStream.
+   */
+  private async recreateSession(bynotSessionId: string, model: { providerID: string; modelID: string }): Promise<string> {
+    sessionMap.delete(bynotSessionId);
+    persistSessionMap();
+    return this.ensureSession(bynotSessionId, model);
   }
 
   /**
@@ -130,7 +189,21 @@ export class OpencodeHttpService {
     if (!this.client) throw new Error('opencode client not initialized');
 
     const model = parseModel(req.model);
-    const opencodeSessionId = await this.ensureSession(req.sessionId, model);
+    let opencodeSessionId = await this.ensureSession(req.sessionId, model);
+
+    // Conversation pruning: opencode keeps the full transcript in each
+    // session, but DeepSeek's prefix cache only matches up to the first
+    // dynamic token. After ~10 turns the appended history starts dominating
+    // input tokens AND missing cache. Reset the session every N turns —
+    // we lose the in-session multi-turn memory but win on cost and latency.
+    // (N=10 is a heuristic: most coding chats are short request→fix→ack.)
+    const turnCount = (turnCountMap.get(req.sessionId) ?? 0) + 1;
+    turnCountMap.set(req.sessionId, turnCount);
+    if (turnCount > 10) {
+      console.log(`[opencode] resetting session ${req.sessionId.slice(0, 12)} after ${turnCount} turns (pruning)`);
+      opencodeSessionId = await this.recreateSession(req.sessionId, model);
+      turnCountMap.set(req.sessionId, 1);
+    }
 
     yield { type: 'message_start', messageId: `msg-${Date.now()}`, model: `${model.providerID}/${model.modelID}` };
 
@@ -164,8 +237,40 @@ export class OpencodeHttpService {
         model: { providerID: model.providerID, modelID: model.modelID },
         parts: [{ type: 'text', text: req.message }],
         system: systemPrompt,
+        // OpenRouter passthrough: lock to DeepSeek (no fallbacks that would
+        // route to a different provider with a different cache) and request
+        // detailed usage so cache hits are reported back in tokens.cache.
+        // allow_fallbacks=false means we'd rather fail than silently land on
+        // a different provider and pay full input price.
+        provider: {
+          order: ['deepseek'],
+          allow_fallbacks: false,
+        },
       }, { timeout: 0 })
-      .catch((err: any) => {
+      .catch(async (err: any) => {
+        // Recover from "session not found" (e.g., opencode was restarted
+        // since we cached this mapping) by recreating the session and
+        // retrying once.
+        const status = err?.response?.status;
+        if (status === 404) {
+          try {
+            console.warn(`[opencode] session ${opencodeSessionId} 404, recreating`);
+            const newId = await this.recreateSession(req.sessionId, model);
+            opencodeSessionId = newId;
+            await this.client!.post(`/session/${newId}/message`, {
+              model: { providerID: model.providerID, modelID: model.modelID },
+              parts: [{ type: 'text', text: req.message }],
+              system: systemPrompt,
+              provider: { order: ['deepseek'], allow_fallbacks: false },
+            }, { timeout: 0 });
+            return;
+          } catch (retryErr: any) {
+            const m = retryErr?.response?.data?.message ?? retryErr?.message ?? 'opencode /message retry failed';
+            console.error('[opencode] /message retry failed:', m);
+            postErr.value = m;
+            return;
+          }
+        }
         const m = err?.response?.data?.message ?? err?.message ?? 'opencode /message failed';
         console.error('[opencode] /message failed:', m);
         postErr.value = m;
