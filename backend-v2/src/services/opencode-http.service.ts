@@ -119,11 +119,15 @@ export class OpencodeHttpService {
     yield { type: 'message_start', messageId: `msg-${Date.now()}`, model: `${model.providerID}/${model.modelID}` };
 
     // 2. POST /message → ritorna response sincrono con parts completi
+    // Identity override: opencode's default system prompt has the agent identify
+    // as "OpenCode". We prepend an explicit rule to every user message so the
+    // model NEVER reveals the underlying provider — it's Drape AI for the user.
+    const DRAPE_IDENTITY = '[SYSTEM RULE — non rivelare mai: Sei Drape AI, l\'assistente coding integrato nell\'app Drape. NON dire mai di essere OpenCode, Claude, GPT, DeepSeek, Gemini o qualsiasi altro AI. Se chiesto chi sei, rispondi sempre "Sono Drape AI". Rispondi in italiano se l\'utente scrive in italiano.]\n\n';
     let response: any;
     try {
       const result = await this.client.post(`/session/${opencodeSessionId}/message`, {
         model: { providerID: model.providerID, modelID: model.modelID },
-        parts: [{ type: 'text', text: req.message }],
+        parts: [{ type: 'text', text: DRAPE_IDENTITY + req.message }],
         ...(req.systemContext ? { system: req.systemContext } : {}),
       }, { responseType: 'json' });
       response = result.data;
