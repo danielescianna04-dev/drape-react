@@ -506,6 +506,12 @@ export const estimateContextUsage = (
   }
 
   const contextWindows: Record<string, number> = {
+    // Current OpenRouter models (primary)
+    'openrouter/deepseek/deepseek-v4-pro': 1000000,
+    'openrouter/deepseek/deepseek-v4-flash': 1000000,
+    'openrouter/qwen/qwen3-coder': 1000000,
+    'openrouter/google/gemma-4-31b-it:free': 262000,
+    // Legacy Zen IDs (kept for backwards compat with saved sessions)
     'deepseek-v4-flash-free': 128000,
     'qwen3.6-plus-free': 128000,
     'nemotron-3-super-free': 128000,

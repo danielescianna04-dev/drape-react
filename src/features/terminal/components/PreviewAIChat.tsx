@@ -42,16 +42,13 @@ const createLetterIcon = (letter: string, color: string) => {
 
 const DeepSeekIcon = createLetterIcon('D', '#007AFF');
 const QwenIcon = createLetterIcon('Q', '#00A896');
-const NemotronIcon = createLetterIcon('N', '#8A2BE2');
-const MiniMaxIcon = createLetterIcon('M', '#FF4500');
-const BigPickleIcon = createLetterIcon('B', '#FFD700');
+const GemmaIcon = createLetterIcon('G', '#34A853');
 
 const AI_MODELS = [
-  { id: 'deepseek-v4-flash-free', name: 'DeepSeek v4 Flash', IconComponent: DeepSeekIcon, thinkingLevels: [] as string[] },
-  { id: 'qwen3.6-plus-free', name: 'Qwen 3.6 Plus', IconComponent: QwenIcon, thinkingLevels: [] as string[] },
-  { id: 'nemotron-3-super-free', name: 'Nemotron 3 Super', IconComponent: NemotronIcon, thinkingLevels: [] as string[] },
-  { id: 'minimax-m2.5-free', name: 'MiniMax m2.5', IconComponent: MiniMaxIcon, thinkingLevels: [] as string[] },
-  { id: 'big-pickle', name: 'Zen Big Pickle', IconComponent: BigPickleIcon, thinkingLevels: [] as string[] },
+  { id: 'openrouter/deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro', IconComponent: DeepSeekIcon, thinkingLevels: [] as string[] },
+  { id: 'openrouter/deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', IconComponent: DeepSeekIcon, thinkingLevels: [] as string[] },
+  { id: 'openrouter/qwen/qwen3-coder', name: 'Qwen3 Coder', IconComponent: QwenIcon, thinkingLevels: [] as string[] },
+  { id: 'openrouter/google/gemma-4-31b-it:free', name: 'Gemma 4 31B (free)', IconComponent: GemmaIcon, thinkingLevels: [] as string[] },
 ];
 
 const THINKING_LEVEL_LABELS: Record<string, string> = {

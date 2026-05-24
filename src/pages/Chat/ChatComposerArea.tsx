@@ -169,9 +169,7 @@ export const ChatComposerArea: React.FC<ComposerProps> = ({
         onLockedModelPress={(model) => {
           Alert.alert(
             model.name,
-            model.id === 'big-pickle'
-              ? 'Zen Big Pickle. Il modello premium piu potente per coding e ragionamento complesso. Disponibile con i piani Go/Pro.'
-              : 'Questo modello richiede un piano a pagamento. Abbonati per sbloccarlo.',
+            'Questo modello richiede un piano a pagamento. Abbonati per sbloccarlo.',
             [
               { text: 'Annulla', style: 'cancel' },
               { text: 'Vedi piani', onPress: navigateToPlans },

@@ -141,7 +141,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     hasInteracted: false,
 
     // Initial state - UI
-    selectedModel: 'deepseek-v4-flash-free',
+    selectedModel: 'openrouter/deepseek/deepseek-v4-pro',
     isTerminalMode: true,
     autoApprove: false,
     isRecording: false,

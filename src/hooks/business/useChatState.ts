@@ -13,7 +13,7 @@ export const useChatState = (isCardMode: boolean) => {
   const [input, setInput] = useState('');
   const [isTerminalMode, setIsTerminalMode] = useState(true);
   const [forcedMode, setForcedMode] = useState<'terminal' | 'ai' | null>(null);
-  const [selectedModel, setSelectedModel] = useState('deepseek-v4-flash-free');
+  const [selectedModel, setSelectedModel] = useState('openrouter/deepseek/deepseek-v4-pro');
   const [thinkingLevel, setThinkingLevel] = useState<string>('medium'); // For Gemini 3 models
   const [conversationHistory, setConversationHistory] = useState<string[]>([]);
   const [scrollPaddingBottom, setScrollPaddingBottom] = useState(300);

@@ -57,14 +57,13 @@ export const SettingsPanel = ({ onClose }: Props) => {
     };
   });
 
-  // Model catalog — gating is resolved by canUseModel(plan, modelId).
-  // Free → only claude-4-6-sonnet + gemini-3-0-flash.
+  // Model catalog — gating resolved by canUseModel(plan, modelId).
+  // Source of truth: AI_MODELS in pages/Chat/ChatInputBar.tsx (mirror here).
   const models = [
-    { id: 'deepseek-v4-flash-free', name: 'DeepSeek v4 Flash', description: 'Zen / Free', icon: 'flash' as const },
-    { id: 'qwen3.6-plus-free', name: 'Qwen 3.6 Plus', description: 'Zen / Free', icon: 'planet' as const },
-    { id: 'nemotron-3-super-free', name: 'Nemotron 3 Super', description: 'Zen / Free', icon: 'sparkles' as const },
-    { id: 'minimax-m2.5-free', name: 'MiniMax m2.5', description: 'Zen / Free', icon: 'infinite' as const },
-    { id: 'big-pickle', name: 'Zen Big Pickle', description: 'Zen / Premium', icon: 'rocket' as const },
+    { id: 'openrouter/deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro', description: 'Default · top quality', icon: 'rocket' as const },
+    { id: 'openrouter/deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'Faster · cheaper', icon: 'flash' as const },
+    { id: 'openrouter/qwen/qwen3-coder', name: 'Qwen3 Coder', description: 'Code-specialized', icon: 'code-slash' as const },
+    { id: 'openrouter/google/gemma-4-31b-it:free', name: 'Gemma 4 31B (free)', description: 'Free · vision + tools', icon: 'sparkles' as const },
   ];
 
   return (
@@ -106,9 +105,7 @@ export const SettingsPanel = ({ onClose }: Props) => {
                   if (isLocked) {
                     Alert.alert(
                       model.name,
-                      model.id === 'big-pickle'
-                        ? 'Zen Big Pickle. Il modello premium piu potente per coding e ragionamento complesso. Disponibile con i piani Go/Pro.'
-                        : 'Questo modello richiede un piano a pagamento. Abbonati per sbloccarlo.',
+                      'Questo modello richiede un piano a pagamento. Abbonati per sbloccarlo.',
                       [
                         { text: 'Annulla', style: 'cancel' },
                         { text: 'Vedi piani', onPress: () => { tracciaPaginaPianiVista('settings_model'); navigateTo('plans'); } },

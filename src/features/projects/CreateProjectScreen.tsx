@@ -70,7 +70,7 @@ const languageCategories = [
   { id: 'all', labelKey: '', items: ['react'] },
 ];
 
-const PROJECT_CREATION_MODEL = 'big-pickle';
+const PROJECT_CREATION_MODEL = 'openrouter/deepseek/deepseek-v4-pro';
 const PROJECT_CREATION_THINKING_LEVEL = 'medium';
 
 const ideaChips = [

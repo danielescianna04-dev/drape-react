@@ -23,11 +23,10 @@ export type PlanTier =
   | 'pro_yearly';
 
 export type ModelId =
-  | 'deepseek-v4-flash-free'
-  | 'qwen3.6-plus-free'
-  | 'nemotron-3-super-free'
-  | 'minimax-m2.5-free'
-  | 'big-pickle';
+  | 'openrouter/deepseek/deepseek-v4-pro'
+  | 'openrouter/deepseek/deepseek-v4-flash'
+  | 'openrouter/qwen/qwen3-coder'
+  | 'openrouter/google/gemma-4-31b-it:free';
 
 export interface PlanEntitlements {
   tier: PlanTier;
@@ -49,18 +48,14 @@ export interface PlanEntitlements {
 }
 
 const ALL_MODELS: ReadonlyArray<ModelId> = [
-  'deepseek-v4-flash-free',
-  'qwen3.6-plus-free',
-  'nemotron-3-super-free',
-  'minimax-m2.5-free',
-  'big-pickle',
+  'openrouter/deepseek/deepseek-v4-pro',
+  'openrouter/deepseek/deepseek-v4-flash',
+  'openrouter/qwen/qwen3-coder',
+  'openrouter/google/gemma-4-31b-it:free',
 ];
 
 const FREE_MODELS: ReadonlyArray<ModelId> = [
-  'deepseek-v4-flash-free',
-  'qwen3.6-plus-free',
-  'nemotron-3-super-free',
-  'minimax-m2.5-free',
+  'openrouter/google/gemma-4-31b-it:free',
 ];
 
 /**
@@ -106,22 +101,27 @@ export function resolvePlanEntitlements(
  * Canonical IDs are those in ModelId — every other spelling should map here.
  */
 const MODEL_ALIASES: Record<string, ModelId> = {
-  'deepseek-v4-flash-free': 'deepseek-v4-flash-free',
-  'qwen3.6-plus-free': 'qwen3.6-plus-free',
-  'nemotron-3-super-free': 'nemotron-3-super-free',
-  'minimax-m2.5-free': 'minimax-m2.5-free',
-  'big-pickle': 'big-pickle',
-  'gemini-3-flash': 'deepseek-v4-flash-free',
-  'gemini-3.0-flash': 'deepseek-v4-flash-free',
-  'gemini-3-0-flash': 'deepseek-v4-flash-free',
-  'gemini-3-1-pro': 'big-pickle',
-  'gemini-3.1-pro': 'big-pickle',
-  'glm-5.1': 'deepseek-v4-flash-free',
-  'glm-5-1': 'deepseek-v4-flash-free',
-  'claude-sonnet-4': 'big-pickle',
-  'claude-4-6-sonnet': 'big-pickle',
-  'claude-4-7-opus': 'big-pickle',
-  'gpt-5-4': 'big-pickle',
+  // Current canonical IDs (OpenRouter)
+  'openrouter/deepseek/deepseek-v4-pro': 'openrouter/deepseek/deepseek-v4-pro',
+  'openrouter/deepseek/deepseek-v4-flash': 'openrouter/deepseek/deepseek-v4-flash',
+  'openrouter/qwen/qwen3-coder': 'openrouter/qwen/qwen3-coder',
+  'openrouter/google/gemma-4-31b-it:free': 'openrouter/google/gemma-4-31b-it:free',
+  // Legacy Zen IDs (from saved sessions) → map to current default
+  'deepseek-v4-flash-free': 'openrouter/deepseek/deepseek-v4-flash',
+  'qwen3.6-plus-free': 'openrouter/qwen/qwen3-coder',
+  'nemotron-3-super-free': 'openrouter/deepseek/deepseek-v4-pro',
+  'minimax-m2.5-free': 'openrouter/deepseek/deepseek-v4-pro',
+  'big-pickle': 'openrouter/deepseek/deepseek-v4-pro',
+  // Older labels people might have stored
+  'gemini-3-flash': 'openrouter/deepseek/deepseek-v4-flash',
+  'gemini-3.0-flash': 'openrouter/deepseek/deepseek-v4-flash',
+  'gemini-3-0-flash': 'openrouter/deepseek/deepseek-v4-flash',
+  'gemini-3-1-pro': 'openrouter/deepseek/deepseek-v4-pro',
+  'gemini-3.1-pro': 'openrouter/deepseek/deepseek-v4-pro',
+  'claude-sonnet-4': 'openrouter/deepseek/deepseek-v4-pro',
+  'claude-4-6-sonnet': 'openrouter/deepseek/deepseek-v4-pro',
+  'claude-4-7-opus': 'openrouter/deepseek/deepseek-v4-pro',
+  'gpt-5-4': 'openrouter/deepseek/deepseek-v4-pro',
 };
 
 export function canonicalModelId(modelId: string): ModelId | null {
