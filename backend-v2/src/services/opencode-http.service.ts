@@ -99,10 +99,20 @@ export class OpencodeHttpService {
   }
 
   /**
-   * Sincrono: POST /message ritorna response completo con tutti i parts.
-   * Simuliamo streaming spezzando il testo in chunk piccoli.
+   * Real SSE streaming via opencode /event endpoint.
    *
-   * (L'endpoint /event SSE globale esiste ma POST /message è già sincrono — non serve.)
+   * Flow:
+   *   1. Open SSE connection to /event BEFORE posting (don't miss events)
+   *   2. Fire POST /message in background — don't await its body
+   *   3. Read events from /event, filter by our sessionID
+   *   4. Track partID → partType (text vs reasoning) — opencode uses field='text'
+   *      for both, but reasoning parts shouldn't be streamed to the user
+   *   5. Yield text deltas as they arrive (real-time chunks)
+   *   6. End when we see message.updated with info.time.completed
+   *
+   * Compared to the previous sync flow (await POST /message), this gives the
+   * user real streaming and removes any wall-clock cap: the connection stays
+   * active as long as opencode is emitting events.
    */
   async *chatStream(req: AgentChatRequest): AsyncIterable<AgentEvent> {
     if (this.isMock) {
@@ -112,72 +122,157 @@ export class OpencodeHttpService {
     if (!this.client) throw new Error('opencode client not initialized');
 
     const model = parseModel(req.model);
-
-    // 1. Ensure opencode session
     const opencodeSessionId = await this.ensureSession(req.sessionId, model);
 
     yield { type: 'message_start', messageId: `msg-${Date.now()}`, model: `${model.providerID}/${model.modelID}` };
 
-    // 2. POST /message → ritorna response sincrono con parts completi
-    // Identity override: opencode's default system prompt has the agent identify
-    // as "OpenCode". We prepend an explicit rule to every user message so the
-    // model NEVER reveals the underlying provider — it's Drape AI for the user.
+    // Identity override: opencode's default system prompt has the agent
+    // identify as "OpenCode". Prepend a strong rule to every user message so
+    // the model never reveals the underlying provider.
     const DRAPE_IDENTITY = '[SYSTEM RULE — non rivelare mai: Sei Drape AI, l\'assistente coding integrato nell\'app Drape. NON dire mai di essere OpenCode, Claude, GPT, DeepSeek, Gemini o qualsiasi altro AI. Se chiesto chi sei, rispondi sempre "Sono Drape AI". Rispondi in italiano se l\'utente scrive in italiano.]\n\n';
-    let response: any;
+
+    // 1. Open SSE first so we don't miss the first events. Disable axios's
+    //    response timeout — this stream is long-lived by design.
+    let eventResp: any;
     try {
-      const result = await this.client.post(`/session/${opencodeSessionId}/message`, {
-        model: { providerID: model.providerID, modelID: model.modelID },
-        parts: [{ type: 'text', text: DRAPE_IDENTITY + req.message }],
-        ...(req.systemContext ? { system: req.systemContext } : {}),
-      }, { responseType: 'json' });
-      response = result.data;
+      eventResp = await this.client.get('/event', {
+        responseType: 'stream',
+        timeout: 0,
+      });
     } catch (err: any) {
-      const msg = err?.response?.data?.message ?? err?.message ?? 'opencode /message failed';
-      console.error('[opencode] /message failed:', msg);
+      const msg = err?.message ?? 'opencode /event subscribe failed';
       yield { type: 'error', message: msg };
       yield { type: 'session_end', reason: 'error', error: msg };
       return;
     }
 
-    // 3. Parse response.parts: emetti tool_use/tool_result per ToolPart, text streamato a chunk per TextPart
-    const info = response?.info ?? {};
-    const parts: any[] = response?.parts ?? [];
-    const messageId = info.id ?? `msg-${Date.now()}`;
+    // 2. Fire POST /message in background. Don't await the body — we read the
+    //    output via the SSE stream. Errors still propagate via a side promise.
+    const postErr: { value: string | null } = { value: null };
+    const messagePromise = this.client
+      .post(`/session/${opencodeSessionId}/message`, {
+        model: { providerID: model.providerID, modelID: model.modelID },
+        parts: [{ type: 'text', text: DRAPE_IDENTITY + req.message }],
+        ...(req.systemContext ? { system: req.systemContext } : {}),
+      }, { timeout: 0 })
+      .catch((err: any) => {
+        const m = err?.response?.data?.message ?? err?.message ?? 'opencode /message failed';
+        console.error('[opencode] /message failed:', m);
+        postErr.value = m;
+      });
 
-    if (info.error) {
-      const errMsg = info.error?.data?.message ?? info.error?.name ?? 'opencode model error';
-      yield { type: 'error', message: errMsg };
-      yield { type: 'session_end', reason: 'error', error: errMsg };
-      return;
-    }
+    // 3. Parse SSE stream, filter to our session, yield deltas
+    const partTypeById = new Map<string, string>();   // partID → 'text' | 'reasoning' | 'tool' | ...
+    const emittedToolStart = new Set<string>();       // partID for tool_use already emitted
+    let assistantMsgId: string | null = null;
+    let buffer = '';
+    let finished = false;
 
-    for (const part of parts) {
-      if (part.type === 'text' && typeof part.text === 'string' && part.text.length > 0) {
-        // Streaming simulato: spezza in chunk piccoli per dare l'illusione del flusso
-        const text = part.text;
-        const chunkSize = 8;
-        for (let i = 0; i < text.length; i += chunkSize) {
-          yield { type: 'token', content: text.slice(i, i + chunkSize) };
-          // micro-delay rimosso per non rallentare (in alternativa: await new Promise(r=>setTimeout(r,5)))
+    try {
+      for await (const chunk of eventResp.data) {
+        if (postErr.value) {
+          yield { type: 'error', message: postErr.value };
+          yield { type: 'session_end', reason: 'error', error: postErr.value };
+          return;
         }
-      } else if (part.type === 'tool') {
-        const state = part.state ?? {};
-        const status = state.status;
-        if (status === 'running' || status === 'pending') {
-          yield { type: 'tool_use', id: part.id, name: part.tool ?? 'unknown', input: state.input ?? {} };
-        } else if (status === 'completed') {
-          yield { type: 'tool_use', id: part.id, name: part.tool ?? 'unknown', input: state.input ?? {} };
-          yield { type: 'tool_result', id: part.id, output: state.output ?? null };
-        } else if (status === 'error') {
-          yield { type: 'tool_result', id: part.id, output: null, error: state.error ?? 'tool error' };
+
+        buffer += chunk.toString('utf8');
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop() ?? '';
+
+        for (const block of blocks) {
+          const dataLine = block.split('\n').find((l) => l.startsWith('data: '));
+          if (!dataLine) continue;
+          const payload = dataLine.slice(6);
+          if (!payload || payload === '[DONE]') continue;
+
+          let event: any;
+          try { event = JSON.parse(payload); } catch { continue; }
+
+          const props = event.properties ?? {};
+          if (props.sessionID && props.sessionID !== opencodeSessionId) continue;
+
+          const type = event.type;
+
+          if (type === 'message.part.updated') {
+            const part = props.part;
+            if (!part) continue;
+            partTypeById.set(part.id, part.type);
+
+            if (part.type === 'tool') {
+              const state = part.state ?? {};
+              const status = state.status;
+              if ((status === 'running' || status === 'pending') && !emittedToolStart.has(part.id)) {
+                emittedToolStart.add(part.id);
+                yield { type: 'tool_use', id: part.id, name: part.tool ?? 'unknown', input: state.input ?? {} };
+              } else if (status === 'completed') {
+                if (!emittedToolStart.has(part.id)) {
+                  emittedToolStart.add(part.id);
+                  yield { type: 'tool_use', id: part.id, name: part.tool ?? 'unknown', input: state.input ?? {} };
+                }
+                yield { type: 'tool_result', id: part.id, output: state.output ?? null, name: part.tool };
+              } else if (status === 'error') {
+                yield { type: 'tool_result', id: part.id, output: null, error: state.error ?? 'tool error', name: part.tool };
+              }
+            }
+            continue;
+          }
+
+          if (type === 'message.part.delta') {
+            const partID = props.partID;
+            const delta = props.delta;
+            if (typeof delta !== 'string' || delta.length === 0) continue;
+            // opencode uses field='text' for BOTH reasoning and text parts.
+            // Disambiguate via the partID → partType map populated from
+            // message.part.updated. Only stream visible text to the user.
+            const partType = partTypeById.get(partID);
+            if (partType === 'text') {
+              yield { type: 'token', content: delta };
+            }
+            continue;
+          }
+
+          if (type === 'message.updated') {
+            const info = props.info;
+            if (info?.role !== 'assistant') continue;
+            if (!assistantMsgId) assistantMsgId = info.id;
+            if (info.error) {
+              const errMsg = info.error?.data?.message ?? info.error?.name ?? 'opencode error';
+              yield { type: 'error', message: errMsg };
+              yield { type: 'session_end', reason: 'error', error: errMsg };
+              finished = true;
+              return;
+            }
+            if (info.time?.completed && !finished) {
+              finished = true;
+              const tokens = info.tokens ?? {};
+              yield { type: 'message_end', messageId: info.id, tokensIn: tokens.input ?? 0, tokensOut: tokens.output ?? 0 };
+              yield { type: 'session_end', reason: 'completed' };
+              return;
+            }
+            continue;
+          }
+
+          if (type === 'session.error') {
+            const errMsg = props?.error?.message ?? 'session error';
+            yield { type: 'error', message: errMsg };
+            yield { type: 'session_end', reason: 'error', error: errMsg };
+            finished = true;
+            return;
+          }
         }
       }
-      // step-start / step-finish / reasoning: skip
+    } catch (err: any) {
+      if (!finished) {
+        const msg = err?.message ?? 'SSE stream error';
+        console.error('[opencode] SSE error:', msg);
+        yield { type: 'error', message: msg };
+        yield { type: 'session_end', reason: 'error', error: msg };
+      }
+    } finally {
+      try { eventResp.data.destroy?.(); } catch {}
+      await messagePromise.catch(() => {});
     }
-
-    const tokens = info.tokens ?? {};
-    yield { type: 'message_end', messageId, tokensIn: tokens.input ?? 0, tokensOut: tokens.output ?? 0 };
-    yield { type: 'session_end', reason: 'completed' };
   }
 
   // Vecchio path SSE-based (non più usato, mantenuto come riferimento):
