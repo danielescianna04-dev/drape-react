@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue, interpolate, Extrapolate } from 'react-native-reanimated';
@@ -186,6 +186,16 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
   const publish = usePreviewPublish({ projectId, apiUrl, serverStatus });
   publishOpenRef.current = publish.openPublishModal;
+
+  // If a previous screen requested auto-start of the preview (e.g. the
+  // "Avvia preview" button on the agent activity card), and we land here
+  // with the dev server idle, kick it off automatically — exactly once.
+  useEffect(() => {
+    if (previewState.phase !== 'idle') return;
+    if (useUIStore.getState().consumeAutoStartPreviewPending()) {
+      handleStartWithTransition();
+    }
+  }, [previewState.phase, handleStartWithTransition]);
 
   const chat = usePreviewChat({
     currentWorkstationId: currentWorkstation?.id,
