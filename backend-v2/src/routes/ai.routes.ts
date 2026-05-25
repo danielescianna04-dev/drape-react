@@ -221,6 +221,10 @@ aiRouter.post('/chat', requireAuth, wrapAsync(async (req: Request, res: Response
   let usageTokensIn = 0;
   let usageTokensOut = 0;
   let usageError: string | null = null;
+  // Map tool_use id → { name, input } so we can pair up with tool_result.
+  // opencode emits tool_use first (running) and tool_result later (done) —
+  // the frontend wants them joined as one { toolResult: { name, args, result } }.
+  const pendingTools = new Map<string, { name: string; input: any }>();
 
   try {
     const stream = opencodeHttpService.chatStream({
@@ -235,6 +239,30 @@ aiRouter.post('/chat', requireAuth, wrapAsync(async (req: Request, res: Response
       if (event.type === 'token' && event.content) {
         assembledText += event.content;
         res.write(`data: ${JSON.stringify({ text: event.content })}\n\n`);
+      } else if (event.type === 'tool_use') {
+        // Forward "tool started" so the UI can render a running activity card
+        // (e.g. "Read index.tsx", "Generating image"). Frontend creates a
+        // placeholder card; tool_result below replaces it with the final state.
+        pendingTools.set(event.id, { name: event.name, input: event.input });
+        res.write(`data: ${JSON.stringify({
+          toolStart: { id: event.id, name: event.name, args: event.input },
+        })}\n\n`);
+      } else if (event.type === 'tool_result') {
+        // Pair with the earlier tool_use to recover (name, args). opencode
+        // sometimes also includes name on the result; fall back to the map
+        // when it doesn't.
+        const pending = pendingTools.get(event.id);
+        pendingTools.delete(event.id);
+        const name = event.name ?? pending?.name ?? 'unknown';
+        const args = pending?.input ?? {};
+        const result = event.error
+          ? `error: ${event.error}`
+          : typeof event.output === 'string'
+            ? event.output
+            : JSON.stringify(event.output ?? null);
+        res.write(`data: ${JSON.stringify({
+          toolResult: { id: event.id, name, args, result },
+        })}\n\n`);
       } else if (event.type === 'message_end') {
         usageTokensIn += event.tokensIn ?? 0;
         usageTokensOut += event.tokensOut ?? 0;

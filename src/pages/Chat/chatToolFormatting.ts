@@ -147,6 +147,22 @@ export const getToolStartMessage = (tool: string, input: unknown): string => {
 };
 
 export const formatToolResult = (tool: string, toolInput: unknown, rawResult: unknown): string => {
+  // Lovable-style "running" card: emitted by chatStreamingRequest when the
+  // backend sends a toolStart event. Renders as a single-line "Working on X"
+  // until the matching toolResult lands and replaces the content.
+  if (rawResult === '__pending__') {
+    const input = parseToolPayload(toolInput);
+    const file = getFileName(input);
+    if (tool === 'read_file' || tool === 'read') return `⏳ Read ${file || 'file'}\n└─ Loading...`;
+    if (tool === 'write_file' || tool === 'write') return `⏳ Write ${file || 'file'}\n└─ Saving...`;
+    if (tool === 'edit_file' || tool === 'edit') return `⏳ Edit ${file || 'file'}\n└─ Modifying...`;
+    if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') return `⏳ Glob ${input?.pattern || ''}\n└─ Searching...`;
+    if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') return `⏳ List ${input?.directory || input?.path || '.'}\n└─ Listing...`;
+    if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep') return `⏳ Search "${input?.pattern || input?.query || ''}"\n└─ Searching...`;
+    if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') return `⏳ Run ${String(input?.command || '').slice(0, 60)}\n└─ Executing...`;
+    return `⏳ ${tool}\n└─ Working...`;
+  }
+
   const { text: result, hasError, errorMessage } = extractResultContent(rawResult);
   const input = parseToolPayload(toolInput);
 

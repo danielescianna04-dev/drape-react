@@ -83,8 +83,26 @@ export const streamLegacyAiChat = async ({
         try {
           const parsed = JSON.parse(data);
 
+          if (parsed.toolStart) {
+            // Lovable-style "running activity" card: shown as soon as opencode
+            // begins a tool call (Read X, Generating image, …). The card is
+            // updated in place to the completed state when toolResult arrives
+            // for the same id (see toolResult handler below).
+            const { id, name, args } = parsed.toolStart;
+            updateTabTerminalItem(activeTabId, streamingMessageId, { isThinking: false });
+            // Stable id so toolResult can find this item and replace its content.
+            const cardId = `tool-card-${id}`;
+            appendTabTerminalItems(activeTabId, [{
+              id: cardId,
+              type: TerminalItemType.OUTPUT,
+              content: formatToolResult(name, args, '__pending__'),
+              timestamp: new Date(),
+            }]);
+            continue;
+          }
+
           if (parsed.toolResult) {
-            const { name, args, result } = parsed.toolResult;
+            const { id, name, args, result } = parsed.toolResult;
             updateTabTerminalItem(activeTabId, streamingMessageId, { isThinking: false });
 
             const { cleanResult, undoData } = parseUndoData(result);
@@ -92,12 +110,23 @@ export const streamLegacyAiChat = async ({
               recordModification(undoData, name as 'write_file' | 'edit_file');
             }
 
-            appendTabTerminalItems(activeTabId, [{
-              id: `tool-result-${Date.now()}`,
-              type: TerminalItemType.OUTPUT,
-              content: formatToolResult(name, args, cleanResult),
-              timestamp: new Date(),
-            }]);
+            // If there was a "running" card for this tool (toolStart above),
+            // replace its content with the completed result rather than
+            // appending a new card — keeps the chat compact and matches the
+            // Lovable UX where each tool occupies a single slot.
+            const cardId = id ? `tool-card-${id}` : null;
+            if (cardId) {
+              updateTabTerminalItem(activeTabId, cardId, {
+                content: formatToolResult(name, args, cleanResult),
+              });
+            } else {
+              appendTabTerminalItems(activeTabId, [{
+                id: `tool-result-${Date.now()}`,
+                type: TerminalItemType.OUTPUT,
+                content: formatToolResult(name, args, cleanResult),
+                timestamp: new Date(),
+              }]);
+            }
 
             streamingMessageId = `stream-after-tool-${Date.now()}`;
             streamedContent = '';
