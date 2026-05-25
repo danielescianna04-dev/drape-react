@@ -183,44 +183,197 @@ export function parseActivityCard(content: string | undefined | null):
   };
 }
 
+// ---------------------------------------------------------------------------
+// Friendly status pools for the agent activity card.
+//
+// Each tool maps to MANY phrasings — picking one at random each time keeps the
+// UX feeling alive instead of "Sto leggendo / Sto leggendo / Sto leggendo" on
+// repeat. The text shows for ~1-3 seconds before the next tool overwrites it,
+// so variety matters more than perfect grammatical agreement (file vs files).
+// All copy in Italian: the audience is no-code Italian users.
+// ---------------------------------------------------------------------------
+
+const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+const STATUS_POOLS: Record<string, string[]> = {
+  read: [
+    'Sto leggendo {file}',
+    'Apro {file} per dare un\'occhiata',
+    'Sto controllando {file}',
+    'Sbircio dentro {file}',
+    'Recupero il contenuto di {file}',
+  ],
+  write: [
+    'Sto creando {file}',
+    'Salvo {file}',
+    'Scrivo il nuovo {file}',
+    'Sto preparando {file}',
+    'Genero {file}',
+  ],
+  edit: [
+    'Sto modificando {file}',
+    'Aggiorno {file}',
+    'Sto sistemando {file}',
+    'Ritocco {file}',
+    'Faccio qualche modifica a {file}',
+  ],
+  delete: [
+    'Sto eliminando {file}',
+    'Rimuovo {file}',
+    'Cancello {file}',
+  ],
+  move: [
+    'Sto spostando i file',
+    'Riorganizzo qualche file',
+    'Sistemo i file nelle cartelle giuste',
+  ],
+  folder: [
+    'Sto creando la cartella',
+    'Preparo una nuova cartella',
+  ],
+  list: [
+    'Sto esplorando il progetto',
+    'Do un\'occhiata in giro',
+    'Controllo cosa c\'è nel progetto',
+    'Vedo la struttura del progetto',
+    'Mi oriento nel progetto',
+  ],
+  glob: [
+    'Sto cercando i file',
+    'Cerco i file giusti',
+    'Setaccio i file del progetto',
+  ],
+  search: [
+    'Sto cercando nel codice',
+    'Frugo nel codice',
+    'Cerco la parte giusta',
+    'Esamino il codice',
+  ],
+  bash_curl: [
+    'Sto scaricando i dati',
+    'Recupero qualche informazione',
+    'Sto facendo una richiesta web',
+  ],
+  bash_npm: [
+    'Sto installando le dipendenze',
+    'Scarico i pacchetti necessari',
+    'Preparo le librerie',
+  ],
+  bash_git: [
+    'Sto sincronizzando con git',
+    'Aggiorno il repository',
+    'Commit & push…',
+  ],
+  bash_build: [
+    'Sto compilando il progetto',
+    'Build in corso',
+    'Costruisco il bundle',
+  ],
+  bash_test: [
+    'Eseguo i test',
+    'Verifico che tutto funzioni',
+    'Controllo che il codice sia ok',
+  ],
+  bash_other: [
+    'Sto eseguendo un comando',
+    'Lavoro nel terminale',
+    'Faccio un\'operazione tecnica',
+  ],
+  web_fetch: [
+    'Sto leggendo una pagina web',
+    'Visito la pagina',
+    'Recupero il contenuto online',
+  ],
+  web_search: [
+    'Sto cercando sul web',
+    'Cerco informazioni online',
+    'Faccio una ricerca',
+  ],
+  diagnostics: [
+    'Sto controllando il codice',
+    'Cerco eventuali errori',
+    'Verifico che sia tutto in ordine',
+  ],
+  todo: [
+    'Sto organizzando le attività',
+    'Aggiorno la lista delle cose da fare',
+    'Pianifico i prossimi passi',
+  ],
+  skill: [
+    'Sto caricando le competenze',
+    'Mi attrezzo per il prossimo step',
+    'Carico gli strumenti giusti',
+  ],
+  memory: [
+    'Sto consultando la memoria',
+    'Cerco nei miei appunti',
+    'Recupero quello che ricordo',
+  ],
+  subagent: [
+    'Sto lavorando su un sotto-compito',
+    'Delego una parte del lavoro',
+    'Mi concentro su un aspetto specifico',
+  ],
+  lsp: [
+    'Sto analizzando il codice',
+    'Studio la struttura del progetto',
+  ],
+  question: [
+    'Ti sto chiedendo una conferma',
+    'Aspetto una tua risposta',
+  ],
+  generic: [
+    'Sto lavorando',
+    'Un attimo…',
+    'Ci sono quasi…',
+    'Penso al prossimo passo',
+  ],
+};
+
 /**
- * User-friendly "in-progress" status line for a tool call, in Italian.
- * Used to drive ONE persistent activity card in the chat that updates as the
- * agent moves through tools — instead of N technical cards. Designed for
- * non-developers who don't care about "read_file" but understand "Sto leggendo".
+ * Pick a random friendly Italian status line for a tool. Same tool called
+ * back-to-back produces different copy each time — keeps the activity card
+ * feeling alive across the agent's multi-step loops.
  */
 export const friendlyToolStatus = (tool: string, toolInput: unknown): string => {
   const input = parseToolPayload(toolInput);
   const file = getFileName(input);
-  if (tool === 'read_file' || tool === 'read') return `Sto leggendo ${file || 'i file'}…`;
-  if (tool === 'write_file' || tool === 'write') return `Sto creando ${file || 'il file'}…`;
-  if (tool === 'edit_file' || tool === 'edit' || tool === 'multi_edit_file' || tool === 'multiedit' || tool === 'patch_file') return `Sto modificando ${file || 'il file'}…`;
-  if (tool === 'delete_file') return `Sto eliminando ${input?.filePath || 'il file'}…`;
-  if (tool === 'move_file' || tool === 'copy_file') return `Sto spostando i file…`;
-  if (tool === 'create_folder') return `Sto creando la cartella…`;
-  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') return `Sto esplorando il progetto…`;
-  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') return `Sto cercando i file…`;
+  const fmt = (key: string, fallback?: string) => {
+    const pool = STATUS_POOLS[key];
+    const tpl = pool ? pick(pool) : (fallback ?? STATUS_POOLS.generic[0]);
+    return tpl.replace('{file}', file || (fallback ?? 'il file'));
+  };
+
+  if (tool === 'read_file' || tool === 'read') return fmt('read');
+  if (tool === 'write_file' || tool === 'write') return fmt('write');
+  if (tool === 'edit_file' || tool === 'edit' || tool === 'multi_edit_file' || tool === 'multiedit' || tool === 'patch_file') return fmt('edit');
+  if (tool === 'delete_file') return fmt('delete');
+  if (tool === 'move_file' || tool === 'copy_file') return pick(STATUS_POOLS.move);
+  if (tool === 'create_folder') return pick(STATUS_POOLS.folder);
+  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') return pick(STATUS_POOLS.list);
+  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') return pick(STATUS_POOLS.glob);
   if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep' || tool === 'code_search') {
-    const q = input?.pattern || input?.query;
-    return q ? `Sto cercando "${String(q).slice(0, 40)}"…` : 'Sto cercando nel codice…';
+    return pick(STATUS_POOLS.search);
   }
   if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') {
     const cmd = String(input?.command || '');
-    if (cmd.startsWith('curl')) return 'Sto scaricando dei dati…';
-    if (cmd.startsWith('npm') || cmd.includes('install')) return 'Sto installando le dipendenze…';
-    if (cmd.startsWith('git')) return 'Sto sincronizzando con git…';
-    return 'Sto eseguendo un comando…';
+    if (cmd.startsWith('curl') || cmd.includes('http')) return pick(STATUS_POOLS.bash_curl);
+    if (cmd.startsWith('npm') || cmd.startsWith('yarn') || cmd.startsWith('pnpm') || cmd.includes('install')) return pick(STATUS_POOLS.bash_npm);
+    if (cmd.startsWith('git')) return pick(STATUS_POOLS.bash_git);
+    if (cmd.includes('build') || cmd.includes('compile') || cmd.includes('webpack') || cmd.includes('vite')) return pick(STATUS_POOLS.bash_build);
+    if (cmd.includes('test') || cmd.includes('jest') || cmd.includes('vitest')) return pick(STATUS_POOLS.bash_test);
+    return pick(STATUS_POOLS.bash_other);
   }
-  if (tool === 'web_fetch') return 'Sto leggendo una pagina web…';
-  if (tool === 'web_search') return 'Sto cercando sul web…';
-  if (tool === 'diagnostics') return 'Sto controllando il codice…';
-  if (tool === 'todo_write' || tool === 'todo_read') return 'Sto organizzando le attività…';
-  if (tool === 'load_skill' || tool === 'skill') return 'Sto caricando le competenze…';
-  if (tool === 'memory_read' || tool === 'memory_write') return 'Sto consultando la memoria…';
-  if (tool === 'dispatch_agent' || tool === 'task' || tool === 'sub_agent' || tool === 'launch_sub_agent') return 'Sto lavorando su un sotto-compito…';
-  if (tool === 'lsp') return 'Sto analizzando il codice…';
-  if (tool === 'ask_user_question' || tool === 'user_question') return 'Ti sto chiedendo una conferma…';
-  return 'Sto lavorando…';
+  if (tool === 'web_fetch') return pick(STATUS_POOLS.web_fetch);
+  if (tool === 'web_search') return pick(STATUS_POOLS.web_search);
+  if (tool === 'diagnostics') return pick(STATUS_POOLS.diagnostics);
+  if (tool === 'todo_write' || tool === 'todo_read') return pick(STATUS_POOLS.todo);
+  if (tool === 'load_skill' || tool === 'skill') return pick(STATUS_POOLS.skill);
+  if (tool === 'memory_read' || tool === 'memory_write') return pick(STATUS_POOLS.memory);
+  if (tool === 'dispatch_agent' || tool === 'task' || tool === 'sub_agent' || tool === 'launch_sub_agent') return pick(STATUS_POOLS.subagent);
+  if (tool === 'lsp') return pick(STATUS_POOLS.lsp);
+  if (tool === 'ask_user_question' || tool === 'user_question') return pick(STATUS_POOLS.question);
+  return pick(STATUS_POOLS.generic);
 };
 
 export const formatToolResult = (tool: string, toolInput: unknown, rawResult: unknown): string => {
