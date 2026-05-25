@@ -283,7 +283,7 @@ async function handleAgentStream(req: AuthedRequest, res: any, opts: { useV2?: b
 // /run/fast uses the new AI SDK v6 + OpenRouter direct path (no opencode):
 // faster, parallel tool calls, no agent loop overhead. The legacy opencode
 // path is still used by /create + /run/plan + /run/execute for now.
-agentStreamRouter.post('/create', requireAuth, (req, res) => handleAgentStream(req as any, res));
+agentStreamRouter.post('/create', requireAuth, (req, res) => handleAgentStream(req as any, res, { useV2: true }));
 agentStreamRouter.post('/run/fast', requireAuth, (req, res) => handleAgentStream(req as any, res, { useV2: true }));
 agentStreamRouter.post('/run/plan', requireAuth, (req, res) => handleAgentStream(req as any, res));
 agentStreamRouter.post('/run/execute', requireAuth, (req, res) => handleAgentStream(req as any, res));
