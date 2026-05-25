@@ -555,7 +555,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     currentWorkstation,
     engine,
     input,
-    setInput,
+    // Wrap setInput so programmatic clears (after send) also wipe the
+    // per-tab ref. Without this, tabInputsRef.current[tabId] keeps the
+    // sent prompt and the tab-change effect (or any future read of the
+    // ref) re-populates the input field — which is the bug where the
+    // user sees their prompt sitting in the input while the AI is
+    // already streaming the response.
+    setInput: (value: string) => {
+      setInput(value);
+      const tabId = currentTab?.id;
+      if (tabId) tabInputsRef.current[tabId] = value;
+    },
     selectedInputImages,
     setSelectedInputImages,
     agentMode,
