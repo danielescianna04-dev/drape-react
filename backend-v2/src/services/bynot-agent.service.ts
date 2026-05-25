@@ -176,12 +176,56 @@ function buildTools(projectId: string, userId: string) {
       description: 'Regex search across project files. Returns matching lines with file:line.',
       inputSchema: z.object({
         pattern: z.string(),
-        include: z.string().optional().describe('Glob pattern, e.g. "**/*.tsx"'),
+        include: z.string().optional().describe('Path substring filter, e.g. ".tsx" or "src/"'),
       }),
       execute: async ({ pattern, include }) => {
-        // Implementation deferred to a follow-up commit — keeps the surface
-        // narrow for the first cut while we ship the write/edit happy path.
-        return { ok: false, error: 'not_implemented_yet', pattern, include };
+        let regex: RegExp;
+        try {
+          regex = new RegExp(pattern, 'm');
+        } catch (err: any) {
+          return { ok: false, error: `invalid regex: ${err?.message ?? pattern}` };
+        }
+        const root = resolveProjectRoot(projectId);
+        const matches: { file: string; line: number; text: string }[] = [];
+        const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.cache']);
+        const MAX_FILE_BYTES = 256 * 1024;
+        const MAX_MATCHES = 100;
+
+        async function walk(dir: string): Promise<void> {
+          if (matches.length >= MAX_MATCHES) return;
+          let entries: any[];
+          try { entries = await fs.readdir(dir, { withFileTypes: true }); }
+          catch { return; }
+          for (const e of entries) {
+            if (matches.length >= MAX_MATCHES) return;
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) {
+              if (SKIP_DIRS.has(e.name)) continue;
+              await walk(full);
+              continue;
+            }
+            if (!e.isFile()) continue;
+            const rel = path.relative(root, full);
+            if (include && !rel.includes(include)) continue;
+            let stat;
+            try { stat = await fs.stat(full); } catch { continue; }
+            if (stat.size > MAX_FILE_BYTES) continue;
+            let content: string;
+            try { content = await fs.readFile(full, 'utf8'); }
+            catch { continue; }
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (regex.test(lines[i])) {
+                matches.push({ file: rel, line: i + 1, text: lines[i].slice(0, 240) });
+                if (matches.length >= MAX_MATCHES) return;
+              }
+            }
+          }
+        }
+
+        try { await walk(root); }
+        catch (err: any) { return { ok: false, error: err?.message ?? 'grep failed' }; }
+        return { ok: true, count: matches.length, matches, truncated: matches.length >= MAX_MATCHES };
       },
     }),
 
@@ -254,6 +298,10 @@ const CONTEXT_PRELOAD_FILES = [
   'package.json',
   'tailwind.config.ts',
   'tailwind.config.js',
+  'vite.config.ts',
+  'tsconfig.json',
+  'index.html',
+  'README.md',
   'src/index.css',
   'src/main.tsx',
   'src/App.tsx',
@@ -316,9 +364,13 @@ export async function runBynotAgent({
     stopWhen: stepCountIs(MAX_AGENT_STEPS),
     // OpenRouter passthrough: pin to DeepSeek so we hit the prefix cache
     // consistently. Same trick already used by opencode-http.service.ts.
+    // Prefer the DeepSeek primary provider so we hit its prefix cache,
+    // but allow OpenRouter to fall back to SiliconFlow/Fireworks/etc.
+    // if the primary is unreachable — without fallbacks the call 404s
+    // ("No endpoints found") whenever the DeepSeek endpoint is gated.
     providerOptions: {
       openrouter: {
-        provider: { order: ['deepseek'], allow_fallbacks: false },
+        provider: { order: ['deepseek'], allow_fallbacks: true },
       },
     },
   });
