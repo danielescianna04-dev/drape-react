@@ -103,11 +103,12 @@ export function useChatEngineBridge({
       const { poolKey, file } = lastToolMsg
         ? toolToPool(lastToolMsg.tool ?? '', lastToolMsg.toolInput)
         : { poolKey: 'subagent' as const, file: '' };
-      const cardContent = encodeActivityCard(
-        hasRunningTool || !lastToolMsg ? 'running' : 'done',
-        poolKey,
-        file,
-      );
+      // Always encode 'running' from the bridge — the gap between two
+      // tool calls is NOT "done", and ChatMessageList already flips the
+      // card to 'done' once agentStreaming goes false (= stream truly
+      // finished). Without this the card showed "Fatto! / Avvia preview"
+      // mid-task whenever no tool was actively executing.
+      const cardContent = encodeActivityCard('running', poolKey, file);
       if (existingCardId) {
         updateTerminalItemById(tabId, existingCardId, { content: cardContent });
       } else {
@@ -168,10 +169,22 @@ export function useChatEngineBridge({
         continue;
       }
 
-      // Suppress every text bubble that isn't the final one. If a previous
-      // render already mounted it as a terminal item (e.g. it WAS the last
-      // text at that moment but a later tool/text superseded it), tear it
-      // down so the card stays clean.
+      // While the activity card is up, suppress every non-tool engine
+      // message — text preambles, "thinking" placeholders the engine
+      // synthesises between tool turns, etc. The card's rotating subtitle
+      // is the only progress surface the user should see. The single
+      // exception is the FINAL text bubble: visible once no tool is
+      // running and it's the last text in the stream.
+      const isFinalText = msg.type === 'text' && msg.id === lastTextMsgId && allowText;
+      if (shouldShowCard && !isFinalText) {
+        if (idMap.has(msg.id)) {
+          removeTerminalItemById(tabId, idMap.get(msg.id)!);
+          idMap.delete(msg.id);
+        }
+        continue;
+      }
+      // No card scenario (plain chat exchange) — also suppress
+      // intermediate text so only the final reply lands as a bubble.
       if (msg.type === 'text' && (msg.id !== lastTextMsgId || !allowText)) {
         if (idMap.has(msg.id)) {
           removeTerminalItemById(tabId, idMap.get(msg.id)!);
