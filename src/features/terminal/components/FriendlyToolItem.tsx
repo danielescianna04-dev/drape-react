@@ -71,7 +71,11 @@ const classifyCommand = (cmd: string): { verb: string; icon: string } => {
 
 function describe(tool: string, inputRaw: unknown, _outputRaw: unknown): { verb: string; detail: string; icon: string; color: string } {
   const input = parse(inputRaw);
-  const t = tool || '';
+  // Normalize tool name: opencode v1.15.5 uses lowercase ("read", "write",
+  // "bash", "task", "todowrite") while Anthropic-style is "Read", "Write" and
+  // legacy is "read_file", "write_file". Lowercasing once lets each branch
+  // below ignore casing.
+  const t = (tool || '').toLowerCase();
   const PURPLE = '#A78BFA';
   const GREEN = '#34D399';
   const BLUE = '#60A5FA';
@@ -79,46 +83,46 @@ function describe(tool: string, inputRaw: unknown, _outputRaw: unknown): { verb:
   const PINK = '#EC4899';
   const GRAY = '#9CA3AF';
 
-  if (t === 'read_file' || t === 'Read') {
+  if (t === 'read_file' || t === 'read') {
     return { verb: 'Leggo', detail: baseName(input.path ?? input.filePath ?? input.file_path) || 'un file', icon: 'document-text-outline', color: BLUE };
   }
-  if (t === 'write_file' || t === 'Write') {
+  if (t === 'write_file' || t === 'write') {
     return { verb: 'Creo', detail: baseName(input.path ?? input.filePath) || 'un file', icon: 'create-outline', color: GREEN };
   }
-  if (t === 'edit_file' || t === 'Edit' || t === 'multi_edit_file') {
+  if (t === 'edit_file' || t === 'edit' || t === 'multi_edit_file' || t === 'multiedit') {
     return { verb: 'Modifico', detail: baseName(input.path ?? input.filePath) || 'un file', icon: 'brush-outline', color: GREEN };
   }
   if (t === 'patch_file') {
     return { verb: 'Applico una modifica a', detail: baseName(input.path ?? input.filePath) || 'un file', icon: 'brush-outline', color: GREEN };
   }
-  if (t === 'list_directory' || t === 'list_files') {
+  if (t === 'list_directory' || t === 'list_files' || t === 'list') {
     const dir = String(input.path ?? input.directory ?? '.') || '.';
     return { verb: 'Guardo la cartella', detail: dir === '.' ? 'principale del progetto' : dir, icon: 'folder-open-outline', color: PURPLE };
   }
-  if (t === 'glob_search' || t === 'glob_files' || t === 'Glob') {
+  if (t === 'glob_search' || t === 'glob_files' || t === 'glob') {
     const pat = humanizeSearchPattern(input.pattern);
     return { verb: 'Cerco i file', detail: pat ? `del tipo ${pat}` : 'nel progetto', icon: 'folder-outline', color: PURPLE };
   }
-  if (t === 'grep_search' || t === 'search_in_files' || t === 'Grep' || t === 'code_search') {
+  if (t === 'grep_search' || t === 'search_in_files' || t === 'grep' || t === 'code_search') {
     const q = humanizeSearchPattern(input.pattern ?? input.query);
     return { verb: 'Cerco nel codice', detail: q ? `"${q}"` : '', icon: 'search-outline', color: ORANGE };
   }
-  if (t === 'run_command' || t === 'execute_command' || t === 'Bash') {
+  if (t === 'run_command' || t === 'execute_command' || t === 'bash') {
     const cmd = String(input.command ?? '');
     const { verb, icon } = classifyCommand(cmd);
     return { verb, detail: '', icon, color: ORANGE };
   }
-  if (t === 'web_search' || t === 'WebSearch') {
+  if (t === 'web_search' || t === 'websearch') {
     const q = String(input.query ?? '');
     return { verb: 'Cerco sul web', detail: q ? `"${q}"` : '', icon: 'globe-outline', color: BLUE };
   }
-  if (t === 'web_fetch' || t === 'WebFetch') {
+  if (t === 'web_fetch' || t === 'webfetch') {
     const url = String(input.url ?? '');
     let host = '';
     try { host = url ? new URL(url).hostname : ''; } catch { host = ''; }
     return { verb: 'Scarico una pagina web', detail: host, icon: 'cloud-download-outline', color: BLUE };
   }
-  if (t === 'todo_write' || t === 'TodoWrite') {
+  if (t === 'todo_write' || t === 'todowrite') {
     return { verb: 'Aggiorno la lista delle cose da fare', detail: '', icon: 'checkbox-outline', color: PINK };
   }
   if (t === 'todo_read') {
@@ -130,10 +134,10 @@ function describe(tool: string, inputRaw: unknown, _outputRaw: unknown): { verb:
   if (t === 'memory_write') {
     return { verb: 'Salvo una nota per ricordarmela', detail: '', icon: 'bookmark-outline', color: PURPLE };
   }
-  if (t === 'dispatch_agent' || t === 'launch_sub_agent' || t === 'sub_agent' || t === 'Task') {
+  if (t === 'dispatch_agent' || t === 'launch_sub_agent' || t === 'sub_agent' || t === 'task') {
     return { verb: 'Chiedo a un aiutante di occuparsene', detail: '', icon: 'people-outline', color: PINK };
   }
-  if (t === 'ask_user_question' || t === 'user_question' || t === 'AskUserQuestion') {
+  if (t === 'ask_user_question' || t === 'user_question' || t === 'askuserquestion') {
     return { verb: 'Ho una domanda per te', detail: '', icon: 'help-circle-outline', color: ORANGE };
   }
   if (t === 'diagnostics') {
