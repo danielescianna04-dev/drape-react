@@ -356,8 +356,13 @@ export async function runBynotAgent({
     { role: 'user', content: prompt },
   ];
 
+  // The frontend prefixes models with `openrouter/` (opencode convention).
+  // The @openrouter/ai-sdk-provider expects the bare `<provider>/<model>` form,
+  // so strip the prefix here. Bare ids pass through unchanged.
+  const resolvedModel = (model ?? DEFAULT_MODEL).replace(/^openrouter\//, '');
+
   const result = streamText({
-    model: openrouter(model ?? DEFAULT_MODEL),
+    model: openrouter(resolvedModel),
     system,
     messages,
     tools: buildTools(projectId, userId),
