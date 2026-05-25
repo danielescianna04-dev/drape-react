@@ -187,16 +187,6 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const publish = usePreviewPublish({ projectId, apiUrl, serverStatus });
   publishOpenRef.current = publish.openPublishModal;
 
-  // If a previous screen requested auto-start of the preview (e.g. the
-  // "Avvia preview" button on the agent activity card), and we land here
-  // with the dev server idle, kick it off automatically — exactly once.
-  useEffect(() => {
-    if (previewState.phase !== 'idle') return;
-    if (useUIStore.getState().consumeAutoStartPreviewPending()) {
-      handleStartWithTransition();
-    }
-  }, [previewState.phase, handleStartWithTransition]);
-
   const chat = usePreviewChat({
     currentWorkstationId: currentWorkstation?.id,
     currentWorkstationName: currentWorkstation?.name,
@@ -459,6 +449,16 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const previewErrorMessage = previewState.error?.message ?? null;
   const previewEnvVars = previewState.envVarsRequired;
   const previewSessionMessage = previewState.sessionExpiredMessage;
+
+  // If a previous screen requested auto-start of the preview (e.g. the
+  // "Avvia preview" button on the agent activity card), and we land here
+  // with the dev server idle, kick it off automatically — exactly once.
+  useEffect(() => {
+    if (previewState.phase !== 'idle') return;
+    if (useUIStore.getState().consumeAutoStartPreviewPending()) {
+      handleStartWithTransition();
+    }
+  }, [previewState.phase, handleStartWithTransition]);
 
   if (!isVisible) {
     return null;
