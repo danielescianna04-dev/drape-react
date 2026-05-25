@@ -1261,6 +1261,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         skipUserBubble: true,
         reuseExistingThinkingId: 'temp-auto-create-thinking',
       });
+      // Now that handleSend (→ startAgentModeSend) has adopted the temp
+      // thinking placeholder, drop the "create-in-progress" flag.
+      // Without this the ListFooter would still see isLoading=true even
+      // after the engine starts, and mount a second "Sto pensando" pill
+      // below the real one — what the user sees as the spinner restarting.
+      setCreatingProjectFromPrompt(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentWorkstation, pendingFirstPrompt, currentTab?.id]);
