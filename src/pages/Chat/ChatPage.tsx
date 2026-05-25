@@ -322,6 +322,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const cleanupTempAutoCreateItems = useCallback((tabId: string) => {
     removeTerminalItemById(tabId, 'temp-auto-create-user');
     removeTerminalItemById(tabId, 'temp-auto-create-bootstrap');
+    removeTerminalItemById(tabId, 'temp-auto-create-thinking');
   }, [removeTerminalItemById]);
 
   // Reset project creation state on tab change.
@@ -1161,15 +1162,21 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     setInput('');
     if (currentTab?.id) {
       tabInputsRef.current[currentTab.id] = '';
-      // Show the user's prompt immediately so the composer slides down. We
-      // intentionally do NOT add the "Lavoro in squadra" bootstrap activity
-      // card here — for plain messages like "ciao" the model won't run any
-      // tool and the card would look like a lie. If tools do fire after
-      // project creation, the bridge surfaces the real card on its own.
+      // Show the user's prompt + a thinking placeholder immediately so the
+      // welcome layout swaps to the in-chat layout in the same frame as the
+      // send. The only thing the user notices changing later is the project
+      // name pill that lands at the top once create-with-template returns.
       addTerminalItemToStore(currentTab.id, {
         id: 'temp-auto-create-user',
         content: text,
         type: TerminalItemType.USER_MESSAGE,
+        timestamp: new Date(),
+      });
+      addTerminalItemToStore(currentTab.id, {
+        id: 'temp-auto-create-thinking',
+        content: '',
+        type: TerminalItemType.OUTPUT,
+        isThinking: true,
         timestamp: new Date(),
       });
     }
@@ -1245,10 +1252,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (currentWorkstation && pendingFirstPrompt) {
       const prompt = pendingFirstPrompt;
       setPendingFirstPrompt(null);
-      // Don't cleanup temp items here — the user's bubble must stay visible
-      // through the workstation switch so the chat feels continuous (no
-      // flash-out / flash-back-in). Pass skipUserBubble so handleSend doesn't
-      // mount a duplicate of the prompt.
+      // Keep the user's bubble across the workstation switch so the chat
+      // feels continuous. Drop only the temp thinking placeholder — handleSend
+      // adds its real streaming placeholder right after, so leaving the temp
+      // one would briefly double up the indicator.
+      if (currentTab?.id) {
+        removeTerminalItemById(currentTab.id, 'temp-auto-create-thinking');
+      }
       handleSend(undefined, prompt, { skipUserBubble: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
