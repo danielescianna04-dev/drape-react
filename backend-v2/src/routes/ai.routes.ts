@@ -181,18 +181,18 @@ aiRouter.post('/chat', requireAuth, wrapAsync(async (req: Request, res: Response
     return res.status(400).json({ error: 'prompt is required' });
   }
 
-  // Quota check BEFORE streaming starts. If the user is over their 5h
-  // sliding window, reject with 429 and a Retry-After hint so the UI can
-  // show a friendly "wait X min" message and link to the Plus upgrade.
+  // Quota check BEFORE streaming starts. If the user is over their monthly
+  // cap, reject with 429 and a Retry-After hint pointing at the 1st of next
+  // month so the UI can show "passa a Plus o aspetta il rinnovo".
   const quota = await checkQuota(userId);
   if (!quota.allowed) {
-    res.setHeader('Retry-After', String(quota.retryAfterSec ?? 3600));
+    res.setHeader('Retry-After', String(quota.retryAfterSec ?? 86400));
     return res.status(429).json({
       error: 'quota_exceeded',
       used: quota.used,
       limit: quota.limit,
       retryAfterSec: quota.retryAfterSec,
-      message: 'Hai esaurito il quota della tua finestra di 5 ore. Aspetta o passa a Plus per quota 5x più alta.',
+      message: 'Hai esaurito il quota mensile. Aspetta il rinnovo del mese o passa a Plus.',
     });
   }
 

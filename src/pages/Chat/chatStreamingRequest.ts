@@ -217,14 +217,14 @@ export const streamLegacyAiChat = async ({
       if (xhr.status === 200) {
         resolve();
       } else if (xhr.status === 429) {
-        // Quota exceeded — surface the friendly message + retry-after from
-        // the backend so the chat UI can offer the Plus upgrade flow.
+        // Quota exceeded — monthly cap, surface backend message + retry-after
+        // so the chat UI can offer the Plus upgrade flow / show days-until-reset.
         let body: any = {};
         try { body = JSON.parse(xhr.responseText); } catch {}
-        const retrySec = body.retryAfterSec ?? 3600;
-        const min = Math.ceil(retrySec / 60);
-        const human = min >= 60 ? `${Math.ceil(min / 60)}h` : `${min} min`;
-        const message = body.message || `Hai esaurito il quota. Riprova fra ${human} o passa a Plus.`;
+        const retrySec = body.retryAfterSec ?? 86400;
+        const days = Math.ceil(retrySec / 86400);
+        const human = days >= 2 ? `${days} giorni` : days === 1 ? '1 giorno' : 'poche ore';
+        const message = body.message || `Hai esaurito il quota mensile. Rinnovo fra ${human}, oppure passa a Plus.`;
         const err = new Error(message) as Error & { code?: string; retryAfterSec?: number };
         err.code = 'quota_exceeded';
         err.retryAfterSec = retrySec;

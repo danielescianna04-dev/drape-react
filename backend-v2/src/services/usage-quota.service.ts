@@ -1,32 +1,40 @@
 import { supabaseAdmin } from '../lib/supabase';
 
 /**
- * Token quota tracking with a 5-hour sliding window.
+ * Monthly token quota tracking.
  *
  * Every AI call writes a row to `ai_runs` (tokens_in/out). Before each new
- * call we sum tokens used in the last 5 hours for the user and reject if
- * they're over their tier's quota.
+ * call we sum tokens used since the start of the current calendar month for
+ * the user and reject if they're over their tier's monthly cap.
  *
- * Quotas (per 5h sliding window):
- *   - Free: 1M tokens
- *   - Plus: 5M tokens (€4.99/mo tier)
+ * Quotas (per calendar month, resets at midnight of the 1st):
+ *   - Free: 1.5M tokens
+ *   - Plus: 8M tokens (€4.99/mo tier)
  *
- * Why 5h sliding (not daily fixed):
- *   - Fixed daily quotas reset at a moment users can game (burn 1M at 23:55
- *     + 1M at 00:05). Sliding makes that pattern impossible.
- *   - 5h is long enough that bursty work (e.g. one coding session) doesn't
- *     hit the cap, short enough that a heavy user doesn't lock themselves
- *     out for 24h after a runaway request.
+ * Why monthly fixed (not sliding/weekly):
+ *   - Simpler mental model — "you have X for the month", resets the 1st
+ *   - Aligns with subscription billing cadence (also monthly)
+ *   - Predictable for cost forecasting on our side
+ *   - No 5h burst limit: a user CAN burn their entire monthly quota in one
+ *     session; that's by design — it's their budget to spend
  */
 
 export type PlanTier = 'free' | 'plus';
 
 const QUOTA_BY_PLAN: Record<PlanTier, number> = {
-  free: 1_000_000,
-  plus: 5_000_000,
+  free: 1_500_000,
+  plus: 8_000_000,
 };
 
-const SLIDING_WINDOW_HOURS = 5;
+function getMonthStartIso(): string {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+}
+
+function getMonthEndMs(): number {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+}
 
 export interface QuotaCheckResult {
   allowed: boolean;
@@ -47,14 +55,15 @@ export function resolveTier(raw: string | null | undefined): PlanTier {
 }
 
 /**
- * Sum tokens consumed in the last 5h for this user. Combines input + output.
- * (Input cached tokens still count — they're not free, just discounted.)
+ * Sum tokens consumed since the start of the current calendar month for
+ * this user. Combines NEW input + output. Cached input is not counted —
+ * it's effectively free for both billing and the user's quota.
  */
 export async function getUsageInWindow(userId: string): Promise<number> {
-  const sinceIso = new Date(Date.now() - SLIDING_WINDOW_HOURS * 3600 * 1000).toISOString();
+  const sinceIso = getMonthStartIso();
   const { data, error } = await supabaseAdmin
     .from('ai_runs')
-    .select('tokens_in, tokens_out, created_at')
+    .select('tokens_in, tokens_out')
     .eq('user_id', userId)
     .gte('created_at', sinceIso);
   if (error) {
@@ -91,23 +100,14 @@ export async function checkQuota(userId: string): Promise<QuotaCheckResult> {
   if (used < limit) {
     return { allowed: true, used, limit };
   }
-  // Find the oldest row in window — when it ages out, the user gets that
-  // many tokens back. Used as a rough Retry-After hint.
-  const sinceIso = new Date(Date.now() - SLIDING_WINDOW_HOURS * 3600 * 1000).toISOString();
-  const { data } = await supabaseAdmin
-    .from('ai_runs')
-    .select('created_at')
-    .eq('user_id', userId)
-    .gte('created_at', sinceIso)
-    .order('created_at', { ascending: true })
-    .limit(1);
-  const oldestMs = data?.[0]?.created_at ? new Date(data[0].created_at).getTime() : Date.now();
-  const ageOutMs = oldestMs + SLIDING_WINDOW_HOURS * 3600 * 1000 - Date.now();
+  // Monthly cap: the user has to wait until the 1st of next month for the
+  // counter to reset. Retry-After is the full delta in seconds.
+  const retryAfterSec = Math.max(60, Math.ceil((getMonthEndMs() - Date.now()) / 1000));
   return {
     allowed: false,
     used,
     limit,
-    retryAfterSec: Math.max(60, Math.ceil(ageOutMs / 1000)),
+    retryAfterSec,
   };
 }
 

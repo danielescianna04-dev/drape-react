@@ -44,19 +44,19 @@ async function handleAgentStream(req: AuthedRequest, res: any): Promise<void> {
   }
   const { projectId, prompt, model, projectName } = parsed.data;
 
-  // Quota check BEFORE opening SSE — same 5h sliding window as /ai/chat.
-  // Reject early with 429 so the frontend can show "wait/upgrade" without
-  // burning an open EventSource.
+  // Quota check BEFORE opening SSE — monthly cap same as /ai/chat.
+  // Reject early with 429 so the frontend can show "wait until next month
+  // or upgrade" without burning an open EventSource.
   if (req.userId) {
     const quota = await checkQuota(req.userId);
     if (!quota.allowed) {
-      res.setHeader('Retry-After', String(quota.retryAfterSec ?? 3600));
+      res.setHeader('Retry-After', String(quota.retryAfterSec ?? 86400));
       res.status(429).json({
         error: 'quota_exceeded',
         used: quota.used,
         limit: quota.limit,
         retryAfterSec: quota.retryAfterSec,
-        message: 'Hai esaurito il quota della tua finestra di 5 ore. Aspetta o passa a Plus.',
+        message: 'Hai esaurito il quota mensile. Aspetta il rinnovo o passa a Plus.',
       });
       return;
     }
