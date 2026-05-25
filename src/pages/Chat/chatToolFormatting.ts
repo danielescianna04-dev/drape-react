@@ -158,28 +158,33 @@ export const getToolStartMessage = (tool: string, input: unknown): string => {
  */
 export const ACTIVITY_PREFIX = '__BYNOT_ACTIVITY__|';
 
+/**
+ * Encoding: __BYNOT_ACTIVITY__|<state>|<poolKey>|<file>
+ * AgentActivityCard reads poolKey + file and rotates its subtitle internally
+ * through STATUS_POOLS[poolKey] every few seconds — so the user sees variety
+ * even when a single tool runs for a long time (write_file on a big HTML).
+ */
 export function encodeActivityCard(
   state: 'running' | 'done',
-  title: string,
-  subtitle: string,
+  poolKey: string,
+  file: string,
 ): string {
-  // Pipes are stripped from inputs to keep parsing trivial.
-  const safe = (s: string) => s.replace(/\|/g, '/');
-  return `${ACTIVITY_PREFIX}${state}|${safe(title)}|${safe(subtitle)}`;
+  const safe = (s: string) => (s || '').replace(/\|/g, '/');
+  return `${ACTIVITY_PREFIX}${state}|${safe(poolKey)}|${safe(file)}`;
 }
 
 export function parseActivityCard(content: string | undefined | null):
-  | { state: 'running' | 'done'; title: string; subtitle: string }
+  | { state: 'running' | 'done'; poolKey: string; file: string }
   | null
 {
   if (!content || !content.startsWith(ACTIVITY_PREFIX)) return null;
   const rest = content.slice(ACTIVITY_PREFIX.length);
-  const [state, title, ...subParts] = rest.split('|');
+  const [state, poolKey, ...fileParts] = rest.split('|');
   if (state !== 'running' && state !== 'done') return null;
   return {
     state,
-    title: title || '',
-    subtitle: subParts.join('|') || '',
+    poolKey: poolKey || 'generic',
+    file: fileParts.join('|') || '',
   };
 }
 
@@ -195,7 +200,69 @@ export function parseActivityCard(content: string | undefined | null):
 
 const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
-const STATUS_POOLS: Record<string, string[]> = {
+/**
+ * Render a phrase from a pool, substituting {file} with the provided filename
+ * (or a sensible Italian fallback). Used both by friendlyToolStatus (for the
+ * initial subtitle on toolStart) and by AgentActivityCard (to rotate the
+ * subtitle internally while the same tool keeps running).
+ */
+export function renderStatusFromPool(poolKey: string, file: string): string {
+  const pool = STATUS_POOLS[poolKey] ?? STATUS_POOLS.generic;
+  const tpl = pool[Math.floor(Math.random() * pool.length)];
+  return tpl.replace('{file}', file || 'il file');
+}
+
+/**
+ * Map an opencode tool name (+ inspectable input for the bash family) to a
+ * STATUS_POOLS key. Lets the activity card know which pool to keep rotating
+ * through for as long as a single tool is running.
+ */
+export function toolToPool(tool: string, toolInput: unknown): { poolKey: string; file: string } {
+  const input = parseToolPayload(toolInput);
+  const file = getFileName(input);
+  if (tool === 'read_file' || tool === 'read') return { poolKey: 'read', file };
+  if (tool === 'write_file' || tool === 'write') return { poolKey: 'write', file };
+  if (tool === 'edit_file' || tool === 'edit' || tool === 'multi_edit_file' || tool === 'multiedit' || tool === 'patch_file') return { poolKey: 'edit', file };
+  if (tool === 'delete_file') return { poolKey: 'delete', file: String(input?.filePath || '') };
+  if (tool === 'move_file' || tool === 'copy_file') return { poolKey: 'move', file: '' };
+  if (tool === 'create_folder') return { poolKey: 'folder', file: '' };
+  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') return { poolKey: 'list', file: '' };
+  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') return { poolKey: 'glob', file: '' };
+  if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep' || tool === 'code_search') return { poolKey: 'search', file: '' };
+  if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') {
+    const cmd = String(input?.command || '');
+    if (cmd.startsWith('curl') || cmd.includes('http')) return { poolKey: 'bash_curl', file: '' };
+    if (cmd.startsWith('npm') || cmd.startsWith('yarn') || cmd.startsWith('pnpm') || cmd.includes('install')) return { poolKey: 'bash_npm', file: '' };
+    if (cmd.startsWith('git')) return { poolKey: 'bash_git', file: '' };
+    if (cmd.includes('build') || cmd.includes('compile') || cmd.includes('webpack') || cmd.includes('vite')) return { poolKey: 'bash_build', file: '' };
+    if (cmd.includes('test') || cmd.includes('jest') || cmd.includes('vitest')) return { poolKey: 'bash_test', file: '' };
+    return { poolKey: 'bash_other', file: '' };
+  }
+  if (tool === 'web_fetch') return { poolKey: 'web_fetch', file: '' };
+  if (tool === 'web_search') return { poolKey: 'web_search', file: '' };
+  if (tool === 'diagnostics') return { poolKey: 'diagnostics', file: '' };
+  if (tool === 'todo_write' || tool === 'todo_read') return { poolKey: 'todo', file: '' };
+  if (tool === 'load_skill' || tool === 'skill') return { poolKey: 'skill', file: '' };
+  if (tool === 'memory_read' || tool === 'memory_write') return { poolKey: 'memory', file: '' };
+  if (tool === 'dispatch_agent' || tool === 'task' || tool === 'sub_agent' || tool === 'launch_sub_agent') return { poolKey: 'subagent', file: '' };
+  if (tool === 'lsp') return { poolKey: 'lsp', file: '' };
+  if (tool === 'ask_user_question' || tool === 'user_question') return { poolKey: 'question', file: '' };
+  return { poolKey: 'generic', file: '' };
+}
+
+/** Rotating titles for the activity card header (variety > one fixed label). */
+export const ACTIVITY_TITLES = [
+  'Lavoro in corso',
+  'Ci penso io',
+  'Sto preparando tutto',
+  'Un attimo solo',
+  'Quasi pronto',
+  'Sto sistemando',
+  'Procedo',
+  'Costruisco',
+];
+
+export const STATUS_POOLS: Record<string, string[]> = {
   read: [
     'Sto leggendo {file}',
     'Apro {file} per dare un\'occhiata',

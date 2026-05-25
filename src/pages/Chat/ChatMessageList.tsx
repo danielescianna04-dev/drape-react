@@ -156,8 +156,8 @@ export const ChatMessageList: React.FC<Props> = ({
             <View style={{ marginHorizontal: 16, marginVertical: 8 }}>
               <AgentActivityCard
                 state={activity.state}
-                title={activity.title}
-                subtitle={activity.subtitle}
+                poolKey={activity.poolKey}
+                file={activity.file}
               />
             </View>
           );

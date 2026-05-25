@@ -5,7 +5,7 @@ import { sanitizeAgentText } from '../../shared/utils/sanitizeAgentText';
 import { parseUndoData } from './chatUndo';
 import { appendTabTerminalItems, updateTabTerminalItem } from './chatTabStoreHelpers';
 import { buildAiChatRequestPayload } from './chatSendUtils';
-import { formatToolResult, friendlyToolStatus, encodeActivityCard } from './chatToolFormatting';
+import { formatToolResult, encodeActivityCard, toolToPool } from './chatToolFormatting';
 
 interface StreamLegacyAiChatParams {
   apiUrl: string;
@@ -84,16 +84,16 @@ export const streamLegacyAiChat = async ({
           const parsed = JSON.parse(data);
 
           if (parsed.toolStart) {
-            // Lovable-style single activity card: encode the friendly status
-            // into the streaming message's content. ChatMessageList sees the
-            // ACTIVITY_PREFIX sentinel and renders a card with title +
-            // animated subtitle, instead of plain text. The card is
-            // overwritten naturally when the model finally streams real text
-            // (the parsed.text handler below replaces content).
+            // Lovable-style activity card: we only encode poolKey + file, and
+            // the card rotates through STATUS_POOLS[poolKey] internally every
+            // ~2.5s. This means a single long-running tool (e.g. write_file
+            // generating a 200-line landing page over 60s) still shows variety
+            // instead of freezing on "Sto creando il file".
             const { name, args } = parsed.toolStart;
+            const { poolKey, file } = toolToPool(name, args);
             updateTabTerminalItem(activeTabId, streamingMessageId, {
               isThinking: false,
-              content: encodeActivityCard('running', 'Lavoro in corso', friendlyToolStatus(name, args)),
+              content: encodeActivityCard('running', poolKey, file),
             });
             continue;
           }

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
@@ -10,31 +10,75 @@ import Animated, {
   interpolateColor,
   cancelAnimation,
 } from 'react-native-reanimated';
+import { ACTIVITY_TITLES, renderStatusFromPool } from './chatToolFormatting';
 
 interface Props {
   state: 'running' | 'done';
-  title: string;
-  subtitle: string;
+  poolKey: string;
+  file: string;
 }
+
+const TITLE_INTERVAL_MS = 3800;
+const SUBTITLE_INTERVAL_MS = 2500;
 
 /**
  * Lovable-style activity card shown in chat while the AI is running tools.
- * One persistent card morphs through statuses (Sto leggendo... → Sto
- * scrivendo... → Sto modificando...) instead of N technical cards.
  *
- * Two animations:
- *   • Pulse dot (running): purple dot fades 0.4 → 1 → 0.4 every 1.4s.
- *   • Shimmer subtitle: subtitle text color interpolates across a
- *     bright→dim→bright cycle every 1.6s, giving a "shimmering" feel that
- *     reads as "the AI is actively working" without needing MaskedView.
+ * Self-rotating UX (independent from how often the backend emits tool events):
+ *   • title rotates through ACTIVITY_TITLES every 3.8s ("Lavoro in corso",
+ *     "Ci penso io", "Sto preparando tutto", …)
+ *   • subtitle rotates through STATUS_POOLS[poolKey] every 2.5s, with {file}
+ *     interpolated — picked at random each tick for variety.
+ *   • shimmer on the subtitle (color α 0.35 ↔ 0.95, 1.6s cycle) plus a
+ *     pulse dot on the title — both stop the moment state becomes 'done'.
  *
- * Both animations stop when state === 'done', and the card is replaced
- * entirely by the model's final text reply as soon as token streaming begins.
+ * Why rotate inside the card and not on every backend event:
+ *   opencode often runs ONE long-lived tool call (write_file on a 200-line
+ *   HTML can take 60-120s) with no further tool events in between. If the
+ *   card subtitle was driven only by toolStart it would freeze on the first
+ *   pick. Rotation inside the card guarantees the user always sees life.
  */
-export const AgentActivityCard: React.FC<Props> = ({ state, title, subtitle }) => {
+export const AgentActivityCard: React.FC<Props> = ({ state, poolKey, file }) => {
   const pulse = useSharedValue(0.4);
   const shimmer = useSharedValue(0);
 
+  // Rotating copy as plain state — picked from the pool on a timer.
+  const [title, setTitle] = useState<string>(() => ACTIVITY_TITLES[0]);
+  const [subtitle, setSubtitle] = useState<string>(() => renderStatusFromPool(poolKey, file));
+
+  // When the pool key changes (a new tool started server-side) reset the
+  // subtitle immediately so the user sees the change without waiting for the
+  // next rotation tick.
+  const poolRef = useRef<{ poolKey: string; file: string }>({ poolKey, file });
+  useEffect(() => {
+    if (poolRef.current.poolKey !== poolKey || poolRef.current.file !== file) {
+      poolRef.current = { poolKey, file };
+      setSubtitle(renderStatusFromPool(poolKey, file));
+    } else {
+      poolRef.current = { poolKey, file };
+    }
+  }, [poolKey, file]);
+
+  // Self-rotation timers — only run while the card is in "running" state.
+  useEffect(() => {
+    if (state !== 'running') return;
+    const subTimer = setInterval(() => {
+      setSubtitle(renderStatusFromPool(poolRef.current.poolKey, poolRef.current.file));
+    }, SUBTITLE_INTERVAL_MS);
+    const titleTimer = setInterval(() => {
+      setTitle((current) => {
+        // Pick a NEW one (avoid repeating the same title back to back).
+        const others = ACTIVITY_TITLES.filter((t) => t !== current);
+        return others[Math.floor(Math.random() * others.length)];
+      });
+    }, TITLE_INTERVAL_MS);
+    return () => {
+      clearInterval(subTimer);
+      clearInterval(titleTimer);
+    };
+  }, [state]);
+
+  // Pulse + shimmer animations on the worklet thread (reanimated v4).
   useEffect(() => {
     if (state !== 'running') {
       cancelAnimation(pulse);
@@ -61,8 +105,6 @@ export const AgentActivityCard: React.FC<Props> = ({ state, title, subtitle }) =
 
   const dotStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
-  // Subtitle shimmer: interpolate text color between a dim and a bright
-  // shade. The eye reads the oscillation as a shimmer-like life signal.
   const subtitleStyle = useAnimatedStyle(() => {
     if (state === 'done') return { color: 'rgba(230, 237, 243, 0.55)' };
     const color = interpolateColor(
@@ -89,11 +131,9 @@ export const AgentActivityCard: React.FC<Props> = ({ state, title, subtitle }) =
         )}
         <Text style={styles.title}>{title}</Text>
       </View>
-      {!!subtitle && (
-        <Animated.Text style={[styles.subtitle, subtitleStyle]}>
-          {subtitle}
-        </Animated.Text>
-      )}
+      <Animated.Text style={[styles.subtitle, subtitleStyle]}>
+        {subtitle}
+      </Animated.Text>
     </View>
   );
 };
@@ -137,6 +177,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontStyle: 'italic',
     lineHeight: 18,
-    marginLeft: 18, // align with title (past the dot)
+    marginLeft: 18,
   },
 });
