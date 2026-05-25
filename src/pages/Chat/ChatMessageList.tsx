@@ -14,6 +14,8 @@ import { AppColors } from '../../shared/theme/colors';
 import { TerminalItemType, type TerminalItem } from '../../shared/types';
 import type { AgentToolEvent } from '../../hooks/api/useAgentStream';
 import { useUIStore } from '../../core/terminal/uiStore';
+import { parseActivityCard } from './chatToolFormatting';
+import { AgentActivityCard } from './AgentActivityCard';
 
 export interface ProcessedChatItem {
   item: TerminalItem;
@@ -143,6 +145,23 @@ export const ChatMessageList: React.FC<Props> = ({
       scrollEventThrottle={16}
       renderItem={({ item: processed }) => {
         const { item, isNextItemAI, outputItem, shouldShowLoading } = processed;
+
+        // Lovable-style activity card while the agent is running tools.
+        // Detected via a sentinel prefix in item.content (see chatToolFormatting
+        // .encodeActivityCard). The card is replaced by real text the moment
+        // the model starts streaming its final reply.
+        const activity = parseActivityCard(item.content);
+        if (activity) {
+          return (
+            <View style={{ marginHorizontal: 16, marginVertical: 8 }}>
+              <AgentActivityCard
+                state={activity.state}
+                title={activity.title}
+                subtitle={activity.subtitle}
+              />
+            </View>
+          );
+        }
 
         if ((item as any).isAgentProgress) {
           const isRunning = agentStreaming;

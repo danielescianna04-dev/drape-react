@@ -146,6 +146,83 @@ export const getToolStartMessage = (tool: string, input: unknown): string => {
   }
 };
 
+/**
+ * Sentinel encoding for the agent-activity card. When a streaming message's
+ * `content` starts with this prefix, ChatMessageList renders a Lovable-style
+ * card instead of plain text. Format:
+ *   __BYNOT_ACTIVITY__|<state>|<title>|<subtitle>
+ * state ∈ "running" | "done"
+ *
+ * The prefix is overwritten as soon as real text tokens stream in, so the
+ * card transitions naturally into the final AI message.
+ */
+export const ACTIVITY_PREFIX = '__BYNOT_ACTIVITY__|';
+
+export function encodeActivityCard(
+  state: 'running' | 'done',
+  title: string,
+  subtitle: string,
+): string {
+  // Pipes are stripped from inputs to keep parsing trivial.
+  const safe = (s: string) => s.replace(/\|/g, '/');
+  return `${ACTIVITY_PREFIX}${state}|${safe(title)}|${safe(subtitle)}`;
+}
+
+export function parseActivityCard(content: string | undefined | null):
+  | { state: 'running' | 'done'; title: string; subtitle: string }
+  | null
+{
+  if (!content || !content.startsWith(ACTIVITY_PREFIX)) return null;
+  const rest = content.slice(ACTIVITY_PREFIX.length);
+  const [state, title, ...subParts] = rest.split('|');
+  if (state !== 'running' && state !== 'done') return null;
+  return {
+    state,
+    title: title || '',
+    subtitle: subParts.join('|') || '',
+  };
+}
+
+/**
+ * User-friendly "in-progress" status line for a tool call, in Italian.
+ * Used to drive ONE persistent activity card in the chat that updates as the
+ * agent moves through tools — instead of N technical cards. Designed for
+ * non-developers who don't care about "read_file" but understand "Sto leggendo".
+ */
+export const friendlyToolStatus = (tool: string, toolInput: unknown): string => {
+  const input = parseToolPayload(toolInput);
+  const file = getFileName(input);
+  if (tool === 'read_file' || tool === 'read') return `Sto leggendo ${file || 'i file'}…`;
+  if (tool === 'write_file' || tool === 'write') return `Sto creando ${file || 'il file'}…`;
+  if (tool === 'edit_file' || tool === 'edit' || tool === 'multi_edit_file' || tool === 'multiedit' || tool === 'patch_file') return `Sto modificando ${file || 'il file'}…`;
+  if (tool === 'delete_file') return `Sto eliminando ${input?.filePath || 'il file'}…`;
+  if (tool === 'move_file' || tool === 'copy_file') return `Sto spostando i file…`;
+  if (tool === 'create_folder') return `Sto creando la cartella…`;
+  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') return `Sto esplorando il progetto…`;
+  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') return `Sto cercando i file…`;
+  if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep' || tool === 'code_search') {
+    const q = input?.pattern || input?.query;
+    return q ? `Sto cercando "${String(q).slice(0, 40)}"…` : 'Sto cercando nel codice…';
+  }
+  if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') {
+    const cmd = String(input?.command || '');
+    if (cmd.startsWith('curl')) return 'Sto scaricando dei dati…';
+    if (cmd.startsWith('npm') || cmd.includes('install')) return 'Sto installando le dipendenze…';
+    if (cmd.startsWith('git')) return 'Sto sincronizzando con git…';
+    return 'Sto eseguendo un comando…';
+  }
+  if (tool === 'web_fetch') return 'Sto leggendo una pagina web…';
+  if (tool === 'web_search') return 'Sto cercando sul web…';
+  if (tool === 'diagnostics') return 'Sto controllando il codice…';
+  if (tool === 'todo_write' || tool === 'todo_read') return 'Sto organizzando le attività…';
+  if (tool === 'load_skill' || tool === 'skill') return 'Sto caricando le competenze…';
+  if (tool === 'memory_read' || tool === 'memory_write') return 'Sto consultando la memoria…';
+  if (tool === 'dispatch_agent' || tool === 'task' || tool === 'sub_agent' || tool === 'launch_sub_agent') return 'Sto lavorando su un sotto-compito…';
+  if (tool === 'lsp') return 'Sto analizzando il codice…';
+  if (tool === 'ask_user_question' || tool === 'user_question') return 'Ti sto chiedendo una conferma…';
+  return 'Sto lavorando…';
+};
+
 export const formatToolResult = (tool: string, toolInput: unknown, rawResult: unknown): string => {
   // Lovable-style "running" card: emitted by chatStreamingRequest when the
   // backend sends a toolStart event. Renders as a single-line "Working on X"
@@ -166,92 +243,76 @@ export const formatToolResult = (tool: string, toolInput: unknown, rawResult: un
   const { text: result, hasError, errorMessage } = extractResultContent(rawResult);
   const input = parseToolPayload(toolInput);
 
-  if (tool === 'read_file') {
+  // Lovable-style compact cards: title + 1-line summary, NEVER the full body.
+  // Dumping file contents / dir listings / search hits as plain chat text was
+  // overwhelming on a phone. The full result is still on the server (and can
+  // be exposed via a future "expand details" tap), but the chat itself stays
+  // glanceable.
+  if (tool === 'read_file' || tool === 'read') {
     const file = getFileName(input);
     const lines = result ? result.split('\n').length : 0;
-    return `Read ${file || 'file'}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${result}`;
+    return `Read ${file || 'file'}\n└─ ${lines} line${lines !== 1 ? 's' : ''}`;
   }
-  if (tool === 'write_file') {
+  if (tool === 'write_file' || tool === 'write') {
     const file = getFileName(input);
     if (hasError) return `Write ${file || 'file'}\n└─ Error: ${errorMessage}`;
     return `Write ${file || 'file'}\n└─ File created`;
   }
-  if (tool === 'edit_file') {
+  if (tool === 'edit_file' || tool === 'edit') {
     const file = getFileName(input);
     if (hasError) return `Edit ${file || 'file'}\n└─ Error: ${errorMessage}`;
-    return `Edit ${file || 'file'}\n└─ File modified${result ? `\n\n${result}` : ''}`;
+    return `Edit ${file || 'file'}\n└─ File modified`;
   }
-  if (tool === 'glob_files' || tool === 'glob_search') {
+  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') {
     const pattern = input?.pattern || 'files';
     const fileCount = result ? result.split('\n').filter((line: string) => line.trim()).length : 0;
-    return `Glob pattern: ${pattern}\n└─ Found ${fileCount} file(s)\n\n${result}`;
+    return `Glob pattern: ${pattern}\n└─ Found ${fileCount} file(s)`;
   }
-  if (tool === 'list_directory' || tool === 'list_files') {
+  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') {
     const directory = input?.directory || input?.dirPath || input?.path || '.';
     const fileCount = result ? result.split('\n').filter((line: string) => line.trim()).length : 0;
-    return `List files in ${directory}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${result}`;
+    return `List ${directory}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}`;
   }
-  if (tool === 'search_in_files' || tool === 'grep_search') {
+  if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep') {
     const pattern = input?.pattern || input?.query || 'pattern';
     const matches = result ? result.split('\n').filter((line: string) => line.includes(':')).length : 0;
-    return `Search "${pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${result}`;
+    return `Search "${pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}`;
   }
-  if (tool === 'run_command' || tool === 'execute_command') {
+  if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') {
     const command = String(input?.command || 'command');
+    const shortCmd = command.length > 60 ? command.slice(0, 60) + '…' : command;
     if (command.startsWith('curl')) {
       const urlMatch = command.match(/curl\s+(?:-[sS]\s+)?(?:['"])?([^\s'"]+)/);
       const url = urlMatch ? urlMatch[1] : command.substring(5).trim();
       let exitCode = 0;
-      let stdout = '';
-      let stderr = '';
       try {
         if (isResultObject(rawResult)) {
           exitCode = Number(rawResult.exitCode ?? 0);
-          stdout = String(rawResult.stdout ?? '');
-          stderr = String(rawResult.stderr ?? '');
         } else if (typeof result === 'string' && result.includes('exitCode')) {
-          const parsed = JSON.parse(result);
-          exitCode = parsed.exitCode || 0;
-          stdout = parsed.stdout || '';
-          stderr = parsed.stderr || '';
+          exitCode = JSON.parse(result).exitCode || 0;
         }
-      } catch {
-        stdout = result || '';
-      }
-      const curlHasError = exitCode !== 0 || !!stderr;
-      const status = curlHasError ? `Error (exit ${exitCode})` : 'Completed';
-      let output = '';
-      if (stdout && stdout.trim()) output = `\n\n${stdout}`;
-      if (stderr && stderr.trim()) output += `\n\nError: ${stderr}`;
-      return `Execute: curl ${url}\n└─ ${status}${output}`;
+      } catch {}
+      return `curl ${url.slice(0, 50)}${url.length > 50 ? '…' : ''}\n└─ ${exitCode === 0 ? 'OK' : `Error (exit ${exitCode})`}`;
     }
-    let actualOutput = result;
-    if (isResultObject(rawResult) && typeof rawResult.stdout === 'string') {
-      actualOutput = rawResult.stdout;
+    let exitCode = 0;
+    if (isResultObject(rawResult)) exitCode = Number(rawResult.exitCode ?? 0);
+    if (hasError || exitCode !== 0) {
+      return `$ ${shortCmd}\n└─ Failed${errorMessage ? `: ${errorMessage.slice(0, 80)}` : ''}`;
     }
-    const resultLines = (actualOutput || '').split('\n');
-    const maxOutputLines = 50;
-    let truncatedResult = actualOutput;
-    if (resultLines.length > maxOutputLines) {
-      truncatedResult = resultLines.slice(0, maxOutputLines).join('\n') +
-        `\n\n... (${resultLines.length - maxOutputLines} more lines - expand to see all)`;
-    }
-    return `Execute: ${command}\n└─ Command completed\n\n${truncatedResult}`;
+    return `$ ${shortCmd}\n└─ Done`;
   }
-  if (tool === 'multi_edit_file') {
+  if (tool === 'multi_edit_file' || tool === 'multiedit') {
     const file = getFileName(input);
     const edits = Array.isArray(input?.edits) ? input.edits : [];
     const editCount = edits.length || '?';
     if (hasError) return `Multi-edit ${file || 'file'}\n└─ Error: ${errorMessage}`;
-    const diffStart = result.indexOf('\n\n');
-    const diffContent = diffStart >= 0 ? result.substring(diffStart + 2) : '';
-    return `Multi-edit ${file || 'file'}\n└─ ${editCount} edits applied${diffContent ? `\n\n${diffContent}` : ''}`;
+    return `Multi-edit ${file || 'file'}\n└─ ${editCount} edits applied`;
   }
-  if (tool === 'dispatch_agent') {
-    const agentType = input?.type || 'agent';
-    const description = String(input?.prompt ?? '').substring(0, 80) || 'Task';
-    if (hasError) return `Agent: ${agentType}\n└─ Error: ${errorMessage}\n\n${description}`;
-    return `Agent: ${agentType}\n└─ Completed\n\n${description}${result ? `\n\n${result.substring(0, 1000)}` : ''}`;
+  if (tool === 'dispatch_agent' || tool === 'task') {
+    const agentType = input?.type || input?.subagent_type || 'agent';
+    const description = String(input?.prompt ?? input?.description ?? '').slice(0, 60);
+    if (hasError) return `Agent: ${agentType}\n└─ Error: ${errorMessage}`;
+    return `Agent: ${agentType}${description ? `\n└─ ${description}${description.length >= 60 ? '…' : ''}` : '\n└─ Completed'}`;
   }
   if (tool === 'patch_file') {
     const file = getFileName(input);
@@ -259,16 +320,16 @@ export const formatToolResult = (tool: string, toolInput: unknown, rawResult: un
     return `Patch ${file || 'file'}\n└─ Applied`;
   }
   if (tool === 'create_folder') {
-    return `Create folder: ${input?.folderPath || 'folder'}\n└─ Completed\n\n${result}`;
+    return `Create folder ${input?.folderPath || 'folder'}\n└─ Done`;
   }
   if (tool === 'delete_file') {
-    return `Delete: ${input?.filePath || 'file'}\n└─ Completed\n\n${result}`;
+    return `Delete ${input?.filePath || 'file'}\n└─ Done`;
   }
   if (tool === 'move_file') {
-    return `Move: ${input?.sourcePath || 'source'} → ${input?.destPath || 'destination'}\n└─ Completed\n\n${result}`;
+    return `Move ${input?.sourcePath || 'source'} → ${input?.destPath || 'dest'}\n└─ Done`;
   }
   if (tool === 'copy_file') {
-    return `Copy: ${input?.sourcePath || 'source'} → ${input?.destPath || 'destination'}\n└─ Completed\n\n${result}`;
+    return `Copy ${input?.sourcePath || 'source'} → ${input?.destPath || 'dest'}\n└─ Done`;
   }
   if (tool === 'think') {
     return `💭 ${result}`;
@@ -276,17 +337,17 @@ export const formatToolResult = (tool: string, toolInput: unknown, rawResult: un
   if (tool === 'load_skill') {
     const skillName = input?.name || 'skills';
     if (hasError) return `Skill ${skillName}\n└─ ${errorMessage}`;
-    return `Skill: ${skillName}\n└─ Loaded\n\n${result.substring(0, 1500)}${result.length > 1500 ? '...' : ''}`;
+    return `Skill ${skillName}\n└─ Loaded`;
   }
-  if (tool === 'tool_search') return `Tool search\n└─ ${result.substring(0, 1000)}`;
+  if (tool === 'tool_search') return `Tool search\n└─ Done`;
   if (tool === 'command_output') {
     const commandId = input?.command_id || '?';
-    if (hasError) return `Check command ${commandId}\n└─ Error: ${errorMessage}`;
-    return `Check command ${commandId}\n└─ ${result.includes('still running') ? 'Still running...' : 'Completed'}\n\n${result.substring(0, 2000)}`;
+    if (hasError) return `Check command ${commandId}\n└─ Error`;
+    return `Check command ${commandId}\n└─ ${result.includes('still running') ? 'Still running…' : 'Done'}`;
   }
   if (tool === 'memory_read') {
-    if (!result || result.includes('No memory saved')) return 'Read memory\n└─ No memory saved yet';
-    return `Read memory\n└─ Loaded\n\n${result.substring(0, 1500)}${result.length > 1500 ? '...' : ''}`;
+    if (!result || result.includes('No memory saved')) return 'Read memory\n└─ Empty';
+    return `Read memory\n└─ Loaded`;
   }
   if (tool === 'memory_write') {
     if (hasError) return `Save memory\n└─ Error: ${errorMessage}`;
@@ -294,8 +355,8 @@ export const formatToolResult = (tool: string, toolInput: unknown, rawResult: un
   }
   if (tool === 'web_fetch') {
     const url = String(input?.url || 'URL');
-    const urlShort = url.length > 50 ? `${url.substring(0, 50)}...` : url;
-    return `Fetch: ${urlShort}\n└─ Completed\n\n${result.substring(0, 2000)}${result.length > 2000 ? '...' : ''}`;
+    const urlShort = url.length > 50 ? `${url.substring(0, 50)}…` : url;
+    return `Fetch ${urlShort}\n└─ Done`;
   }
   if (tool === 'launch_sub_agent') {
     const agentType = input?.subagent_type || input?.type || 'agent';
@@ -308,58 +369,48 @@ export const formatToolResult = (tool: string, toolInput: unknown, rawResult: un
     } catch {
       summary = '';
     }
-    return `Agent: ${agentType}\n└─ Completed\n\n${description}${summary ? `\n\n${summary}` : ''}`;
+    return `Agent: ${agentType}\n└─ ${description || 'Completed'}`;
   }
   if (tool === 'todo_write') {
     const todos = Array.isArray(input?.todos) ? (input.todos as ToolPayload[]) : [];
     const totalTasks = todos.length;
     const completedTasks = todos.filter((todo) => todo.status === 'completed').length;
-    const inProgressTasks = todos.filter((todo) => todo.status === 'in_progress').length;
-    const todoLines = todos.map((todo) => `${todo.status || 'pending'}|${todo.content || ''}`).join('\n');
-    return `Todo List\n└─ ${totalTasks} task${totalTasks !== 1 ? 's' : ''} (${completedTasks} done, ${inProgressTasks} in progress)\n\n${todoLines}`;
+    return `Todo List\n└─ ${completedTasks}/${totalTasks} done`;
   }
   if (tool === 'web_search') {
-    let searchResults: ToolPayload[] = [];
     let query = '';
     let count = 0;
     try {
       if (isResultObject(rawResult) && Array.isArray(rawResult.results)) {
-        searchResults = rawResult.results as ToolPayload[];
         query = String(rawResult.query ?? input?.query ?? 'query');
-        count = (typeof rawResult.count === 'number' ? rawResult.count : searchResults.length);
+        count = (typeof rawResult.count === 'number' ? rawResult.count : rawResult.results.length);
       }
-    } catch {
-      searchResults = [];
-    }
-    const searchLines = searchResults.map((entry) => `${entry.title || 'Untitled'}|${entry.url || ''}|${entry.snippet || ''}`).join('\n');
-    return `Web Search "${query}"\n└─ ${count} result${count !== 1 ? 's' : ''} found\n\n${searchLines}`;
+    } catch {}
+    return `Web search "${query}"\n└─ ${count} result${count !== 1 ? 's' : ''}`;
   }
   if (tool === 'ask_user_question') {
     const questions = Array.isArray(input?.questions) ? (input.questions as ToolPayload[]) : [];
-    const answers: ToolPayload = (isResultObject(rawResult) && isResultObject(rawResult.answers)) ? rawResult.answers as ToolPayload : {};
-    const qaLines = questions.map((question, index: number) => `${question.question || ''}|${answers[`q${index}`] || 'No answer'}`).join('\n');
-    return `User Question\n└─ ${questions.length} question${questions.length !== 1 ? 's' : ''} answered\n\n${qaLines}`;
+    return `User Question\n└─ ${questions.length} answered`;
   }
   if (tool === 'sub_agent') {
-    const description = String(input?.prompt ?? '').substring(0, 80) || 'Task';
+    const description = String(input?.prompt ?? '').slice(0, 60) || 'Task';
     if (hasError) return `Agent: sub-agent\n└─ Error: ${errorMessage}`;
-    return `Agent: sub-agent\n└─ Completed\n\n${description}${result ? `\n\n${result.substring(0, 1000)}` : ''}`;
+    return `Agent: sub-agent\n└─ ${description}${description.length >= 60 ? '…' : ''}`;
   }
-  if (tool === 'todo_read') return `Todo List\n└─ Read\n\n${result}`;
+  if (tool === 'todo_read') return `Todo List\n└─ Read`;
   if (tool === 'user_question') {
-    const question = input?.question || input?.text || '';
-    return `User Question\n└─ Answered\n\n${question}`;
+    return `User Question\n└─ Answered`;
   }
   if (tool === 'diagnostics') {
     const file = getFileName(input);
     if (hasError) return `Diagnostics ${file || ''}\n└─ Error: ${errorMessage}`;
     const issueCount = result ? result.split('\n').filter((line: string) => line.trim()).length : 0;
-    return `Diagnostics ${file || 'project'}\n└─ ${issueCount} issue${issueCount !== 1 ? 's' : ''}\n\n${result}`;
+    return `Diagnostics ${file || 'project'}\n└─ ${issueCount} issue${issueCount !== 1 ? 's' : ''}`;
   }
   if (tool === 'code_search') {
     const query = input?.query || input?.pattern || 'code';
     const matches = result ? result.split('\n').filter((line: string) => line.trim()).length : 0;
-    return `Search "${query}"\n└─ ${matches} result${matches !== 1 ? 's' : ''}\n\n${result}`;
+    return `Search "${query}"\n└─ ${matches} result${matches !== 1 ? 's' : ''}`;
   }
   if (tool === 'skill') {
     const name = input?.name || input?.path || 'skill';
@@ -369,10 +420,11 @@ export const formatToolResult = (tool: string, toolInput: unknown, rawResult: un
   if (tool === 'lsp') {
     const action = input?.action || 'query';
     if (hasError) return `LSP: ${action}\n└─ Error: ${errorMessage}`;
-    return `LSP: ${action}\n└─ Completed\n\n${result.substring(0, 1500)}`;
+    return `LSP: ${action}\n└─ Done`;
   }
 
-  return `${tool}\n└─ Completed\n\n${result}`;
+  // Unknown tool fallback — show name + "Done" only, never dump raw result.
+  return `${tool}\n└─ ${hasError ? `Error: ${errorMessage}` : 'Done'}`;
 };
 
 export const formatEngineMessage = (

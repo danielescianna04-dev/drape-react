@@ -5,7 +5,7 @@ import { sanitizeAgentText } from '../../shared/utils/sanitizeAgentText';
 import { parseUndoData } from './chatUndo';
 import { appendTabTerminalItems, updateTabTerminalItem } from './chatTabStoreHelpers';
 import { buildAiChatRequestPayload } from './chatSendUtils';
-import { formatToolResult } from './chatToolFormatting';
+import { formatToolResult, friendlyToolStatus, encodeActivityCard } from './chatToolFormatting';
 
 interface StreamLegacyAiChatParams {
   apiUrl: string;
@@ -84,59 +84,31 @@ export const streamLegacyAiChat = async ({
           const parsed = JSON.parse(data);
 
           if (parsed.toolStart) {
-            // Lovable-style "running activity" card: shown as soon as opencode
-            // begins a tool call (Read X, Generating image, …). The card is
-            // updated in place to the completed state when toolResult arrives
-            // for the same id (see toolResult handler below).
-            const { id, name, args } = parsed.toolStart;
-            updateTabTerminalItem(activeTabId, streamingMessageId, { isThinking: false });
-            // Stable id so toolResult can find this item and replace its content.
-            const cardId = `tool-card-${id}`;
-            appendTabTerminalItems(activeTabId, [{
-              id: cardId,
-              type: TerminalItemType.OUTPUT,
-              content: formatToolResult(name, args, '__pending__'),
-              timestamp: new Date(),
-            }]);
+            // Lovable-style single activity card: encode the friendly status
+            // into the streaming message's content. ChatMessageList sees the
+            // ACTIVITY_PREFIX sentinel and renders a card with title +
+            // animated subtitle, instead of plain text. The card is
+            // overwritten naturally when the model finally streams real text
+            // (the parsed.text handler below replaces content).
+            const { name, args } = parsed.toolStart;
+            updateTabTerminalItem(activeTabId, streamingMessageId, {
+              isThinking: false,
+              content: encodeActivityCard('running', 'Lavoro in corso', friendlyToolStatus(name, args)),
+            });
             continue;
           }
 
           if (parsed.toolResult) {
-            const { id, name, args, result } = parsed.toolResult;
-            updateTabTerminalItem(activeTabId, streamingMessageId, { isThinking: false });
-
-            const { cleanResult, undoData } = parseUndoData(result);
+            const { name, args, result } = parsed.toolResult;
+            // Track undo metadata for the "revert AI changes" affordance —
+            // independent from how we render activity in the chat.
+            const { undoData } = parseUndoData(result);
             if (undoData && undoData.__undo && undoData.filePath) {
               recordModification(undoData, name as 'write_file' | 'edit_file');
             }
-
-            // If there was a "running" card for this tool (toolStart above),
-            // replace its content with the completed result rather than
-            // appending a new card — keeps the chat compact and matches the
-            // Lovable UX where each tool occupies a single slot.
-            const cardId = id ? `tool-card-${id}` : null;
-            if (cardId) {
-              updateTabTerminalItem(activeTabId, cardId, {
-                content: formatToolResult(name, args, cleanResult),
-              });
-            } else {
-              appendTabTerminalItems(activeTabId, [{
-                id: `tool-result-${Date.now()}`,
-                type: TerminalItemType.OUTPUT,
-                content: formatToolResult(name, args, cleanResult),
-                timestamp: new Date(),
-              }]);
-            }
-
-            streamingMessageId = `stream-after-tool-${Date.now()}`;
-            streamedContent = '';
-
-            addTerminalItem({
-              id: streamingMessageId,
-              content: '',
-              type: TerminalItemType.OUTPUT,
-              timestamp: new Date(),
-            });
+            // No visible state change: the next toolStart will overwrite the
+            // subtitle, or the model's text stream will replace the card
+            // entirely with the final reply.
             continue;
           }
 
