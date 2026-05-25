@@ -202,6 +202,26 @@ const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
 /**
  * Render a phrase from a pool, substituting {file} with the provided filename
+/**
+ * Resolves a friendly status template by replacing {file} with the file name
+ * (or 'il file' if empty/fallback is used) and fixing Italian grammatical contractions.
+ */
+export function formatFriendlyStatus(template: string, file: string, fallbackFile: string = 'il file'): string {
+  const resolvedFile = file || fallbackFile;
+  let rendered = template.replace('{file}', resolvedFile);
+  
+  if (resolvedFile === 'il file') {
+    rendered = rendered.replace(/\bdi il file\b/gi, 'del file');
+    rendered = rendered.replace(/\ba il file\b/gi, 'al file');
+    rendered = rendered.replace(/\bda il file\b/gi, 'dal file');
+    rendered = rendered.replace(/\bnuovo il file\b/gi, 'nuovo file');
+  }
+  
+  return rendered;
+}
+
+/**
+ * Render a phrase from a pool, substituting {file} with the provided filename
  * (or a sensible Italian fallback). Used both by friendlyToolStatus (for the
  * initial subtitle on toolStart) and by AgentActivityCard (to rotate the
  * subtitle internally while the same tool keeps running).
@@ -209,7 +229,7 @@ const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 export function renderStatusFromPool(poolKey: string, file: string): string {
   const pool = STATUS_POOLS[poolKey] ?? STATUS_POOLS.generic;
   const tpl = pool[Math.floor(Math.random() * pool.length)];
-  return tpl.replace('{file}', file || 'il file');
+  return formatFriendlyStatus(tpl, file);
 }
 
 /**
@@ -408,7 +428,7 @@ export const friendlyToolStatus = (tool: string, toolInput: unknown): string => 
   const fmt = (key: string, fallback?: string) => {
     const pool = STATUS_POOLS[key];
     const tpl = pool ? pick(pool) : (fallback ?? STATUS_POOLS.generic[0]);
-    return tpl.replace('{file}', file || (fallback ?? 'il file'));
+    return formatFriendlyStatus(tpl, file, fallback);
   };
 
   if (tool === 'read_file' || tool === 'read') return fmt('read');

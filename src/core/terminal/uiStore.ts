@@ -372,10 +372,13 @@ export const useUIStore = create<UIState>((set, get) => ({
 }));
 
 // Hydrate persisted simpleToolView on import
-AsyncStorage.getItem('chat_simple_tool_view')
-  .then((raw) => {
-    if (raw === '0' || raw === '1') {
-      useUIStore.setState({ simpleToolView: raw === '1' });
-    }
-  })
-  .catch(() => {});
+const chatSimpleToolViewPromise = AsyncStorage.getItem('chat_simple_tool_view');
+if (chatSimpleToolViewPromise && typeof chatSimpleToolViewPromise.then === 'function') {
+  chatSimpleToolViewPromise
+    .then((raw) => {
+      if (raw === '0' || raw === '1') {
+        useUIStore.setState({ simpleToolView: raw === '1' });
+      }
+    })
+    .catch(() => {});
+}

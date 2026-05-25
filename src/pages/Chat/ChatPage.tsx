@@ -1103,9 +1103,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       return;
     }
     setCreatingProjectFromPrompt(true);
+    // Clear the input + the per-tab ref immediately so the welcome composer
+    // empties on tap. The deferred handleSend (fired by the useEffect that
+    // resumes after currentWorkstation is set) receives the prompt as an
+    // explicit argument, so it doesn't depend on input state here.
+    setInput('');
+    if (currentTab?.id) tabInputsRef.current[currentTab.id] = '';
     try {
       const token = await getAuthToken();
       if (!token) {
+        setInput(text);
         handleSend();
         return;
       }
@@ -1152,17 +1159,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Resume the send once the workstation has been set (zustand update
   // re-renders this component, then this effect fires the deferred send).
+  // Pass the prompt EXPLICITLY to handleSend so it doesn't read the input
+  // state (which was cleared upfront in handleSendWithAutoProject for
+  // instant UX feedback — the closure-captured `input` here would be
+  // empty and bail out of canSendChatMessage).
   useEffect(() => {
     if (currentWorkstation && pendingFirstPrompt) {
-      // Re-populate the input and trigger the original send pipeline.
-      setInput(pendingFirstPrompt);
       const prompt = pendingFirstPrompt;
       setPendingFirstPrompt(null);
-      // Defer to the next tick so setInput value is observed by handleSend.
-      setTimeout(() => {
-        if (input !== prompt) setInput(prompt);
-        handleSend();
-      }, 0);
+      handleSend(undefined, prompt);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentWorkstation, pendingFirstPrompt]);

@@ -109,10 +109,10 @@ export interface UseChatSendHandlerParams {
 }
 
 export interface UseChatSendHandlerReturn {
-  handleSend: (images?: { uri: string; base64?: string; type?: string }[]) => Promise<void>;
+  handleSend: (images?: { uri: string; base64?: string; type?: string }[], explicitText?: string) => Promise<void>;
   handleStop: () => void;
   handleRetryTool: (tool: string, input: Record<string, unknown>) => Promise<void>;
-  handleSendRef: MutableRefObject<((images?: { uri: string; base64?: string; type?: string }[]) => Promise<void>) | null>;
+  handleSendRef: MutableRefObject<((images?: { uri: string; base64?: string; type?: string }[], explicitText?: string) => Promise<void>) | null>;
   /** Refs exposed so the engine bridge and other effects can use them. */
   preThinkingIdRef: MutableRefObject<string | null>;
   engineIdMapRef: MutableRefObject<Map<string, string>>;
@@ -375,13 +375,21 @@ export function useChatSendHandler(params: UseChatSendHandlerParams): UseChatSen
   }, [stopAgent, currentTab?.id, setLoading, engine, isProcessingToolsRef, clearDanglingThinkingState]);
 
   // ── handleSend ──────────────────────────────────────────────────────────
-  const handleSend = async (images?: { uri: string; base64?: string; type?: string }[]) => {
+  // explicitText overrides the captured `input` state. Used by the welcome-
+  // screen auto-create flow which clears the input upfront for instant UX
+  // feedback but still needs the original prompt when the deferred send
+  // fires after currentWorkstation lands.
+  const handleSend = async (
+    images?: { uri: string; base64?: string; type?: string }[],
+    explicitText?: string,
+  ) => {
     const imagesToSend = getImagesToSend(images, selectedInputImages);
     const activeTabId = getActiveChatTabId(currentTab?.id, tab?.id);
     const originTabId = activeTabId ?? currentTab?.id ?? tab?.id;
+    const effectiveInput = explicitText ?? input;
 
     if (!canSendChatMessage({
-      input,
+      input: effectiveInput,
       imageCount: imagesToSend?.length ?? 0,
       isLoading,
     })) {
@@ -414,7 +422,7 @@ export function useChatSendHandler(params: UseChatSendHandlerParams): UseChatSen
     setNearBottomState(true);
     Keyboard.dismiss();
 
-    const userMessage = buildUserMessage(input, imagesToSend);
+    const userMessage = buildUserMessage(effectiveInput, imagesToSend);
 
     // Check if agent mode is active (fast only - terminal mode handles separately)
     const isAgentMode = agentMode === 'fast';
