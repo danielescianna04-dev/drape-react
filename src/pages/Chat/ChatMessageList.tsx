@@ -112,15 +112,7 @@ export const ChatMessageList: React.FC<Props> = ({
   if (terminalItemsLength === 0) {
     return (
       <View style={[styles.output, isCardMode && styles.outputCardMode]}>
-        {creatingProject ? (
-          // First send from the welcome screen kicks off generate-title +
-          // create-with-template (~3-4s). Show the Lovable-style activity
-          // card immediately so the user has visual feedback instead of
-          // staring at their prompt until the agent stream finally starts.
-          <View style={{ marginHorizontal: 16, marginTop: 24 }}>
-            <AgentActivityCard state="running" poolKey="subagent" file="" onPress={onShowAgentDetails} />
-          </View>
-        ) : (
+        {creatingProject ? null : (
           <WelcomeScreen
             keyboardHeight={keyboardHeight}
             onSuggestionPress={onSuggestionPress}

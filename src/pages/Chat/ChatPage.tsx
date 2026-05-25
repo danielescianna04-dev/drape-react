@@ -1156,17 +1156,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     setInput('');
     if (currentTab?.id) {
       tabInputsRef.current[currentTab.id] = '';
-      // Add temporary items immediately so the composer slides down and prompt displays
+      // Show the user's prompt immediately so the composer slides down. We
+      // intentionally do NOT add the "Lavoro in squadra" bootstrap activity
+      // card here — for plain messages like "ciao" the model won't run any
+      // tool and the card would look like a lie. If tools do fire after
+      // project creation, the bridge surfaces the real card on its own.
       addTerminalItemToStore(currentTab.id, {
         id: 'temp-auto-create-user',
         content: text,
         type: TerminalItemType.USER_MESSAGE,
-        timestamp: new Date(),
-      });
-      addTerminalItemToStore(currentTab.id, {
-        id: 'temp-auto-create-bootstrap',
-        content: encodeActivityCard('running', 'subagent', ''),
-        type: TerminalItemType.TOOL_USE,
         timestamp: new Date(),
       });
     }
