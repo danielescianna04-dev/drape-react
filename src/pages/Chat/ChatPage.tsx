@@ -1103,9 +1103,27 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       return;
     }
     setCreatingProjectFromPrompt(true);
+    // Immediate UI feedback: clear the input + add a placeholder activity
+    // card so the user sees that something is happening. Without this the
+    // first tap looks frozen for 3-4 seconds (generate-title + create-
+    // project network round trips) and they tap again, which then sends
+    // the prompt normally on the freshly-created workstation — hence the
+    // "first tap doesn't work, second one does" report.
+    setInput('');
+    if (currentTab?.id) tabInputsRef.current[currentTab.id] = '';
+    const placeholderId = `creating-project-${Date.now()}`;
+    addTerminalItem({
+      id: placeholderId,
+      content: '__BYNOT_ACTIVITY__|running|generic|',
+      type: TerminalItemType.OUTPUT,
+      timestamp: new Date(),
+    });
     try {
       const token = await getAuthToken();
       if (!token) {
+        // Restore the input so the user can retry — they have no project
+        // and we couldn't get an auth token.
+        setInput(text);
         handleSend();
         return;
       }
@@ -1131,6 +1149,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       });
       const createData = await createRes.json();
       if (!createData?.success) {
+        setInput(text);
+        if (currentTab?.id) tabInputsRef.current[currentTab.id] = text;
         handleSend();
         return;
       }
@@ -1144,11 +1164,18 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       }
     } catch (err) {
       console.warn('[ChatPage.handleSendWithAutoProject] failed', err);
+      setInput(text);
+      if (currentTab?.id) tabInputsRef.current[currentTab.id] = text;
       handleSend();
     } finally {
       setCreatingProjectFromPrompt(false);
+      // The placeholder activity card is removed via removeTerminalItemById
+      // — the real handleSend pipeline will replace it with its own stream
+      // message when the deferred useEffect (resume after workstation set)
+      // fires.
+      try { removeTerminalItemById(currentTab?.id ?? '', placeholderId); } catch {}
     }
-  }, [input, currentWorkstation, creatingProjectFromPrompt, handleSend, setWorkstationGlobal]);
+  }, [input, currentWorkstation, creatingProjectFromPrompt, handleSend, setWorkstationGlobal, currentTab?.id, tabInputsRef, addTerminalItem, removeTerminalItemById, setInput]);
 
   // Resume the send once the workstation has been set (zustand update
   // re-renders this component, then this effect fires the deferred send).
