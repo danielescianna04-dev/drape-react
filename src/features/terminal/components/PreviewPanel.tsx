@@ -451,14 +451,18 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const previewSessionMessage = previewState.sessionExpiredMessage;
 
   // If a previous screen requested auto-start of the preview (e.g. the
-  // "Avvia preview" button on the agent activity card), and we land here
-  // with the dev server idle, kick it off automatically — exactly once.
+  // "Avvia preview" button on the agent activity card), kick the dev
+  // server off automatically the moment the preview is in an idle state.
+  // We subscribe to the flag directly (vs. polling on phase change) so
+  // we react even when phase was ALREADY 'idle' before the request fired.
+  const autoStartPending = useUIStore((s) => s.autoStartPreviewPending);
   useEffect(() => {
+    if (!autoStartPending) return;
     if (previewState.phase !== 'idle') return;
     if (useUIStore.getState().consumeAutoStartPreviewPending()) {
       handleStartWithTransition();
     }
-  }, [previewState.phase, handleStartWithTransition]);
+  }, [autoStartPending, previewState.phase, handleStartWithTransition]);
 
   if (!isVisible) {
     return null;
