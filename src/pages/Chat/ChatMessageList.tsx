@@ -48,6 +48,12 @@ interface Props {
   onSetNearBottomState: (nearBottom: boolean) => void;
   onRetryTool: (tool: string, input: Record<string, unknown>) => void | Promise<void>;
   onOpenPlans: () => void;
+  /** True while we're auto-creating a project (generate-title + create-with-
+   * template, ~3-4s). When set, render a Lovable-style activity card above
+   * the message list so the user has immediate visual feedback on first
+   * send from the welcome screen — instead of staring at the original
+   * prompt until the agent stream finally starts. */
+  creatingProject?: boolean;
 }
 
 export const ChatMessageList: React.FC<Props> = ({
@@ -73,6 +79,7 @@ export const ChatMessageList: React.FC<Props> = ({
   onSetNearBottomState,
   onRetryTool,
   onOpenPlans,
+  creatingProject,
 }) => {
   const { t } = useTranslation(['terminal', 'chat', 'common']);
   const parseAgentStatus = (content?: string | null): { phase?: string; message?: string } | null => {
@@ -99,10 +106,20 @@ export const ChatMessageList: React.FC<Props> = ({
   if (terminalItemsLength === 0) {
     return (
       <View style={[styles.output, isCardMode && styles.outputCardMode]}>
-        <WelcomeScreen
-          keyboardHeight={keyboardHeight}
-          onSuggestionPress={onSuggestionPress}
-        />
+        {creatingProject ? (
+          // First send from the welcome screen kicks off generate-title +
+          // create-with-template (~3-4s). Show the Lovable-style activity
+          // card immediately so the user has visual feedback instead of
+          // staring at their prompt until the agent stream finally starts.
+          <View style={{ marginHorizontal: 16, marginTop: 24 }}>
+            <AgentActivityCard state="running" poolKey="generic" file="" />
+          </View>
+        ) : (
+          <WelcomeScreen
+            keyboardHeight={keyboardHeight}
+            onSuggestionPress={onSuggestionPress}
+          />
+        )}
       </View>
     );
   }

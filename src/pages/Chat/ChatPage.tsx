@@ -1293,6 +1293,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               onScrollToBottom={scrollToBottom}
               onSetNearBottomState={setNearBottomState}
               onRetryTool={handleRetryTool}
+              creatingProject={creatingProjectFromPrompt}
               onOpenPlans={() => {
                 tracciaPaginaPianiVista('chat');
                 navigateTo('plans');
