@@ -1429,6 +1429,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 navigateTo('plans');
               }}
               onShowAgentDetails={() => setIsAgentDetailsVisible(true)}
+              onStartPreview={() => useUIStore.getState().requestOpenPreview()}
             />
 
             {/* AskUserQuestion: shown inline in chat as Q&A card, user replies via input */}

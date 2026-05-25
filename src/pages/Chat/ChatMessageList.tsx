@@ -55,6 +55,9 @@ interface Props {
    * prompt until the agent stream finally starts. */
   creatingProject?: boolean;
   onShowAgentDetails?: () => void;
+  /** Called when the user taps "Avvia preview" on a completed activity
+   * card — typically opens the preview tab on the current project. */
+  onStartPreview?: () => void;
 }
 
 export const ChatMessageList: React.FC<Props> = ({
@@ -82,6 +85,7 @@ export const ChatMessageList: React.FC<Props> = ({
   onOpenPlans,
   creatingProject,
   onShowAgentDetails,
+  onStartPreview,
 }) => {
   const { t } = useTranslation(['terminal', 'chat', 'common']);
   const parseAgentStatus = (content?: string | null): { phase?: string; message?: string } | null => {
@@ -178,6 +182,8 @@ export const ChatMessageList: React.FC<Props> = ({
                 poolKey={activity.poolKey}
                 file={activity.file}
                 onPress={onShowAgentDetails}
+                onShowDetails={onShowAgentDetails}
+                onStartPreview={onStartPreview}
               />
             </View>
           );

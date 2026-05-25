@@ -20,6 +20,10 @@ interface Props {
   poolKey: string;
   file: string;
   onPress?: () => void;
+  /** Shown only in 'done' state, on the left. */
+  onShowDetails?: () => void;
+  /** Shown only in 'done' state, on the right as the primary action. */
+  onStartPreview?: () => void;
 }
 
 const SUBTITLE_INTERVAL_MS = 2500;
@@ -127,7 +131,7 @@ const AnimatedText: React.FC<AnimatedTextProps> = ({ text, style, numberOfLines 
  *   • Shimmering subtitle showing friendly status in Italian.
  *   • Animated FadeInDown transitions when text updates.
  */
-export const AgentActivityCard: React.FC<Props> = ({ state, poolKey, file, onPress }) => {
+export const AgentActivityCard: React.FC<Props> = ({ state, poolKey, file, onPress, onShowDetails, onStartPreview }) => {
   const shimmer = useSharedValue(0);
   const dotScale = useSharedValue(1);
   const dotOpacity = useSharedValue(0.6);
@@ -257,7 +261,7 @@ export const AgentActivityCard: React.FC<Props> = ({ state, poolKey, file, onPre
               </View>
               <AnimatedText text={subtitle} style={[styles.subtitle, subtitleStyle]} />
             </View>
-            {onPress ? (
+            {onPress && state === 'running' ? (
               <View style={styles.chevronWrapper}>
                 <Ionicons
                   name="chevron-forward"
@@ -267,6 +271,30 @@ export const AgentActivityCard: React.FC<Props> = ({ state, poolKey, file, onPre
               </View>
             ) : null}
           </View>
+          {state === 'done' && (onShowDetails || onStartPreview) ? (
+            <View style={styles.actionsRow}>
+              {onShowDetails ? (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={onShowDetails}
+                  style={[styles.actionBtn, styles.actionBtnGhost]}
+                >
+                  <Ionicons name="list-outline" size={15} color="rgba(255,255,255,0.85)" />
+                  <Text style={styles.actionBtnGhostText}>Dettagli</Text>
+                </TouchableOpacity>
+              ) : null}
+              {onStartPreview ? (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={onStartPreview}
+                  style={[styles.actionBtn, styles.actionBtnPrimary]}
+                >
+                  <Ionicons name="play" size={14} color="#FFFFFF" />
+                  <Text style={styles.actionBtnPrimaryText}>Avvia preview</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       </BlurView>
     </TouchableOpacity>
@@ -356,5 +384,43 @@ const styles = StyleSheet.create({
   chevronWrapper: {
     paddingLeft: 4,
     justifyContent: 'center',
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  actionBtnGhost: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  actionBtnGhostText: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: -0.1,
+  },
+  actionBtnPrimary: {
+    backgroundColor: AppColors.primary,
+  },
+  actionBtnPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: -0.1,
   },
 });
