@@ -29,30 +29,10 @@ interface Props {
 const SUBTITLE_INTERVAL_MS = 2500;
 
 const getToolTitle = (poolKey: string, state: 'running' | 'done'): string => {
-  if (state === 'done') {
-    if (poolKey === 'read') return 'Lettura completata';
-    if (poolKey === 'write') return 'Nuovo file creato';
-    if (poolKey === 'edit') return 'Modifiche applicate';
-    if (poolKey === 'delete') return 'File eliminato';
-    if (poolKey === 'move') return 'File spostato';
-    if (poolKey === 'folder') return 'Cartella creata';
-    if (poolKey === 'list') return 'Esplorazione completata';
-    if (poolKey === 'glob') return 'Ricerca completata';
-    if (poolKey === 'search') return 'Ricerca completata';
-    if (poolKey === 'bash_npm') return 'Librerie installate';
-    if (poolKey === 'bash_build') return 'Applicazione pronta';
-    if (poolKey === 'bash_test') return 'Tutti i test superati';
-    if (poolKey === 'web_fetch') return 'Dati web scaricati';
-    if (poolKey === 'web_search') return 'Ricerca web completata';
-    if (poolKey === 'diagnostics') return 'Controllo completato';
-    if (poolKey === 'todo') return 'Piano d\'azione pronto';
-    if (poolKey === 'skill') return 'Abilità caricata';
-    if (poolKey === 'memory') return 'Memoria aggiornata';
-    if (poolKey === 'subagent') return 'Lavoro completato';
-    if (poolKey === 'lsp') return 'Analisi completata';
-    if (poolKey === 'question') return 'Risposta salvata';
-    return 'Fatto!';
-  }
+  // 'done' = the whole agent task finished, not just the last tool.
+  // Uniform completion title (vs the per-tool labels we use while running)
+  // so the user knows the whole job is over, not just one step.
+  if (state === 'done') return 'Tutto pronto';
 
   if (poolKey === 'read') return 'Leggo il file';
   if (poolKey === 'write') return 'Creo il file';
@@ -251,7 +231,7 @@ export const AgentActivityCard: React.FC<Props> = ({ state, poolKey, file, onPre
                   )}
                 </View>
                 <AnimatedText text={title} style={styles.title} />
-                {file ? (
+                {file && state === 'running' ? (
                   <View style={styles.badge}>
                     <Text style={styles.badgeText} numberOfLines={1}>
                       {file}
@@ -259,7 +239,10 @@ export const AgentActivityCard: React.FC<Props> = ({ state, poolKey, file, onPre
                   </View>
                 ) : null}
               </View>
-              <AnimatedText text={subtitle} style={[styles.subtitle, subtitleStyle]} />
+              <AnimatedText
+                text={state === 'done' ? 'La tua app è pronta. Apri la preview per vederla.' : subtitle}
+                style={[styles.subtitle, subtitleStyle]}
+              />
             </View>
             {onPress && state === 'running' ? (
               <View style={styles.chevronWrapper}>
