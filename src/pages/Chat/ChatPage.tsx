@@ -1271,12 +1271,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         ? terminalItems.filter((item) => !(item.content || '').startsWith('__AGENT_STATUS__'))
         : terminalItems,
       {
-      isLoading,
+      // Treat the project-auto-create window as "loading" too, otherwise
+      // the temp thinking placeholder mounted by handleSendWithAutoProject
+      // gets filtered out and the ListFooterComponent renders its big
+      // pill fallback instead of the inline bullet indicator.
+      isLoading: isLoading || creatingProjectFromPrompt,
       agentStreaming,
       isCommand,
       }
     )
-  ), [terminalItems, isLoading, agentStreaming, isCreationFlow]);
+  ), [terminalItems, isLoading, creatingProjectFromPrompt, agentStreaming, isCreationFlow]);
 
   const inputbarTodoRenderKey = useMemo(() => {
     if (!engine.currentTodos?.length) return 'no-todos';
