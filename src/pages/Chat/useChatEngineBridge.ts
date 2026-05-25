@@ -74,37 +74,36 @@ export function useChatEngineBridge({
       }
     }
 
-    // Walk the current messages and find:
-    //   - the LAST tool_start (or tool_complete) to drive the activity card
-    //   - whether there are any tools NOT yet completed (=> show running)
-    //   - whether the agent has fully finished (=> remove the card)
+    // Walk the current messages. Lovable-style: ONE long-lived activity card
+    // that appears as soon as the agent starts and STAYS visible alongside
+    // any text the model streams (preamble, final reply, anything in between).
+    //   - Last tool event drives the card's subtitle/poolKey while running.
+    //   - When no tool is running AND no more tool events are expected, the
+    //     card flips to 'done' but remains on screen as the completion marker.
+    //   - Card is dropped only on compaction (full conversation rebuild).
     let lastToolMsg: ChatEngineMessage | null = null;
     let hasRunningTool = false;
-    let hasFinalText = false;
     let isCompacting = false;
     for (const msg of curr) {
       if (TOOL_TYPES.has(msg.type)) {
         lastToolMsg = msg;
         if (msg.type === 'tool_start' || msg.isExecuting) hasRunningTool = true;
       }
-      // A non-empty text message AFTER the tools means the model is now
-      // streaming its visible reply — we should tear down the activity card.
-      if (msg.type === 'text' && (msg.content || '').trim().length > 0) {
-        hasFinalText = true;
-      }
       if (msg.isCompacting) isCompacting = true;
     }
 
-    // Drive the collapsed activity card:
-    //   • If we have a tool event and no final text yet → create/update card.
-    //   • If the model has started streaming its reply → remove the card.
     const existingCardId = agentCardIdRef.current.get(tabId);
-    const shouldShowCard = !!lastToolMsg && !hasFinalText && !isCompacting;
+    // Card appears as soon as the agent has produced any engine message —
+    // even before the first tool fires, so the user always sees the Lovable
+    // pill instead of staring at a bare bubble during the model's preamble.
+    const shouldShowCard = curr.length > 0 && !isCompacting;
 
-    if (shouldShowCard && lastToolMsg) {
-      const { poolKey, file } = toolToPool(lastToolMsg.tool ?? '', lastToolMsg.toolInput);
+    if (shouldShowCard) {
+      const { poolKey, file } = lastToolMsg
+        ? toolToPool(lastToolMsg.tool ?? '', lastToolMsg.toolInput)
+        : { poolKey: 'subagent' as const, file: '' };
       const cardContent = encodeActivityCard(
-        hasRunningTool ? 'running' : 'done',
+        hasRunningTool || !lastToolMsg ? 'running' : 'done',
         poolKey,
         file,
       );
