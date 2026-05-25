@@ -324,13 +324,18 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     removeTerminalItemById(tabId, 'temp-auto-create-bootstrap');
   }, [removeTerminalItemById]);
 
-  // Reset project creation state on tab change or workstation change
+  // Reset project creation state on tab change.
+  // NOTE: we deliberately don't cleanup the temp user bubble on workstation
+  // change here — it must survive the workstation switch fired by
+  // handleSendWithAutoProject so the chat looks continuous (no flash).
+  // It gets dropped naturally when the real engine-driven user message
+  // arrives, OR via the explicit tab change branch below.
   useEffect(() => {
     setCreatingProjectFromPrompt(false);
     if (currentTab?.id) {
       cleanupTempAutoCreateItems(currentTab.id);
     }
-  }, [currentTab?.id, currentWorkstation?.id, cleanupTempAutoCreateItems]);
+  }, [currentTab?.id, cleanupTempAutoCreateItems]);
 
   const [homeMenuVisible, setHomeMenuVisible] = useState(false);
   const [homeMenuView, setHomeMenuView] = useState<'root' | 'attach'>('root');
@@ -1240,13 +1245,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (currentWorkstation && pendingFirstPrompt) {
       const prompt = pendingFirstPrompt;
       setPendingFirstPrompt(null);
-      if (currentTab?.id) {
-        cleanupTempAutoCreateItems(currentTab.id);
-      }
-      handleSend(undefined, prompt);
+      // Don't cleanup temp items here — the user's bubble must stay visible
+      // through the workstation switch so the chat feels continuous (no
+      // flash-out / flash-back-in). Pass skipUserBubble so handleSend doesn't
+      // mount a duplicate of the prompt.
+      handleSend(undefined, prompt, { skipUserBubble: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentWorkstation, pendingFirstPrompt, currentTab?.id, cleanupTempAutoCreateItems]);
+  }, [currentWorkstation, pendingFirstPrompt, currentTab?.id]);
   // Memoized filtered and processed terminal items for FlatList
   const processedTerminalItems = useMemo(() => (
     getProcessedTerminalItems(

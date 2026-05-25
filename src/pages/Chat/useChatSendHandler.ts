@@ -109,7 +109,7 @@ export interface UseChatSendHandlerParams {
 }
 
 export interface UseChatSendHandlerReturn {
-  handleSend: (images?: { uri: string; base64?: string; type?: string }[], explicitText?: string) => Promise<void>;
+  handleSend: (images?: { uri: string; base64?: string; type?: string }[], explicitText?: string, opts?: { skipUserBubble?: boolean }) => Promise<void>;
   handleStop: () => void;
   handleRetryTool: (tool: string, input: Record<string, unknown>) => Promise<void>;
   handleSendRef: MutableRefObject<((images?: { uri: string; base64?: string; type?: string }[], explicitText?: string) => Promise<void>) | null>;
@@ -382,6 +382,7 @@ export function useChatSendHandler(params: UseChatSendHandlerParams): UseChatSen
   const handleSend = async (
     images?: { uri: string; base64?: string; type?: string }[],
     explicitText?: string,
+    opts?: { skipUserBubble?: boolean },
   ) => {
     const imagesToSend = getImagesToSend(images, selectedInputImages);
     const activeTabId = getActiveChatTabId(currentTab?.id, tab?.id);
@@ -512,13 +513,17 @@ export function useChatSendHandler(params: UseChatSendHandlerParams): UseChatSen
     let streamingMessageId = (Date.now() + 2).toString();
     let streamedContent = '';
 
-    // Add user message
-    addTerminalItem({
-      id: Date.now().toString(),
-      content: userMessage,
-      type: messageType,
-      timestamp: new Date(),
-    });
+    // Add user message — skipped when the auto-create-project flow already
+    // rendered a temp bubble for this same prompt (we don't want it to flash
+    // out and back in).
+    if (!opts?.skipUserBubble) {
+      addTerminalItem({
+        id: Date.now().toString(),
+        content: userMessage,
+        type: messageType,
+        timestamp: new Date(),
+      });
+    }
 
     // For AI chat, add placeholder with isThinking=true immediately
     if (!shouldExecuteCommand) {
