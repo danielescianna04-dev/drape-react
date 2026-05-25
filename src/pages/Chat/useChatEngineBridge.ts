@@ -93,10 +93,11 @@ export function useChatEngineBridge({
     }
 
     const existingCardId = agentCardIdRef.current.get(tabId);
-    // Card appears as soon as the agent has produced any engine message —
-    // even before the first tool fires, so the user always sees the Lovable
-    // pill instead of staring at a bare bubble during the model's preamble.
-    const shouldShowCard = curr.length > 0 && !isCompacting;
+    // Show the activity card only when the agent actually does work
+    // (≥1 tool call). For plain chat exchanges — "ciao", "grazie", a single
+    // question with no filesystem change — the model just replies text and
+    // the card would be visual noise ("Lavoro completato" for nothing).
+    const shouldShowCard = !!lastToolMsg && !isCompacting;
 
     if (shouldShowCard) {
       const { poolKey, file } = lastToolMsg
