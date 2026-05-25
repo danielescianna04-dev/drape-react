@@ -109,7 +109,7 @@ export interface UseChatSendHandlerParams {
 }
 
 export interface UseChatSendHandlerReturn {
-  handleSend: (images?: { uri: string; base64?: string; type?: string }[], explicitText?: string, opts?: { skipUserBubble?: boolean }) => Promise<void>;
+  handleSend: (images?: { uri: string; base64?: string; type?: string }[], explicitText?: string, opts?: { skipUserBubble?: boolean; reuseExistingThinkingId?: string }) => Promise<void>;
   handleStop: () => void;
   handleRetryTool: (tool: string, input: Record<string, unknown>) => Promise<void>;
   handleSendRef: MutableRefObject<((images?: { uri: string; base64?: string; type?: string }[], explicitText?: string) => Promise<void>) | null>;
@@ -382,7 +382,7 @@ export function useChatSendHandler(params: UseChatSendHandlerParams): UseChatSen
   const handleSend = async (
     images?: { uri: string; base64?: string; type?: string }[],
     explicitText?: string,
-    opts?: { skipUserBubble?: boolean },
+    opts?: { skipUserBubble?: boolean; reuseExistingThinkingId?: string },
   ) => {
     const imagesToSend = getImagesToSend(images, selectedInputImages);
     const activeTabId = getActiveChatTabId(currentTab?.id, tab?.id);
@@ -465,6 +465,8 @@ export function useChatSendHandler(params: UseChatSendHandlerParams): UseChatSen
         scrollToBottom,
         startAgent,
         preThinkingIdRef,
+        skipUserBubble: opts?.skipUserBubble,
+        reuseExistingThinkingId: opts?.reuseExistingThinkingId,
       });
       tracciaMessaggioChat(selectedModel, 'agent');
       sendState.markStreamStarted();

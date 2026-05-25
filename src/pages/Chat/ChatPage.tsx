@@ -1252,14 +1252,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (currentWorkstation && pendingFirstPrompt) {
       const prompt = pendingFirstPrompt;
       setPendingFirstPrompt(null);
-      // Keep the user's bubble across the workstation switch so the chat
-      // feels continuous. Drop only the temp thinking placeholder — handleSend
-      // adds its real streaming placeholder right after, so leaving the temp
-      // one would briefly double up the indicator.
-      if (currentTab?.id) {
-        removeTerminalItemById(currentTab.id, 'temp-auto-create-thinking');
-      }
-      handleSend(undefined, prompt, { skipUserBubble: true });
+      // The temp user bubble + temp thinking placeholder mounted by
+      // handleSendWithAutoProject must survive the workstation switch so
+      // the chat looks continuous. Adopt the thinking placeholder as the
+      // engine bridge's preId so the same spinner becomes the real
+      // streaming target — no flash, no double bubble.
+      handleSend(undefined, prompt, {
+        skipUserBubble: true,
+        reuseExistingThinkingId: 'temp-auto-create-thinking',
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentWorkstation, pendingFirstPrompt, currentTab?.id]);
