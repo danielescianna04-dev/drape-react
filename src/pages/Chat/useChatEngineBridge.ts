@@ -140,6 +140,19 @@ export function useChatEngineBridge({
       agentCardIdRef.current.delete(tabId);
     }
 
+    // Lovable parity: only the FINAL assistant text becomes a visible bubble.
+    // Intermediate text messages (the model thinking out loud between tool
+    // calls — "Devo installare uno alla volta…", "Ora creo il footer…") get
+    // suppressed and live only inside the activity card's rotating subtitle.
+    // We treat a text message as "final" if (a) it's the last text in the
+    // stream AND (b) no tool is currently running — i.e. the agent has
+    // stopped tooling and is just streaming its closing line.
+    let lastTextMsgId: string | null = null;
+    for (let i = curr.length - 1; i >= 0; i--) {
+      if (curr[i].type === 'text') { lastTextMsgId = curr[i].id; break; }
+    }
+    const allowText = !hasRunningTool;
+
     for (const msg of curr) {
       if (msg.type === 'completion') continue;
       // Tool messages no longer create their own terminal items — they all
@@ -149,6 +162,18 @@ export function useChatEngineBridge({
         if (idMap.has(msg.id)) {
           const stale = idMap.get(msg.id)!;
           removeTerminalItemById(tabId, stale);
+          idMap.delete(msg.id);
+        }
+        continue;
+      }
+
+      // Suppress every text bubble that isn't the final one. If a previous
+      // render already mounted it as a terminal item (e.g. it WAS the last
+      // text at that moment but a later tool/text superseded it), tear it
+      // down so the card stays clean.
+      if (msg.type === 'text' && (msg.id !== lastTextMsgId || !allowText)) {
+        if (idMap.has(msg.id)) {
+          removeTerminalItemById(tabId, idMap.get(msg.id)!);
           idMap.delete(msg.id);
         }
         continue;
