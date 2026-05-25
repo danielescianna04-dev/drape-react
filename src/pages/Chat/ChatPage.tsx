@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Keyboard, Dimensions, Modal, ActionSheetIOS, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Keyboard, Dimensions, Modal, ActionSheetIOS, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withDelay, withRepeat, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
@@ -42,7 +42,7 @@ import { useChatSendHandler } from './useChatSendHandler';
 import { useChatEngineBridge } from './useChatEngineBridge';
 import { clearInterruptedThinkingItems } from './chatTabStoreHelpers';
 import { getProcessedTerminalItems } from './chatTerminalItems';
-import { estimateContextUsage, isCommand, isTerminalInput } from './chatToolFormatting';
+import { estimateContextUsage, isCommand, isTerminalInput, ACTIVITY_PREFIX, encodeActivityCard } from './chatToolFormatting';
 // WebSocket log service disabled - was causing connect/disconnect loop
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
 
@@ -75,6 +75,40 @@ const DelayedMount = ({ delay, children }: { delay: number; children: React.Reac
 
   if (!mounted) return null;
   return <>{children}</>;
+};
+
+const getToolIcon = (toolName: string): string => {
+  const name = toolName.toLowerCase();
+  if (name.includes('read')) return 'document-text-outline';
+  if (name.includes('write')) return 'document-attach-outline';
+  if (name.includes('edit') || name.includes('patch')) return 'create-outline';
+  if (name.includes('delete') || name.includes('remove')) return 'trash-outline';
+  if (name.includes('command') || name.includes('bash') || name.includes('run')) return 'terminal-outline';
+  if (name.includes('search') || name.includes('find') || name.includes('glob')) return 'search-outline';
+  if (name.includes('web') || name.includes('fetch')) return 'globe-outline';
+  if (name.includes('agent') || name.includes('task')) return 'people-outline';
+  return 'cog-outline';
+};
+
+const getFriendlyToolName = (toolName: string): string => {
+  if (toolName === 'read_file' || toolName === 'read') return 'Lettura file';
+  if (toolName === 'write_file' || toolName === 'write') return 'Creazione file';
+  if (toolName === 'edit_file' || toolName === 'edit' || toolName === 'multi_edit_file' || toolName === 'multiedit' || toolName === 'patch_file') return 'Modifica codice';
+  if (toolName === 'delete_file') return 'Eliminazione file';
+  if (toolName === 'move_file') return 'Spostamento file';
+  if (toolName === 'create_folder') return 'Creazione cartella';
+  if (toolName === 'list_directory' || toolName === 'list_files' || toolName === 'list') return 'Esplorazione cartella';
+  if (toolName === 'glob_files' || toolName === 'glob_search' || toolName === 'glob') return 'Ricerca file';
+  if (toolName === 'search_in_files' || toolName === 'grep_search' || toolName === 'grep' || toolName === 'code_search') return 'Ricerca testuale';
+  if (toolName === 'run_command' || toolName === 'execute_command' || toolName === 'bash') return 'Comando terminale';
+  if (toolName === 'web_fetch') return 'Lettura pagina web';
+  if (toolName === 'web_search') return 'Ricerca su internet';
+  if (toolName === 'diagnostics') return 'Scansione errori';
+  if (toolName === 'load_skill' || toolName === 'skill') return 'Caricamento abilità';
+  if (toolName === 'dispatch_agent' || toolName === 'task' || toolName === 'sub_agent' || toolName === 'launch_sub_agent') return 'Sotto-assistente';
+  if (toolName === 'lsp') return 'Analisi semantica';
+  if (toolName === 'ask_user_question' || toolName === 'user_question') return 'Richiesta conferma';
+  return toolName;
 };
 
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
@@ -141,6 +175,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Agent state - 2-mode system (Fast or Terminal)
   const [agentMode, setAgentMode] = useState<'fast' | 'terminal'>('fast');
+  const [isAgentDetailsVisible, setIsAgentDetailsVisible] = useState(false);
+  const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
   const [isInputbarTodoCollapsed, setIsInputbarTodoCollapsed] = useState(false);
   const [isInputbarTodoDismissed, setIsInputbarTodoDismissed] = useState(false);
 
@@ -282,6 +318,20 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const setWorkstationGlobal = useWorkstationStore((state) => state.setWorkstation);
   const [pendingFirstPrompt, setPendingFirstPrompt] = useState<string | null>(null);
   const [creatingProjectFromPrompt, setCreatingProjectFromPrompt] = useState(false);
+
+  const cleanupTempAutoCreateItems = useCallback((tabId: string) => {
+    removeTerminalItemById(tabId, 'temp-auto-create-user');
+    removeTerminalItemById(tabId, 'temp-auto-create-bootstrap');
+  }, [removeTerminalItemById]);
+
+  // Reset project creation state on tab change or workstation change
+  useEffect(() => {
+    setCreatingProjectFromPrompt(false);
+    if (currentTab?.id) {
+      cleanupTempAutoCreateItems(currentTab.id);
+    }
+  }, [currentTab?.id, currentWorkstation?.id, cleanupTempAutoCreateItems]);
+
   const [homeMenuVisible, setHomeMenuVisible] = useState(false);
   const [homeMenuView, setHomeMenuView] = useState<'root' | 'attach'>('root');
   const inputMountDelay = hasChatStarted ? 0 : 300;
@@ -1092,10 +1142,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // handleSend, handleStop, handleRetryTool are provided by useChatSendHandler above
 
-  // Auto-create a project when the user sends the first prompt from the
-  // empty home (no current workstation). Generates a title via the AI,
-  // creates a workstation, then resumes the normal send pipeline so the
-  // prompt becomes the first message in the freshly created project.
   const handleSendWithAutoProject = useCallback(async () => {
     const text = input.trim();
     if (currentWorkstation || !text || creatingProjectFromPrompt) {
@@ -1108,11 +1154,29 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // resumes after currentWorkstation is set) receives the prompt as an
     // explicit argument, so it doesn't depend on input state here.
     setInput('');
-    if (currentTab?.id) tabInputsRef.current[currentTab.id] = '';
+    if (currentTab?.id) {
+      tabInputsRef.current[currentTab.id] = '';
+      // Add temporary items immediately so the composer slides down and prompt displays
+      addTerminalItemToStore(currentTab.id, {
+        id: 'temp-auto-create-user',
+        content: text,
+        type: TerminalItemType.USER_MESSAGE,
+        timestamp: new Date(),
+      });
+      addTerminalItemToStore(currentTab.id, {
+        id: 'temp-auto-create-bootstrap',
+        content: encodeActivityCard('running', 'subagent', ''),
+        type: TerminalItemType.TOOL_USE,
+        timestamp: new Date(),
+      });
+    }
     try {
       const token = await getAuthToken();
       if (!token) {
         setInput(text);
+        if (currentTab?.id) {
+          cleanupTempAutoCreateItems(currentTab.id);
+        }
         handleSend();
         return;
       }
@@ -1138,6 +1202,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       });
       const createData = await createRes.json();
       if (!createData?.success) {
+        if (currentTab?.id) {
+          cleanupTempAutoCreateItems(currentTab.id);
+        }
         handleSend();
         return;
       }
@@ -1148,14 +1215,22 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       if (created) {
         setWorkstationGlobal(created);
         setPendingFirstPrompt(text);
+      } else {
+        if (currentTab?.id) {
+          cleanupTempAutoCreateItems(currentTab.id);
+        }
+        handleSend();
       }
     } catch (err) {
       console.warn('[ChatPage.handleSendWithAutoProject] failed', err);
+      if (currentTab?.id) {
+        cleanupTempAutoCreateItems(currentTab.id);
+      }
       handleSend();
     } finally {
       setCreatingProjectFromPrompt(false);
     }
-  }, [input, currentWorkstation, creatingProjectFromPrompt, handleSend, setWorkstationGlobal]);
+  }, [input, currentWorkstation, creatingProjectFromPrompt, handleSend, setWorkstationGlobal, currentTab?.id, addTerminalItemToStore, cleanupTempAutoCreateItems]);
 
   // Resume the send once the workstation has been set (zustand update
   // re-renders this component, then this effect fires the deferred send).
@@ -1167,10 +1242,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (currentWorkstation && pendingFirstPrompt) {
       const prompt = pendingFirstPrompt;
       setPendingFirstPrompt(null);
+      if (currentTab?.id) {
+        cleanupTempAutoCreateItems(currentTab.id);
+      }
       handleSend(undefined, prompt);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentWorkstation, pendingFirstPrompt]);
+  }, [currentWorkstation, pendingFirstPrompt, currentTab?.id, cleanupTempAutoCreateItems]);
   // Memoized filtered and processed terminal items for FlatList
   const processedTerminalItems = useMemo(() => (
     getProcessedTerminalItems(
@@ -1222,6 +1300,53 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (!isNearBottomRef.current || processedTerminalItems.length === 0) return;
     scrollToBottom(!(isLoading || agentStreaming));
   }, [lastItemAutoScrollKey, processedTerminalItems.length, isLoading, agentStreaming, scrollToBottom]);
+
+  const groupedToolCalls = useMemo(() => {
+    interface GroupedToolCall {
+      id: string;
+      toolName: string;
+      startTime: Date;
+      endTime?: Date;
+      status: 'running' | 'completed' | 'failed';
+      input?: any;
+      output?: any;
+      error?: string;
+    }
+
+    const list: GroupedToolCall[] = [];
+    const activeCallsMap = new Map<string, GroupedToolCall>();
+
+    for (const event of agentEvents) {
+      if (event.type === 'tool_start') {
+        const call: GroupedToolCall = {
+          id: event.id || `tool-${event.timestamp instanceof Date ? event.timestamp.getTime() : Date.now()}-${event.tool}`,
+          toolName: event.tool || 'unknown',
+          startTime: event.timestamp instanceof Date ? event.timestamp : new Date(event.timestamp),
+          status: 'running',
+          input: event.input,
+        };
+        list.push(call);
+        activeCallsMap.set(event.tool || 'unknown', call);
+      } else if (event.type === 'tool_complete') {
+        const call = activeCallsMap.get(event.tool || 'unknown');
+        if (call) {
+          call.endTime = event.timestamp instanceof Date ? event.timestamp : new Date(event.timestamp);
+          call.status = 'completed';
+          call.output = event.result || event.output;
+          activeCallsMap.delete(event.tool || 'unknown');
+        }
+      } else if (event.type === 'tool_error') {
+        const call = activeCallsMap.get(event.tool || 'unknown');
+        if (call) {
+          call.endTime = event.timestamp instanceof Date ? event.timestamp : new Date(event.timestamp);
+          call.status = 'failed';
+          call.error = event.error || event.message;
+          activeCallsMap.delete(event.tool || 'unknown');
+        }
+      }
+    }
+    return list;
+  }, [agentEvents, agentEventsVersion]);
 
   return (
     <Animated.View style={[
@@ -1285,7 +1410,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               isNearBottomRef={isNearBottomRef}
               scrollLockUntilRef={scrollLockUntilRef}
               isUserScrollActiveRef={isUserScrollActiveRef}
-              isLoading={isLoading}
+              isLoading={isLoading || creatingProjectFromPrompt}
               agentStreaming={agentStreaming}
               agentEvents={agentEvents}
               agentCurrentTool={agentCurrentTool}
@@ -1303,6 +1428,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 tracciaPaginaPianiVista('chat');
                 navigateTo('plans');
               }}
+              onShowAgentDetails={() => setIsAgentDetailsVisible(true)}
             />
 
             {/* AskUserQuestion: shown inline in chat as Q&A card, user replies via input */}
@@ -1322,11 +1448,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 input={input}
                 handleInputChange={handleInputChange}
                 handleSend={() => handleSendWithAutoProject()}
-                handleStop={handleStop}
+                handleStop={() => {
+                  handleStop();
+                  setCreatingProjectFromPrompt(false);
+                  if (currentTab?.id) {
+                    cleanupTempAutoCreateItems(currentTab.id);
+                  }
+                }}
                 agentMode={agentMode}
                 handleToggleMode={handleToggleMode}
                 agentStreaming={agentStreaming}
-                isLoading={isLoading}
+                isLoading={isLoading || creatingProjectFromPrompt}
                 selectedModel={selectedModel}
                 currentModelName={currentModelName}
                 showModelSelector={showModelSelector}
@@ -1495,6 +1627,144 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           photoPickerSubtitle: t('composer.photoPickerSubtitle'),
         }}
       />
+
+      <Modal
+        visible={isAgentDetailsVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsAgentDetailsVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <BlurView intensity={35} tint="dark" style={styles.modalBlurBackground}>
+            <View style={[styles.modalSafeArea, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalHeaderTitleContainer}>
+                  <Text style={styles.modalTitle}>Attività Assistente</Text>
+                  <Text style={styles.modalSubtitle}>
+                    {agentStreaming ? "Elaborazione in corso..." : "Lavoro completato"} • {groupedToolCalls.length} passaggi
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => setIsAgentDetailsVisible(false)}
+                  style={styles.modalCloseButton}
+                >
+                  <Ionicons name="close" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalScrollView} contentContainerStyle={styles.modalScrollContent}>
+                {groupedToolCalls.length === 0 ? (
+                  <View style={styles.modalEmptyState}>
+                    <Ionicons name="terminal-outline" size={48} color="rgba(255, 255, 255, 0.25)" />
+                    <Text style={styles.modalEmptyText}>Nessuna attività registrata per questa richiesta.</Text>
+                  </View>
+                ) : (
+                  groupedToolCalls.map((call, i) => {
+                    const isExpanded = expandedToolId === call.id;
+                    const icon = getToolIcon(call.toolName);
+                    const name = getFriendlyToolName(call.toolName);
+                    const isRunning = call.status === 'running';
+                    const isCompleted = call.status === 'completed';
+                    const isFailed = call.status === 'failed';
+
+                    let targetText = '';
+                    try {
+                      const parsedInput = typeof call.input === 'string' ? JSON.parse(call.input) : call.input;
+                      if (parsedInput) {
+                        if (call.toolName.includes('read') || call.toolName.includes('write') || call.toolName.includes('edit')) {
+                          const path = parsedInput.filePath || parsedInput.path || parsedInput.targetFile || parsedInput.TargetFile || '';
+                          targetText = path ? path.split('/').pop() : '';
+                        } else if (call.toolName.includes('command') || call.toolName.includes('bash')) {
+                          targetText = parsedInput.command || '';
+                        } else if (call.toolName.includes('search')) {
+                          targetText = parsedInput.query || parsedInput.pattern || '';
+                        } else if (call.toolName.includes('web')) {
+                          targetText = parsedInput.url || parsedInput.query || '';
+                        }
+                      }
+                    } catch (_) {}
+
+                    return (
+                      <View key={call.id || i} style={styles.logCard}>
+                        <TouchableOpacity
+                          activeOpacity={0.7}
+                          onPress={() => setExpandedToolId(isExpanded ? null : call.id)}
+                          style={styles.logCardHeader}
+                        >
+                          <View style={styles.logIconCol}>
+                            <View style={[styles.logIconBg, { backgroundColor: isFailed ? 'rgba(248, 81, 73, 0.15)' : isCompleted ? 'rgba(63, 185, 80, 0.15)' : 'rgba(109, 76, 255, 0.15)' }]}>
+                              <Ionicons
+                                name={icon as any}
+                                size={16}
+                                color={isFailed ? '#F85149' : isCompleted ? '#3FB950' : '#6D4CFF'}
+                              />
+                            </View>
+                          </View>
+                          <View style={styles.logInfoCol}>
+                            <Text style={styles.logTitle}>{name}</Text>
+                            {targetText ? (
+                              <Text style={styles.logTarget} numberOfLines={1}>
+                                {targetText}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <View style={styles.logStatusCol}>
+                            {isRunning ? (
+                              <ActivityIndicator size="small" color="#6D4CFF" />
+                            ) : isCompleted ? (
+                              <Ionicons name="checkmark-circle" size={18} color="#3FB950" />
+                            ) : (
+                              <Ionicons name="alert-circle" size={18} color="#F85149" />
+                            )}
+                            <Ionicons
+                              name={isExpanded ? "chevron-up" : "chevron-down"}
+                              size={14}
+                              color="rgba(255, 255, 255, 0.3)"
+                              style={{ marginLeft: 8 }}
+                            />
+                          </View>
+                        </TouchableOpacity>
+
+                        {isExpanded && (
+                          <View style={styles.logDetailsContainer}>
+                            {call.input ? (
+                              <View style={styles.detailCodeBlock}>
+                                <Text style={styles.detailCodeLabel}>PARAMETRI DI INPUT (ARGUMENTS)</Text>
+                                <Text style={styles.detailCodeText}>
+                                  {typeof call.input === 'object' ? JSON.stringify(call.input, null, 2) : String(call.input)}
+                                </Text>
+                              </View>
+                            ) : null}
+
+                            {call.output ? (
+                              <View style={[styles.detailCodeBlock, { marginTop: 8 }]}>
+                                <Text style={styles.detailCodeLabel}>RISULTATO (OUTPUT)</Text>
+                                <Text style={styles.detailCodeText}>
+                                  {typeof call.output === 'object'
+                                    ? (call.output.content || JSON.stringify(call.output, null, 2))
+                                    : String(call.output)}
+                                </Text>
+                              </View>
+                            ) : null}
+
+                            {call.error ? (
+                              <View style={[styles.detailCodeBlock, styles.detailCodeBlockError, { marginTop: 8 }]}>
+                                <Text style={[styles.detailCodeLabel, { color: '#FF6B6B' }]}>ERRORE RISCONTRATO (ERROR)</Text>
+                                <Text style={[styles.detailCodeText, { color: '#FF6B6B' }]}>{call.error}</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </View>
+          </BlurView>
+        </View>
+      </Modal>
 
     </Animated.View >
   );
@@ -2234,6 +2504,141 @@ const styles = StyleSheet.create({
     maxHeight: 300,
     lineHeight: 22,
     textAlignVertical: 'top',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalBlurBackground: {
+    flex: 1,
+    width: '100%',
+  },
+  modalSafeArea: {
+    flex: 1,
+    backgroundColor: 'rgba(18, 17, 26, 0.95)',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  modalHeaderTitleContainer: {
+    flex: 1,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginTop: 2,
+  },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+  },
+  modalScrollView: {
+    flex: 1,
+  },
+  modalScrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  modalEmptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 80,
+    gap: 12,
+  },
+  modalEmptyText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.4)',
+    textAlign: 'center',
+    paddingHorizontal: 40,
+  },
+  logCard: {
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  logCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 12,
+  },
+  logIconCol: {
+    justifyContent: 'center',
+  },
+  logIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logInfoCol: {
+    flex: 1,
+    gap: 2,
+  },
+  logTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  logTarget: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.45)',
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  logStatusCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logDetailsContainer: {
+    padding: 14,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  detailCodeBlock: {
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 10,
+  },
+  detailCodeBlockError: {
+    backgroundColor: 'rgba(248, 81, 73, 0.08)',
+    borderColor: 'rgba(248, 81, 73, 0.2)',
+  },
+  detailCodeLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: 'rgba(255, 255, 255, 0.4)',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  detailCodeText: {
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    color: '#D1D5DB',
   },
 });
 export default ChatPage;

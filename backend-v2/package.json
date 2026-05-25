@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@openrouter/ai-sdk-provider": "^2.9.0",
     "@supabase/supabase-js": "^2.106.0",
     "ai": "^6.0.190",
     "axios": "^1.7.0",

@@ -54,6 +54,7 @@ interface Props {
    * send from the welcome screen — instead of staring at the original
    * prompt until the agent stream finally starts. */
   creatingProject?: boolean;
+  onShowAgentDetails?: () => void;
 }
 
 export const ChatMessageList: React.FC<Props> = ({
@@ -80,6 +81,7 @@ export const ChatMessageList: React.FC<Props> = ({
   onRetryTool,
   onOpenPlans,
   creatingProject,
+  onShowAgentDetails,
 }) => {
   const { t } = useTranslation(['terminal', 'chat', 'common']);
   const parseAgentStatus = (content?: string | null): { phase?: string; message?: string } | null => {
@@ -112,7 +114,7 @@ export const ChatMessageList: React.FC<Props> = ({
           // card immediately so the user has visual feedback instead of
           // staring at their prompt until the agent stream finally starts.
           <View style={{ marginHorizontal: 16, marginTop: 24 }}>
-            <AgentActivityCard state="running" poolKey="generic" file="" />
+            <AgentActivityCard state="running" poolKey="subagent" file="" onPress={onShowAgentDetails} />
           </View>
         ) : (
           <WelcomeScreen
@@ -172,9 +174,10 @@ export const ChatMessageList: React.FC<Props> = ({
           return (
             <View style={{ marginHorizontal: 16, marginVertical: 8 }}>
               <AgentActivityCard
-                state={activity.state}
+                state={(agentStreaming || creatingProject || item.id === 'temp-auto-create-bootstrap') ? activity.state : 'done'}
                 poolKey={activity.poolKey}
                 file={activity.file}
+                onPress={onShowAgentDetails}
               />
             </View>
           );

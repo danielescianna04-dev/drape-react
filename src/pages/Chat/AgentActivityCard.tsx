@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, Text, View, Platform, TouchableOpacity } from 'react-native';
+import { BlurView } from 'expo-blur';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -9,174 +9,352 @@ import Animated, {
   Easing,
   interpolateColor,
   cancelAnimation,
+  runOnJS,
 } from 'react-native-reanimated';
-import { ACTIVITY_TITLES, renderStatusFromPool } from './chatToolFormatting';
+import { renderStatusFromPool } from './chatToolFormatting';
+import { AppColors } from '../../shared/theme/colors';
+import { Ionicons } from '@expo/vector-icons';
 
 interface Props {
   state: 'running' | 'done';
   poolKey: string;
   file: string;
+  onPress?: () => void;
 }
 
-const TITLE_INTERVAL_MS = 3800;
 const SUBTITLE_INTERVAL_MS = 2500;
+
+const getToolTitle = (poolKey: string, state: 'running' | 'done'): string => {
+  if (state === 'done') {
+    if (poolKey === 'read') return 'Lettura completata';
+    if (poolKey === 'write') return 'Nuovo file creato';
+    if (poolKey === 'edit') return 'Modifiche applicate';
+    if (poolKey === 'delete') return 'File eliminato';
+    if (poolKey === 'move') return 'File spostato';
+    if (poolKey === 'folder') return 'Cartella creata';
+    if (poolKey === 'list') return 'Esplorazione completata';
+    if (poolKey === 'glob') return 'Ricerca completata';
+    if (poolKey === 'search') return 'Ricerca completata';
+    if (poolKey === 'bash_npm') return 'Librerie installate';
+    if (poolKey === 'bash_build') return 'Applicazione pronta';
+    if (poolKey === 'bash_test') return 'Tutti i test superati';
+    if (poolKey === 'web_fetch') return 'Dati web scaricati';
+    if (poolKey === 'web_search') return 'Ricerca web completata';
+    if (poolKey === 'diagnostics') return 'Controllo completato';
+    if (poolKey === 'todo') return 'Piano d\'azione pronto';
+    if (poolKey === 'skill') return 'Abilità caricata';
+    if (poolKey === 'memory') return 'Memoria aggiornata';
+    if (poolKey === 'subagent') return 'Lavoro completato';
+    if (poolKey === 'lsp') return 'Analisi completata';
+    if (poolKey === 'question') return 'Risposta salvata';
+    return 'Fatto!';
+  }
+
+  if (poolKey === 'read') return 'Leggo il file';
+  if (poolKey === 'write') return 'Creo il file';
+  if (poolKey === 'edit') return 'Modifico il file';
+  if (poolKey === 'delete') return 'Elimino il file';
+  if (poolKey === 'move') return 'Sposto il file';
+  if (poolKey === 'folder') return 'Creo una cartella';
+  if (poolKey === 'list') return 'Sfoglio le cartelle';
+  if (poolKey === 'glob') return 'Cerco i file';
+  if (poolKey === 'search') return 'Frugo nel codice';
+  if (poolKey === 'bash_npm') return 'Installo librerie';
+  if (poolKey === 'bash_build') return 'Costruisco l\'app';
+  if (poolKey === 'bash_test') return 'Faccio i controlli';
+  if (poolKey === 'bash_other') return 'Eseguo comandi';
+  if (poolKey === 'web_fetch') return 'Visito pagina web';
+  if (poolKey === 'web_search') return 'Cerco su internet';
+  if (poolKey === 'diagnostics') return 'Scansiono errori';
+  if (poolKey === 'todo') return 'Organizzo il piano';
+  if (poolKey === 'skill') return 'Imparo abilità';
+  if (poolKey === 'memory') return 'Consulto la memoria';
+  if (poolKey === 'subagent') return 'Lavoro in squadra';
+  if (poolKey === 'lsp') return 'Studio il progetto';
+  if (poolKey === 'question') return 'Ti chiedo conferma';
+  return 'Lavoro in corso';
+};
+
+interface AnimatedTextProps {
+  text: string;
+  style?: any;
+  numberOfLines?: number;
+}
+
+/**
+ * Text component with premium cross-fade and slide transitions.
+ * When text updates, it fades out/slides, updates state, and fades back in/slides up.
+ */
+const AnimatedText: React.FC<AnimatedTextProps> = ({ text, style, numberOfLines }) => {
+  const [currentText, setCurrentText] = useState(text);
+  const opacity = useSharedValue(1);
+  const translateY = useSharedValue(0);
+
+  useEffect(() => {
+    if (text !== currentText) {
+      opacity.value = withTiming(0, { duration: 120, easing: Easing.out(Easing.quad) }, (isFinished) => {
+        if (isFinished) {
+          runOnJS(setCurrentText)(text);
+          translateY.value = 8;
+          opacity.value = withTiming(1, { duration: 150, easing: Easing.out(Easing.quad) });
+          translateY.value = withTiming(0, { duration: 150, easing: Easing.out(Easing.quad) });
+        }
+      });
+    }
+  }, [text, currentText]);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: opacity.value,
+      transform: [{ translateY: translateY.value }],
+    };
+  });
+
+  return (
+    <Animated.Text style={[style, animatedStyle]} numberOfLines={numberOfLines}>
+      {currentText}
+    </Animated.Text>
+  );
+};
 
 /**
  * Lovable-style activity card shown in chat while the AI is running tools.
- *
- * Self-rotating UX (independent from how often the backend emits tool events):
- *   • title rotates through ACTIVITY_TITLES every 3.8s ("Lavoro in corso",
- *     "Ci penso io", "Sto preparando tutto", …)
- *   • subtitle rotates through STATUS_POOLS[poolKey] every 2.5s, with {file}
- *     interpolated — picked at random each tick for variety.
- *   • shimmer on the subtitle (color α 0.35 ↔ 0.95, 1.6s cycle) plus a
- *     pulse dot on the title — both stop the moment state becomes 'done'.
- *
- * Why rotate inside the card and not on every backend event:
- *   opencode often runs ONE long-lived tool call (write_file on a 200-line
- *   HTML can take 60-120s) with no further tool events in between. If the
- *   card subtitle was driven only by toolStart it would freeze on the first
- *   pick. Rotation inside the card guarantees the user always sees life.
+ * 
+ * Clean, non-technical, active design with animated transitions:
+ *   • Semi-transparent dark container with thin borders.
+ *   • Title displaying friendly active statuses in Italian.
+ *   • Filename displayed as a monospaced badge next to the title.
+ *   • Shimmering subtitle showing friendly status in Italian.
+ *   • Animated FadeInDown transitions when text updates.
  */
-export const AgentActivityCard: React.FC<Props> = ({ state, poolKey, file }) => {
-  const pulse = useSharedValue(0.4);
+export const AgentActivityCard: React.FC<Props> = ({ state, poolKey, file, onPress }) => {
   const shimmer = useSharedValue(0);
+  const dotScale = useSharedValue(1);
+  const dotOpacity = useSharedValue(0.6);
 
   // Rotating copy as plain state — picked from the pool on a timer.
-  const [title, setTitle] = useState<string>(() => ACTIVITY_TITLES[0]);
-  const [subtitle, setSubtitle] = useState<string>(() => renderStatusFromPool(poolKey, file));
+  const [subtitle, setSubtitle] = useState<string>(() => renderStatusFromPool(poolKey, ''));
 
-  // When the pool key changes (a new tool started server-side) reset the
-  // subtitle immediately so the user sees the change without waiting for the
-  // next rotation tick.
+  // Reset the subtitle immediately on pool key / file change
   const poolRef = useRef<{ poolKey: string; file: string }>({ poolKey, file });
   useEffect(() => {
     if (poolRef.current.poolKey !== poolKey || poolRef.current.file !== file) {
       poolRef.current = { poolKey, file };
-      setSubtitle(renderStatusFromPool(poolKey, file));
+      setSubtitle(renderStatusFromPool(poolKey, ''));
     } else {
       poolRef.current = { poolKey, file };
     }
   }, [poolKey, file]);
 
-  // Self-rotation timers — only run while the card is in "running" state.
+  // Self-rotation timer for the subtitle text
   useEffect(() => {
     if (state !== 'running') return;
     const subTimer = setInterval(() => {
-      setSubtitle(renderStatusFromPool(poolRef.current.poolKey, poolRef.current.file));
+      setSubtitle(renderStatusFromPool(poolRef.current.poolKey, ''));
     }, SUBTITLE_INTERVAL_MS);
-    const titleTimer = setInterval(() => {
-      setTitle((current) => {
-        // Pick a NEW one (avoid repeating the same title back to back).
-        const others = ACTIVITY_TITLES.filter((t) => t !== current);
-        return others[Math.floor(Math.random() * others.length)];
-      });
-    }, TITLE_INTERVAL_MS);
     return () => {
       clearInterval(subTimer);
-      clearInterval(titleTimer);
     };
   }, [state]);
 
-  // Pulse + shimmer animations on the worklet thread (reanimated v4).
+  // Shimmer breathing animation for the subtitle
   useEffect(() => {
     if (state !== 'running') {
-      cancelAnimation(pulse);
       cancelAnimation(shimmer);
-      pulse.value = 1;
       shimmer.value = 0;
       return;
     }
-    pulse.value = withRepeat(
-      withTiming(1, { duration: 700, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true,
-    );
     shimmer.value = withRepeat(
       withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.ease) }),
       -1,
       true,
     );
     return () => {
-      cancelAnimation(pulse);
       cancelAnimation(shimmer);
     };
-  }, [state, pulse, shimmer]);
+  }, [state, shimmer]);
 
-  const dotStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+  // Pulse animation for the active state dot
+  useEffect(() => {
+    if (state !== 'running') {
+      cancelAnimation(dotScale);
+      cancelAnimation(dotOpacity);
+      dotScale.value = 1;
+      dotOpacity.value = 0;
+      return;
+    }
+    dotScale.value = 1;
+    dotOpacity.value = 0.6;
+    dotScale.value = withRepeat(
+      withTiming(2, { duration: 1200, easing: Easing.out(Easing.ease) }),
+      -1,
+      false,
+    );
+    dotOpacity.value = withRepeat(
+      withTiming(0, { duration: 1200, easing: Easing.out(Easing.ease) }),
+      -1,
+      false,
+    );
+    return () => {
+      cancelAnimation(dotScale);
+      cancelAnimation(dotOpacity);
+    };
+  }, [state]);
 
   const subtitleStyle = useAnimatedStyle(() => {
-    if (state === 'done') return { color: 'rgba(230, 237, 243, 0.55)' };
+    if (state === 'done') return { color: 'rgba(255, 255, 255, 0.45)' };
     const color = interpolateColor(
       shimmer.value,
       [0, 0.5, 1],
       [
-        'rgba(230, 237, 243, 0.35)',
-        'rgba(230, 237, 243, 0.95)',
-        'rgba(230, 237, 243, 0.35)',
+        'rgba(255, 255, 255, 0.45)',
+        'rgba(255, 255, 255, 0.85)',
+        'rgba(255, 255, 255, 0.45)',
       ],
     );
     return { color };
   }, [state]);
 
+  const pulseStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: dotScale.value }],
+      opacity: dotOpacity.value,
+    };
+  });
+
+  const title = getToolTitle(poolKey, state);
+
   return (
-    <View style={styles.card}>
-      <View style={styles.headerRow}>
-        {state === 'running' ? (
-          <Animated.View style={[styles.dot, dotStyle]} />
-        ) : (
-          <View style={styles.iconWrap}>
-            <Ionicons name="checkmark" size={12} color="#3FB950" />
+    <TouchableOpacity
+      activeOpacity={onPress ? 0.85 : 1}
+      onPress={onPress}
+      disabled={!onPress}
+      style={styles.cardOuter}
+    >
+      <BlurView intensity={18} tint="dark" style={styles.cardBlur}>
+        <View style={styles.cardContent}>
+          <View style={styles.mainRow}>
+            <View style={styles.textColumn}>
+              <View style={styles.headerRow}>
+                <View style={styles.statusDotWrapper}>
+                  {state === 'running' ? (
+                    <>
+                      <Animated.View style={[styles.pulseRing, pulseStyle]} />
+                      <View style={styles.activeDot} />
+                    </>
+                  ) : (
+                    <View style={styles.doneDot} />
+                  )}
+                </View>
+                <AnimatedText text={title} style={styles.title} />
+                {file ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText} numberOfLines={1}>
+                      {file}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <AnimatedText text={subtitle} style={[styles.subtitle, subtitleStyle]} />
+            </View>
+            {onPress ? (
+              <View style={styles.chevronWrapper}>
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color="rgba(255, 255, 255, 0.4)"
+                />
+              </View>
+            ) : null}
           </View>
-        )}
-        <Text style={styles.title}>{title}</Text>
-      </View>
-      <Animated.Text style={[styles.subtitle, subtitleStyle]}>
-        {subtitle}
-      </Animated.Text>
-    </View>
+        </View>
+      </BlurView>
+    </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+  cardOuter: {
     borderRadius: 20,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(109, 76, 255, 0.16)', // Premium violet border
+    backgroundColor: 'rgba(18, 17, 26, 0.6)', // Deep semi-transparent violet-surface
+    overflow: 'hidden',
+  },
+  cardBlur: {
+    width: '100%',
+  },
+  cardContent: {
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+  },
+  mainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  textColumn: {
+    flex: 1,
     gap: 6,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    flexWrap: 'wrap',
+    gap: 8,
   },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#A78BFA',
-  },
-  iconWrap: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: 'rgba(63, 185, 80, 0.15)',
+  statusDotWrapper: {
+    width: 12,
+    height: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 2,
+  },
+  activeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: AppColors.primary, // Premium violet
+  },
+  pulseRing: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: AppColors.primary,
+  },
+  doneDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: AppColors.success, // Success green
   },
   title: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#E6EDF3',
+    color: '#FFFFFF',
     letterSpacing: -0.1,
   },
+  badge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    maxWidth: '70%',
+  },
+  badgeText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
   subtitle: {
-    fontSize: 13,
-    fontStyle: 'italic',
-    lineHeight: 18,
-    marginLeft: 18,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  chevronWrapper: {
+    paddingLeft: 4,
+    justifyContent: 'center',
   },
 });

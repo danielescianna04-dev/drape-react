@@ -5,12 +5,13 @@ import {
   getToolStartMessage,
   isCommand,
   isTerminalInput,
+  formatFriendlyStatus,
 } from '@/pages/Chat/chatToolFormatting';
 import { TerminalItemType } from '@/shared/types';
 
 describe('chatToolFormatting', () => {
   it('formats tool start messages with file names', () => {
-    expect(getToolStartMessage('read_file', { path: '/tmp/demo.ts' })).toContain('Read demo.ts');
+    expect(getToolStartMessage('read_file', { path: '/tmp/demo.ts' })).toContain('Read tmp/demo.ts');
   });
 
   it('formats tool result summaries for file reads', () => {
@@ -48,7 +49,7 @@ describe('chatToolFormatting', () => {
 describe('getToolStartMessage payload handling', () => {
   it('handles string input by parsing JSON', () => {
     const msg = getToolStartMessage('read_file', '{"path": "/app/index.ts"}');
-    expect(msg).toContain('Read index.ts');
+    expect(msg).toContain('Read app/index.ts');
   });
 
   it('handles null/undefined input gracefully', () => {
@@ -75,7 +76,7 @@ describe('getToolStartMessage payload handling', () => {
 describe('formatToolResult payload handling', () => {
   it('handles string result', () => {
     const msg = formatToolResult('write_file', { path: '/app/new.ts' }, 'File written');
-    expect(msg).toContain('Write new.ts');
+    expect(msg).toContain('Write app/new.ts');
     expect(msg).toContain('File created');
   });
 
@@ -103,9 +104,8 @@ describe('formatToolResult payload handling', () => {
         { status: 'pending', content: 'deploy' },
       ],
     }, 'ok');
-    expect(msg).toContain('3 tasks');
-    expect(msg).toContain('1 done');
-    expect(msg).toContain('1 in progress');
+    expect(msg).toContain('Todo List');
+    expect(msg).toContain('1/3 done');
   });
 
   it('formats web_search with structured result', () => {
@@ -116,8 +116,8 @@ describe('formatToolResult payload handling', () => {
       query: 'react hooks',
       count: 1,
     });
+    expect(msg).toContain('Web search "react hooks"');
     expect(msg).toContain('1 result');
-    expect(msg).toContain('React Docs');
   });
 
   it('handles command result with stdout/stderr', () => {
@@ -126,6 +126,16 @@ describe('formatToolResult payload handling', () => {
       stderr: '',
       exitCode: 0,
     });
-    expect(msg).toContain('Execute: ls -la');
+    expect(msg).toContain('$ ls -la');
+  });
+
+  describe('formatFriendlyStatus', () => {
+    it('correctly replaces placeholders and fixes Italian contractions', () => {
+      expect(formatFriendlyStatus('Sto leggendo {file}', 'App.tsx')).toBe('Sto leggendo App.tsx');
+      expect(formatFriendlyStatus('Sto leggendo {file}', '')).toBe('Sto leggendo il file');
+      expect(formatFriendlyStatus('Recupero il contenuto di {file}', '')).toBe('Recupero il contenuto del file');
+      expect(formatFriendlyStatus('Faccio qualche modifica a {file}', '')).toBe('Faccio qualche modifica al file');
+      expect(formatFriendlyStatus('Scrivo il nuovo {file}', '')).toBe('Scrivo il nuovo file');
+    });
   });
 });

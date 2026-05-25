@@ -5,7 +5,9 @@ import { requireAuth, type AuthedRequest } from '../middleware/auth.middleware';
 import { opencodeHttpService } from '../services/opencode-http.service';
 import { buildBynotSystemPrompt } from '../templates/opencode-system-prompt';
 import { supabaseAdmin } from '../lib/supabase';
-import { checkQuota } from '../services/usage-quota.service';
+import { checkQuota, recordUsage } from '../services/usage-quota.service';
+import { runBynotAgent } from '../services/bynot-agent.service';
+import type { ModelMessage } from 'ai';
 
 /**
  * Legacy v1 endpoints per agent streaming.
@@ -36,7 +38,11 @@ function writeSseEvent(res: any, eventName: string, data: unknown): void {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-async function handleAgentStream(req: AuthedRequest, res: any): Promise<void> {
+// useV2 = true → drives the stream from runBynotAgent (direct AI SDK v6 +
+// OpenRouter, no opencode). Tool calls (write_file, edit_file, ...) run
+// directly against /root/projects/<projectId>/ with parallel-call support.
+// Used by /run/fast so the chat UX bypasses opencode's slow agentic loop.
+async function handleAgentStream(req: AuthedRequest, res: any, opts: { useV2?: boolean } = {}): Promise<void> {
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
@@ -113,60 +119,121 @@ async function handleAgentStream(req: AuthedRequest, res: any): Promise<void> {
   const startedAt = Date.now();
 
   try {
-    for await (const event of opencodeHttpService.chatStream({
-      sessionId,
-      message: prompt,
-      model,
-      appwriteCredentials: appwriteCreds,
-      systemContext,
-    })) {
-      switch (event.type) {
-        case 'token':
-          assembledText += event.content;
-          writeSseEvent(res, 'text_delta', { text: event.content });
-          break;
-        case 'tool_use':
-          writeSseEvent(res, 'tool_start', {
-            tool: event.name,
-            input: event.input,
-            toolUseId: event.id,
-          });
-          break;
-        case 'tool_result':
-          writeSseEvent(res, event.error ? 'tool_error' : 'tool_complete', {
-            toolUseId: event.id,
-            output: event.output,
-            error: event.error,
-            success: !event.error,
-          });
-          break;
-        case 'message_start':
-          writeSseEvent(res, 'iteration_start', { iteration: 1, model: event.model });
-          break;
-        case 'message_end':
-          tokensIn = event.tokensIn;
-          tokensOut = event.tokensOut;
-          writeSseEvent(res, 'usage', { tokensIn, tokensOut });
-          break;
-        case 'session_end':
-          if (event.reason === 'completed') {
-            // NON includere `message` o `result.text`: il client ha già accumulato il testo
-            // dai text_delta. Includendolo qui causerebbe duplicazione visiva.
-            writeSseEvent(res, 'complete', {
-              success: true,
-              result: { tokensIn, tokensOut },
+    if (opts.useV2) {
+      // ── New path: runBynotAgent (direct AI SDK v6 + OpenRouter) ─────────
+      // We translate AI SDK v6 stream parts into the legacy named-SSE events
+      // that the existing useAgentStream client already understands, so the
+      // frontend doesn't need to change at all to benefit from the speed-up.
+      const result = await runBynotAgent({
+        projectId,
+        userId: req.userId || 'anonymous',
+        prompt,
+        model,
+      });
+
+      writeSseEvent(res, 'iteration_start', { iteration: 1, model: model ?? 'openrouter/deepseek/deepseek-v4-pro' });
+
+      for await (const part of result.fullStream) {
+        switch (part.type) {
+          case 'text-delta':
+            assembledText += part.text;
+            writeSseEvent(res, 'text_delta', { text: part.text });
+            break;
+          case 'tool-call':
+            writeSseEvent(res, 'tool_start', {
+              tool: part.toolName,
+              input: part.input,
+              toolUseId: part.toolCallId,
             });
+            break;
+          case 'tool-result':
+            writeSseEvent(res, 'tool_complete', {
+              toolUseId: part.toolCallId,
+              tool: part.toolName,
+              output: part.output,
+              success: true,
+            });
+            break;
+          case 'tool-error':
+            writeSseEvent(res, 'tool_error', {
+              toolUseId: part.toolCallId,
+              tool: part.toolName,
+              error: String(part.error),
+              success: false,
+            });
+            break;
+          case 'finish':
+            tokensIn = part.totalUsage?.inputTokens ?? 0;
+            tokensOut = part.totalUsage?.outputTokens ?? 0;
+            writeSseEvent(res, 'usage', { tokensIn, tokensOut });
+            writeSseEvent(res, 'complete', { success: true, result: { tokensIn, tokensOut } });
             writeSseEvent(res, 'done', { jobId });
-          } else {
-            lastError = event.error ?? 'session ended unexpectedly';
+            break;
+          case 'error':
+            lastError = String((part as any).error ?? 'agent error');
             writeSseEvent(res, 'error', { error: lastError });
             writeSseEvent(res, 'done', { jobId });
-          }
-          break;
-        case 'error':
-          lastError = event.message;
-          writeSseEvent(res, 'error', { error: event.message });
-          break;
+            break;
+          default:
+            // step-start, step-finish, abort, source, etc — not surfaced
+            break;
+        }
+      }
+    } else {
+      // ── Legacy path: opencode (plan/execute/create still use this) ──────
+      for await (const event of opencodeHttpService.chatStream({
+        sessionId,
+        message: prompt,
+        model,
+        appwriteCredentials: appwriteCreds,
+        systemContext,
+      })) {
+        switch (event.type) {
+          case 'token':
+            assembledText += event.content;
+            writeSseEvent(res, 'text_delta', { text: event.content });
+            break;
+          case 'tool_use':
+            writeSseEvent(res, 'tool_start', {
+              tool: event.name,
+              input: event.input,
+              toolUseId: event.id,
+            });
+            break;
+          case 'tool_result':
+            writeSseEvent(res, event.error ? 'tool_error' : 'tool_complete', {
+              toolUseId: event.id,
+              output: event.output,
+              error: event.error,
+              success: !event.error,
+            });
+            break;
+          case 'message_start':
+            writeSseEvent(res, 'iteration_start', { iteration: 1, model: event.model });
+            break;
+          case 'message_end':
+            tokensIn = event.tokensIn;
+            tokensOut = event.tokensOut;
+            writeSseEvent(res, 'usage', { tokensIn, tokensOut });
+            break;
+          case 'session_end':
+            if (event.reason === 'completed') {
+              writeSseEvent(res, 'complete', {
+                success: true,
+                result: { tokensIn, tokensOut },
+              });
+              writeSseEvent(res, 'done', { jobId });
+            } else {
+              lastError = event.error ?? 'session ended unexpectedly';
+              writeSseEvent(res, 'error', { error: lastError });
+              writeSseEvent(res, 'done', { jobId });
+            }
+            break;
+          case 'error':
+            lastError = event.message;
+            writeSseEvent(res, 'error', { error: event.message });
+            break;
+        }
       }
     }
   } catch (err: any) {
@@ -213,10 +280,13 @@ async function handleAgentStream(req: AuthedRequest, res: any): Promise<void> {
 }
 
 // Tutti gli endpoint legacy mappano allo stesso handler (con prompt diverso lato client)
-agentStreamRouter.post('/create', requireAuth, handleAgentStream);
-agentStreamRouter.post('/run/fast', requireAuth, handleAgentStream);
-agentStreamRouter.post('/run/plan', requireAuth, handleAgentStream);
-agentStreamRouter.post('/run/execute', requireAuth, handleAgentStream);
+// /run/fast uses the new AI SDK v6 + OpenRouter direct path (no opencode):
+// faster, parallel tool calls, no agent loop overhead. The legacy opencode
+// path is still used by /create + /run/plan + /run/execute for now.
+agentStreamRouter.post('/create', requireAuth, (req, res) => handleAgentStream(req as any, res));
+agentStreamRouter.post('/run/fast', requireAuth, (req, res) => handleAgentStream(req as any, res, { useV2: true }));
+agentStreamRouter.post('/run/plan', requireAuth, (req, res) => handleAgentStream(req as any, res));
+agentStreamRouter.post('/run/execute', requireAuth, (req, res) => handleAgentStream(req as any, res));
 
 // Cancel
 agentStreamRouter.post('/cancel', requireAuth, async (req: AuthedRequest, res) => {
@@ -232,8 +302,7 @@ agentStreamRouter.post('/cancel', requireAuth, async (req: AuthedRequest, res) =
 // the client side (src/core/ai/useAgentChat.ts). Body shape matches the
 // DefaultChatTransport contract from `ai`:
 //   { messages: UIMessage[], id?, projectId, model? }
-import { startAiSdkStream } from '../services/ai-sdk-stream';
-import { runAgentChatStreamV2 } from '../services/agent-chat-stream-v2.service';
+// Backed by runBynotAgent() — direct AI SDK v6 + OpenRouter (no opencode).
 
 const v2BodySchema = z.object({
   projectId: z.string().min(1),
@@ -248,9 +317,27 @@ agentStreamRouter.post('/v2/chat', requireAuth, async (req: AuthedRequest, res: 
     return;
   }
   const { projectId, messages, model } = parsed.data;
+  const userId = req.userId || 'anonymous';
 
-  // Extract last user message text from AI SDK UIMessage parts
-  const lastUserMessage = [...messages].reverse().find((m: any) => m?.role === 'user');
+  // Quota check (same monthly cap as /ai/chat and /agent/run/fast).
+  const quota = await checkQuota(userId);
+  if (!quota.allowed) {
+    res.setHeader('Retry-After', String(quota.retryAfterSec ?? 86400));
+    res.status(429).json({
+      error: 'quota_exceeded',
+      used: quota.used,
+      limit: quota.limit,
+      retryAfterSec: quota.retryAfterSec,
+      message: 'Hai esaurito il quota mensile. Aspetta il rinnovo o passa a Plus.',
+    });
+    return;
+  }
+
+  // Extract last user message text from AI SDK UIMessage parts (the frontend
+  // sends the FULL conversation in `messages`; we forward earlier turns to
+  // the model as history but use the last user message as the new prompt).
+  const lastUserIdx = [...messages].reverse().findIndex((m: any) => m?.role === 'user');
+  const lastUserMessage = lastUserIdx >= 0 ? messages[messages.length - 1 - lastUserIdx] : null;
   const promptText: string = Array.isArray(lastUserMessage?.parts)
     ? lastUserMessage.parts.filter((p: any) => p?.type === 'text').map((p: any) => p.text).join('')
     : typeof lastUserMessage?.content === 'string' ? lastUserMessage.content : '';
@@ -259,23 +346,61 @@ agentStreamRouter.post('/v2/chat', requireAuth, async (req: AuthedRequest, res: 
     return;
   }
 
-  const stream = startAiSdkStream(res, () => {
-    console.log(`[Agent/v2] client disconnected for project ${projectId}`);
-  });
+  // Convert prior UIMessages (all messages BEFORE the last user one) into
+  // ModelMessages so the agent has the conversation history. We keep only
+  // text turns — tool call history is opaque to the new agent and replaying
+  // it would require remapping tool ids, not worth the complexity here.
+  const priorIdx = lastUserIdx >= 0 ? messages.length - 1 - lastUserIdx : messages.length;
+  const history = messages.slice(0, priorIdx)
+    .map((m: any) => {
+      const role = m?.role;
+      if (role !== 'user' && role !== 'assistant') return null;
+      const text = Array.isArray(m?.parts)
+        ? m.parts.filter((p: any) => p?.type === 'text').map((p: any) => p.text).join('')
+        : typeof m?.content === 'string' ? m.content : '';
+      if (!text.trim()) return null;
+      return { role, content: text } as ModelMessage;
+    })
+    .filter((m: ModelMessage | null): m is ModelMessage => m !== null);
 
   try {
-    await runAgentChatStreamV2({
+    const result = await runBynotAgent({
       projectId,
-      userId: req.userId || 'anonymous',
+      userId,
       prompt: promptText,
+      history,
       model,
-      stream,
+    });
+
+    // Pipe AI SDK v6 UI Message Stream straight to the Express response.
+    // useChat on the frontend parses this natively (text-start/delta/end,
+    // tool-input-available, tool-output-available, finish, etc.).
+    result.pipeUIMessageStreamToResponse(res, {
+      onError: (err: any) => {
+        console.error(`[Agent/v2] streamText error:`, err?.message ?? err);
+        return err?.message || 'agent stream failed';
+      },
+      onFinish: async ({ totalUsage }: any) => {
+        // Record usage for the monthly quota.
+        const tokensIn = (totalUsage?.inputTokens ?? 0) + (totalUsage?.cachedInputTokens ?? 0);
+        const tokensOut = totalUsage?.outputTokens ?? 0;
+        void recordUsage({
+          userId,
+          sessionId: null,
+          model: model ?? 'openrouter/deepseek/deepseek-v4-pro',
+          prompt: promptText,
+          response: '', // text already streamed to client; not retained here
+          tokensIn,
+          tokensOut,
+          durationMs: 0,
+          error: null,
+        });
+      },
     });
   } catch (err: any) {
-    console.error(`[Agent/v2] stream failed:`, err?.message ?? err);
-    if (!stream.isClosed()) {
-      stream.writePart({ type: 'error', errorText: err?.message || 'stream failed' });
-      stream.end();
+    console.error(`[Agent/v2] init failed:`, err?.message ?? err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err?.message || 'agent init failed' });
     }
   }
 });

@@ -232,6 +232,63 @@ export function renderStatusFromPool(poolKey: string, file: string): string {
   return formatFriendlyStatus(tpl, file);
 }
 
+const getToolTarget = (tool: string, input: ToolPayload): string => {
+  if (tool === 'read_file' || tool === 'read' || tool === 'write_file' || tool === 'write' || tool === 'edit_file' || tool === 'edit' || tool === 'multi_edit_file' || tool === 'multiedit' || tool === 'patch_file') {
+    return getFileName(input);
+  }
+  if (tool === 'delete_file') {
+    const path = String(input?.filePath ?? input?.path ?? '');
+    return path ? normalizeDisplayPath(path) : '';
+  }
+  if (tool === 'move_file' || tool === 'copy_file') {
+    const src = normalizeDisplayPath(String(input?.sourcePath ?? input?.source ?? ''));
+    const dest = normalizeDisplayPath(String(input?.destPath ?? input?.destination ?? ''));
+    return src && dest ? `${src} → ${dest}` : (src || dest);
+  }
+  if (tool === 'create_folder') {
+    return normalizeDisplayPath(String(input?.folderPath ?? input?.path ?? ''));
+  }
+  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') {
+    return normalizeDisplayPath(String(input?.directory ?? input?.path ?? '.'));
+  }
+  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') {
+    return String(input?.pattern ?? '');
+  }
+  if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep' || tool === 'code_search') {
+    return String(input?.pattern ?? input?.query ?? '');
+  }
+  if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') {
+    const cmd = String(input?.command ?? '').replace(/\r?\n/g, ' ').trim();
+    return cmd.length > 50 ? cmd.substring(0, 47) + "..." : cmd;
+  }
+  if (tool === 'web_fetch') {
+    const url = String(input?.url ?? '');
+    try {
+      const match = url.match(/^(?:https?:\/\/)?(?:www\.)?([^\/]+)/);
+      if (match) return match[1];
+    } catch {}
+    return url.length > 30 ? url.substring(0, 27) + "..." : url;
+  }
+  if (tool === 'web_search') {
+    return String(input?.query ?? '');
+  }
+  if (tool === 'diagnostics') {
+    const file = getFileName(input);
+    return file ? file : 'progetto';
+  }
+  if (tool === 'load_skill' || tool === 'skill') {
+    return String(input?.name ?? input?.path ?? '');
+  }
+  if (tool === 'dispatch_agent' || tool === 'task' || tool === 'sub_agent' || tool === 'launch_sub_agent') {
+    const desc = String(input?.prompt ?? input?.description ?? '').replace(/\r?\n/g, ' ').trim();
+    return desc.length > 40 ? desc.substring(0, 37) + "..." : desc;
+  }
+  if (tool === 'lsp') {
+    return String(input?.action ?? '');
+  }
+  return '';
+};
+
 /**
  * Map an opencode tool name (+ inspectable input for the bash family) to a
  * STATUS_POOLS key. Lets the activity card know which pool to keep rotating
@@ -239,35 +296,35 @@ export function renderStatusFromPool(poolKey: string, file: string): string {
  */
 export function toolToPool(tool: string, toolInput: unknown): { poolKey: string; file: string } {
   const input = parseToolPayload(toolInput);
-  const file = getFileName(input);
+  const file = getToolTarget(tool, input);
   if (tool === 'read_file' || tool === 'read') return { poolKey: 'read', file };
   if (tool === 'write_file' || tool === 'write') return { poolKey: 'write', file };
   if (tool === 'edit_file' || tool === 'edit' || tool === 'multi_edit_file' || tool === 'multiedit' || tool === 'patch_file') return { poolKey: 'edit', file };
-  if (tool === 'delete_file') return { poolKey: 'delete', file: String(input?.filePath || '') };
-  if (tool === 'move_file' || tool === 'copy_file') return { poolKey: 'move', file: '' };
-  if (tool === 'create_folder') return { poolKey: 'folder', file: '' };
-  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') return { poolKey: 'list', file: '' };
-  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') return { poolKey: 'glob', file: '' };
-  if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep' || tool === 'code_search') return { poolKey: 'search', file: '' };
+  if (tool === 'delete_file') return { poolKey: 'delete', file };
+  if (tool === 'move_file' || tool === 'copy_file') return { poolKey: 'move', file };
+  if (tool === 'create_folder') return { poolKey: 'folder', file };
+  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') return { poolKey: 'list', file };
+  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') return { poolKey: 'glob', file };
+  if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep' || tool === 'code_search') return { poolKey: 'search', file };
   if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') {
     const cmd = String(input?.command || '');
-    if (cmd.startsWith('curl') || cmd.includes('http')) return { poolKey: 'bash_curl', file: '' };
-    if (cmd.startsWith('npm') || cmd.startsWith('yarn') || cmd.startsWith('pnpm') || cmd.includes('install')) return { poolKey: 'bash_npm', file: '' };
-    if (cmd.startsWith('git')) return { poolKey: 'bash_git', file: '' };
-    if (cmd.includes('build') || cmd.includes('compile') || cmd.includes('webpack') || cmd.includes('vite')) return { poolKey: 'bash_build', file: '' };
-    if (cmd.includes('test') || cmd.includes('jest') || cmd.includes('vitest')) return { poolKey: 'bash_test', file: '' };
-    return { poolKey: 'bash_other', file: '' };
+    if (cmd.startsWith('curl') || cmd.includes('http')) return { poolKey: 'bash_curl', file };
+    if (cmd.startsWith('npm') || cmd.startsWith('yarn') || cmd.startsWith('pnpm') || cmd.includes('install')) return { poolKey: 'bash_npm', file };
+    if (cmd.startsWith('git')) return { poolKey: 'bash_git', file };
+    if (cmd.includes('build') || cmd.includes('compile') || cmd.includes('webpack') || cmd.includes('vite')) return { poolKey: 'bash_build', file };
+    if (cmd.includes('test') || cmd.includes('jest') || cmd.includes('vitest')) return { poolKey: 'bash_test', file };
+    return { poolKey: 'bash_other', file };
   }
-  if (tool === 'web_fetch') return { poolKey: 'web_fetch', file: '' };
-  if (tool === 'web_search') return { poolKey: 'web_search', file: '' };
-  if (tool === 'diagnostics') return { poolKey: 'diagnostics', file: '' };
-  if (tool === 'todo_write' || tool === 'todo_read') return { poolKey: 'todo', file: '' };
-  if (tool === 'load_skill' || tool === 'skill') return { poolKey: 'skill', file: '' };
-  if (tool === 'memory_read' || tool === 'memory_write') return { poolKey: 'memory', file: '' };
-  if (tool === 'dispatch_agent' || tool === 'task' || tool === 'sub_agent' || tool === 'launch_sub_agent') return { poolKey: 'subagent', file: '' };
-  if (tool === 'lsp') return { poolKey: 'lsp', file: '' };
-  if (tool === 'ask_user_question' || tool === 'user_question') return { poolKey: 'question', file: '' };
-  return { poolKey: 'generic', file: '' };
+  if (tool === 'web_fetch') return { poolKey: 'web_fetch', file };
+  if (tool === 'web_search') return { poolKey: 'web_search', file };
+  if (tool === 'diagnostics') return { poolKey: 'diagnostics', file };
+  if (tool === 'todo_write' || tool === 'todo_read') return { poolKey: 'todo', file };
+  if (tool === 'load_skill' || tool === 'skill') return { poolKey: 'skill', file };
+  if (tool === 'memory_read' || tool === 'memory_write') return { poolKey: 'memory', file };
+  if (tool === 'dispatch_agent' || tool === 'task' || tool === 'sub_agent' || tool === 'launch_sub_agent') return { poolKey: 'subagent', file };
+  if (tool === 'lsp') return { poolKey: 'lsp', file };
+  if (tool === 'ask_user_question' || tool === 'user_question') return { poolKey: 'question', file };
+  return { poolKey: 'generic', file };
 }
 
 /** Rotating titles for the activity card header (variety > one fixed label). */
@@ -284,136 +341,138 @@ export const ACTIVITY_TITLES = [
 
 export const STATUS_POOLS: Record<string, string[]> = {
   read: [
-    'Sto leggendo {file}',
-    'Apro {file} per dare un\'occhiata',
-    'Sto controllando {file}',
-    'Sbircio dentro {file}',
-    'Recupero il contenuto di {file}',
+    'Leggo le istruzioni nel file...',
+    'Do un\'occhiata al codice del file...',
+    'Esamino il file per capire come procedere...',
+    'Controllo cosa contiene il file...',
+    'Recupero i dettagli del file...',
   ],
   write: [
-    'Sto creando {file}',
-    'Salvo {file}',
-    'Scrivo il nuovo {file}',
-    'Sto preparando {file}',
-    'Genero {file}',
+    'Creo da zero il file...',
+    'Scrivo le basi del file...',
+    'Preparo il nuovo file per te...',
+    'Aggiungo il file al tuo progetto...',
+    'Salvo il nuovo file...',
   ],
   edit: [
-    'Sto modificando {file}',
-    'Aggiorno {file}',
-    'Sto sistemando {file}',
-    'Ritocco {file}',
-    'Faccio qualche modifica a {file}',
+    'Applico le modifiche al file...',
+    'Aggiorno il codice del file...',
+    'Sistemo alcuni dettagli nel file...',
+    'Miglioro e correggo il file...',
+    'Ritocco il file come richiesto...',
   ],
   delete: [
-    'Sto eliminando {file}',
-    'Rimuovo {file}',
-    'Cancello {file}',
+    'Rimuovo il file che non serve più...',
+    'Elimino il file per fare pulizia...',
+    'Cancello il file inutilizzato...',
   ],
   move: [
-    'Sto spostando i file',
-    'Riorganizzo qualche file',
-    'Sistemo i file nelle cartelle giuste',
+    'Sposto i file nelle cartelle corrette...',
+    'Riorganizzo l\'ordine dei tuoi file...',
+    'Sistemo la disposizione dei file...',
   ],
   folder: [
-    'Sto creando la cartella',
-    'Preparo una nuova cartella',
+    'Creo una nuova cartella per tenere tutto in ordine...',
+    'Preparo una cartella nel tuo progetto...',
   ],
   list: [
-    'Sto esplorando il progetto',
-    'Do un\'occhiata in giro',
-    'Controllo cosa c\'è nel progetto',
-    'Vedo la struttura del progetto',
-    'Mi oriento nel progetto',
+    'Esploro le cartelle per orientarmi...',
+    'Do un\'occhiata ai file del tuo progetto...',
+    'Vedo quali file sono presenti...',
+    'Sfoglio le cartelle per capire com\'è strutturato...',
   ],
   glob: [
-    'Sto cercando i file',
-    'Cerco i file giusti',
-    'Setaccio i file del progetto',
+    'Cerco i file che corrispondono alla richiesta...',
+    'Trovo i file di cui ho bisogno nel progetto...',
+    'Setaccio il progetto per trovare i file giusti...',
   ],
   search: [
-    'Sto cercando nel codice',
-    'Frugo nel codice',
-    'Cerco la parte giusta',
-    'Esamino il codice',
+    'Cerco parole o frasi chiave all\'interno dei file...',
+    'Frugo nei file per trovare la parte da modificare...',
+    'Cerco il punto esatto del codice da correggere...',
+    'Scansiono i testi del progetto...',
   ],
   bash_curl: [
-    'Sto scaricando i dati',
-    'Recupero qualche informazione',
-    'Sto facendo una richiesta web',
+    'Recupero informazioni da internet...',
+    'Scarico i dati necessari per continuare...',
+    'Faccio una richiesta rapida online...',
   ],
   bash_npm: [
-    'Sto installando le dipendenze',
-    'Scarico i pacchetti necessari',
-    'Preparo le librerie',
+    'Installo i componenti aggiuntivi...',
+    'Scarico le librerie necessarie per l\'app...',
+    'Aggiorno i pacchetti di supporto...',
   ],
   bash_git: [
-    'Sto sincronizzando con git',
-    'Aggiorno il repository',
-    'Commit & push…',
+    'Salvo i progressi in sicurezza con Git...',
+    'Sincronizzo il codice del progetto...',
+    'Memorizzo questa versione del lavoro...',
   ],
   bash_build: [
-    'Sto compilando il progetto',
-    'Build in corso',
-    'Costruisco il bundle',
+    'Preparo l\'app per farla partire...',
+    'Costruisco l\'applicazione per provarla...',
+    'Compilo il progetto per renderlo attivo...',
   ],
   bash_test: [
-    'Eseguo i test',
-    'Verifico che tutto funzioni',
-    'Controllo che il codice sia ok',
+    'Faccio i controlli per verificare che funzioni...',
+    'Eseguo i test automatici di sicurezza...',
+    'Verifico che non ci siano comportamenti strani...',
   ],
   bash_other: [
-    'Sto eseguendo un comando',
-    'Lavoro nel terminale',
-    'Faccio un\'operazione tecnica',
+    'Lavoro sul terminale per configurare l\'ambiente...',
+    'Eseguo un\'operazione tecnica di sistema...',
+    'Elaboro il comando in background...',
   ],
   web_fetch: [
-    'Sto leggendo una pagina web',
-    'Visito la pagina',
-    'Recupero il contenuto online',
+    'Leggo una pagina web per documentarmi...',
+    'Visito il sito per raccogliere informazioni...',
+    'Scarico il contenuto della pagina online...',
   ],
   web_search: [
-    'Sto cercando sul web',
-    'Cerco informazioni online',
-    'Faccio una ricerca',
+    'Faccio una ricerca su Google...',
+    'Cerco soluzioni sul web...',
+    'Esploro internet per trovare risposte...',
   ],
   diagnostics: [
-    'Sto controllando il codice',
-    'Cerco eventuali errori',
-    'Verifico che sia tutto in ordine',
+    'Verifico che l\'app sia scritta correttamente...',
+    'Controllo se ci sono errori nascosti...',
+    'Faccio una scansione per rilevare bug...',
   ],
   todo: [
-    'Sto organizzando le attività',
-    'Aggiorno la lista delle cose da fare',
-    'Pianifico i prossimi passi',
+    'Organizzo i compiti da fare...',
+    'Aggiorno il mio piano d\'azione...',
+    'Pianifico i prossimi passaggi per non perdere il filo...',
   ],
   skill: [
-    'Sto caricando le competenze',
-    'Mi attrezzo per il prossimo step',
-    'Carico gli strumenti giusti',
+    'Attivo le mie abilità speciali per questo compito...',
+    'Mi preparo con gli strumenti giusti...',
+    'Carico le istruzioni di progettazione...',
   ],
   memory: [
-    'Sto consultando la memoria',
-    'Cerco nei miei appunti',
-    'Recupero quello che ricordo',
+    'Consulto i miei appunti su questo progetto...',
+    'Recupero quello che abbiamo fatto finora...',
+    'Memorizzo le nuove informazioni utili...',
   ],
   subagent: [
-    'Sto lavorando su un sotto-compito',
-    'Delego una parte del lavoro',
-    'Mi concentro su un aspetto specifico',
+    'Lavoro in squadra con un altro assistente specializzato...',
+    'Chiedo aiuto a un collega virtuale su questo aspetto...',
+    'Divido il compito per finire prima e meglio...',
+    'Coordino un assistente dedicato a questa attività...',
   ],
   lsp: [
-    'Sto analizzando il codice',
-    'Studio la struttura del progetto',
+    'Analizzo la struttura del codice...',
+    'Studio come sono collegati i file tra loro...',
+    'Esamino i collegamenti del codice...',
   ],
   question: [
-    'Ti sto chiedendo una conferma',
-    'Aspetto una tua risposta',
+    'Ti faccio una domanda per essere sicuro...',
+    'Aspetto una tua conferma per procedere...',
+    'Ho bisogno di un tuo parere...',
   ],
   generic: [
-    'Sto lavorando',
-    'Un attimo…',
-    'Ci sono quasi…',
-    'Penso al prossimo passo',
+    'Ci sto lavorando...',
+    'Un attimo solo di pazienza...',
+    'Elaboro la soluzione...',
+    'Penso a come fare il prossimo passo...',
   ],
 };
 

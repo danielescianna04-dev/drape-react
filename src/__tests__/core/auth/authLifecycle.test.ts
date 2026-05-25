@@ -45,7 +45,7 @@ describe('authLifecycle', () => {
     ).toEqual({
       onboardingCompleted: false,
       hasCreatedFirstProject: false,
-      plan: 'free',
+      plan: 'pro',
     });
   });
 
