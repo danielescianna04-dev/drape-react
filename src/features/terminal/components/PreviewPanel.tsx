@@ -25,6 +25,7 @@ import { PreviewPublishSheet } from './PreviewPublishSheet';
 import { ProjectInsightsSheet } from '../../explore/ProjectInsightsSheet';
 import { usePreviewMachine } from '../preview';
 import { derivePreviewPhase } from '../preview/derivePreviewPhase';
+import { SandpackPreview } from '../../preview/SandpackPreview';
 import {
   PreviewStateStart,
   PreviewStateLoading,
@@ -540,9 +541,13 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             )}
 
             <View ref={webViewContainerRef} style={styles.webViewContainer}>
-              {/* Reload banner moved to VSCodeSidebar root — renders above chat drawer */}
-              {/* Phase 5: State screens — pure components */}
-              {previewState.phase === 'preflight_env' && previewEnvVars ? (
+              {/* Backend-v2 path: render the project entirely in-WebView with
+                  Sandpack — no per-project dev server, no /preview/start SSE
+                  call (that endpoint never existed on backend-v2). Files come
+                  straight from Supabase Storage via filesApi. */}
+              {projectId ? <SandpackPreview projectId={projectId} template="react-ts" /> : null}
+              {/* eslint-disable-next-line @typescript-eslint/no-unused-expressions */}
+              {false ? (previewState.phase === 'preflight_env' && previewEnvVars ? (
                 <PreviewStateEnvRequired
                   requiredEnvVars={previewEnvVars}
                   envVarValues={envVarValues}
@@ -635,7 +640,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   forceReloadKey={forceReloadKey}
                   t={t}
                 />
-              )}
+              )) : null}
             </View>
           </View>
 
