@@ -348,22 +348,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Also: snapshot the OUTGOING workstation's items before swapping in
   // the incoming ones, so if the user navigated away mid-stream (or
   // before the agent_completion_effect could persist) nothing is lost.
-  const prevWorkstationIdRef = useRef<string | null | undefined>(currentWorkstation?.id);
   // Subscribe to chatHistory so hydration retries once AsyncStorage finishes
   // loading. Without this, a fast app open can run hydration before
   // App.tsx's loadChats() resolves → chatHistory is still [] → no match.
+  // NOTE: no "save outgoing" branch here — by the time this effect fires
+  // currentTab is already the INCOMING tab, so persistMessages(currentTab.id)
+  // would write the (still-empty) new tab over a real saved chat with the
+  // same chatId. The agent_completion_effect + the lazy snapshot path
+  // cover the legitimate save points.
   const chatHistory = useChatStore((s) => s.chatHistory);
   useEffect(() => {
     if (!currentTab?.id) return;
-    const prevWsId = prevWorkstationIdRef.current;
-    prevWorkstationIdRef.current = currentWorkstation?.id;
-
-    // Save whatever is currently on screen before we replace it with the
-    // incoming project's messages — guards against losing the in-flight
-    // conversation when the user opens a different project mid-run.
-    if (prevWsId && prevWsId !== currentWorkstation?.id) {
-      persistChatMessagesSnapshotByTabId(currentTab.id);
-    }
 
     if (!currentWorkstation?.id) return;
     if ((currentTab.terminalItems?.length ?? 0) > 0) return;
