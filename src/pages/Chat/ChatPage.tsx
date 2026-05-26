@@ -345,8 +345,23 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // screen even though the agent's chat is persisted in useChatStore.
   // Persisted messages are 1:1 copies of terminalItems (see
   // persistChatMessagesSnapshotByTabId), so we can drop them in as-is.
+  // Also: snapshot the OUTGOING workstation's items before swapping in
+  // the incoming ones, so if the user navigated away mid-stream (or
+  // before the agent_completion_effect could persist) nothing is lost.
+  const prevWorkstationIdRef = useRef<string | null | undefined>(currentWorkstation?.id);
   useEffect(() => {
-    if (!currentTab?.id || !currentWorkstation?.id) return;
+    if (!currentTab?.id) return;
+    const prevWsId = prevWorkstationIdRef.current;
+    prevWorkstationIdRef.current = currentWorkstation?.id;
+
+    // Save whatever is currently on screen before we replace it with the
+    // incoming project's messages — guards against losing the in-flight
+    // conversation when the user opens a different project mid-run.
+    if (prevWsId && prevWsId !== currentWorkstation?.id) {
+      persistChatMessagesSnapshotByTabId(currentTab.id);
+    }
+
+    if (!currentWorkstation?.id) return;
     if ((currentTab.terminalItems?.length ?? 0) > 0) return;
     const chats = useChatStore.getState().chatHistory
       .filter((c) => c.repositoryId === currentWorkstation.id && (c.messages?.length ?? 0) > 0)
