@@ -36,7 +36,7 @@
     <script type="module">
       import React from 'https://esm.sh/react@18.3.1';
       import { createRoot } from 'https://esm.sh/react-dom@18.3.1/client';
-      import { SandpackProvider, SandpackPreview, SandpackLayout } from 'https://esm.sh/@codesandbox/sandpack-react@2.20.0?deps=react@18.3.1,react-dom@18.3.1';
+      import { SandpackProvider, SandpackPreview } from 'https://esm.sh/@codesandbox/sandpack-react@2.20.0?deps=react@18.3.1,react-dom@18.3.1';
 
       const SDK_VERSION = '1.0.0';
 
@@ -115,20 +115,19 @@
         // ONLY <SandpackPreview/> (no editor, no tabs, no "Open Sandbox"
         // button). The whole WebView surface is the rendered app, which is
         // what the mobile user actually wants to see.
+        // Preview-only: <SandpackProvider/> runtime + a single
+        // <SandpackPreview/> child. No SandpackLayout — that wrapper
+        // auto-mounts the code editor next to whatever you give it.
         return React.createElement(
           SandpackProvider,
           { template, theme, files: filesWithEnv, customSetup },
-          React.createElement(
-            SandpackLayout,
-            { style: { height: '100vh', border: 'none', borderRadius: 0 } },
-            React.createElement(SandpackPreview, {
-              style: { height: '100vh', flex: 1, border: 'none' },
-              showNavigator: false,
-              showRefreshButton: false,
-              showOpenInCodeSandbox: false,
-              showRestartButton: false,
-            }),
-          ),
+          React.createElement(SandpackPreview, {
+            style: { height: '100vh', width: '100%', border: 'none' },
+            showNavigator: false,
+            showRefreshButton: false,
+            showOpenInCodeSandbox: false,
+            showRestartButton: false,
+          }),
         );
       }
 

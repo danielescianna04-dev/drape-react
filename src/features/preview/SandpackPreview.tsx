@@ -23,7 +23,9 @@ type BridgeMessage =
   | { type: 'pong'; payload: { sdk: string } }
   | { type: 'error'; payload: { message: string } };
 
-const BRIDGE_URL = `${API_BASE_URL}/sandpack/`;
+// Cache-bust so a backend bridge update (preview-only mode, button toggles…)
+// reaches users without waiting for a WebView cache purge.
+const BRIDGE_URL = `${API_BASE_URL}/sandpack/?v=2`;
 
 export function SandpackPreview({
   projectId,
