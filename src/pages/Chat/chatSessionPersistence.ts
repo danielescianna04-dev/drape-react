@@ -127,6 +127,15 @@ export const persistChatMessagesSnapshotByTabId = (tabId?: string) => {
   const updatedMessages = freshTab?.terminalItems || [];
   const existingChat = useChatStore.getState().chatHistory.find((chat) => chat.id === chatId);
 
+  // Never overwrite a chat that already has messages with an empty
+  // snapshot. This happens during workstation switch / app start when
+  // the tab mounts empty before hydration drops the saved messages in.
+  // Without this guard, the "save outgoing before swap" effect wipes
+  // the very chat we're about to hydrate.
+  if (existingChat && updatedMessages.length === 0 && (existingChat.messages?.length ?? 0) > 0) {
+    return;
+  }
+
   if (!existingChat) {
     // Lazy-create the chat record so we never silently drop a finished
     // conversation just because persistChatSessionOnSend didn't run /
