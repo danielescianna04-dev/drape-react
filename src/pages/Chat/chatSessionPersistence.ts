@@ -27,7 +27,13 @@ export const persistChatSessionOnSend = ({
   const existingUserMessages =
     currentTab.terminalItems?.filter(
       (item) =>
-        item.type === TerminalItemType.USER_MESSAGE || item.type === TerminalItemType.COMMAND,
+        (item.type === TerminalItemType.USER_MESSAGE || item.type === TerminalItemType.COMMAND) &&
+        // The auto-create-project flow mounts a temp user bubble with this
+        // sentinel id BEFORE handleSend runs — counting it makes
+        // isFirstUserMessage flip false on the very first turn, which
+        // skipped the addChat branch and left the conversation invisible
+        // to every later persistMessages call.
+        !item.id?.startsWith('temp-auto-create-'),
     ) || [];
   const isFirstUserMessage = existingUserMessages.length === 0;
 
