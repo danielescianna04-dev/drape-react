@@ -338,6 +338,26 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   }, [currentTab?.id, cleanupTempAutoCreateItems]);
 
+  // Hydrate the active tab's terminalItems from chatHistory when the user
+  // switches to a project that already has a saved conversation. Without
+  // this, navigating back to an existing project shows the empty welcome
+  // screen even though the agent's chat is persisted in useChatStore.
+  // Persisted messages are 1:1 copies of terminalItems (see
+  // persistChatMessagesSnapshotByTabId), so we can drop them in as-is.
+  useEffect(() => {
+    if (!currentTab?.id || !currentWorkstation?.id) return;
+    if ((currentTab.terminalItems?.length ?? 0) > 0) return;
+    const chats = useChatStore.getState().chatHistory
+      .filter((c) => c.repositoryId === currentWorkstation.id && (c.messages?.length ?? 0) > 0)
+      .sort((a, b) => new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime());
+    const latest = chats[0];
+    if (!latest) return;
+    updateTab(currentTab.id, {
+      terminalItems: latest.messages as any,
+      data: { ...currentTab.data, chatId: latest.id },
+    });
+  }, [currentWorkstation?.id, currentTab?.id]); // intentionally narrow deps — fire only on project/tab switch
+
   const [homeMenuVisible, setHomeMenuVisible] = useState(false);
   const [homeMenuView, setHomeMenuView] = useState<'root' | 'attach'>('root');
   const inputMountDelay = hasChatStarted ? 0 : 300;
