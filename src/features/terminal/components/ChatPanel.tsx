@@ -114,6 +114,9 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
   }, []);
 
   // Load projects list (shown at top of sidebar so user can switch context).
+  // Re-fires when currentWorkstation.id changes so the brand-new project
+  // created by handleSendWithAutoProject lands in the sidebar without
+  // requiring an app reload.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -132,7 +135,7 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [currentWorkstation?.id]);
 
   // Auto-expand the active project folder when it changes
   useEffect(() => {
