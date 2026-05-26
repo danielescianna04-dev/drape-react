@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../../core/terminal/chatStore';
+import { persistChatMessagesSnapshotByTabId } from './chatSessionPersistence';
 import { useWorkstationStore } from '../../core/terminal/workstationStore';
 import { useUIStore } from '../../core/terminal/uiStore';
 import { TerminalItemType, TerminalItem } from '../../shared/types';
@@ -694,6 +695,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     prevAgentStreamingRef.current = agentStreaming;
     // Agent just finished (was running, now stopped)
     if (wasStreaming && !agentStreaming && currentTab?.id) {
+      // Snapshot the conversation into chatHistory now that the agent
+      // stream has actually finished. handleSend's own persist call at
+      // the bottom of its body never runs on the agent path — that
+      // branch returns early after startAgentModeSend, so without this
+      // hook the messages would only land in AsyncStorage when the
+      // user manually stops mid-stream.
+      persistChatMessagesSnapshotByTabId(currentTab.id);
+
       const { autoRetryPreview } = useUIStore.getState();
       if (autoRetryPreview) {
         useUIStore.getState().setAutoRetryPreview(false);
