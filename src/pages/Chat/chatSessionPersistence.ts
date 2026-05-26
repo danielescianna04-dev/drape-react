@@ -94,6 +94,7 @@ export const persistChatSessionOnSend = ({
     return;
   }
 
+  console.log('[PersistDebug] addChat', { chatId, repositoryId: currentWorkstation?.id, repositoryName: currentWorkstation?.name, title });
   useChatStore.getState().addChat({
     id: chatId,
     title,
@@ -123,13 +124,34 @@ export const persistChatMessagesSnapshotByTabId = (tabId?: string) => {
   }
 
   const chatId = freshTab.data.chatId;
+  const updatedMessages = freshTab?.terminalItems || [];
   const existingChat = useChatStore.getState().chatHistory.find((chat) => chat.id === chatId);
+
   if (!existingChat) {
+    // Lazy-create the chat record so we never silently drop a finished
+    // conversation just because persistChatSessionOnSend didn't run /
+    // bailed for any reason. Look up the workstation id from the global
+    // store; if there's none, fall back to anonymous (the hydration
+    // effect can still match by chatId on tab.data).
+    const ws = require('../../core/workstation/workstationStore').useWorkstationStore.getState().currentWorkstation;
+    const firstUserMsg = (updatedMessages.find((m: any) => m.type === 'user_message' || m.type === 'USER_MESSAGE') as any);
+    const title = (firstUserMsg?.content || 'Chat').slice(0, 60);
+    console.log('[PersistDebug] lazy addChat on snapshot', { chatId, repositoryId: ws?.id, msgs: updatedMessages.length });
+    useChatStore.getState().addChat({
+      id: chatId,
+      title,
+      description: title,
+      createdAt: new Date(),
+      lastUsed: new Date(),
+      messages: updatedMessages,
+      aiModel: 'unknown',
+      repositoryId: ws?.id,
+      repositoryName: ws?.name,
+    });
     return;
   }
 
-  const updatedMessages = freshTab?.terminalItems || [];
-
+  console.log('[PersistDebug] updateChat snapshot', { chatId, msgs: updatedMessages.length });
   useChatStore.getState().updateChat(chatId, {
     messages: updatedMessages,
     lastUsed: new Date(),
