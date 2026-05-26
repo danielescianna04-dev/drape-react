@@ -1,3 +1,12 @@
+// Polyfills required by @ai-sdk/react on React Native — must be imported
+// before any AI SDK code is evaluated (see ai-sdk Expo guide).
+import structuredClone from '@ungap/structured-clone';
+import '@stardazed/streams-text-encoding';
+
+if (typeof (globalThis as any).structuredClone !== 'function') {
+  (globalThis as any).structuredClone = structuredClone;
+}
+
 import { registerRootComponent } from 'expo';
 
 import App from './App';

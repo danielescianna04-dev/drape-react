@@ -1,6 +1,6 @@
 # API Reference
 
-Base URL: `https://drape.info`
+Base URL: `https://bynot.it`
 
 All protected endpoints require a Firebase ID token in the `Authorization: Bearer <token>` header.
 

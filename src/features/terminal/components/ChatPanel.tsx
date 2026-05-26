@@ -1,17 +1,21 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Dimensions, Keyboard, InteractionManager, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Dimensions, Keyboard, InteractionManager, Linking, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { BlurView } from 'expo-blur';
 import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeIn, FadeOut, Layout, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
 import { useChatStore } from '../../../core/terminal/chatStore';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
+import { workstationService } from '../../../core/workstation/workstationService';
+import type { WorkstationInfo } from '../../../shared/types';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
+import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import { ChatSession } from '../../../shared/types';
 import { FolderPickerModal } from './FolderPickerModal';
 import { tracciaNuovaChat, tracciaChatSelezionata, tracciaChatEliminata, tracciaChatRinominata, tracciaChatFissata, tracciaChatSpostataCartella, tracciaPannelloAperto } from '../../../core/services/analyticsService';
@@ -34,23 +38,69 @@ interface Props {
   onExit?: () => void;
 }
 
+const GRADIENT_PALETTES = [
+  ['#6D4CFF', '#9E86FF'], // Purple / Indigo (Brand)
+  ['#00D084', '#00F5A0'], // Emerald / Mint
+  ['#FF8E53', '#FF6B8B'], // Coral / Rose
+  ['#00c6ff', '#0072ff'], // Ocean Blue
+  ['#F355DA', '#7000FF'], // Neon Purple / Pink
+  ['#FF9966', '#FF5E62'], // Sunset Orange
+  ['#3A1C71', '#D76D77'], // Mauve
+  ['#11998e', '#38ef7d'], // Teal Green
+] as const;
+
+const getChatMetaTime = (date: Date | string | number | undefined): string => {
+  if (!date) return '';
+  const d = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return '';
+  const diff = Date.now() - d.getTime();
+  if (diff < 60_000) return 'now';
+  const mins = Math.floor(diff / 60_000);
+  const hours = Math.floor(diff / 3_600_000);
+  const days = Math.floor(diff / 86_400_000);
+  if (days > 0) return `${days}d`;
+  if (hours > 0) return `${hours}h`;
+  return `${mins}m`;
+};
+
+const ProjectChevron: React.FC<{ expanded: boolean }> = ({ expanded }) => {
+  const rotation = useSharedValue(expanded ? 1 : 0);
+  useEffect(() => {
+    rotation.value = withTiming(expanded ? 1 : 0, { duration: 180 });
+  }, [expanded, rotation]);
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value * 90}deg` }],
+  }));
+  return (
+    <Animated.View style={[{ marginLeft: 8 }, animStyle]}>
+      <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.4)" />
+    </Animated.View>
+  );
+};
+
 export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
   const { t } = useTranslation(['terminal', 'common']);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [projectSearchQuery, setProjectSearchQuery] = useState('');
+  const [showProjectSearch, setShowProjectSearch] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const menuButtonRefs = useRef<Record<string, View | null>>({});
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState('');
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
-  const [expandedNav, setExpandedNav] = useState<Record<string, boolean>>({ chat: true });
+  const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
+  const [expandedNav, setExpandedNav] = useState<Record<string, boolean>>({ projects: true });
+  const [projects, setProjects] = useState<WorkstationInfo[]>([]);
   const [folderPickerChat, setFolderPickerChat] = useState<ChatSession | null>(null);
   const [isPublished, setIsPublished] = useState(false);
   const {
     chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat,
     loadChats, loadFolders, pinChat, unpinChat, moveChatToFolder, deleteFolder,
+    currentChatSession,
   } = useChatStore();
-  const { currentWorkstation } = useWorkstationStore();
+  const { currentWorkstation, setWorkstation } = useWorkstationStore();
   const { addTab, tabs, removeTab, updateTab, setActiveTab } = useTabStore();
   const { user } = useAuthStore();
 
@@ -63,94 +113,263 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
     return () => task.cancel();
   }, []);
 
-  // Filter chats by current workspace and search query
-  const filteredChats = useMemo(() => {
-    return chatHistory.filter((chat) => {
-      const matchesSearch = chat.title.toLowerCase().includes(searchQuery.toLowerCase());
-      if (!currentWorkstation) {
-        return matchesSearch && !chat.repositoryId;
+  // Load projects list (shown at top of sidebar so user can switch context).
+  // Re-fires when currentWorkstation.id changes so the brand-new project
+  // created by handleSendWithAutoProject lands in the sidebar without
+  // requiring an app reload.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await workstationService.getWorkstations();
+        if (!cancelled) {
+          const sorted = [...list].sort((a, b) => {
+            const da = a.lastOpened ? new Date(a.lastOpened).getTime() : new Date(a.createdAt).getTime();
+            const db = b.lastOpened ? new Date(b.lastOpened).getTime() : new Date(b.createdAt).getTime();
+            return db - da;
+          });
+          setProjects(sorted);
+        }
+      } catch (_e) {
+        // best-effort
       }
-      const matchesWorkspace =
-        chat.repositoryId === currentWorkstation.id ||
-        chat.repositoryId === currentWorkstation.projectId;
-      return matchesSearch && matchesWorkspace;
-    });
-  }, [chatHistory, searchQuery, currentWorkstation]);
+    })();
+    return () => { cancelled = true; };
+  }, [currentWorkstation?.id]);
 
-  // Build chat sub-sections: Pinned -> Folders -> Recent
-  const chatSubSections = useMemo(() => {
-    const result: { key: string; title: string; icon?: string; folderId?: string; data: ChatSession[] }[] = [];
-
-    const pinned = filteredChats.filter((c) => c.pinned);
-    if (pinned.length > 0) {
-      result.push({ key: 'pinned', title: t('chat.pinned'), icon: 'pin', data: pinned });
+  // Auto-expand the active project folder when it changes
+  useEffect(() => {
+    if (currentWorkstation) {
+      setCollapsedProjects((prev) => ({
+        ...prev,
+        [currentWorkstation.id]: false,
+      }));
     }
+  }, [currentWorkstation?.id]);
 
-    for (const folder of chatFolders) {
-      const folderChats = filteredChats.filter((c) => c.folderId === folder.id && !c.pinned);
-      if (folderChats.length > 0) {
-        result.push({ key: `folder-${folder.id}`, title: folder.name, icon: 'folder', folderId: folder.id, data: folderChats });
-      }
+  // Filter projects/workstations by name search query
+  const filteredProjects = useMemo(() => {
+    if (!projectSearchQuery.trim()) {
+      return projects;
     }
+    return projects.filter((p) =>
+      p.name.toLowerCase().includes(projectSearchQuery.toLowerCase())
+    );
+  }, [projects, projectSearchQuery]);
 
-    const uncategorized = filteredChats.filter((c) => !c.pinned && !c.folderId);
-    if (uncategorized.length > 0) {
-      result.push({ key: 'recent', title: t('chat.recent'), data: uncategorized });
-    }
-
-    return result;
-  }, [filteredChats, chatFolders, t]);
-
-  // ── Navigation section toggle ────────────────────────────────────
-  // Shared values for chevron rotation per section
-  const chevronRotations: Record<string, SharedValue<number>> = {};
-  const useChevronRotation = (id: string, isExpanded: boolean) => {
-    const rotation = useSharedValue(isExpanded ? 1 : 0);
-    chevronRotations[id] = rotation;
-    return useAnimatedStyle(() => ({
-      transform: [{ rotate: `${rotation.value * 90}deg` }],
-    }));
-  };
-  const chatChevron = useChevronRotation('chat', !!expandedNav.chat);
-  const filesChevron = useChevronRotation('files', !!expandedNav.files);
-  const previewChevron = useChevronRotation('preview', !!expandedNav.preview);
-  const gitChevron = useChevronRotation('git', !!expandedNav.git);
-  const databaseChevron = useChevronRotation('database', !!expandedNav.database);
-  const chevronStyles: Record<string, any> = { chat: chatChevron, files: filesChevron, preview: previewChevron, git: gitChevron, database: databaseChevron };
-
+  // Toggle nav folder expansion
   const toggleNav = useCallback((id: string) => {
-    setExpandedNav(prev => {
-      const next = !prev[id];
-      if (chevronRotations[id]) {
-        chevronRotations[id].value = withTiming(next ? 1 : 0, { duration: 250 });
+    setExpandedNav((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  }, []);
+
+  // Toggle project folder expansion
+  const toggleProjectCollapse = useCallback((projectId: string) => {
+    setCollapsedProjects((prev) => ({
+      ...prev,
+      [projectId]: !prev[projectId],
+    }));
+  }, []);
+
+  const toggleProjectSearch = useCallback(() => {
+    setShowProjectSearch((prev) => !prev);
+    if (showProjectSearch) {
+      setProjectSearchQuery('');
+    }
+  }, [showProjectSearch]);
+
+  const toggleSearch = useCallback(() => {
+    setShowSearch((prev) => {
+      const next = !prev;
+      if (!next) {
+        setSearchQuery('');
       }
-      return { ...prev, [id]: next };
+      return next;
     });
   }, []);
 
-  const toggleSubSection = (key: string) => {
-    setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
+  // Filter chats by project ID or name and search query
+  const getChatsForProject = useCallback((projectId: string, projectName: string) => {
+    return chatHistory.filter((chat) => {
+      const matchesSearch = chat.title.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesProject =
+        chat.repositoryId === projectId ||
+        chat.repositoryName === projectName;
+      return matchesSearch && matchesProject;
+    });
+  }, [chatHistory, searchQuery]);
+
+  // General chats (no project)
+  const generalChats = useMemo(() => {
+    return chatHistory.filter((chat) => {
+      const matchesSearch = chat.title.toLowerCase().includes(searchQuery.toLowerCase());
+      const hasNoProject = !chat.repositoryId && !chat.repositoryName;
+      return matchesSearch && hasNoProject;
+    });
+  }, [chatHistory, searchQuery]);
 
   // ── Chat handlers ────────────────────────────────────────────────
-  const handleSelectChat = (chat: ChatSession) => {
+  const handleSelectChat = useCallback((chat: ChatSession) => {
     tracciaChatSelezionata(chat.title || 'Untitled');
     setCurrentChat(chat);
+    const targetTabId = `chat-${chat.id}`;
     const existingTab = tabs.find(t => t.type === 'chat' && t.data?.chatId === chat.id);
     if (existingTab) {
       setActiveTab(existingTab.id);
     } else {
       addTab({
-        id: `chat-${chat.id}`,
+        id: targetTabId,
         type: 'chat',
         title: chat.title || 'Chat',
         data: { chatId: chat.id },
         terminalItems: chat.messages || [],
       });
     }
+    // Close every other chat tab — only one chat is open at a time.
+    const otherChatTabs = useTabStore.getState().tabs.filter(
+      (t) => t.type === 'chat' && t.id !== targetTabId,
+    );
+    otherChatTabs.forEach((t) => removeTab(t.id));
     onHidePreview?.();
     handleClose();
-  };
+  }, [tabs, addTab, setActiveTab, setCurrentChat, removeTab, onHidePreview]);
+
+  const handleSelectChatWithProject = useCallback((chat: ChatSession, project: WorkstationInfo) => {
+    if (currentWorkstation?.id !== project.id) {
+      setWorkstation(project);
+    }
+    handleSelectChat(chat);
+  }, [currentWorkstation, setWorkstation, handleSelectChat]);
+
+  const handleSelectGeneralChat = useCallback((chat: ChatSession) => {
+    handleSelectChat(chat);
+  }, [handleSelectChat]);
+
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [newProjectNameInput, setNewProjectNameInput] = useState('');
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [renameProject, setRenameProject] = useState<WorkstationInfo | null>(null);
+  const [renameInput, setRenameInput] = useState('');
+  const [renamingProject, setRenamingProject] = useState(false);
+
+  const refreshProjects = useCallback(async () => {
+    try {
+      const list = await workstationService.getWorkstations();
+      const sorted = [...list].sort((a, b) => {
+        const da = a.lastOpened ? new Date(a.lastOpened).getTime() : new Date(a.createdAt).getTime();
+        const db = b.lastOpened ? new Date(b.lastOpened).getTime() : new Date(b.createdAt).getTime();
+        return db - da;
+      });
+      setProjects(sorted);
+    } catch {/* ignore */}
+  }, []);
+
+  const handleDeleteProject = useCallback((project: WorkstationInfo) => {
+    Alert.alert(
+      `Elimina "${project.name}"?`,
+      'Questa azione non può essere annullata.',
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Elimina',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await workstationService.deleteWorkstation(project.id);
+              if (currentWorkstation?.id === project.id) {
+                setWorkstation(null);
+              }
+              await refreshProjects();
+            } catch (err: any) {
+              Alert.alert('Errore', err?.message ?? "Impossibile eliminare il progetto");
+            }
+          },
+        },
+      ],
+    );
+  }, [currentWorkstation?.id, setWorkstation, refreshProjects]);
+
+  const openRenameProject = useCallback((project: WorkstationInfo) => {
+    setRenameInput(project.name);
+    setRenameProject(project);
+  }, []);
+
+  const confirmRenameProject = useCallback(async () => {
+    if (!renameProject) return;
+    const newName = renameInput.trim();
+    if (!newName || newName === renameProject.name || renamingProject) {
+      setRenameProject(null);
+      return;
+    }
+    setRenamingProject(true);
+    try {
+      await workstationService.updateWorkstation(renameProject.id, { name: newName });
+      if (currentWorkstation?.id === renameProject.id) {
+        setWorkstation({ ...currentWorkstation, name: newName });
+      }
+      await refreshProjects();
+      setRenameProject(null);
+      setRenameInput('');
+    } catch (err: any) {
+      Alert.alert('Errore', err?.message ?? "Impossibile rinominare il progetto");
+    } finally {
+      setRenamingProject(false);
+    }
+  }, [renameProject, renameInput, renamingProject, currentWorkstation, setWorkstation, refreshProjects]);
+
+  const onProjectLongPress = useCallback((project: WorkstationInfo) => {
+    Alert.alert(
+      project.name,
+      undefined,
+      [
+        { text: 'Annulla', style: 'cancel' },
+        { text: 'Rinomina', onPress: () => openRenameProject(project) },
+        { text: 'Elimina', style: 'destructive', onPress: () => handleDeleteProject(project) },
+      ],
+    );
+  }, [openRenameProject, handleDeleteProject]);
+
+  const openNewProjectModal = useCallback(() => {
+    setNewProjectNameInput('');
+    setShowNewProjectModal(true);
+  }, []);
+
+  const confirmNewProject = useCallback(async () => {
+    const name = newProjectNameInput.trim();
+    if (!name || creatingProject) return;
+    setCreatingProject(true);
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      const res = await fetch(`${config.apiUrl}/workstation/create-with-template`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName: name, technology: 'react' }),
+      });
+      const data = await res.json();
+      if (!data?.success) return;
+      const list = await workstationService.getWorkstations();
+      const sorted = [...list].sort((a, b) => {
+        const da = a.lastOpened ? new Date(a.lastOpened).getTime() : new Date(a.createdAt).getTime();
+        const db = b.lastOpened ? new Date(b.lastOpened).getTime() : new Date(b.createdAt).getTime();
+        return db - da;
+      });
+      setProjects(sorted);
+      const created = sorted.find((p) => p.id === data.projectId);
+      if (created) {
+        setWorkstation(created);
+        setShowNewProjectModal(false);
+        setNewProjectNameInput('');
+        onClose?.();
+      }
+    } catch (err: any) {
+      console.warn('[ChatPanel.confirmNewProject] failed', err?.message);
+    } finally {
+      setCreatingProject(false);
+    }
+  }, [newProjectNameInput, creatingProject, setWorkstation, onClose]);
 
   const handleNewChat = () => {
     const chatId = Date.now().toString();
@@ -165,15 +384,61 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
       repositoryName: currentWorkstation?.name,
     };
     useChatStore.getState().addChat(newChat);
+    const newTabId = `chat-${chatId}`;
     addTab({
-      id: `chat-${chatId}`,
+      id: newTabId,
       type: 'chat',
       title: t('terminal:chat.newConversation'),
       data: { chatId: chatId },
     });
+    // Close every other chat tab — only one chat is open at a time.
+    const otherChatTabs = useTabStore.getState().tabs.filter(
+      (t) => t.type === 'chat' && t.id !== newTabId,
+    );
+    otherChatTabs.forEach((t) => removeTab(t.id));
     tracciaNuovaChat('fullpage');
     handleClose();
   };
+
+  /**
+   * Open a project: select its single chat (auto-create one if missing).
+   * No expansion, no chevron — projects map 1:1 to their chat.
+   */
+  const handleOpenProject = useCallback((project: WorkstationInfo) => {
+    setWorkstation(project);
+    const existingChat = chatHistory.find(
+      (c) => c.repositoryId === project.id || c.repositoryName === project.name,
+    );
+    if (existingChat) {
+      handleSelectChat(existingChat);
+      return;
+    }
+    // Inline chat creation for this project — same shape as handleNewChat
+    const chatId = Date.now().toString();
+    const newChat = {
+      id: chatId,
+      title: t('terminal:chat.newConversation'),
+      createdAt: new Date(),
+      lastUsed: new Date(),
+      messages: [],
+      aiModel: 'gemini-2.0-flash-exp',
+      repositoryId: project.id,
+      repositoryName: project.name,
+    };
+    useChatStore.getState().addChat(newChat);
+    const newTabId = `chat-${chatId}`;
+    addTab({
+      id: newTabId,
+      type: 'chat',
+      title: t('terminal:chat.newConversation'),
+      data: { chatId },
+    });
+    const otherChatTabs = useTabStore.getState().tabs.filter(
+      (tab) => tab.type === 'chat' && tab.id !== newTabId,
+    );
+    otherChatTabs.forEach((tab) => removeTab(tab.id));
+    handleClose();
+  }, [chatHistory, setWorkstation, handleSelectChat, addTab, removeTab, t]);
 
   const handleMenuToggle = useCallback((chatId: string) => {
     if (openMenuId === chatId) {
@@ -472,132 +737,189 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
     handleClose();
   }, [tabs, setActiveTab, addTab]);
 
-  // ── Render helpers ────────────────────────────────────────────────
+  // ── Render tree-view components ──────────────────────────────────────────
 
-  const renderNavSectionHeader = (
-    id: string,
-    icon: keyof typeof Ionicons.glyphMap,
-    label: string,
-    count?: number,
-  ) => {
-    const isExpanded = expandedNav[id];
+  const renderChatLeaf = (chat: ChatSession, project?: WorkstationInfo) => {
+    const isActive = currentChatSession?.id === chat.id;
+    const timeMeta = getChatMetaTime(chat.lastUsed || chat.createdAt);
+
     return (
-      <Animated.View layout={Layout.duration(250)}>
-      <TouchableOpacity
-        style={styles.navSectionHeader}
-        onPress={() => toggleNav(id)}
-        activeOpacity={0.7}
-      >
-        <Ionicons name={icon} size={18} color="rgba(255,255,255,0.6)" />
-        <Text style={styles.navSectionLabel}>{label}</Text>
-        {count !== undefined && count > 0 && (
-          <View style={styles.navBadge}>
-            <Text style={styles.navBadgeText}>{count}</Text>
-          </View>
-        )}
-        <View style={{ flex: 1 }} />
-        <Animated.View style={chevronStyles[id]}>
-          <Ionicons
-            name="chevron-forward"
-            size={14}
-            color="rgba(255,255,255,0.25)"
-          />
-        </Animated.View>
-      </TouchableOpacity>
-      </Animated.View>
-    );
-  };
-
-  const renderActionItem = (
-    icon: keyof typeof Ionicons.glyphMap,
-    label: string,
-    onPress: () => void,
-    color?: string,
-  ) => (
-    <TouchableOpacity style={styles.actionItem} onPress={onPress} activeOpacity={0.7}>
-      <Ionicons name={icon} size={16} color={color || 'rgba(255,255,255,0.45)'} />
-      <Text style={[styles.actionItemText, color ? { color } : undefined]}>{label}</Text>
-      <Ionicons name="chevron-forward" size={12} color="rgba(255,255,255,0.15)" />
-    </TouchableOpacity>
-  );
-
-  const renderChatItem = (chat: ChatSession) => (
-    <View key={chat.id} style={styles.chatItemWrapper}>
-      {renamingChatId === chat.id ? (
-        isLiquidGlassSupported ? (
-          <LiquidGlassView
-            style={[
-              styles.renameContainer,
-              { backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 8 },
-            ]}
-            interactive={true}
-            effect="clear"
-            colorScheme="dark"
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <TextInput
-                style={styles.renameInput}
-                value={renamingValue}
-                onChangeText={setRenamingValue}
-                onSubmitEditing={() => handleRenameSubmit(chat.id)}
-                autoFocus
-                placeholder={t('terminal:chat.chatName')}
-                placeholderTextColor="rgba(255,255,255,0.4)"
-              />
-              <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
-                <Ionicons name="checkmark" size={18} color={AppColors.primary} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
-                <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
-              </TouchableOpacity>
-            </View>
-          </LiquidGlassView>
-        ) : (
-          <View style={styles.renameContainer}>
+      <View key={chat.id} style={styles.chatLeafWrapper}>
+        {renamingChatId === chat.id ? (
+          <View style={styles.renameLeafContainer}>
             <TextInput
-              style={styles.renameInput}
+              style={styles.renameLeafInput}
               value={renamingValue}
               onChangeText={setRenamingValue}
               onSubmitEditing={() => handleRenameSubmit(chat.id)}
               autoFocus
               placeholder={t('terminal:chat.chatName')}
-              placeholderTextColor="rgba(255,255,255,0.4)"
+              placeholderTextColor="rgba(255,255,255,0.3)"
             />
             <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
-              <Ionicons name="checkmark" size={18} color={AppColors.primary} />
+              <Ionicons name="checkmark" size={16} color={AppColors.primary} />
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
-              <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
+              <Ionicons name="close" size={16} color="rgba(255,255,255,0.5)" />
             </TouchableOpacity>
           </View>
-        )
-      ) : (
-        <TouchableOpacity
-          style={styles.chatItem}
-          onPress={() => handleSelectChat(chat)}
-          activeOpacity={0.7}
-        >
-          {chat.pinned && (
-            <Ionicons name="pin" size={12} color={AppColors.primary} style={{ marginRight: -4 }} />
-          )}
-          <Ionicons name={chat.id.startsWith('preview-') ? 'eye-outline' : 'chatbubble-outline'} size={16} color="rgba(255,255,255,0.5)" />
-          <Text style={styles.chatTitle} numberOfLines={1}>{chat.title.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s?/u, '')}</Text>
+        ) : (
           <View
             ref={(ref) => { menuButtonRefs.current[chat.id] = ref; }}
             collapsable={false}
           >
             <TouchableOpacity
-              onPress={() => handleMenuToggle(chat.id)}
-              style={styles.menuButton}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={[
+                styles.chatLeafRow,
+                isActive && styles.chatLeafRowActive
+              ]}
+              onPress={() => project ? handleSelectChatWithProject(chat, project) : handleSelectGeneralChat(chat)}
+              onLongPress={() => handleMenuToggle(chat.id)}
+              activeOpacity={0.7}
             >
-              <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.3)" />
+              {isActive && isLiquidGlassSupported && (
+                <LiquidGlassView
+                  style={[StyleSheet.absoluteFill, { borderRadius: 14, overflow: 'hidden' }]}
+                  interactive={true}
+                  effect="clear"
+                  colorScheme="dark"
+                />
+              )}
+              <Text
+                style={[
+                  styles.chatLeafTitle,
+                  isActive ? styles.chatLeafTitleActive : styles.chatLeafTitleInactive
+                ]}
+                numberOfLines={1}
+              >
+                {chat.title.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s?/u, '')}
+              </Text>
+
+              {isActive ? (
+                <ActivityIndicator
+                  size="small"
+                  color="rgba(255, 255, 255, 0.6)"
+                  style={styles.chatActiveSpinner}
+                />
+              ) : (
+                timeMeta ? <Text style={styles.chatLeafTime}>{timeMeta}</Text> : null
+              )}
             </TouchableOpacity>
           </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderProjectFolder = (project: WorkstationInfo) => {
+    const isSelectedProject =
+      currentWorkstation?.id === project.id ||
+      currentWorkstation?.projectId === project.id;
+
+    return (
+      <View key={project.id} style={styles.projectFolderContainer}>
+        <TouchableOpacity
+          style={styles.projectFolderRow}
+          onPress={() => handleOpenProject(project)}
+          onLongPress={() => onProjectLongPress(project)}
+          delayLongPress={350}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name="folder-outline"
+            size={18}
+            color="rgba(255,255,255,0.55)"
+            style={{ marginRight: 10 }}
+          />
+          <Text
+            style={[
+              styles.projectFolderName,
+              isSelectedProject && styles.projectFolderNameSelected,
+            ]}
+            numberOfLines={1}
+          >
+            {project.name}
+          </Text>
         </TouchableOpacity>
-      )}
-    </View>
-  );
+      </View>
+    );
+  };
+
+  const renderGeneralChatsFolder = () => {
+    if (generalChats.length === 0) return null;
+    const isExpanded = !collapsedProjects['general'];
+    return (
+      <View key="general" style={styles.projectFolderContainer}>
+        <TouchableOpacity
+          style={styles.projectFolderRow}
+          onPress={() => toggleProjectCollapse('general')}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name={isExpanded ? "folder-open-outline" : "folder-outline"}
+            size={18}
+            color="rgba(255,255,255,0.5)"
+            style={{ marginRight: 10 }}
+          />
+          <Text style={styles.projectFolderName}>General Conversations</Text>
+        </TouchableOpacity>
+        
+        {isExpanded && (
+          <View style={styles.projectChatsContainer}>
+            <View style={styles.treeIndentationGuide} />
+            <View style={styles.projectChatsList}>
+              {generalChats.map(chat => renderChatLeaf(chat))}
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderNavFolder = (id: string, icon: keyof typeof Ionicons.glyphMap, label: string, children: React.ReactNode) => {
+    const isExpanded = !!expandedNav[id];
+    return (
+      <View key={id} style={styles.projectFolderContainer}>
+        <TouchableOpacity
+          style={styles.projectFolderRow}
+          onPress={() => toggleNav(id)}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name={icon}
+            size={16}
+            color="rgba(255,255,255,0.4)"
+            style={{ marginRight: 8 }}
+          />
+          <Text style={styles.projectFolderName}>{label}</Text>
+        </TouchableOpacity>
+        
+        {isExpanded && (
+          <View style={styles.projectChatsContainer}>
+            <View style={styles.treeIndentationGuide} />
+            <View style={styles.projectChatsList}>
+              {children}
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderNavLeaf = (icon: keyof typeof Ionicons.glyphMap, label: string, onPress: () => void, color?: string) => {
+    return (
+      <TouchableOpacity
+        style={styles.chatLeafRow}
+        onPress={onPress}
+        activeOpacity={0.7}
+      >
+        <Ionicons name={icon} size={14} color={color || "rgba(255, 255, 255, 0.4)"} style={{ marginRight: 6 }} />
+        <Text style={[styles.chatLeafTitle, styles.chatLeafTitleInactive, color ? { color } : undefined]} numberOfLines={1}>
+          {label}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
 
   // Preview status
   const previewServerUrl = useUIStore((s) => s.previewServerUrl);
@@ -606,13 +928,12 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
 
   return (
     <>
-      <LinearGradient colors={['#111114', '#151519', '#1C1828', '#131316']} locations={[0, 0.3, 0.7, 1]} style={styles.container}>
+      <LinearGradient colors={['#151515', '#131313', '#111111']} locations={[0, 0.5, 1]} style={styles.container}>
         <View style={styles.containerInner}>
 
-          {/* Drape title */}
-          <Text style={styles.drawerTitle}>Drape</Text>
+          {/* New Conversation pill removed — actions live in the Projects header below. */}
 
-          {/* ═══ Scrollable sections ═══ */}
+          {/* ═══ Scrollable Sidebar Tree ═══ */}
           <ScrollView
             style={styles.content}
             contentContainerStyle={styles.contentContainer}
@@ -620,180 +941,140 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
             keyboardShouldPersistTaps="handled"
           >
 
-            {/* ── Chat Section ── */}
-            {renderNavSectionHeader('chat', 'chatbubbles-outline', 'Chat', filteredChats.length)}
-            {expandedNav.chat && (
-              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
+            {/* Projects Section Header */}
+            <View style={styles.projectsHeaderRow}>
+              <Text style={styles.projectsHeaderTitle}>Projects</Text>
+              <View style={styles.projectsHeaderActions}>
+                <TouchableOpacity
+                  onPress={toggleSearch}
+                  activeOpacity={0.7}
+                  style={styles.projectsHeaderActionButton}
+                  hitSlop={6}
+                >
+                  {isLiquidGlassSupported && (
+                    <LiquidGlassView
+                      style={[StyleSheet.absoluteFill, { borderRadius: 14, overflow: 'hidden' }]}
+                      interactive={true}
+                      effect="clear"
+                      colorScheme="dark"
+                    />
+                  )}
+                  <Ionicons
+                    name={showSearch ? 'close' : 'search-outline'}
+                    size={16}
+                    color="rgba(255,255,255,0.7)"
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={openNewProjectModal}
+                  activeOpacity={0.7}
+                  style={styles.projectsHeaderActionButton}
+                  hitSlop={6}
+                >
+                  {isLiquidGlassSupported && (
+                    <LiquidGlassView
+                      style={[StyleSheet.absoluteFill, { borderRadius: 14, overflow: 'hidden' }]}
+                      interactive={true}
+                      effect="clear"
+                      colorScheme="dark"
+                    />
+                  )}
+                  <Ionicons name="add" size={18} color="rgba(255,255,255,0.85)" />
+                </TouchableOpacity>
+              </View>
+            </View>
 
-                {/* Search + New Chat row */}
-                <View style={styles.searchRow}>
-                  <View style={styles.searchFlex}>
-                    <View style={styles.searchContainer}>
-                      {isLiquidGlassSupported && (
-                        <LiquidGlassView
-                          style={[StyleSheet.absoluteFill, { borderRadius: 24, overflow: 'hidden' }]}
-                          interactive={true}
-                          effect="clear"
-                          colorScheme="dark"
-                        />
-                      )}
-                      <Ionicons name="search" size={15} color="rgba(255,255,255,0.4)" />
-                      <TextInput
-                        style={styles.searchInput}
-                        value={searchQuery}
-                        onChangeText={setSearchQuery}
-                        placeholder={t('terminal:chat.searchChats')}
-                        placeholderTextColor="rgba(255,255,255,0.4)"
-                      />
-                    </View>
-                  </View>
-                  <TouchableOpacity onPress={handleNewChat} activeOpacity={0.7} style={styles.newChatBtn}>
-                    {isLiquidGlassSupported && (
-                      <LiquidGlassView
-                        style={[StyleSheet.absoluteFill, { borderRadius: 20, overflow: 'hidden' }]}
-                        interactive={true}
-                        effect="clear"
-                        colorScheme="dark"
-                      />
-                    )}
-                    <Ionicons name="add" size={20} color="rgba(255,255,255,0.85)" />
+            {showSearch && (
+              <Animated.View
+                entering={FadeIn}
+                exiting={FadeOut}
+                style={styles.collapsibleSearchContainer}
+              >
+                {isLiquidGlassSupported && (
+                  <LiquidGlassView
+                    style={[StyleSheet.absoluteFill, { borderRadius: 18, overflow: 'hidden' }]}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  />
+                )}
+                <Ionicons name="search-outline" size={14} color="rgba(255,255,255,0.4)" />
+                <TextInput
+                  style={styles.globalSearchInput}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Search conversations..."
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  autoFocus
+                />
+                {searchQuery ? (
+                  <TouchableOpacity onPress={() => setSearchQuery('')}>
+                    <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.4)" />
                   </TouchableOpacity>
-                </View>
-                {chatSubSections.length === 0 ? (
-                  <View style={styles.emptyState}>
-                    <Ionicons name="chatbubbles-outline" size={28} color="rgba(255,255,255,0.15)" />
-                    <Text style={styles.emptyText}>
-                      {searchQuery ? t('terminal:chat.noResults') : t('terminal:chat.noChats')}
-                    </Text>
-                  </View>
-                ) : (
-                  chatSubSections.map((section) => (
-                    <View key={section.key}>
-                      {/* Sub-section header (Pinned, Folders, Recent) */}
-                      <TouchableOpacity
-                        style={styles.subSectionHeader}
-                        onPress={() => toggleSubSection(section.key)}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons
-                          name={collapsedSections[section.key] ? 'chevron-forward' : 'chevron-down'}
-                          size={11}
-                          color="rgba(255,255,255,0.3)"
-                        />
-                        {section.icon && (
-                          <Ionicons name={section.icon as any} size={11} color="rgba(255,255,255,0.35)" />
-                        )}
-                        <Text style={styles.subSectionTitle}>{section.title}</Text>
-                        <Text style={styles.subSectionCount}>{section.data.length}</Text>
-                        {section.folderId && (
-                          <TouchableOpacity
-                            onPress={() => handleDeleteFolder(section.folderId!)}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            style={{ marginLeft: 'auto' }}
-                          >
-                            <Ionicons name="close-circle-outline" size={13} color="rgba(255,255,255,0.2)" />
-                          </TouchableOpacity>
-                        )}
-                      </TouchableOpacity>
-                      {/* Chat items */}
-                      {!collapsedSections[section.key] && section.data.map((chat) => renderChatItem(chat))}
-                    </View>
-                  ))
-                )}
+                ) : null}
               </Animated.View>
             )}
 
-            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
-
-            {/* ── File del progetto Section ── */}
-            {renderNavSectionHeader('files', 'folder-outline', 'File del progetto')}
-            {expandedNav.files && (
-              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
-                {renderActionItem('document-text-outline', 'Apri file browser', handleOpenFiles)}
-                {renderActionItem('server-outline', 'Variabili ambiente', handleOpenEnvVars)}
-              </Animated.View>
+            {/* Projects Filter Search Input */}
+            {showProjectSearch && (
+              <View style={styles.projectSearchContainer}>
+                <Ionicons name="search-outline" size={12} color="rgba(255,255,255,0.4)" style={styles.projectSearchIcon} />
+                <TextInput
+                  style={styles.projectSearchInput}
+                  value={projectSearchQuery}
+                  onChangeText={setProjectSearchQuery}
+                  placeholder="Filter projects..."
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  autoFocus
+                />
+                <TouchableOpacity onPress={() => { setShowProjectSearch(false); setProjectSearchQuery(''); }} style={styles.projectSearchCloseBtn}>
+                  <Ionicons name="close" size={12} color="rgba(255,255,255,0.6)" />
+                </TouchableOpacity>
+              </View>
             )}
 
-            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
-
-            {/* ── Preview Section ── */}
-            {renderNavSectionHeader('preview', 'eye-outline', 'Preview')}
-            {expandedNav.preview && (
-              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
-                {renderActionItem(
-                  hasPreview ? 'open-outline' : 'play-circle-outline',
-                  hasPreview ? 'Apri preview' : 'Avvia preview',
-                  handleOpenPreview,
-                  hasPreview ? '#00D084' : undefined,
-                )}
-                {hasPreview && (
-                  <View style={styles.statusRow}>
-                    <View style={[styles.statusDot, { backgroundColor: '#00D084' }]} />
-                    <Text style={styles.statusText}>Server attivo</Text>
-                  </View>
-                )}
-              </Animated.View>
-            )}
-
-            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
-
-            {/* ── Git Section ── */}
-            {renderNavSectionHeader('git', 'git-branch-outline', 'Git')}
-            {expandedNav.git && (
-              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
-                {renderActionItem('git-branch-outline', 'Pannello Git', handleOpenGit)}
-              </Animated.View>
-            )}
-
-            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
-
-            {/* ── Database Section ── */}
-            {renderNavSectionHeader('database', 'server-outline', 'Database')}
-            {expandedNav.database && (
-              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
-                {renderActionItem('server-outline', 'Gestisci database', handleOpenDatabase)}
-              </Animated.View>
-            )}
-
-            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
-
-            {/* ── Plugin Section (always visible) ── */}
-            {renderNavSectionHeader('plugins', 'cube-outline', 'Plugin')}
-            {expandedNav.plugins && (
-              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
-                {renderActionItem('cube-outline', 'I tuoi plugin + marketplace', handleOpenPlugins)}
-              </Animated.View>
-            )}
-
-            <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
-
-            {/* ── MCP Section (tool providers) ── */}
-            {renderNavSectionHeader('mcps' as any, 'extension-puzzle-outline', 'MCP')}
-            {expandedNav.mcps && (
-              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
-                {renderActionItem('extension-puzzle-outline', 'Server MCP installati + marketplace', handleOpenMcps)}
-              </Animated.View>
-            )}
-
-            {isPublished && (
-              <>
-                <Animated.View layout={Layout.duration(250)} style={styles.navDivider} />
-                {renderNavSectionHeader('insights', 'stats-chart-outline', 'Insights')}
-                {expandedNav.insights && (
-                  <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} layout={Layout.duration(250)} style={styles.navSectionContent}>
-                    {renderActionItem('stats-chart-outline', 'Analytics, versioni, dominio', handleOpenInsights)}
-                  </Animated.View>
-                )}
-              </>
-            )}
+            {/* Project Folders Tree */}
+            {filteredProjects.map((p) => renderProjectFolder(p))}
 
           </ScrollView>
 
-          {/* Bottom close button */}
-          <TouchableOpacity style={styles.bottomClose} onPress={() => onExit?.()} activeOpacity={0.7}>
-            <Ionicons name="log-out-outline" size={16} color="rgba(255,255,255,0.5)" />
-            <Text style={styles.bottomCloseText}>Esci</Text>
-          </TouchableOpacity>
+          {/* Bottom user pill: avatar + name + settings (liquid glass) */}
+          <View style={styles.bottomUserBar}>
+            <View style={styles.bottomUserPill}>
+              {isLiquidGlassSupported && (
+                <LiquidGlassView
+                  style={[StyleSheet.absoluteFill, { borderRadius: 22, overflow: 'hidden' }]}
+                  interactive={true}
+                  effect="clear"
+                  colorScheme="dark"
+                />
+              )}
+              <View style={styles.bottomUserAvatar}>
+                <Text style={styles.bottomUserAvatarText}>
+                  {(user?.displayName || user?.email || 'D').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <Text style={styles.bottomUserName} numberOfLines={1} ellipsizeMode="tail">
+                {user?.displayName || user?.email || 'Bynot'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.bottomSettingsBtn}
+              onPress={() => useNavigationStore.getState().navigateTo('settings')}
+              activeOpacity={0.7}
+              hitSlop={6}
+            >
+              {isLiquidGlassSupported && (
+                <LiquidGlassView
+                  style={[StyleSheet.absoluteFill, { borderRadius: 22, overflow: 'hidden' }]}
+                  interactive={true}
+                  effect="clear"
+                  colorScheme="dark"
+                />
+              )}
+              <Ionicons name="settings-outline" size={18} color="rgba(255,255,255,0.8)" />
+            </TouchableOpacity>
+          </View>
         </View>
       </LinearGradient>
 
@@ -872,6 +1153,215 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
         currentFolderId={folderPickerChat?.folderId}
       />
 
+      {/* Rename project modal — same liquid glass style as the new-project modal */}
+      <Modal
+        visible={!!renameProject}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRenameProject(null)}
+        statusBarTranslucent
+      >
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        <TouchableOpacity
+          style={styles.newProjectBackdrop}
+          activeOpacity={1}
+          onPress={() => !renamingProject && setRenameProject(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.newProjectCardWrap}>
+            <View style={styles.newProjectCard}>
+              {isLiquidGlassSupported ? (
+                <LiquidGlassView
+                  style={[StyleSheet.absoluteFill, { borderRadius: 28, overflow: 'hidden' }]}
+                  interactive={true}
+                  effect="clear"
+                  colorScheme="dark"
+                />
+              ) : (
+                <LinearGradient
+                  colors={['rgba(40, 38, 60, 0.85)', 'rgba(20, 18, 32, 0.92)']}
+                  style={[StyleSheet.absoluteFill, { borderRadius: 28 }]}
+                />
+              )}
+              <Text style={styles.newProjectTitle}>Rinomina progetto</Text>
+              <Text style={styles.newProjectSubtitle}>Scegli un nuovo nome</Text>
+              <View style={styles.newProjectInputWrap}>
+                {isLiquidGlassSupported && (
+                  <LiquidGlassView
+                    style={[StyleSheet.absoluteFill, { borderRadius: 16, overflow: 'hidden' }]}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  />
+                )}
+                <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.45)" style={{ marginLeft: 14 }} />
+                <TextInput
+                  value={renameInput}
+                  onChangeText={setRenameInput}
+                  placeholder="Nome progetto"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  style={styles.newProjectInput}
+                  autoFocus
+                  keyboardAppearance="dark"
+                  maxLength={50}
+                  onSubmitEditing={confirmRenameProject}
+                  returnKeyType="done"
+                  selectTextOnFocus
+                />
+              </View>
+              <View style={styles.newProjectActions}>
+                <TouchableOpacity
+                  style={styles.newProjectCancelBtn}
+                  onPress={() => setRenameProject(null)}
+                  disabled={renamingProject}
+                  activeOpacity={0.7}
+                >
+                  {isLiquidGlassSupported && (
+                    <LiquidGlassView
+                      style={[StyleSheet.absoluteFill, { borderRadius: 14, overflow: 'hidden' }]}
+                      interactive={true}
+                      effect="clear"
+                      colorScheme="dark"
+                    />
+                  )}
+                  <Text style={styles.newProjectCancelText}>Annulla</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.newProjectConfirmBtn,
+                    (!renameInput.trim() || renamingProject) && styles.newProjectConfirmBtnDisabled,
+                  ]}
+                  onPress={confirmRenameProject}
+                  disabled={!renameInput.trim() || renamingProject}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient
+                    colors={[AppColors.primary, '#8B6CFF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  {renamingProject ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.newProjectConfirmText}>Salva</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* New project modal — liquid glass */}
+      <Modal
+        visible={showNewProjectModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNewProjectModal(false)}
+        statusBarTranslucent
+      >
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        <TouchableOpacity
+          style={styles.newProjectBackdrop}
+          activeOpacity={1}
+          onPress={() => !creatingProject && setShowNewProjectModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.newProjectCardWrap}>
+            <View style={styles.newProjectCard}>
+              {isLiquidGlassSupported ? (
+                <LiquidGlassView
+                  style={[StyleSheet.absoluteFill, { borderRadius: 28, overflow: 'hidden' }]}
+                  interactive={true}
+                  effect="clear"
+                  colorScheme="dark"
+                />
+              ) : (
+                <LinearGradient
+                  colors={['rgba(40, 38, 60, 0.85)', 'rgba(20, 18, 32, 0.92)']}
+                  style={[StyleSheet.absoluteFill, { borderRadius: 28 }]}
+                />
+              )}
+
+              <Text style={styles.newProjectTitle}>Nuovo progetto</Text>
+              <Text style={styles.newProjectSubtitle}>Dai un nome al tuo prossimo capolavoro</Text>
+
+              <View style={styles.newProjectInputWrap}>
+                {isLiquidGlassSupported && (
+                  <LiquidGlassView
+                    style={[StyleSheet.absoluteFill, { borderRadius: 16, overflow: 'hidden' }]}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  />
+                )}
+                <Ionicons
+                  name="cube-outline"
+                  size={16}
+                  color="rgba(255,255,255,0.45)"
+                  style={{ marginLeft: 14 }}
+                />
+                <TextInput
+                  value={newProjectNameInput}
+                  onChangeText={setNewProjectNameInput}
+                  placeholder="Es. La mia app"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  style={styles.newProjectInput}
+                  autoFocus
+                  keyboardAppearance="dark"
+                  maxLength={50}
+                  onSubmitEditing={confirmNewProject}
+                  returnKeyType="done"
+                />
+              </View>
+
+              <View style={styles.newProjectActions}>
+                <TouchableOpacity
+                  style={styles.newProjectCancelBtn}
+                  onPress={() => setShowNewProjectModal(false)}
+                  disabled={creatingProject}
+                  activeOpacity={0.7}
+                >
+                  {isLiquidGlassSupported && (
+                    <LiquidGlassView
+                      style={[StyleSheet.absoluteFill, { borderRadius: 14, overflow: 'hidden' }]}
+                      interactive={true}
+                      effect="clear"
+                      colorScheme="dark"
+                    />
+                  )}
+                  <Text style={styles.newProjectCancelText}>Annulla</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.newProjectConfirmBtn,
+                    (!newProjectNameInput.trim() || creatingProject) && styles.newProjectConfirmBtnDisabled,
+                  ]}
+                  onPress={confirmNewProject}
+                  disabled={!newProjectNameInput.trim() || creatingProject}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient
+                    colors={[AppColors.primary, '#8B6CFF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  {creatingProject ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="arrow-forward" size={16} color="#fff" style={{ marginRight: 4 }} />
+                      <Text style={styles.newProjectConfirmText}>Crea</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
     </>
   );
 };
@@ -879,132 +1369,371 @@ export const ChatPanel = ({ onClose, onHidePreview, onExit }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#151515',
   },
   containerInner: {
     flex: 1,
-    paddingTop: 58,
+    paddingTop: 64,
     maxWidth: 300,
   },
-  drawerTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: 1,
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    paddingTop: 4,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 4,
-    marginBottom: 8,
-    gap: 8,
-  },
-  searchFlex: {
-    flex: 1,
-  },
-  newChatBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  topActionsContainer: {
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 24,
+    paddingBottom: 0,
     gap: 8,
   },
-  searchInput: {
+  topActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  newConversationButton: {
     flex: 1,
-    color: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 44,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    marginBottom: 0,
+    overflow: 'hidden',
+  },
+  newConversationButtonText: {
+    color: '#ffffff',
     fontSize: 13,
-    padding: 0,
-    height: 20,
+    fontWeight: '500',
+  },
+  searchCircleButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  collapsibleSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.10)',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    height: 36,
+    marginTop: 8,
+    gap: 8,
+    overflow: 'hidden',
+  },
+  topActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 28,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  topActionText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 13,
   },
   content: {
     flex: 1,
   },
   contentContainer: {
-    paddingLeft: 4,
-    paddingRight: 16,
-    paddingBottom: 20,
+    paddingBottom: 24,
   },
-
-  // ── Navigation section styles ──
-  navSectionHeader: {
+  globalSearchInput: {
+    flex: 1,
+    color: '#ffffff',
+    fontSize: 13,
+    padding: 0,
+    height: '100%',
+  },
+  projectsHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 40,
   },
-  navSectionLabel: {
+  projectsHeaderTitle: {
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  projectsHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  projectsHeaderActionButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  newProjectBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  newProjectCardWrap: {
+    width: '100%',
+    maxWidth: 380,
+  },
+  newProjectCard: {
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+    paddingTop: 28,
+    paddingBottom: 22,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(28, 26, 40, 0.55)',
+  },
+  newProjectIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginBottom: 14,
+    shadowColor: AppColors.primary,
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  newProjectTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  newProjectSubtitle: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    marginBottom: 22,
+    textAlign: 'center',
+  },
+  newProjectInputWrap: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    marginBottom: 20,
+    overflow: 'hidden',
+    minHeight: 50,
+  },
+  newProjectInput: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    color: '#fff',
+    fontSize: 15,
+  },
+  newProjectActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    width: '100%',
+  },
+  newProjectCancelBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  newProjectCancelText: {
+    color: 'rgba(255,255,255,0.85)',
     fontSize: 15,
     fontWeight: '500',
-    color: 'rgba(255,255,255,0.8)',
   },
-  navBadge: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 10,
-    paddingHorizontal: 7,
-    paddingVertical: 1,
-    minWidth: 20,
+  newProjectConfirmBtn: {
+    flexDirection: 'row',
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 14,
+    minWidth: 110,
     alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  navBadgeText: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.4)',
+  newProjectConfirmBtnDisabled: {
+    opacity: 0.4,
+  },
+  newProjectConfirmText: {
+    color: '#fff',
+    fontSize: 15,
     fontWeight: '600',
   },
-  navSectionContent: {
-    marginLeft: 8,
-    marginRight: 8,
-    marginBottom: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.06)',
+  projectSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    height: 26,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    gap: 6,
   },
-  navDivider: {
-    height: 0,
+  projectSearchIcon: {
+    marginRight: 2,
+  },
+  projectSearchInput: {
+    flex: 1,
+    color: '#ffffff',
+    fontSize: 11,
+    padding: 0,
+    height: '100%',
+  },
+  projectSearchCloseBtn: {
+    padding: 2,
+  },
+  projectFolderContainer: {
+    paddingHorizontal: 12,
     marginVertical: 1,
   },
-
-  // ── Action item styles ──
-  actionItem: {
+  projectFolderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 11,
-    paddingHorizontal: 16,
-    gap: 10,
+    height: 38,
+    paddingHorizontal: 6,
+    borderRadius: 6,
   },
-  actionItemText: {
+  projectFolderName: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.75)',
+    flex: 1,
+  },
+  projectFolderNameSelected: {
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  projectChatsContainer: {
+    position: 'relative',
+    paddingLeft: 18,
+  },
+  treeIndentationGuide: {
+    position: 'absolute',
+    left: 12,
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  projectChatsList: {
+    paddingVertical: 2,
+  },
+  emptyChatsText: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.25)',
+    paddingLeft: 8,
+    paddingVertical: 4,
+    fontStyle: 'italic',
+  },
+  chatLeafWrapper: {
+    position: 'relative',
+  },
+  chatLeafRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    marginVertical: 2,
+    minHeight: 36,
+    overflow: 'hidden',
+  },
+  chatLeafRowActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.10)',
+  },
+  chatLeafTitle: {
     flex: 1,
     fontSize: 14,
-    color: 'rgba(255,255,255,0.6)',
   },
-
-  // ── Status indicator ──
-  statusRow: {
+  chatLeafTitleActive: {
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  chatLeafTitleInactive: {
+    color: 'rgba(255, 255, 255, 0.6)',
+  },
+  chatActiveSpinner: {
+    marginRight: 6,
+    transform: [{ scale: 0.85 }],
+  },
+  chatLeafTime: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.30)',
+    marginRight: 4,
+  },
+  leafMenuButton: {
+    paddingHorizontal: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  renameLeafContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 4,
+    height: 26,
+    gap: 4,
+  },
+  renameLeafInput: {
+    flex: 1,
+    color: '#ffffff',
+    fontSize: 13,
+    padding: 0,
+    height: '100%',
+  },
+  renameAction: {
+    padding: 2,
+  },
+  extraSectionsContainer: {
+    marginTop: 8,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    marginHorizontal: 12,
+    marginVertical: 8,
+  },
+  statusRowLeaf: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 6,
   },
   statusDot: {
     width: 6,
@@ -1012,62 +1741,74 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   statusText: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.35)',
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.3)',
   },
-
-  // ── Chat sub-section styles ──
-  subSectionHeader: {
+  bottomClose: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+    gap: 8,
+  },
+  bottomCloseText: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  bottomUserBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingVertical: 7,
-    gap: 5,
+    paddingVertical: 12,
+    gap: 8,
   },
-  subSectionTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.35)',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  bottomUserPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    paddingRight: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.10)',
+    borderRadius: 22,
+    gap: 8,
+    overflow: 'hidden',
+    alignSelf: 'flex-start',
+    maxWidth: 200,
   },
-  subSectionCount: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.2)',
-    fontWeight: '500',
-  },
-  emptyState: {
+  bottomUserAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: AppColors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 32,
-    gap: 10,
   },
-  emptyText: {
+  bottomUserAvatarText: {
+    color: '#fff',
+    fontWeight: '700',
     fontSize: 13,
-    color: 'rgba(255,255,255,0.35)',
   },
-  chatItemWrapper: {
-    position: 'relative',
-  },
-  chatItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    gap: 10,
-  },
-  chatTitle: {
-    flex: 1,
+  bottomUserName: {
+    color: '#fff',
     fontSize: 14,
-    color: 'rgba(255,255,255,0.85)',
+    fontWeight: '500',
   },
-  menuButton: {
-    padding: 4,
-    opacity: 0.6,
+  bottomSettingsBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-
-  // ── Modal / Dropdown ──
   modalOverlay: {
     flex: 1,
     backgroundColor: 'transparent',
@@ -1086,7 +1827,7 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   dropdownInner: {
-    backgroundColor: 'rgba(30, 30, 30, 0.97)',
+    backgroundColor: 'rgba(25, 25, 25, 0.98)',
     borderRadius: 8,
     overflow: 'hidden',
   },
@@ -1104,41 +1845,5 @@ const styles = StyleSheet.create({
   dropdownText: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.85)',
-  },
-
-  // ── Rename ──
-  renameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginHorizontal: 4,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 8,
-    gap: 8,
-  },
-  renameInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 14,
-    padding: 0,
-  },
-  renameAction: {
-    padding: 4,
-  },
-
-  // ── Bottom ──
-  bottomClose: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
-    gap: 6,
-  },
-  bottomCloseText: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.5)',
   },
 });

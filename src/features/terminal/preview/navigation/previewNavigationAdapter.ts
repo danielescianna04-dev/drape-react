@@ -2,7 +2,7 @@
  * Navigation state and URL helpers for the preview WebView.
  *
  * Pure functions — no React, no side effects.
- * Understands both subdomain previews (project-xxx.drape.info)
+ * Understands both subdomain previews (project-xxx.bynot.it)
  * and legacy path-based previews (/preview/{id}/...).
  */
 
@@ -22,10 +22,10 @@ export interface PreviewNavigationState {
 // ── Internal helpers ───────────────────────────────────────────
 
 const PLATFORM_HOSTS = new Set([
-  'www.drape.info',
-  'dev.drape.info',
-  'api.drape.info',
-  'drape.info',
+  'www.bynot.it',
+  'dev.bynot.it',
+  'api.bynot.it',
+  'bynot.it',
 ]);
 
 function tryParseUrl(raw: string): URL | null {
@@ -37,7 +37,7 @@ function tryParseUrl(raw: string): URL | null {
 }
 
 function isSubdomain(hostname: string): boolean {
-  return hostname.endsWith('.drape.info') && !PLATFORM_HOSTS.has(hostname);
+  return hostname.endsWith('.bynot.it') && !PLATFORM_HOSTS.has(hostname);
 }
 
 // ── Public API ─────────────────────────────────────────────────

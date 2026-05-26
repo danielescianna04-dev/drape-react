@@ -1,120 +1,78 @@
-import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../../config/firebase';
-import { auth } from '../../config/firebase';
+import { supabase } from '../../lib/supabase/client';
 import type { WorkstationInfo, ProjectFolder } from '../../shared/types';
 
-const WORKSTATIONS_COLLECTION = 'workstations';
-const FOLDERS_COLLECTION = 'project_folders';
+/**
+ * v2 ProjectService — backed by Supabase `projects` table.
+ * "Workstation" concept from v1 (1 Docker container = 1 workstation) is replaced
+ * by Bynot projects in v2. Folders TBD (no schema yet).
+ */
 
-const getCurrentUserId = (): string | null => auth.currentUser?.uid ?? null;
+async function getCurrentUserId(): Promise<string | null> {
+  const { data } = await supabase.auth.getUser();
+  return data.user?.id ?? null;
+}
 
 export class ProjectService {
-  // Workstations
+  // Projects (ex-workstations)
   static async saveWorkstation(workstation: WorkstationInfo): Promise<string> {
-    const userId = getCurrentUserId();
+    const userId = await getCurrentUserId();
     if (!userId) throw new Error('User not authenticated');
 
-    try {
-      const docRef = await addDoc(collection(db, WORKSTATIONS_COLLECTION), {
-        ...workstation,
-        userId,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      });
-      return docRef.id;
-    } catch (error) {
-      console.error('Error saving workstation:', error);
-      throw error;
-    }
+    const { data, error } = await supabase
+      .from('projects')
+      .insert({
+        user_id: userId,
+        name: (workstation as any).name ?? 'Untitled',
+        description: (workstation as any).description ?? null,
+        template: (workstation as any).template ?? null,
+      })
+      .select('id')
+      .single();
+    if (error) throw error;
+    return data.id;
   }
 
   static async loadWorkstations(): Promise<WorkstationInfo[]> {
-    const userId = getCurrentUserId();
+    const userId = await getCurrentUserId();
     if (!userId) return [];
 
-    try {
-      const q = query(
-        collection(db, WORKSTATIONS_COLLECTION),
-        where('userId', '==', userId)
-      );
-      const querySnapshot = await getDocs(q);
-      
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as WorkstationInfo[];
-    } catch (error) {
-      console.error('Error loading workstations:', error);
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false });
+    if (error) {
+      console.error('[ProjectService] loadWorkstations:', error);
       return [];
     }
+    return (data ?? []) as unknown as WorkstationInfo[];
   }
 
   static async deleteWorkstation(workstationId: string): Promise<void> {
-    try {
-      await deleteDoc(doc(db, WORKSTATIONS_COLLECTION, workstationId));
-    } catch (error) {
-      console.error('Error deleting workstation:', error);
-      throw error;
-    }
+    const { error } = await supabase.from('projects').delete().eq('id', workstationId);
+    if (error) throw error;
   }
 
   static async updateWorkstation(workstationId: string, updates: Partial<WorkstationInfo>): Promise<void> {
-    try {
-      await updateDoc(doc(db, WORKSTATIONS_COLLECTION, workstationId), {
-        ...updates,
-        updatedAt: new Date()
-      });
-    } catch (error) {
-      console.error('Error updating workstation:', error);
-      throw error;
-    }
+    const { error } = await supabase
+      .from('projects')
+      .update(updates as any)
+      .eq('id', workstationId);
+    if (error) throw error;
   }
 
-  // Project Folders
-  static async saveFolder(folder: ProjectFolder): Promise<string> {
-    const userId = getCurrentUserId();
-    if (!userId) throw new Error('User not authenticated');
-
-    try {
-      const docRef = await addDoc(collection(db, FOLDERS_COLLECTION), {
-        ...folder,
-        userId,
-        createdAt: new Date()
-      });
-      return docRef.id;
-    } catch (error) {
-      console.error('Error saving folder:', error);
-      throw error;
-    }
+  // Project Folders — TODO v2: add `project_folders` table if needed.
+  // For now, stub returns empty array and warns on writes.
+  static async saveFolder(_folder: ProjectFolder): Promise<string> {
+    console.warn('[ProjectService] saveFolder: project_folders table not yet implemented in v2');
+    return '';
   }
 
   static async loadFolders(): Promise<ProjectFolder[]> {
-    const userId = getCurrentUserId();
-    if (!userId) return [];
-
-    try {
-      const q = query(
-        collection(db, FOLDERS_COLLECTION),
-        where('userId', '==', userId)
-      );
-      const querySnapshot = await getDocs(q);
-      
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as ProjectFolder[];
-    } catch (error) {
-      console.error('Error loading folders:', error);
-      return [];
-    }
+    return [];
   }
 
-  static async deleteFolder(folderId: string): Promise<void> {
-    try {
-      await deleteDoc(doc(db, FOLDERS_COLLECTION, folderId));
-    } catch (error) {
-      console.error('Error deleting folder:', error);
-      throw error;
-    }
+  static async deleteFolder(_folderId: string): Promise<void> {
+    console.warn('[ProjectService] deleteFolder: project_folders table not yet implemented in v2');
   }
 }

@@ -25,8 +25,7 @@ import { gitAccountService, GitAccount } from '../../../core/git/gitAccountServi
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { config } from '../../../config/config';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
-import { db, auth } from '../../../config/firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '../../../lib/supabase/client';
 import { tracciaRepoConnesso, tracciaRepoImportato } from '../../../core/services/analyticsService';
 
 interface Props {
@@ -182,20 +181,20 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
       ? currentWorkstation.id.substring(3)
       : currentWorkstation.id;
 
-    // Use setDoc with merge to handle both existing and non-existing documents
-    const docRef = doc(db, 'user_projects', cleanId);
-    await setDoc(docRef, {
-      repositoryUrl: repoUrl,
-      githubUrl: repoUrl,
-      githubAccountUsername: selectedAccount?.username,
-      name: currentWorkstation.name || projectName,
-      type: 'git',
-      userId: auth.currentUser?.uid || userId,
-      updatedAt: serverTimestamp(),
-      createdAt: serverTimestamp(), // Will only be set on creation, not updates
-      status: 'running',
-      lastAccessed: serverTimestamp(),
-    }, { merge: true });
+    // v2: persistenza repo collegato sul progetto in Supabase
+    const { data: userData } = await supabase.auth.getUser();
+    const uid = userData.user?.id ?? userId;
+    if (uid) {
+      const { error } = await supabase
+        .from('projects')
+        .update({
+          name: currentWorkstation.name || projectName,
+          description: `git: ${repoUrl}`,
+        })
+        .eq('id', cleanId)
+        .eq('user_id', uid);
+      if (error) console.warn('[ConnectRepoModal] updateWorkstationRepo:', error);
+    }
 
     // Update local state
     useWorkstationStore.getState().setWorkstation({

@@ -26,6 +26,8 @@ export const startAgentModeSend = ({
   scrollToBottom,
   startAgent,
   preThinkingIdRef,
+  reuseExistingThinkingId,
+  skipUserBubble,
 }: {
   userMessage: string;
   currentWorkstation: WorkstationInfo;
@@ -42,25 +44,39 @@ export const startAgentModeSend = ({
   scrollToBottom: (animated: boolean) => void;
   startAgent: (prompt: string, projectId: string, model: string, history: ChatHistoryItem[], images?: { base64: string; type: string }[], thinkingLevel?: string) => void;
   preThinkingIdRef: React.MutableRefObject<string | null>;
+  /** Already-mounted thinking placeholder (e.g. from the auto-create-project
+   * flow). When set, we adopt it as the engine bridge's preId instead of
+   * adding a fresh one — so the spinner the user is already watching
+   * becomes the real streaming placeholder with no flash. */
+  reuseExistingThinkingId?: string;
+  /** Skip mounting the user message bubble — the caller already rendered
+   * one (e.g. handleSendWithAutoProject did). */
+  skipUserBubble?: boolean;
 } & SharedAddTerminalItem) => {
-  addTerminalItem({
-    id: Date.now().toString(),
-    content: userMessage,
-    type: TerminalItemType.USER_MESSAGE,
-    timestamp: new Date(),
-    images: cleanImagesForStore,
-  });
+  if (!skipUserBubble) {
+    addTerminalItem({
+      id: Date.now().toString(),
+      content: userMessage,
+      type: TerminalItemType.USER_MESSAGE,
+      timestamp: new Date(),
+      images: cleanImagesForStore,
+    });
+  }
 
-  const preId = `pre-thinking-${Date.now()}`;
-  preThinkingIdRef.current = preId;
-  addTerminalItem({
-    id: preId,
-    content: '',
-    type: TerminalItemType.OUTPUT,
-    timestamp: new Date(),
-    isThinking: true,
-    thinkingContent: '',
-  });
+  if (reuseExistingThinkingId) {
+    preThinkingIdRef.current = reuseExistingThinkingId;
+  } else {
+    const preId = `pre-thinking-${Date.now()}`;
+    preThinkingIdRef.current = preId;
+    addTerminalItem({
+      id: preId,
+      content: '',
+      type: TerminalItemType.OUTPUT,
+      timestamp: new Date(),
+      isThinking: true,
+      thinkingContent: '',
+    });
+  }
 
   setInput('');
   setSelectedInputImages([]);

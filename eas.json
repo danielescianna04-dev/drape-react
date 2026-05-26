@@ -10,8 +10,8 @@
       "channel": "development",
       "env": {
         "EXPO_PUBLIC_ENV": "development",
-        "EXPO_PUBLIC_API_URL": "https://dev.drape.info",
-        "EXPO_PUBLIC_WS_URL": "wss://dev.drape.info"
+        "EXPO_PUBLIC_API_URL": "https://dev.bynot.it",
+        "EXPO_PUBLIC_WS_URL": "wss://dev.bynot.it"
       }
     },
     "preview": {
@@ -20,12 +20,12 @@
       "channel": "preview",
       "env": {
         "EXPO_PUBLIC_ENV": "development",
-        "EXPO_PUBLIC_API_URL": "https://dev.drape.info",
-        "EXPO_PUBLIC_WS_URL": "wss://dev.drape.info",
+        "EXPO_PUBLIC_API_URL": "https://dev.bynot.it",
+        "EXPO_PUBLIC_WS_URL": "wss://dev.bynot.it",
         "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyApLi3ZCoaJxE9PKV617LczwOGnffyHca4",
-        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "drape-dev.firebaseapp.com",
-        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "drape-dev",
-        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "drape-dev.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "bynot-dev.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "bynot-dev",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "bynot-dev.firebasestorage.app",
         "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "127888670449",
         "EXPO_PUBLIC_FIREBASE_APP_ID": "1:127888670449:web:d7de3fe78034aaa74b3350"
       },
@@ -44,8 +44,8 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_ENV": "production",
-        "EXPO_PUBLIC_API_URL": "https://drape.info",
-        "EXPO_PUBLIC_WS_URL": "wss://drape.info"
+        "EXPO_PUBLIC_API_URL": "https://bynot.it",
+        "EXPO_PUBLIC_WS_URL": "wss://bynot.it"
       },
       "android": {
         "buildType": "apk",

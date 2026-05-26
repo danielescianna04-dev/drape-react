@@ -1,9 +1,9 @@
 # Changelog — Aprile 2026
 
 ## Subdomain Preview System
-- **Wildcard DNS**: `*.drape.info` → server Hetzner
-- **Wildcard SSL**: Let's Encrypt con certificato per `*.drape.info`
-- **Nginx**: `preview-wildcard.conf` — proxy `project-xxx.drape.info` → container locale
+- **Wildcard DNS**: `*.bynot.it` → server Hetzner
+- **Wildcard SSL**: Let's Encrypt con certificato per `*.bynot.it`
+- **Nginx**: `preview-wildcard.conf` — proxy `project-xxx.bynot.it` → container locale
 - **Backend**: `createSubdomainPreviewProxy()` in `vm-router.ts`
 - **Frontend**: `PreviewWebView` e `usePreviewServerLifecycle` aggiornati per URL subdomain
 - Cache buster iOS (`&_=timestamp`) stripped dal proxy path
@@ -51,8 +51,8 @@
 
 ## Custom Start Command
 - Campo "Comando" nella card preview start screen
-- Salva in `.drape.json` nella root del progetto
-- `project-detector.service.ts` legge `.drape.json` e sovrascrive il comando auto-rilevato
+- Salva in `.bynot.json` nella root del progetto
+- `project-detector.service.ts` legge `.bynot.json` e sovrascrive il comando auto-rilevato
 
 ## Fix & Improvements
 - **Middleware Edge Runtime**: rimosso import `better-auth/cookies` dal middleware template (incompatibile con Edge)

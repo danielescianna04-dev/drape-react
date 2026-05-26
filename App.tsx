@@ -22,14 +22,13 @@ import { GitAuthPopup } from './src/features/terminal/components/GitAuthPopup';
 import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
 import { OfflineOverlay } from './src/shared/components/OfflineOverlay';
 import { InAppToast } from './src/shared/components/InAppToast';
-import { workstationService } from './src/core/workstation/workstationService-firebase';
+import { workstationService } from './src/core/workstation/workstationService';
 import { useUIStore } from './src/core/terminal/uiStore';
 import { useWorkstationStore } from './src/core/terminal/workstationStore';
 import { useTabStore } from './src/core/tabs/tabStore';
 import { useAuthStore } from './src/core/auth/authStore';
 import { useResumePendingJobs } from './src/core/ai/useResumePendingJobs';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from './src/config/firebase';
+import { supabase } from './src/lib/supabase/client';
 import { useChatStore } from './src/core/terminal/chatStore';
 import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
 import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
@@ -101,7 +100,7 @@ function MaintenanceScreen() {
         Manutenzione in corso
       </Text>
       <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 16, textAlign: 'center', lineHeight: 24 }}>
-        Stiamo migliorando Drape per offrirti un'esperienza ancora migliore.{'\n\n'}Torneremo online il{' '}
+        Stiamo migliorando Bynot per offrirti un'esperienza ancora migliore.{'\n\n'}Torneremo online il{' '}
         <Text style={{ color: '#A78BFA', fontWeight: '600' }}>9 Aprile 2026</Text>.
       </Text>
       <View style={{ marginTop: 40, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 16, backgroundColor: 'rgba(139, 92, 246, 0.12)', borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.25)' }}>
@@ -153,9 +152,11 @@ export default function App() {
   const { initialize } = useAuthStore();
   const consent = useConsentStore((state) => state.consent);
 
-  // Stream backend logs to terminal (always enabled when logged in)
+  // Stream backend logs to terminal — disabled: backend-v2 doesn't expose
+  // /ws yet (was a Hetzner-era WebSocket endpoint). Keeping the hook call so
+  // re-enabling later is a single-flag flip once the endpoint is back.
   const { isInitialized, user } = useAuthStore();
-  useBackendLogs({ enabled: isInitialized && !!user });
+  useBackendLogs({ enabled: false });
 
   // Reconcile any background generation jobs that may have completed while
   // the app was closed. Cleans up pendingJobs entries for terminal jobs;
@@ -403,8 +404,20 @@ export default function App() {
         loadingMessage={loadingMessage}
         onSkip={() => {
           if (user?.uid) {
-            setDoc(doc(db, 'users', user.uid), { firstProjectChoiceSkipped: true }, { merge: true })
-              .catch((err) => console.warn('[App] firstProjectChoiceSkipped save failed', err));
+            (async () => {
+              const { data: existing } = await supabase
+                .from('user_configs')
+                .select('preferences')
+                .eq('user_id', user.uid)
+                .maybeSingle();
+              const merged = {
+                ...((existing?.preferences as Record<string, unknown>) ?? {}),
+                firstProjectChoiceSkipped: true,
+              };
+              await supabase
+                .from('user_configs')
+                .upsert({ user_id: user.uid, preferences: merged as any });
+            })().catch((err) => console.warn('[App] firstProjectChoiceSkipped save failed', err));
             useAuthStore.setState(state => ({
               user: state.user ? { ...state.user, firstProjectChoiceSkipped: true } : state.user,
             }));
@@ -505,7 +518,7 @@ export default function App() {
                         createdAt: new Date(),
                         lastUsed: new Date(),
                         messages: [],
-                        aiModel: creationAgentRequest?.model || 'gemini-3-flash',
+                        aiModel: creationAgentRequest?.model || 'deepseek-v4-flash-free',
                         repositoryId: projectId,
                         repositoryName: workstation.name,
                       });

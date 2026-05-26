@@ -168,8 +168,8 @@ export function getTerminalHtml(wsUrl: string, authToken: string, projectId: str
       }
     } catch(e) {}
   }
-  window.__DRAPE_TERM_FOCUS = focusTerminal;
-  window.__DRAPE_TERM_SEND = function(encoded) {
+  window.__BYNOT_TERM_FOCUS = focusTerminal;
+  window.__BYNOT_TERM_SEND = function(encoded) {
     try {
       if (ws && ws.readyState === WebSocket.OPEN && encoded) {
         ws.send(JSON.stringify({ type: 'terminal_input', data: encoded }));

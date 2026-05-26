@@ -6,7 +6,7 @@
 - Neon DB si crea in 2 sec, auth tables (user/session/account/verification) create automaticamente
 - Schema SQL app (tasks, projects, team_members) generato dall'AI con vincoli corretti
 - Better Auth signup/login funzionano dal server (testato con curl — 200 OK)
-- Auth client con customFetchImpl gestisce il proxy Drape (signup fa redirect a /dashboard)
+- Auth client con customFetchImpl gestisce il proxy Bynot (signup fa redirect a /dashboard)
 - Cleanup DB su delete progetto funziona
 - Template protetti: auth files non vengono sovrascritti dall'AI
 - String length fix in PreviewPanel.tsx (limite 10MB su XHR SSE)
@@ -45,4 +45,4 @@
 - `backend-ts/deploy.sh` — rsync include templates
 - `src/features/terminal/components/PreviewPanel.tsx` — string length fix
 - `docs/superpowers/plans/` — 3 piani + overview
-- `STRATEGIA-DRAPE.md`, `ANALISI-TECNICA-DEEP.md`, `ANALISI-DATABASE-COSTI.md`
+- `STRATEGIA-BYNOT.md`, `ANALISI-TECNICA-DEEP.md`, `ANALISI-DATABASE-COSTI.md`

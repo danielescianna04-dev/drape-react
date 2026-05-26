@@ -1,4 +1,4 @@
-# Drape IDE - Piano Go-to-Market
+# Bynot IDE - Piano Go-to-Market
 
 ## Overview
 

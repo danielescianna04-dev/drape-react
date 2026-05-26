@@ -225,7 +225,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
 
   const startGitLabOAuth = async () => {
     // GitLab supports standard OAuth flow via browser
-    const redirectUri = AuthSession.makeRedirectUri({ scheme: 'drape', path: 'auth/callback' });
+    const redirectUri = AuthSession.makeRedirectUri({ scheme: 'bynot', path: 'auth/callback' });
 
     const response = await apiClient.post(`${API_BASE_URL}/oauth/gitlab/authorize`, {
       redirect_uri: redirectUri,
@@ -255,7 +255,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
 
   const startBitbucketOAuth = async () => {
     // Bitbucket supports standard OAuth flow via browser
-    const redirectUri = AuthSession.makeRedirectUri({ scheme: 'drape', path: 'auth/callback' });
+    const redirectUri = AuthSession.makeRedirectUri({ scheme: 'bynot', path: 'auth/callback' });
 
     const response = await apiClient.post(`${API_BASE_URL}/oauth/bitbucket/authorize`, {
       redirect_uri: redirectUri,

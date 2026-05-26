@@ -472,10 +472,10 @@ Expected: `✅ Deploy complete! Backend is healthy.`
 
 In a separate terminal, tail the dev logs:
 ```bash
-ssh -p 49222 root@77.42.1.116 'tail -f /var/log/drape-backend-dev.log' 2>&1 | grep -E "Verify|CreateProject|E2E|auto-fix|Fixed|passed|failed"
+ssh -p 49222 root@77.42.1.116 'tail -f /var/log/bynot-backend-dev.log' 2>&1 | grep -E "Verify|CreateProject|E2E|auto-fix|Fixed|passed|failed"
 ```
 
-- [ ] **Step 4: Create a test Next.js project on Drape Dev**
+- [ ] **Step 4: Create a test Next.js project on Bynot Dev**
 
 Create a project via the app. Watch the logs for:
 - `[Verify] Project ... passed on attempt 1` → success, no errors

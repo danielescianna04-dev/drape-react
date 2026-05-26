@@ -5,19 +5,19 @@
 
 ## Summary
 
-Replace Drape's custom agent loop with OpenCode (MIT licensed, open-source AI coding agent) running inside user project containers. OpenCode handles all AI interactions, tool execution, and file operations. The backend acts as an adapter translating OpenCode's JSON output into Drape's existing SSE event format. The frontend remains unchanged.
+Replace Bynot's custom agent loop with OpenCode (MIT licensed, open-source AI coding agent) running inside user project containers. OpenCode handles all AI interactions, tool execution, and file operations. The backend acts as an adapter translating OpenCode's JSON output into Bynot's existing SSE event format. The frontend remains unchanged.
 
 ## Architecture
 
 ```
-User (mobile app) → SSE POST /agent/run/fast → Backend Drape (adapter) → HTTP to OpenCode serve (:4096 in container) → OpenCode executes tools → Streaming JSON → Backend translates → SSE events → Frontend (unchanged)
+User (mobile app) → SSE POST /agent/run/fast → Backend Bynot (adapter) → HTTP to OpenCode serve (:4096 in container) → OpenCode executes tools → Streaming JSON → Backend translates → SSE events → Frontend (unchanged)
 ```
 
 ## Key Decisions
 
 1. **OpenCode mode:** `opencode serve` + `opencode run --attach` (persistent server, zero cold start)
 2. **Migration:** Full replacement, no fallback to old agent
-3. **Adapter location:** Backend translates OpenCode JSON → Drape SSE events. Frontend unchanged.
+3. **Adapter location:** Backend translates OpenCode JSON → Bynot SSE events. Frontend unchanged.
 4. **Sessions:** One OpenCode session per project. "New Chat" creates new session.
 5. **Config:** `opencode.json` for global config + `AGENTS.md` for per-project instructions
 
@@ -30,7 +30,7 @@ User (mobile app) → SSE POST /agent/run/fast → Backend Drape (adapter) → H
 - `claude-code-system-prompt.txt` — replaced by opencode.json + AGENTS.md
 
 ### Added
-- `opencode-adapter.service.ts` — translates OpenCode JSON → Drape SSE events
+- `opencode-adapter.service.ts` — translates OpenCode JSON → Bynot SSE events
 - `opencode.json` template — global config for containers
 - `AGENTS.md` per template — stack-specific instructions
 
@@ -48,7 +48,7 @@ User (mobile app) → SSE POST /agent/run/fast → Backend Drape (adapter) → H
 
 ## Event Mapping
 
-| OpenCode | Drape SSE |
+| OpenCode | Bynot SSE |
 |---|---|
 | content_delta | text_delta |
 | tool_call start | tool_start + tool_input |
@@ -60,7 +60,7 @@ User (mobile app) → SSE POST /agent/run/fast → Backend Drape (adapter) → H
 
 ## Model Mapping
 
-| Drape UI | OpenCode --model |
+| Bynot UI | OpenCode --model |
 |---|---|
 | Gemini 3.0 Flash | google/gemini-3-flash |
 | Gemini 3.1 Pro | google/gemini-3.1-pro |

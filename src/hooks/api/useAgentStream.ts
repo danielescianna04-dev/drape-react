@@ -131,16 +131,31 @@ const isLikelyNetworkError = (error: any): boolean => {
   const message = String(error?.message || '').toLowerCase();
   const type = String(error?.type || '').toLowerCase();
   const combined = `${type} ${message}`;
-  return (
-    combined.includes('network') ||
-    combined.includes('timeout') ||
-    combined.includes('timed out') ||
-    combined.includes('socket') ||
-    combined.includes('closed') ||
-    combined.includes('econn') ||
-    combined.includes('failed to fetch') ||
-    combined.includes('connection')
-  );
+  // react-native-sse sometimes surfaces errors in the device's locale (it/en),
+  // and an SSE drop mid-stream often arrives as a generic Error with xhrState=4.
+  // Treat both English and Italian network-error phrasings as recoverable, and
+  // also treat the generic "error" type when the underlying xhr completed (200)
+  // — that's the classic "connection lost mid-stream" case.
+  if (combined.includes('network') ||
+      combined.includes('timeout') ||
+      combined.includes('timed out') ||
+      combined.includes('socket') ||
+      combined.includes('closed') ||
+      combined.includes('econn') ||
+      combined.includes('failed to fetch') ||
+      combined.includes('connection') ||
+      combined.includes('connessione') ||   // it: "connessione"
+      combined.includes('persa') ||         // it: "persa" / "è stata persa"
+      combined.includes('rete') ||          // it: "rete"
+      combined.includes('interrotta')) {    // it: "interrotta"
+    return true;
+  }
+  // Generic SSE drop: type=error + xhr completed (state 4) with 2xx status =
+  // connection was OK then closed mid-stream → recoverable.
+  if (type === 'error' && error?.xhrState === 4 && (error?.xhrStatus ?? 0) >= 200 && (error?.xhrStatus ?? 0) < 400) {
+    return true;
+  }
+  return false;
 };
 
 const isLikelyAuthError = (error: any): boolean => {
@@ -556,11 +571,9 @@ export function useAgentStream(
           onError?.(errorMsg);
 
           // Force sign-out so the user gets redirected to login
-          import('firebase/auth').then(({ signOut: fbSignOut }) => {
-            import('../../config/firebase').then(({ auth: fbAuth }) => {
-              fbSignOut(fbAuth).catch(() => {});
-            });
-          }).catch(() => {});
+          import('../../lib/supabase/client')
+            .then(({ supabase }) => supabase.auth.signOut().catch(() => {}))
+            .catch(() => {});
           return;
         }
 

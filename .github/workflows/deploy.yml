@@ -1,4 +1,4 @@
-name: Deploy Drape App
+name: Deploy Bynot App
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
       - name: Setup Google Cloud CLI
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: drape-93229
+          project_id: bynot-93229
           
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker
@@ -29,7 +29,7 @@ jobs:
         run: |
           cd backend
           cat > .env << EOF
-          GOOGLE_CLOUD_PROJECT=drape-93229
+          GOOGLE_CLOUD_PROJECT=bynot-93229
           GITHUB_CLIENT_ID=${{ secrets.EXPO_PUBLIC_GITHUB_CLIENT_ID }}
           GITHUB_CLIENT_SECRET=${{ secrets.GITHUB_CLIENT_SECRET }}
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
@@ -46,7 +46,7 @@ jobs:
       - name: Get Backend URL
         id: get-url
         run: |
-          BACKEND_URL=$(gcloud run services describe drape-backend --region=us-central1 --format="value(status.url)")
+          BACKEND_URL=$(gcloud run services describe bynot-backend --region=us-central1 --format="value(status.url)")
           echo "backend_url=$BACKEND_URL" >> $GITHUB_OUTPUT
           echo "Backend deployed at: $BACKEND_URL"
           
@@ -75,7 +75,7 @@ jobs:
           EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
           EXPO_PUBLIC_FIREBASE_APP_ID=${{ secrets.EXPO_PUBLIC_FIREBASE_APP_ID }}
           EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID=${{ secrets.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID }}
-          EXPO_PUBLIC_GCP_PROJECT_ID=drape-93229
+          EXPO_PUBLIC_GCP_PROJECT_ID=bynot-93229
           EXPO_PUBLIC_GCP_REGION=us-central1
           EXPO_PUBLIC_GITHUB_CLIENT_ID=${{ secrets.EXPO_PUBLIC_GITHUB_CLIENT_ID }}
           EXPO_PUBLIC_API_URL=${{ needs.deploy-backend.outputs.backend_url }}

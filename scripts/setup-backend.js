@@ -4,7 +4,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const readline = require('readline');
 
-console.log('🔧 Setting up Drape Backend...\n');
+console.log('🔧 Setting up Bynot Backend...\n');
 
 const BACKEND_DIR = 'backend-ts';
 
@@ -40,7 +40,7 @@ async function setup() {
   }
 
   // Get project ID
-  const projectId = await askQuestion('Enter your Google Cloud Project ID', 'drape-mobile-ide');
+  const projectId = await askQuestion('Enter your Google Cloud Project ID', 'bynot-mobile-ide');
   console.log(`\n📋 Using project: ${projectId}\n`);
 
   // Set project
@@ -54,7 +54,7 @@ async function setup() {
 
   // Create service account
   console.log('👤 Creating service account...');
-  const createResult = exec(`gcloud iam service-accounts create drape-backend --display-name="Drape Backend Service Account" --project=${projectId} 2>&1`);
+  const createResult = exec(`gcloud iam service-accounts create bynot-backend --display-name="Bynot Backend Service Account" --project=${projectId} 2>&1`);
   
   if (createResult.includes('already exists')) {
     console.log('   Service account already exists');
@@ -64,7 +64,7 @@ async function setup() {
 
   // Grant permissions
   console.log('🔐 Granting Firestore permissions...');
-  exec(`gcloud projects add-iam-policy-binding ${projectId} --member="serviceAccount:drape-backend@${projectId}.iam.gserviceaccount.com" --role="roles/datastore.user"`);
+  exec(`gcloud projects add-iam-policy-binding ${projectId} --member="serviceAccount:bynot-backend@${projectId}.iam.gserviceaccount.com" --role="roles/datastore.user"`);
 
   // Create key
   console.log('🔑 Creating service account key...');
@@ -78,7 +78,7 @@ async function setup() {
     }
   }
 
-  exec(`gcloud iam service-accounts keys create ${keyPath} --iam-account=drape-backend@${projectId}.iam.gserviceaccount.com --project=${projectId}`);
+  exec(`gcloud iam service-accounts keys create ${keyPath} --iam-account=bynot-backend@${projectId}.iam.gserviceaccount.com --project=${projectId}`);
 
   // Update backend .env
   console.log('📝 Updating backend .env...');

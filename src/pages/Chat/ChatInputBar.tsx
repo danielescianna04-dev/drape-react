@@ -1,7 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, Pressable,
-  StyleSheet, Platform,
+  StyleSheet, Platform, Image, ScrollView,
 } from 'react-native';
 import Animated, { SharedValue, useAnimatedStyle } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,27 +16,36 @@ import { SlashMenu } from './SlashMenu';
 
 // ── AI Models ───────────────────────────────────────────────────────
 // Icon components
-const AnthropicIcon = ({ size = 16 }: { size?: number }) => (
-  <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#D4A574', justifyContent: 'center', alignItems: 'center' }}>
-    <Text style={{ color: '#fff', fontSize: size * 0.6, fontWeight: '900' }}>A</Text>
-  </View>
-);
-const OpenAIIcon = ({ size = 16 }: { size?: number }) => (
-  <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#10A37F', justifyContent: 'center', alignItems: 'center' }}>
-    <Text style={{ color: '#fff', fontSize: size * 0.55, fontWeight: '800' }}>G</Text>
-  </View>
-);
-const GoogleIcon = ({ size = 16 }: { size?: number }) => (
-  <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#4285F4', justifyContent: 'center', alignItems: 'center' }}>
-    <Text style={{ color: '#fff', fontSize: size * 0.55, fontWeight: '800' }}>G</Text>
-  </View>
-);
+const createLetterIcon = (letter: string, color: string) => {
+  return ({ size = 16 }: { size?: number }) => (
+    <View style={{
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      backgroundColor: color,
+      justifyContent: 'center',
+      alignItems: 'center',
+    }}>
+      <Text style={{
+        color: '#ffffff',
+        fontSize: size * 0.65,
+        fontWeight: 'bold',
+        lineHeight: size * 0.75,
+        textAlign: 'center',
+      }}>{letter}</Text>
+    </View>
+  );
+};
+
+const DeepSeekIcon = createLetterIcon('D', '#007AFF');
+const QwenIcon = createLetterIcon('Q', '#00A896');
+const GemmaIcon = createLetterIcon('G', '#34A853');
 
 export const AI_MODELS = [
-  { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', IconComponent: AnthropicIcon, hasThinking: true, thinkingLevels: ['medium'] },
-  { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
-  { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['low', 'high'] },
-  { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'minimal', 'low', 'medium', 'high'] },
+  { id: 'openrouter/deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro', IconComponent: DeepSeekIcon, hasThinking: false, thinkingLevels: [] as readonly string[] },
+  { id: 'openrouter/deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', IconComponent: DeepSeekIcon, hasThinking: false, thinkingLevels: [] as readonly string[] },
+  { id: 'openrouter/qwen/qwen3-coder', name: 'Qwen3 Coder', IconComponent: QwenIcon, hasThinking: false, thinkingLevels: [] as readonly string[] },
+  { id: 'openrouter/google/gemma-4-31b-it:free', name: 'Gemma 4 31B (free)', IconComponent: GemmaIcon, hasThinking: false, thinkingLevels: [] as readonly string[] },
 ] as const;
 
 // ── Props ───────────────────────────────────────────────────────────
@@ -57,6 +66,8 @@ export interface ChatInputBarProps {
 
   // Images
   hasImages: boolean;
+  selectedImages?: Array<{ uri: string }>;
+  onRemoveImage?: (index: number) => void;
 
   // Model
   selectedModel: string;
@@ -102,6 +113,87 @@ export interface ChatInputBarProps {
   onOpenEnvVars?: () => void;
 }
 
+const TYPEWRITER_PHRASES = [
+  'Ask Bynot to create a presentation about…',
+  'Ask Bynot to build a landing page for my…',
+  'Ask Bynot to design an app that…',
+  'Ask Bynot to make a dashboard for…',
+  'Ask Bynot to generate a report on…',
+  'Ask Bynot to build a SaaS for…',
+  'Ask Bynot to clone Airbnb but for…',
+  'Ask Bynot to design a portfolio site for…',
+  'Ask Bynot to make a CRM that…',
+  'Ask Bynot to build an AI chatbot for…',
+  'Ask Bynot to create a marketplace for…',
+  'Ask Bynot to build a habit tracker that…',
+  'Ask Bynot to design a todo app with…',
+  'Ask Bynot to make a recipe app for…',
+  'Ask Bynot to build a budget tracker that…',
+  'Ask Bynot to create a meditation app for…',
+  'Ask Bynot to design a fitness tracker that…',
+  'Ask Bynot to build a chat app for…',
+  'Ask Bynot to make a blog for…',
+  'Ask Bynot to build a booking system for…',
+  'Ask Bynot to design a pricing page for…',
+  'Ask Bynot to create an admin panel for…',
+  'Ask Bynot to build a kanban board for…',
+  'Ask Bynot to make a quiz app about…',
+  'Ask Bynot to build a music player that…',
+  'Ask Bynot to design a checkout flow for…',
+  'Ask Bynot to create a survey tool for…',
+  'Ask Bynot to build a calendar app for…',
+  'Ask Bynot to make an invoice generator for…',
+  'Ask Bynot to build a notes app with…',
+  'Ask Bynot to design an analytics dashboard for…',
+  'Ask Bynot to clone Twitter but for…',
+  'Ask Bynot to build a course platform for…',
+  'Ask Bynot to make a job board for…',
+  'Ask Bynot to build a recipe sharing site for…',
+];
+
+const useTypewriter = (phrases: string[]): string => {
+  const [text, setText] = useState('');
+  const idxRef = useRef(0);
+  const charRef = useRef(0);
+  const deletingRef = useRef(false);
+
+  useEffect(() => {
+    let mounted = true;
+    let timeout: ReturnType<typeof setTimeout>;
+
+    const tick = () => {
+      if (!mounted) return;
+      const current = phrases[idxRef.current % phrases.length];
+      if (!deletingRef.current) {
+        charRef.current += 1;
+        setText(current.slice(0, charRef.current));
+        if (charRef.current >= current.length) {
+          deletingRef.current = true;
+          timeout = setTimeout(tick, 1800);
+          return;
+        }
+        timeout = setTimeout(tick, 38);
+      } else {
+        charRef.current -= 1;
+        setText(current.slice(0, Math.max(0, charRef.current)));
+        if (charRef.current <= 0) {
+          deletingRef.current = false;
+          idxRef.current += 1;
+          timeout = setTimeout(tick, 250);
+          return;
+        }
+        timeout = setTimeout(tick, 18);
+      }
+    };
+
+    timeout = setTimeout(tick, 400);
+    return () => { mounted = false; clearTimeout(timeout); };
+  }, [phrases]);
+
+  return text;
+};
+
+
 export const ChatInputBar = React.memo(({
   input,
   onChangeText,
@@ -112,6 +204,8 @@ export const ChatInputBar = React.memo(({
   isStreaming,
   isLoading,
   hasImages,
+  selectedImages,
+  onRemoveImage,
   selectedModel,
   currentModelName,
   showModelSelector,
@@ -142,6 +236,8 @@ export const ChatInputBar = React.memo(({
 }: ChatInputBarProps) => {
   const { t } = useTranslation(['chat', 'terminal']);
   const currentPlan = useAuthStore((s) => s.user?.plan);
+  const [buildPlanMode, setBuildPlanMode] = useState<'build' | 'plan'>('build');
+  const [showBuildPlanSelector, setShowBuildPlanSelector] = useState(false);
 
   const thinkingLevelLabels = useMemo<Record<string, string>>(() => ({
     none: t('terminal:chat.reasoningLevels.off'),
@@ -153,13 +249,14 @@ export const ChatInputBar = React.memo(({
 
   const isBusy = isStreaming || isLoading;
   const hasContent = input.trim().length > 0 || hasImages;
+  const animatedPlaceholder = useTypewriter(TYPEWRITER_PHRASES);
 
   return (
     <>
       <View
         testID={inputBarGlassId}
         nativeID={inputBarGlassId}
-        style={[styles.container, hasImages && styles.containerWithImages]}
+        style={[styles.container, hasImages && styles.containerCompactTop]}
         onLayout={onLayout}
       >
         {!glassApplied && (
@@ -169,76 +266,72 @@ export const ChatInputBar = React.memo(({
           />
         )}
 
-        {/* ── Top Controls ── */}
-        <View style={styles.topControls}>
-          {/* Spacer — mode toggle removed, all input goes through AI */}
-          <View />
-
-          {/* Right controls */}
-          <View style={styles.rightControls}>
-            {/* Budget bar */}
-            {!isPaidUser && budgetInfo && (
-              <TouchableOpacity onPress={onBudgetPress} activeOpacity={0.7} style={styles.budgetBtn}>
-                <View style={styles.budgetTrack}>
-                  <View style={[styles.budgetFill, {
-                    width: `${Math.min(budgetInfo.percent, 100)}%` as `${number}%`,
-                    backgroundColor: budgetInfo.percent >= 85 ? '#FF6B6B' : budgetInfo.percent >= 60 ? '#FFB86C' : '#10B981',
-                  }]} />
-                </View>
-              </TouchableOpacity>
-            )}
-
-            {/* Context usage ring */}
-            {contextUsage > 0 && (() => {
-              const sz = 18, sw = 2;
-              const r = (sz - sw) / 2;
-              const c = 2 * Math.PI * r;
-              const off = c * (1 - contextUsage / 100);
-              const col = contextUsage >= 90 ? '#FF6B6B' : contextUsage >= 60 ? '#FFB86C' : 'rgba(255,255,255,0.25)';
-              return (
-                <TouchableOpacity onPress={() => onToggleContextInfo(true)} activeOpacity={0.7} style={{ width: sz, height: sz, justifyContent: 'center', alignItems: 'center' }}>
-                  <Svg width={sz} height={sz} style={{ transform: [{ rotate: '-90deg' }] }}>
-                    <Circle cx={sz / 2} cy={sz / 2} r={r} stroke="rgba(255,255,255,0.08)" strokeWidth={sw} fill="none" />
-                    <Circle cx={sz / 2} cy={sz / 2} r={r} stroke={col} strokeWidth={sw} fill="none" strokeDasharray={`${c}`} strokeDashoffset={off} strokeLinecap="round" />
-                  </Svg>
-                </TouchableOpacity>
-              );
-            })()}
-
-            {/* Model selector */}
-            <TouchableOpacity style={styles.modelBtn} onPress={onToggleModelSelector}>
-              <SafeText style={styles.modelText}>{currentModelName}</SafeText>
-              <Ionicons name={showModelSelector ? 'chevron-up' : 'chevron-down'} size={12} color="rgba(255,255,255,0.4)" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
         {/* ── Slash menu (active when input starts with `/`) ── */}
         <SlashMenu value={input} onSelect={(v) => onChangeText(v)} />
 
-        {/* ── Main Input Row ── */}
-        <View collapsable={false} style={styles.inputRow}>
+        {/* ── Selected images preview (inside the input card, above the text) ── */}
+        {selectedImages && selectedImages.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.imagesRow}
+          >
+            {selectedImages.map((image, index) => (
+              <View key={`${image.uri}-${index}`} style={styles.imageItem}>
+                <Image source={{ uri: image.uri }} style={styles.imageThumb} />
+                <TouchableOpacity
+                  style={styles.imageRemoveBtn}
+                  onPress={() => onRemoveImage?.(index)}
+                  activeOpacity={0.7}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={11} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        )}
+
+        {/* ── Main Input (Lovable-style) ── */}
+        <TextInput
+          style={styles.input}
+          value={input}
+          onChangeText={onChangeText}
+          placeholder={agentMode === 'terminal' ? '$ comando...' : animatedPlaceholder || 'Ask Bynot to…'}
+          placeholderTextColor="rgba(255,255,255,0.45)"
+          multiline
+          maxLength={1000}
+          onSubmitEditing={onSend}
+          keyboardAppearance="dark"
+          autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+          autoComplete="off"
+          textContentType="none"
+          keyboardType="default"
+        />
+
+        <View collapsable={false} style={styles.actionsRow}>
           <TouchableOpacity style={styles.toolsBtn} onPress={onToolsPress} activeOpacity={0.7}>
-            <Ionicons name="add" size={24} color="rgba(255,255,255,0.4)" />
+            <Ionicons name="add" size={24} color="rgba(255,255,255,0.9)" />
           </TouchableOpacity>
 
-          <TextInput
-            style={styles.input}
-            value={input}
-            onChangeText={onChangeText}
-            placeholder={agentMode === 'terminal' ? '$ comando...' : t('chat:placeholderFast')}
-            placeholderTextColor={AppColors.dark.bodyText}
-            multiline
-            maxLength={1000}
-            onSubmitEditing={onSend}
-            keyboardAppearance="dark"
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck={false}
-            autoComplete="off"
-            textContentType="none"
-            keyboardType="default"
-          />
+          <View style={{ flex: 1 }} />
+
+          <TouchableOpacity
+            style={styles.planBuildPill}
+            onPress={() => setShowBuildPlanSelector(true)}
+            activeOpacity={0.7}
+          >
+            <SafeText style={styles.planBuildText}>
+              {buildPlanMode === 'build' ? 'Build' : 'Plan'}
+            </SafeText>
+            <Ionicons name="chevron-down" size={14} color="#fff" />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.micBtn} activeOpacity={0.7}>
+            <Ionicons name="mic-outline" size={20} color="rgba(255,255,255,0.9)" />
+          </TouchableOpacity>
 
           <TouchableOpacity
             onPress={isBusy ? onStop : onSend}
@@ -248,15 +341,15 @@ export const ChatInputBar = React.memo(({
               isBusy
                 ? { backgroundColor: 'rgba(255,80,80,0.15)' }
                 : hasContent
-                  ? { backgroundColor: AppColors.primary }
-                  : { backgroundColor: 'transparent', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+                  ? { backgroundColor: '#E5E5E5' }
+                  : { backgroundColor: 'rgba(255,255,255,0.18)' },
             ]}
             activeOpacity={0.7}
           >
             <Ionicons
               name={isBusy ? 'stop' : 'arrow-up'}
-              size={16}
-              color={isBusy ? '#FF5050' : hasContent ? '#fff' : 'rgba(255,255,255,0.3)'}
+              size={18}
+              color={isBusy ? '#FF5050' : hasContent ? '#000' : 'rgba(255,255,255,0.85)'}
             />
           </TouchableOpacity>
         </View>
@@ -336,12 +429,65 @@ export const ChatInputBar = React.memo(({
         </>
       )}
 
+      {/* ── Build / Plan Dropdown ── */}
+      {showBuildPlanSelector && (
+        <>
+          <Pressable
+            style={styles.dropdownOverlay}
+            onPress={() => setShowBuildPlanSelector(false)}
+          />
+          <View style={styles.buildPlanDropdown}>
+            <TouchableOpacity
+              style={styles.buildPlanDropdownItem}
+              onPress={() => {
+                setBuildPlanMode('build');
+                setShowBuildPlanSelector(false);
+              }}
+            >
+              <View style={styles.buildPlanItemLeft}>
+                {buildPlanMode === 'build' ? (
+                  <Ionicons name="checkmark" size={16} color="#fff" />
+                ) : (
+                  <View style={{ width: 16 }} />
+                )}
+              </View>
+              <View style={styles.buildPlanItemTextContainer}>
+                <SafeText style={styles.buildPlanItemTitle}>Build</SafeText>
+                <SafeText style={styles.buildPlanItemSubtitle}>Make changes directly</SafeText>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.buildPlanDropdownItem}
+              onPress={() => {
+                setBuildPlanMode('plan');
+                setShowBuildPlanSelector(false);
+              }}
+            >
+              <View style={styles.buildPlanItemLeft}>
+                {buildPlanMode === 'plan' ? (
+                  <Ionicons name="checkmark" size={16} color="#fff" />
+                ) : (
+                  <View style={{ width: 16 }} />
+                )}
+              </View>
+              <View style={styles.buildPlanItemTextContainer}>
+                <SafeText style={styles.buildPlanItemTitle}>Plan</SafeText>
+                <SafeText style={styles.buildPlanItemSubtitle}>Discuss before building</SafeText>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
+
       {/* ── Context Info Tooltip ── */}
       {showContextInfo && (() => {
         const contextWindows: Record<string, number> = {
-          'claude-4-7-opus': 1000000, 'claude-opus-4-7': 1000000, 'claude-4-6-opus': 1000000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
-          'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3-0-flash': 1000000, 'gemini-3.1-pro': 1000000, 'gemini-3-1-pro': 1000000,
-          'gpt-5-4': 128000, 'glm-5.1': 202752, 'llama-3.3-70b': 128000,
+          'deepseek-v4-flash-free': 128000,
+          'qwen3.6-plus-free': 128000,
+          'nemotron-3-super-free': 128000,
+          'minimax-m2.5-free': 128000,
+          'big-pickle': 128000,
         };
         const windowK = Math.round((contextWindows[selectedModel] || 200000) / 1000);
         const compactionAt = 90;
@@ -376,13 +522,20 @@ ChatInputBar.displayName = 'ChatInputBar';
 // ── Styles ──────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 28,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#1F1F25',
     elevation: 8,
-    marginHorizontal: 20,
+    marginHorizontal: 14,
+    paddingTop: 16,
+    paddingBottom: 10,
+    paddingHorizontal: 6,
     zIndex: 10,
     overflow: 'hidden',
+  },
+  containerCompactTop: {
+    paddingTop: 6,
   },
   containerWithImages: {
     borderTopLeftRadius: 0,
@@ -463,6 +616,68 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.4)',
     fontWeight: '500',
   },
+  planBuildPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: 'transparent',
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  planBuildText: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '500',
+    letterSpacing: 0.2,
+  },
+  buildPlanDropdown: {
+    position: 'absolute',
+    bottom: 60,
+    right: 76,
+    backgroundColor: '#121214',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    minWidth: 220,
+    zIndex: 999,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.7,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  buildPlanDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    borderRadius: 12,
+    marginVertical: 2,
+  },
+  buildPlanItemLeft: {
+    width: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buildPlanItemTextContainer: {
+    flex: 1,
+    flexDirection: 'column',
+    gap: 2,
+  },
+  buildPlanItemTitle: {
+    fontSize: 14,
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  buildPlanItemSubtitle: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
 
   // Main input row
   inputRow: {
@@ -470,6 +685,20 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 10,
     paddingVertical: 6,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingTop: 4,
+    gap: 6,
+  },
+  micBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   // Project context bar (inside input bar)
@@ -497,28 +726,59 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   toolsBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
   },
   input: {
-    flex: 1,
-    fontSize: 15,
+    fontSize: 16,
     color: AppColors.dark.titleText,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 14,
+    minHeight: 32,
+    maxHeight: 240,
+  },
+  imagesRow: {
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    maxHeight: 300,
+    paddingTop: 10,
+    paddingBottom: 22,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  imageItem: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    marginRight: 8,
+    position: 'relative',
+  },
+  imageThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+  },
+  imageRemoveBtn: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   sendBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,
   },
 
   // Model dropdown

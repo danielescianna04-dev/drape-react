@@ -256,7 +256,7 @@
     "dock": {
       "terminal": "Terminal",
       "development": "development",
-      "terminalWindowTitle": "drape — bash",
+      "terminalWindowTitle": "bynot — bash",
       "log": "Log",
       "privacy": "Privacy",
       "navigationUnavailable": "Navigation unavailable",
@@ -313,7 +313,7 @@
     "publish": "Publish",
     "paywallTitle": "Publish your site",
     "paywallSubtitle": "Bring your project online with a public link",
-    "paywallFeatureLink": "Public link drape.info/p/name",
+    "paywallFeatureLink": "Public link bynot.it/p/name",
     "paywallFeatureDeploy": "Instant deploy with a tap",
     "paywallFeatureShare": "Share with anyone",
     "paywallCta": "Upgrade to Go",
@@ -707,7 +707,7 @@
     "serverSideNotSupported": "This framework is server-side and cannot be published as a static site. Use live preview instead.",
     "publishFailed": "Publish failed",
     "removeTitle": "Remove publication",
-    "removeMessage": "The site drape.info/p/{{slug}} will no longer be accessible."
+    "removeMessage": "The site bynot.it/p/{{slug}} will no longer be accessible."
   },
   "cloneWidget": {
     "syncing": "📦 Syncing project...",

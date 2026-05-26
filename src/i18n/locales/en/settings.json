@@ -91,7 +91,7 @@
     "github": "GitHub Activity",
     "githubDesc": "Commits, PRs on your repos",
     "reminders": "Reminders",
-    "remindersDesc": "Remind me to come back to Drape"
+    "remindersDesc": "Remind me to come back to Bynot"
   },
   "info": {
     "title": "Information",
@@ -136,7 +136,7 @@
   "plans": {
     "free": {
       "name": "Free",
-      "description": "Try Drape at no cost.",
+      "description": "Try Bynot at no cost.",
       "projectsMonthly": "1 created project",
       "projectsYearly": "1 created project",
       "features": ["2 cloned projects", "Base AI budget", "Models: Claude 4.6 Sonnet, Gemini 3.0 Flash"]
@@ -160,7 +160,7 @@
     "save20": "Best value",
     "upgradeTitle": "Upgrade Plan",
     "elevateTitle": "Elevate Your Development",
-    "elevateDesc": "Unleash AI power in your projects with Drape plans.",
+    "elevateDesc": "Unleash AI power in your projects with Bynot plans.",
     "secureTransactions": "Payments handled by Apple. Manage or cancel your subscription anytime from your Apple ID settings.",
     "upgradeTo": "Upgrade to {{plan}}",
     "upgradeFeatures": "More created projects, more previews and a larger AI budget.",
@@ -190,7 +190,7 @@
     "budgetExhaustedDesc": "You've used all your AI budget this month.\nUpgrade to {{plan}} to continue.",
     "celebration": {
       "title": "Welcome to {{plan}}!",
-      "subtitle": "You've unlocked the full potential of Drape",
+      "subtitle": "You've unlocked the full potential of Bynot",
       "startBuilding": "Start Building",
       "featuresUnlocked": "Features unlocked:"
     }

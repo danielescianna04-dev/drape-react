@@ -1,17 +1,23 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Keyboard, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Keyboard, Dimensions, Modal, ActionSheetIOS, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withDelay, withRepeat, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../../core/terminal/chatStore';
+import { persistChatMessagesSnapshotByTabId } from './chatSessionPersistence';
 import { useWorkstationStore } from '../../core/terminal/workstationStore';
 import { useUIStore } from '../../core/terminal/uiStore';
 import { TerminalItemType, TerminalItem } from '../../shared/types';
 import { AppColors } from '../../shared/theme/colors';
 import { githubService } from '../../core/github/githubService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
+import { workstationService } from '../../core/workstation/workstationService';
+import { getAuthToken } from '../../core/api/getAuthToken';
+import { config } from '../../config/config';
 import { tracciaModelloSelezionato, tracciaImmagineCaricata, tracciaModalitaChatCambiata, tracciaPaginaPianiVista } from '../../core/services/analyticsService';
 import { useAuthStore } from '../../core/auth/authStore';
 
@@ -37,7 +43,7 @@ import { useChatSendHandler } from './useChatSendHandler';
 import { useChatEngineBridge } from './useChatEngineBridge';
 import { clearInterruptedThinkingItems } from './chatTabStoreHelpers';
 import { getProcessedTerminalItems } from './chatTerminalItems';
-import { estimateContextUsage, isCommand, isTerminalInput } from './chatToolFormatting';
+import { estimateContextUsage, isCommand, isTerminalInput, ACTIVITY_PREFIX, encodeActivityCard } from './chatToolFormatting';
 // WebSocket log service disabled - was causing connect/disconnect loop
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
 
@@ -70,6 +76,40 @@ const DelayedMount = ({ delay, children }: { delay: number; children: React.Reac
 
   if (!mounted) return null;
   return <>{children}</>;
+};
+
+const getToolIcon = (toolName: string): string => {
+  const name = toolName.toLowerCase();
+  if (name.includes('read')) return 'document-text-outline';
+  if (name.includes('write')) return 'document-attach-outline';
+  if (name.includes('edit') || name.includes('patch')) return 'create-outline';
+  if (name.includes('delete') || name.includes('remove')) return 'trash-outline';
+  if (name.includes('command') || name.includes('bash') || name.includes('run')) return 'terminal-outline';
+  if (name.includes('search') || name.includes('find') || name.includes('glob')) return 'search-outline';
+  if (name.includes('web') || name.includes('fetch')) return 'globe-outline';
+  if (name.includes('agent') || name.includes('task')) return 'people-outline';
+  return 'cog-outline';
+};
+
+const getFriendlyToolName = (toolName: string): string => {
+  if (toolName === 'read_file' || toolName === 'read') return 'Lettura file';
+  if (toolName === 'write_file' || toolName === 'write') return 'Creazione file';
+  if (toolName === 'edit_file' || toolName === 'edit' || toolName === 'multi_edit_file' || toolName === 'multiedit' || toolName === 'patch_file') return 'Modifica codice';
+  if (toolName === 'delete_file') return 'Eliminazione file';
+  if (toolName === 'move_file') return 'Spostamento file';
+  if (toolName === 'create_folder') return 'Creazione cartella';
+  if (toolName === 'list_directory' || toolName === 'list_files' || toolName === 'list') return 'Esplorazione cartella';
+  if (toolName === 'glob_files' || toolName === 'glob_search' || toolName === 'glob') return 'Ricerca file';
+  if (toolName === 'search_in_files' || toolName === 'grep_search' || toolName === 'grep' || toolName === 'code_search') return 'Ricerca testuale';
+  if (toolName === 'run_command' || toolName === 'execute_command' || toolName === 'bash') return 'Comando terminale';
+  if (toolName === 'web_fetch') return 'Lettura pagina web';
+  if (toolName === 'web_search') return 'Ricerca su internet';
+  if (toolName === 'diagnostics') return 'Scansione errori';
+  if (toolName === 'load_skill' || toolName === 'skill') return 'Caricamento abilità';
+  if (toolName === 'dispatch_agent' || toolName === 'task' || toolName === 'sub_agent' || toolName === 'launch_sub_agent') return 'Sotto-assistente';
+  if (toolName === 'lsp') return 'Analisi semantica';
+  if (toolName === 'ask_user_question' || toolName === 'user_question') return 'Richiesta conferma';
+  return toolName;
 };
 
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
@@ -136,6 +176,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Agent state - 2-mode system (Fast or Terminal)
   const [agentMode, setAgentMode] = useState<'fast' | 'terminal'>('fast');
+  const [isAgentDetailsVisible, setIsAgentDetailsVisible] = useState(false);
+  const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
   const [isInputbarTodoCollapsed, setIsInputbarTodoCollapsed] = useState(false);
   const [isInputbarTodoDismissed, setIsInputbarTodoDismissed] = useState(false);
 
@@ -274,6 +316,73 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const setGitHubUser = useWorkstationStore((state) => state.setGitHubUser);
   const setGitHubRepositories = useWorkstationStore((state) => state.setGitHubRepositories);
   const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
+  const setWorkstationGlobal = useWorkstationStore((state) => state.setWorkstation);
+  const [pendingFirstPrompt, setPendingFirstPrompt] = useState<string | null>(null);
+  const [creatingProjectFromPrompt, setCreatingProjectFromPrompt] = useState(false);
+
+  const cleanupTempAutoCreateItems = useCallback((tabId: string) => {
+    removeTerminalItemById(tabId, 'temp-auto-create-user');
+    removeTerminalItemById(tabId, 'temp-auto-create-bootstrap');
+    removeTerminalItemById(tabId, 'temp-auto-create-thinking');
+  }, [removeTerminalItemById]);
+
+  // Reset project creation state on tab change.
+  // NOTE: we deliberately don't cleanup the temp user bubble on workstation
+  // change here — it must survive the workstation switch fired by
+  // handleSendWithAutoProject so the chat looks continuous (no flash).
+  // It gets dropped naturally when the real engine-driven user message
+  // arrives, OR via the explicit tab change branch below.
+  useEffect(() => {
+    setCreatingProjectFromPrompt(false);
+    if (currentTab?.id) {
+      cleanupTempAutoCreateItems(currentTab.id);
+    }
+  }, [currentTab?.id, cleanupTempAutoCreateItems]);
+
+  // Hydrate the active tab's terminalItems from chatHistory when the user
+  // switches to a project that already has a saved conversation. Without
+  // this, navigating back to an existing project shows the empty welcome
+  // screen even though the agent's chat is persisted in useChatStore.
+  // Persisted messages are 1:1 copies of terminalItems (see
+  // persistChatMessagesSnapshotByTabId), so we can drop them in as-is.
+  // Also: snapshot the OUTGOING workstation's items before swapping in
+  // the incoming ones, so if the user navigated away mid-stream (or
+  // before the agent_completion_effect could persist) nothing is lost.
+  // Subscribe to chatHistory so hydration retries once AsyncStorage finishes
+  // loading. Without this, a fast app open can run hydration before
+  // App.tsx's loadChats() resolves → chatHistory is still [] → no match.
+  // NOTE: no "save outgoing" branch here — by the time this effect fires
+  // currentTab is already the INCOMING tab, so persistMessages(currentTab.id)
+  // would write the (still-empty) new tab over a real saved chat with the
+  // same chatId. The agent_completion_effect + the lazy snapshot path
+  // cover the legitimate save points.
+  const chatHistory = useChatStore((s) => s.chatHistory);
+  useEffect(() => {
+    if (!currentTab?.id) return;
+
+    if (!currentWorkstation?.id) return;
+    if ((currentTab.terminalItems?.length ?? 0) > 0) return;
+    const chats = chatHistory
+      .filter((c) => c.repositoryId === currentWorkstation.id && (c.messages?.length ?? 0) > 0)
+      .sort((a, b) => new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime());
+    const latest = chats[0];
+    console.log('[HydrationDebug]', {
+      wsId: currentWorkstation.id,
+      tabId: currentTab.id,
+      chatHistoryLen: chatHistory.length,
+      matched: chats.length,
+      latestId: latest?.id,
+      latestMsgs: latest?.messages?.length,
+    });
+    if (!latest) return;
+    updateTab(currentTab.id, {
+      terminalItems: latest.messages as any,
+      data: { ...currentTab.data, chatId: latest.id },
+    });
+  }, [currentWorkstation?.id, currentTab?.id, chatHistory]);
+
+  const [homeMenuVisible, setHomeMenuVisible] = useState(false);
+  const [homeMenuView, setHomeMenuView] = useState<'root' | 'attach'>('root');
   const inputMountDelay = hasChatStarted ? 0 : 300;
   const inputGlassRevealDelay = hasChatStarted ? 0 : inputMountDelay + 140;
   const inputMountKey = `${currentWorkstation?.id ?? 'none'}:${currentTab?.id ?? 'none'}`;
@@ -320,6 +429,42 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       maxImagesPartialMessage: (count) => t('composer.maxImagesPartialMessage', { count }),
     },
   });
+
+  const showAttachActionSheet = useCallback(() => {
+    const labelsList = ['Annulla', 'Libreria foto', 'Scatta una foto o registra un video', 'Scegli file'];
+    const handle = async (idx: number) => {
+      if (idx === 1) {
+        pickImageFromLibrary();
+      } else if (idx === 2) {
+        const cam = await ImagePicker.requestCameraPermissionsAsync();
+        if (cam.status !== 'granted') return;
+        const res = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', quality: 0.8, base64: true });
+        if (!res.canceled && res.assets?.[0]) {
+          const a = res.assets[0];
+          setSelectedInputImages((prev) => [...prev, { uri: a.uri, base64: a.base64 ?? '', type: a.mimeType ?? 'image/jpeg' }].slice(0, 4));
+        }
+      } else if (idx === 3) {
+        const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+        if (!res.canceled && res.assets?.[0]) {
+          const a = res.assets[0];
+          setSelectedInputImages((prev) => [...prev, { uri: a.uri, base64: '', type: a.mimeType ?? 'application/octet-stream' }].slice(0, 4));
+        }
+      }
+    };
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: labelsList, cancelButtonIndex: 0 },
+        (i) => handle(i),
+      );
+    } else {
+      Alert.alert('Attach', undefined, [
+        { text: labelsList[0], style: 'cancel' },
+        { text: labelsList[1], onPress: () => handle(1) },
+        { text: labelsList[2], onPress: () => handle(2) },
+        { text: labelsList[3], onPress: () => handle(3) },
+      ]);
+    }
+  }, [pickImageFromLibrary, setSelectedInputImages]);
 
   // Use tabTerminalItems directly (already memoized above)
   const terminalItems = tabTerminalItems;
@@ -509,7 +654,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     currentWorkstation,
     engine,
     input,
-    setInput,
+    // Wrap setInput so programmatic clears (after send) also wipe the
+    // per-tab ref. Without this, tabInputsRef.current[tabId] keeps the
+    // sent prompt and the tab-change effect (or any future read of the
+    // ref) re-populates the input field — which is the bug where the
+    // user sees their prompt sitting in the input while the AI is
+    // already streaming the response.
+    setInput: (value: string) => {
+      setInput(value);
+      const tabId = currentTab?.id;
+      if (tabId) tabInputsRef.current[tabId] = value;
+    },
     selectedInputImages,
     setSelectedInputImages,
     agentMode,
@@ -562,6 +717,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     prevAgentStreamingRef.current = agentStreaming;
     // Agent just finished (was running, now stopped)
     if (wasStreaming && !agentStreaming && currentTab?.id) {
+      // Snapshot the conversation into chatHistory now that the agent
+      // stream has actually finished. handleSend's own persist call at
+      // the bottom of its body never runs on the agent path — that
+      // branch returns early after startAgentModeSend, so without this
+      // hook the messages would only land in AsyncStorage when the
+      // user manually stops mid-stream.
+      persistChatMessagesSnapshotByTabId(currentTab.id);
+
       const { autoRetryPreview } = useUIStore.getState();
       if (autoRetryPreview) {
         useUIStore.getState().setAutoRetryPreview(false);
@@ -913,17 +1076,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const revealProgress = inputRevealAnim.value;
     const revealLift = interpolate(revealProgress, [0, 1], [18, 0], Extrapolate.CLAMP);
 
-    // DRAPEMOB: sidebar removed, always 0
+    // BYNOTMOB: sidebar removed, always 0
     const sidebarLeft = 0;
-
-    // Calcola la posizione base
-    const baseTranslateY = interpolate(
-      animProgress,
-      [0, 1],
-      [0, 280],
-      Extrapolate.CLAMP
-    );
-    const heightDiff = Math.max(0, widgetHeight.value - 90);
 
     // iPad: centra la input bar nell'area di contenuto
     const MAX_INPUT_WIDTH = 720;
@@ -947,18 +1101,24 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       };
     }
 
-    // Altrimenti usa top + translateY (comportamento normale)
-    const translateY = baseTranslateY - heightDiff;
+    // Altrimenti usa top calcolato in base a insets.bottom e interpolato in base a inputPositionAnim (da welcome a chat attiva)
+    const welcomeTop = Math.round(SCREEN_HEIGHT * 0.50 - 8);
+    const bottomInset = Math.max(insets.bottom, 12);
+    const activeTop = SCREEN_HEIGHT - bottomInset - widgetHeight.value - 12;
 
-    // Posiziona l'input bar a ~48% dell'altezza schermo (funziona su iPhone e iPad)
-    const baseTop = Math.round(SCREEN_HEIGHT * 0.48);
+    const top = interpolate(
+      animProgress,
+      [0.45, 1],
+      [welcomeTop, activeTop],
+      Extrapolate.CLAMP
+    );
 
     return {
-      top: baseTop,
+      top,
       left: computedLeft,
       right: computedRight,
       opacity: revealProgress,
-      transform: [{ translateY: translateY + revealLift }]
+      transform: [{ translateY: revealLift }]
     };
   });
 
@@ -1038,6 +1198,129 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   }, [currentTab?.terminalItems, selectedModel, engine.contextUsagePercent]);
 
   // handleSend, handleStop, handleRetryTool are provided by useChatSendHandler above
+
+  const handleSendWithAutoProject = useCallback(async () => {
+    const text = input.trim();
+    if (currentWorkstation || !text || creatingProjectFromPrompt) {
+      handleSend();
+      return;
+    }
+    setCreatingProjectFromPrompt(true);
+    // Clear the input + the per-tab ref immediately so the welcome composer
+    // empties on tap. The deferred handleSend (fired by the useEffect that
+    // resumes after currentWorkstation is set) receives the prompt as an
+    // explicit argument, so it doesn't depend on input state here.
+    setInput('');
+    if (currentTab?.id) {
+      tabInputsRef.current[currentTab.id] = '';
+      // Show the user's prompt + a thinking placeholder immediately so the
+      // welcome layout swaps to the in-chat layout in the same frame as the
+      // send. The only thing the user notices changing later is the project
+      // name pill that lands at the top once create-with-template returns.
+      addTerminalItemToStore(currentTab.id, {
+        id: 'temp-auto-create-user',
+        content: text,
+        type: TerminalItemType.USER_MESSAGE,
+        timestamp: new Date(),
+      });
+      addTerminalItemToStore(currentTab.id, {
+        id: 'temp-auto-create-thinking',
+        content: '',
+        type: TerminalItemType.OUTPUT,
+        isThinking: true,
+        timestamp: new Date(),
+      });
+    }
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        setInput(text);
+        if (currentTab?.id) {
+          cleanupTempAutoCreateItems(currentTab.id);
+        }
+        handleSend();
+        return;
+      }
+      // 1. Ask the AI for a short project name
+      let title = text.split(/\s+/).slice(0, 5).join(' ').slice(0, 40);
+      try {
+        const titleRes = await fetch(`${config.apiUrl}/ai/chat/generate-title`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text }),
+        });
+        const titleData = await titleRes.json();
+        if (titleData?.title) title = String(titleData.title).trim();
+      } catch (_e) {
+        /* fallback to the truncated prompt */
+      }
+
+      // 2. Create the project on the backend
+      const createRes = await fetch(`${config.apiUrl}/workstation/create-with-template`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName: title, technology: 'react', description: text }),
+      });
+      const createData = await createRes.json();
+      if (!createData?.success) {
+        if (currentTab?.id) {
+          cleanupTempAutoCreateItems(currentTab.id);
+        }
+        handleSend();
+        return;
+      }
+
+      // 3. Fetch the freshly created workstation and select it
+      const list = await workstationService.getWorkstations();
+      const created = list.find((p) => p.id === createData.projectId);
+      if (created) {
+        setWorkstationGlobal(created);
+        setPendingFirstPrompt(text);
+      } else {
+        if (currentTab?.id) {
+          cleanupTempAutoCreateItems(currentTab.id);
+        }
+        handleSend();
+      }
+    } catch (err) {
+      console.warn('[ChatPage.handleSendWithAutoProject] failed', err);
+      if (currentTab?.id) {
+        cleanupTempAutoCreateItems(currentTab.id);
+      }
+      handleSend();
+    } finally {
+      setCreatingProjectFromPrompt(false);
+    }
+  }, [input, currentWorkstation, creatingProjectFromPrompt, handleSend, setWorkstationGlobal, currentTab?.id, addTerminalItemToStore, cleanupTempAutoCreateItems]);
+
+  // Resume the send once the workstation has been set (zustand update
+  // re-renders this component, then this effect fires the deferred send).
+  // Pass the prompt EXPLICITLY to handleSend so it doesn't read the input
+  // state (which was cleared upfront in handleSendWithAutoProject for
+  // instant UX feedback — the closure-captured `input` here would be
+  // empty and bail out of canSendChatMessage).
+  useEffect(() => {
+    if (currentWorkstation && pendingFirstPrompt) {
+      const prompt = pendingFirstPrompt;
+      setPendingFirstPrompt(null);
+      // The temp user bubble + temp thinking placeholder mounted by
+      // handleSendWithAutoProject must survive the workstation switch so
+      // the chat looks continuous. Adopt the thinking placeholder as the
+      // engine bridge's preId so the same spinner becomes the real
+      // streaming target — no flash, no double bubble.
+      handleSend(undefined, prompt, {
+        skipUserBubble: true,
+        reuseExistingThinkingId: 'temp-auto-create-thinking',
+      });
+      // Now that handleSend (→ startAgentModeSend) has adopted the temp
+      // thinking placeholder, drop the "create-in-progress" flag.
+      // Without this the ListFooter would still see isLoading=true even
+      // after the engine starts, and mount a second "Sto pensando" pill
+      // below the real one — what the user sees as the spinner restarting.
+      setCreatingProjectFromPrompt(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWorkstation, pendingFirstPrompt, currentTab?.id]);
   // Memoized filtered and processed terminal items for FlatList
   const processedTerminalItems = useMemo(() => (
     getProcessedTerminalItems(
@@ -1045,12 +1328,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         ? terminalItems.filter((item) => !(item.content || '').startsWith('__AGENT_STATUS__'))
         : terminalItems,
       {
-      isLoading,
+      // Treat the project-auto-create window as "loading" too, otherwise
+      // the temp thinking placeholder mounted by handleSendWithAutoProject
+      // gets filtered out and the ListFooterComponent renders its big
+      // pill fallback instead of the inline bullet indicator.
+      isLoading: isLoading || creatingProjectFromPrompt,
       agentStreaming,
       isCommand,
       }
     )
-  ), [terminalItems, isLoading, agentStreaming, isCreationFlow]);
+  ), [terminalItems, isLoading, creatingProjectFromPrompt, agentStreaming, isCreationFlow]);
 
   const inputbarTodoRenderKey = useMemo(() => {
     if (!engine.currentTodos?.length) return 'no-todos';
@@ -1089,6 +1376,53 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (!isNearBottomRef.current || processedTerminalItems.length === 0) return;
     scrollToBottom(!(isLoading || agentStreaming));
   }, [lastItemAutoScrollKey, processedTerminalItems.length, isLoading, agentStreaming, scrollToBottom]);
+
+  const groupedToolCalls = useMemo(() => {
+    interface GroupedToolCall {
+      id: string;
+      toolName: string;
+      startTime: Date;
+      endTime?: Date;
+      status: 'running' | 'completed' | 'failed';
+      input?: any;
+      output?: any;
+      error?: string;
+    }
+
+    const list: GroupedToolCall[] = [];
+    const activeCallsMap = new Map<string, GroupedToolCall>();
+
+    for (const event of agentEvents) {
+      if (event.type === 'tool_start') {
+        const call: GroupedToolCall = {
+          id: event.id || `tool-${event.timestamp instanceof Date ? event.timestamp.getTime() : Date.now()}-${event.tool}`,
+          toolName: event.tool || 'unknown',
+          startTime: event.timestamp instanceof Date ? event.timestamp : new Date(event.timestamp),
+          status: 'running',
+          input: event.input,
+        };
+        list.push(call);
+        activeCallsMap.set(event.tool || 'unknown', call);
+      } else if (event.type === 'tool_complete') {
+        const call = activeCallsMap.get(event.tool || 'unknown');
+        if (call) {
+          call.endTime = event.timestamp instanceof Date ? event.timestamp : new Date(event.timestamp);
+          call.status = 'completed';
+          call.output = event.result || event.output;
+          activeCallsMap.delete(event.tool || 'unknown');
+        }
+      } else if (event.type === 'tool_error') {
+        const call = activeCallsMap.get(event.tool || 'unknown');
+        if (call) {
+          call.endTime = event.timestamp instanceof Date ? event.timestamp : new Date(event.timestamp);
+          call.status = 'failed';
+          call.error = event.error || event.message;
+          activeCallsMap.delete(event.tool || 'unknown');
+        }
+      }
+    }
+    return list;
+  }, [agentEvents, agentEventsVersion]);
 
   return (
     <Animated.View style={[
@@ -1152,7 +1486,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               isNearBottomRef={isNearBottomRef}
               scrollLockUntilRef={scrollLockUntilRef}
               isUserScrollActiveRef={isUserScrollActiveRef}
-              isLoading={isLoading}
+              isLoading={isLoading || creatingProjectFromPrompt}
               agentStreaming={agentStreaming}
               agentEvents={agentEvents}
               agentCurrentTool={agentCurrentTool}
@@ -1165,10 +1499,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               onScrollToBottom={scrollToBottom}
               onSetNearBottomState={setNearBottomState}
               onRetryTool={handleRetryTool}
+              creatingProject={creatingProjectFromPrompt}
               onOpenPlans={() => {
                 tracciaPaginaPianiVista('chat');
                 navigateTo('plans');
               }}
+              onShowAgentDetails={() => setIsAgentDetailsVisible(true)}
+              onStartPreview={() => useUIStore.getState().requestOpenPreview({ autoStart: true })}
             />
 
             {/* AskUserQuestion: shown inline in chat as Q&A card, user replies via input */}
@@ -1187,12 +1524,18 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 showScrollToBottom={showScrollToBottom}
                 input={input}
                 handleInputChange={handleInputChange}
-                handleSend={() => handleSend()}
-                handleStop={handleStop}
+                handleSend={() => handleSendWithAutoProject()}
+                handleStop={() => {
+                  handleStop();
+                  setCreatingProjectFromPrompt(false);
+                  if (currentTab?.id) {
+                    cleanupTempAutoCreateItems(currentTab.id);
+                  }
+                }}
                 agentMode={agentMode}
                 handleToggleMode={handleToggleMode}
                 agentStreaming={agentStreaming}
-                isLoading={isLoading}
+                isLoading={isLoading || creatingProjectFromPrompt}
                 selectedModel={selectedModel}
                 currentModelName={currentModelName}
                 showModelSelector={showModelSelector}
@@ -1211,7 +1554,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   tracciaPaginaPianiVista('chat');
                   navigateTo('plans');
                 }}
-                toggleToolsSheet={toggleToolsSheet}
+                toggleToolsSheet={(currentWorkstation && hasChatStarted) ? toggleToolsSheet : () => setHomeMenuVisible(true)}
                 inputBarGlassId={inputBarGlassId}
                 glassApplied={glassApplied}
                 widgetHeight={widgetHeight}
@@ -1231,6 +1574,79 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 onOpenEnvVars={() => useUIStore.getState().requestOpenEnvVars()}
                 labels={{ scrollToBottom: t('composer.scrollToBottom') }}
               />
+              {/* Home popover — anchored to the input bar so it always sits just
+                  below the +, regardless of screen size or input bar height. */}
+              {homeMenuVisible && !(currentWorkstation && hasChatStarted) && (
+                <View pointerEvents="box-none" style={styles.homeMenuAnchor}>
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    style={StyleSheet.absoluteFill}
+                    onPress={() => {
+                      setHomeMenuVisible(false);
+                      setHomeMenuView('root');
+                    }}
+                  />
+                  <View style={styles.homeMenuPopover}>
+                    {homeMenuView === 'root' ? (
+                      <>
+                        <View style={styles.homeMenuSearchRow}>
+                          <Ionicons name="search" size={16} color="rgba(255,255,255,0.45)" />
+                          <Text style={styles.homeMenuSearchPlaceholder}>Search…</Text>
+                        </View>
+                        <View style={styles.homeMenuDivider} />
+                        {[
+                          { id: 'attach', icon: 'attach' as const, label: 'Attach' },
+                          { id: 'databases', icon: 'server-outline' as const, label: 'Databases' },
+                        ].map((item) => (
+                          <TouchableOpacity
+                            key={item.id}
+                            style={styles.homeMenuItem}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              if (item.id === 'attach') {
+                                setHomeMenuView('attach');
+                              } else {
+                                setHomeMenuVisible(false);
+                              }
+                            }}
+                          >
+                            <Ionicons name={item.icon} size={18} color="rgba(255,255,255,0.85)" />
+                            <Text style={styles.homeMenuItemText}>{item.label}</Text>
+                            <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.35)" style={{ marginLeft: 'auto' }} />
+                          </TouchableOpacity>
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.homeMenuSearchRow}>
+                          <TouchableOpacity
+                            onPress={() => setHomeMenuView('root')}
+                            style={styles.homeMenuBackBtn}
+                            activeOpacity={0.7}
+                            hitSlop={6}
+                          >
+                            <Ionicons name="chevron-back" size={14} color="rgba(255,255,255,0.85)" />
+                          </TouchableOpacity>
+                          <Text style={styles.homeMenuSearchPlaceholder}>Search…</Text>
+                        </View>
+                        <View style={styles.homeMenuDivider} />
+                        <TouchableOpacity
+                          style={styles.homeMenuItem}
+                          activeOpacity={0.7}
+                          onPress={() => {
+                            setHomeMenuVisible(false);
+                            setHomeMenuView('root');
+                            setTimeout(showAttachActionSheet, 80);
+                          }}
+                        >
+                          <Ionicons name="document-outline" size={18} color="rgba(255,255,255,0.85)" />
+                          <Text style={styles.homeMenuItemText}>File</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                </View>
+              )}
             </Animated.View>
             </DelayedMount>
           </>
@@ -1255,6 +1671,29 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         }}
         onSendSelectedPhotos={sendSelectedPhotos}
         onPickImageFromLibrary={pickImageFromLibrary}
+        onOpenProjectSection={(section) => {
+          const { addTab, setActiveTab, tabs: currentTabs } = useTabStore.getState();
+          toggleToolsSheet();
+          const openOrFocus = (id: string, type: any, title: string) => {
+            const existing = currentTabs.find((t) => t.id === id);
+            if (existing) {
+              setActiveTab(id);
+            } else {
+              addTab({ id, type, title, data: {} });
+            }
+          };
+          switch (section) {
+            case 'files':
+              openOrFocus('files', 'files', 'File del progetto');
+              break;
+            case 'git':
+              useUIStore.getState().requestOpenGitSheet(null);
+              break;
+            case 'database':
+              openOrFocus('database', 'database', 'Database');
+              break;
+          }
+        }}
         labels={{
           allPhotos: t('composer.allPhotos'),
           maxImagesTitle: t('composer.maxImagesTitle'),
@@ -1265,6 +1704,144 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           photoPickerSubtitle: t('composer.photoPickerSubtitle'),
         }}
       />
+
+      <Modal
+        visible={isAgentDetailsVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsAgentDetailsVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <BlurView intensity={35} tint="dark" style={styles.modalBlurBackground}>
+            <View style={[styles.modalSafeArea, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalHeaderTitleContainer}>
+                  <Text style={styles.modalTitle}>Attività Assistente</Text>
+                  <Text style={styles.modalSubtitle}>
+                    {agentStreaming ? "Elaborazione in corso..." : "Lavoro completato"} • {groupedToolCalls.length} passaggi
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => setIsAgentDetailsVisible(false)}
+                  style={styles.modalCloseButton}
+                >
+                  <Ionicons name="close" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalScrollView} contentContainerStyle={styles.modalScrollContent}>
+                {groupedToolCalls.length === 0 ? (
+                  <View style={styles.modalEmptyState}>
+                    <Ionicons name="terminal-outline" size={48} color="rgba(255, 255, 255, 0.25)" />
+                    <Text style={styles.modalEmptyText}>Nessuna attività registrata per questa richiesta.</Text>
+                  </View>
+                ) : (
+                  groupedToolCalls.map((call, i) => {
+                    const isExpanded = expandedToolId === call.id;
+                    const icon = getToolIcon(call.toolName);
+                    const name = getFriendlyToolName(call.toolName);
+                    const isRunning = call.status === 'running';
+                    const isCompleted = call.status === 'completed';
+                    const isFailed = call.status === 'failed';
+
+                    let targetText = '';
+                    try {
+                      const parsedInput = typeof call.input === 'string' ? JSON.parse(call.input) : call.input;
+                      if (parsedInput) {
+                        if (call.toolName.includes('read') || call.toolName.includes('write') || call.toolName.includes('edit')) {
+                          const path = parsedInput.filePath || parsedInput.path || parsedInput.targetFile || parsedInput.TargetFile || '';
+                          targetText = path ? path.split('/').pop() : '';
+                        } else if (call.toolName.includes('command') || call.toolName.includes('bash')) {
+                          targetText = parsedInput.command || '';
+                        } else if (call.toolName.includes('search')) {
+                          targetText = parsedInput.query || parsedInput.pattern || '';
+                        } else if (call.toolName.includes('web')) {
+                          targetText = parsedInput.url || parsedInput.query || '';
+                        }
+                      }
+                    } catch (_) {}
+
+                    return (
+                      <View key={call.id || i} style={styles.logCard}>
+                        <TouchableOpacity
+                          activeOpacity={0.7}
+                          onPress={() => setExpandedToolId(isExpanded ? null : call.id)}
+                          style={styles.logCardHeader}
+                        >
+                          <View style={styles.logIconCol}>
+                            <View style={[styles.logIconBg, { backgroundColor: isFailed ? 'rgba(248, 81, 73, 0.15)' : isCompleted ? 'rgba(63, 185, 80, 0.15)' : 'rgba(109, 76, 255, 0.15)' }]}>
+                              <Ionicons
+                                name={icon as any}
+                                size={16}
+                                color={isFailed ? '#F85149' : isCompleted ? '#3FB950' : '#6D4CFF'}
+                              />
+                            </View>
+                          </View>
+                          <View style={styles.logInfoCol}>
+                            <Text style={styles.logTitle}>{name}</Text>
+                            {targetText ? (
+                              <Text style={styles.logTarget} numberOfLines={1}>
+                                {targetText}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <View style={styles.logStatusCol}>
+                            {isRunning ? (
+                              <ActivityIndicator size="small" color="#6D4CFF" />
+                            ) : isCompleted ? (
+                              <Ionicons name="checkmark-circle" size={18} color="#3FB950" />
+                            ) : (
+                              <Ionicons name="alert-circle" size={18} color="#F85149" />
+                            )}
+                            <Ionicons
+                              name={isExpanded ? "chevron-up" : "chevron-down"}
+                              size={14}
+                              color="rgba(255, 255, 255, 0.3)"
+                              style={{ marginLeft: 8 }}
+                            />
+                          </View>
+                        </TouchableOpacity>
+
+                        {isExpanded && (
+                          <View style={styles.logDetailsContainer}>
+                            {call.input ? (
+                              <View style={styles.detailCodeBlock}>
+                                <Text style={styles.detailCodeLabel}>PARAMETRI DI INPUT (ARGUMENTS)</Text>
+                                <Text style={styles.detailCodeText}>
+                                  {typeof call.input === 'object' ? JSON.stringify(call.input, null, 2) : String(call.input)}
+                                </Text>
+                              </View>
+                            ) : null}
+
+                            {call.output ? (
+                              <View style={[styles.detailCodeBlock, { marginTop: 8 }]}>
+                                <Text style={styles.detailCodeLabel}>RISULTATO (OUTPUT)</Text>
+                                <Text style={styles.detailCodeText}>
+                                  {typeof call.output === 'object'
+                                    ? (call.output.content || JSON.stringify(call.output, null, 2))
+                                    : String(call.output)}
+                                </Text>
+                              </View>
+                            ) : null}
+
+                            {call.error ? (
+                              <View style={[styles.detailCodeBlock, styles.detailCodeBlockError, { marginTop: 8 }]}>
+                                <Text style={[styles.detailCodeLabel, { color: '#FF6B6B' }]}>ERRORE RISCONTRATO (ERROR)</Text>
+                                <Text style={[styles.detailCodeText, { color: '#FF6B6B' }]}>{call.error}</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </View>
+          </BlurView>
+        </View>
+      </Modal>
 
     </Animated.View >
   );
@@ -1277,6 +1854,62 @@ const styles = StyleSheet.create({
   },
   background: {
     ...StyleSheet.absoluteFillObject,
+  },
+  homeMenuAnchor: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '100%',
+    paddingLeft: 18,
+    paddingTop: 8,
+    alignItems: 'flex-start',
+    zIndex: 100,
+  },
+  homeMenuPopover: {
+    width: 240,
+    backgroundColor: 'rgba(28, 26, 40, 0.95)',
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+    paddingVertical: 6,
+  },
+  homeMenuSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  homeMenuBackBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: -2,
+  },
+  homeMenuSearchPlaceholder: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 14,
+  },
+  homeMenuDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginVertical: 2,
+  },
+  homeMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  homeMenuItemText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '500',
   },
   inputWrapper: {
     position: 'absolute',
@@ -1330,11 +1963,15 @@ const styles = StyleSheet.create({
   },
   toolsSheet: {
     position: 'absolute',
-    borderRadius: 28,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     zIndex: 2000,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  toolsSheetSolid: {
+    backgroundColor: '#181820',
   },
   sheetBlur: {
     flex: 1,
@@ -1944,6 +2581,141 @@ const styles = StyleSheet.create({
     maxHeight: 300,
     lineHeight: 22,
     textAlignVertical: 'top',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalBlurBackground: {
+    flex: 1,
+    width: '100%',
+  },
+  modalSafeArea: {
+    flex: 1,
+    backgroundColor: 'rgba(18, 17, 26, 0.95)',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  modalHeaderTitleContainer: {
+    flex: 1,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginTop: 2,
+  },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+  },
+  modalScrollView: {
+    flex: 1,
+  },
+  modalScrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  modalEmptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 80,
+    gap: 12,
+  },
+  modalEmptyText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.4)',
+    textAlign: 'center',
+    paddingHorizontal: 40,
+  },
+  logCard: {
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  logCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 12,
+  },
+  logIconCol: {
+    justifyContent: 'center',
+  },
+  logIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logInfoCol: {
+    flex: 1,
+    gap: 2,
+  },
+  logTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  logTarget: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.45)',
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  logStatusCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logDetailsContainer: {
+    padding: 14,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  detailCodeBlock: {
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 10,
+  },
+  detailCodeBlockError: {
+    backgroundColor: 'rgba(248, 81, 73, 0.08)',
+    borderColor: 'rgba(248, 81, 73, 0.2)',
+  },
+  detailCodeLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: 'rgba(255, 255, 255, 0.4)',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  detailCodeText: {
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    color: '#D1D5DB',
   },
 });
 export default ChatPage;

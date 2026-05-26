@@ -12,10 +12,11 @@ export const PreviewTabWrapper: React.FC = () => {
   const activeTabId = useTabStore((state) => state.activeTabId);
   const tabs = useTabStore((state) => state.tabs);
 
-  const isPreviewActive = React.useMemo(() => {
-    const activeTab = tabs.find((tab) => tab.id === activeTabId);
-    return activeTab?.type === 'preview';
-  }, [activeTabId, tabs]);
+  // We intentionally keep the PreviewPanel mounted regardless of which tab is
+  // active so the FluidTabSwitcher slide reveals the already-rendered preview
+  // instead of a blank pane.
+  void activeTabId;
+  void tabs;
 
   const previewUrl = (ws?.id ? projectPreviewUrls[ws.id] : null)
     || (previewServerUrl && ws?.id && previewServerUrl.includes(`/preview/${ws.id}`) ? previewServerUrl : '')
@@ -23,8 +24,7 @@ export const PreviewTabWrapper: React.FC = () => {
     || '';
 
   const handleClose = React.useCallback(() => {
-    const { removeTab, setActiveTab, tabs } = useTabStore.getState();
-    removeTab('preview');
+    const { setActiveTab, tabs } = useTabStore.getState();
     const chatTab = tabs.find((tab) => tab.type === 'chat');
     if (chatTab) {
       setActiveTab(chatTab.id);
@@ -36,7 +36,7 @@ export const PreviewTabWrapper: React.FC = () => {
       onClose={handleClose}
       previewUrl={previewUrl}
       projectName="Project Preview"
-      isVisible={isPreviewActive}
+      isVisible={true}
     />
   );
 };

@@ -1,4 +1,4 @@
-# 📱 Drape - Publication Guide
+# 📱 Bynot - Publication Guide
 
 ## Pre-Publication Checklist
 
@@ -103,6 +103,6 @@ netlify deploy --prod --dir web-build
 - **Total**: ~1-2 weeks from submission to live
 
 ## Support
-- Create support email: support@drape.app
+- Create support email: support@bynot.app
 - Set up documentation site
 - Prepare FAQ and troubleshooting guides

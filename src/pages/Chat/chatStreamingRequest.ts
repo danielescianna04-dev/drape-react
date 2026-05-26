@@ -5,7 +5,7 @@ import { sanitizeAgentText } from '../../shared/utils/sanitizeAgentText';
 import { parseUndoData } from './chatUndo';
 import { appendTabTerminalItems, updateTabTerminalItem } from './chatTabStoreHelpers';
 import { buildAiChatRequestPayload } from './chatSendUtils';
-import { formatToolResult } from './chatToolFormatting';
+import { formatToolResult, encodeActivityCard, toolToPool } from './chatToolFormatting';
 
 interface StreamLegacyAiChatParams {
   apiUrl: string;
@@ -55,7 +55,13 @@ export const streamLegacyAiChat = async ({
     if (chatAuthToken) {
       xhr.setRequestHeader('Authorization', `Bearer ${chatAuthToken}`);
     }
-    xhr.timeout = 60000;
+    // Code-gen prompts (landing pages, multi-file scaffolds) routinely take
+     // 1-4 min through opencode: the LLM call itself is fast but opencode runs
+     // an agentic loop with tool calls (write/bash/read) before the final
+     // reply. The backend emits a heartbeat every 10s so this is an idle
+     // timeout, not a wall-clock budget — 5 min covers the heaviest cases
+     // we've seen empirically.
+    xhr.timeout = 300000;
 
     let buffer = '';
     let thinkingContent = '';
@@ -77,31 +83,32 @@ export const streamLegacyAiChat = async ({
         try {
           const parsed = JSON.parse(data);
 
+          if (parsed.toolStart) {
+            // Lovable-style activity card: we only encode poolKey + file, and
+            // the card rotates through STATUS_POOLS[poolKey] internally every
+            // ~2.5s. This means a single long-running tool (e.g. write_file
+            // generating a 200-line landing page over 60s) still shows variety
+            // instead of freezing on "Sto creando il file".
+            const { name, args } = parsed.toolStart;
+            const { poolKey, file } = toolToPool(name, args);
+            updateTabTerminalItem(activeTabId, streamingMessageId, {
+              isThinking: false,
+              content: encodeActivityCard('running', poolKey, file),
+            });
+            continue;
+          }
+
           if (parsed.toolResult) {
             const { name, args, result } = parsed.toolResult;
-            updateTabTerminalItem(activeTabId, streamingMessageId, { isThinking: false });
-
-            const { cleanResult, undoData } = parseUndoData(result);
+            // Track undo metadata for the "revert AI changes" affordance —
+            // independent from how we render activity in the chat.
+            const { undoData } = parseUndoData(result);
             if (undoData && undoData.__undo && undoData.filePath) {
               recordModification(undoData, name as 'write_file' | 'edit_file');
             }
-
-            appendTabTerminalItems(activeTabId, [{
-              id: `tool-result-${Date.now()}`,
-              type: TerminalItemType.OUTPUT,
-              content: formatToolResult(name, args, cleanResult),
-              timestamp: new Date(),
-            }]);
-
-            streamingMessageId = `stream-after-tool-${Date.now()}`;
-            streamedContent = '';
-
-            addTerminalItem({
-              id: streamingMessageId,
-              content: '',
-              type: TerminalItemType.OUTPUT,
-              timestamp: new Date(),
-            });
+            // No visible state change: the next toolStart will overwrite the
+            // subtitle, or the model's text stream will replace the card
+            // entirely with the final reply.
             continue;
           }
 
@@ -210,6 +217,19 @@ export const streamLegacyAiChat = async ({
     xhr.onload = () => {
       if (xhr.status === 200) {
         resolve();
+      } else if (xhr.status === 429) {
+        // Quota exceeded — monthly cap, surface backend message + retry-after
+        // so the chat UI can offer the Plus upgrade flow / show days-until-reset.
+        let body: any = {};
+        try { body = JSON.parse(xhr.responseText); } catch {}
+        const retrySec = body.retryAfterSec ?? 86400;
+        const days = Math.ceil(retrySec / 86400);
+        const human = days >= 2 ? `${days} giorni` : days === 1 ? '1 giorno' : 'poche ore';
+        const message = body.message || `Hai esaurito il quota mensile. Rinnovo fra ${human}, oppure passa a Plus.`;
+        const err = new Error(message) as Error & { code?: string; retryAfterSec?: number };
+        err.code = 'quota_exceeded';
+        err.retryAfterSec = retrySec;
+        reject(err);
       } else {
         reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
       }

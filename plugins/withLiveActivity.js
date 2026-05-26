@@ -29,7 +29,7 @@ const withLiveActivity = (config) => {
     const projectRoot = config.modRequest.projectRoot;
 
     const widgetExtName = 'PreviewWidgetExtension';
-    const widgetBundleId = 'com.drape.app.PreviewWidgetExtension';
+    const widgetBundleId = 'com.bynot.app.PreviewWidgetExtension';
     const widgetExtPath = path.join(projectRoot, 'ios', widgetExtName);
 
     // Skip if widget extension files don't exist
@@ -63,7 +63,7 @@ const withLiveActivity = (config) => {
 
     // Also add shared PreviewActivityAttributes.swift from main app
     const sharedFiles = [
-      { name: 'PreviewActivityAttributes.swift', path: path.join('Drape', 'PreviewActivityAttributes.swift') },
+      { name: 'PreviewActivityAttributes.swift', path: path.join('Bynot', 'PreviewActivityAttributes.swift') },
     ];
 
     const widgetGroup = xcodeProject.addPbxGroup(

@@ -4,7 +4,7 @@
  */
 
 import { useFileCacheStore } from './fileCacheStore';
-import { workstationService } from '../workstation/workstationService-firebase';
+import { workstationService } from '../workstation/workstationService';
 import { gitAccountService } from '../git/gitAccountService';
 import { useTerminalStore } from '../terminal/terminalStore';
 

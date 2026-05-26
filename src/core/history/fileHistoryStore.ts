@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const STORAGE_KEY = '@drape_file_history';
+const STORAGE_KEY = '@bynot_file_history';
 const MAX_HISTORY_PER_PROJECT = 50; // Limit memory usage
 
 export interface FileModification {

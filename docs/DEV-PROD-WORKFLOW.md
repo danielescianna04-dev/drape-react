@@ -1,14 +1,14 @@
-# Drape — Dev / Prod Workflow
+# Bynot — Dev / Prod Workflow
 
 ## Ambienti
 
 | | **DEV** | **PROD** |
 |---|---|---|
-| Backend URL | `https://dev.drape.info` | `https://drape.info` |
-| Firebase | `drape-dev` | `drapev2` |
-| Backend path server | `/opt/drape-backend-dev` | `/opt/drape-backend` |
+| Backend URL | `https://dev.bynot.it` | `https://bynot.it` |
+| Firebase | `bynot-dev` | `bynotv2` |
+| Backend path server | `/opt/bynot-backend-dev` | `/opt/bynot-backend` |
 | Backend porta | 3002 | 3001 |
-| App TestFlight | Stessa app "Drape", canale OTA `preview` | Stessa app "Drape", canale OTA `production` |
+| App TestFlight | Stessa app "Bynot", canale OTA `preview` | Stessa app "Bynot", canale OTA `production` |
 | Server SSH | `ssh -p 49222 root@77.42.1.116` | `ssh -p 49222 root@77.42.1.116` |
 
 ---
@@ -29,25 +29,25 @@ cd backend-ts
 
 ### Flusso consigliato
 ```
-Scrivi codice → deploy-dev.sh → testa su dev.drape.info → OK → deploy.sh
+Scrivi codice → deploy-dev.sh → testa su dev.bynot.it → OK → deploy.sh
 ```
 
 ### Logs
 ```bash
 # Dev
-ssh -p 49222 root@77.42.1.116 'tail -f /var/log/drape-backend-dev.log'
+ssh -p 49222 root@77.42.1.116 'tail -f /var/log/bynot-backend-dev.log'
 
 # Prod
-ssh -p 49222 root@77.42.1.116 'tail -f /var/log/drape-backend.log'
+ssh -p 49222 root@77.42.1.116 'tail -f /var/log/bynot-backend.log'
 ```
 
 ### Restart servizio
 ```bash
 # Dev
-ssh -p 49222 root@77.42.1.116 'systemctl restart drape-backend-dev'
+ssh -p 49222 root@77.42.1.116 'systemctl restart bynot-backend-dev'
 
 # Prod
-ssh -p 49222 root@77.42.1.116 'systemctl restart drape-backend'
+ssh -p 49222 root@77.42.1.116 'systemctl restart bynot-backend'
 ```
 
 ---
@@ -59,14 +59,14 @@ ssh -p 49222 root@77.42.1.116 'systemctl restart drape-backend'
 eas update --channel preview --message "descrizione modifica"
 ```
 L'app su TestFlight (canale preview) si aggiorna al prossimo avvio.
-Punta a `dev.drape.info` + Firebase `drape-dev`.
+Punta a `dev.bynot.it` + Firebase `bynot-dev`.
 
 ### Push update su PROD
 ```bash
 eas update --channel production --message "descrizione modifica"
 ```
 L'app in produzione (App Store / TestFlight canale production) si aggiorna.
-Punta a `drape.info` + Firebase `drapev2`.
+Punta a `bynot.it` + Firebase `bynotv2`.
 
 ### Flusso consigliato
 ```
@@ -138,25 +138,25 @@ eas update --channel production --message "feat: nuova feature"
 ssh -p 49222 root@77.42.1.116
 
 # Env dev
-cat /opt/drape-backend-dev/.env
+cat /opt/bynot-backend-dev/.env
 
 # Env prod
-cat /opt/drape-backend/.env
+cat /opt/bynot-backend/.env
 
 # Docker containers attivi
 docker ps
 
 # Health check
-curl https://dev.drape.info/health
-curl https://drape.info/health
+curl https://dev.bynot.it/health
+curl https://bynot.it/health
 ```
 
 ---
 
 ## Firebase Console
 
-- **Dev**: https://console.firebase.google.com/project/drape-dev
-- **Prod**: https://console.firebase.google.com/project/drapev2
+- **Dev**: https://console.firebase.google.com/project/bynot-dev
+- **Prod**: https://console.firebase.google.com/project/bynotv2
 
 ---
 
@@ -165,15 +165,15 @@ curl https://drape.info/health
 ### L'OTA non arriva
 - Chiudi completamente l'app (swipe up) e riaprila
 - Verifica il canale: `preview` per dev, `production` per prod
-- Controlla su https://expo.dev/accounts/drape01/projects/drape-react/updates
+- Controlla su https://expo.dev/accounts/bynot01/projects/bynot-react/updates
 
 ### Backend non risponde
 ```bash
-ssh -p 49222 root@77.42.1.116 'systemctl status drape-backend-dev'
-ssh -p 49222 root@77.42.1.116 'tail -20 /var/log/drape-backend-dev.log'
+ssh -p 49222 root@77.42.1.116 'systemctl status bynot-backend-dev'
+ssh -p 49222 root@77.42.1.116 'tail -20 /var/log/bynot-backend-dev.log'
 ```
 
 ### Build fallisce
-- Controlla i log su https://expo.dev/accounts/drape01/projects/drape-react/builds
+- Controlla i log su https://expo.dev/accounts/bynot01/projects/bynot-react/builds
 - Se errore CocoaPods: `cd ios && pod install --repo-update`
 - Se errore certificati: `eas credentials` per gestirli

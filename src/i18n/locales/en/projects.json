@@ -26,7 +26,7 @@
     "counterLocal": "local"
   },
   "tutorial": {
-    "welcome": "Welcome to Drape!",
+    "welcome": "Welcome to Bynot!",
     "welcomeDesc": "I'll show you how it works in a few steps",
     "createNew": "Create a new project",
     "createNewDesc": "Use AI to generate complete apps from a description",
@@ -35,7 +35,7 @@
     "recentProjects": "Recent projects",
     "recentProjectsDesc": "Here you find all your saved projects",
     "stepOf": "{{step}} of {{total}}",
-    "discover": "Discover Drape",
+    "discover": "Discover Bynot",
     "skip": "Skip",
     "next": "Next",
     "start": "Start!",
@@ -94,7 +94,7 @@
     "cloudSubtitle": "Cloud mode tells the AI to build your project with a full backend — database, authentication, and APIs included. Not every project needs it.",
     "cloudFaq": {
       "whatQ": "What does Cloud mode do?",
-      "whatA": "When enabled, the AI will generate both frontend and backend code. Your project will include API endpoints, a database layer, and server-side logic — all running on Drape's infrastructure.",
+      "whatA": "When enabled, the AI will generate both frontend and backend code. Your project will include API endpoints, a database layer, and server-side logic — all running on Bynot's infrastructure.",
       "whenEnableQ": "When should I enable it?",
       "whenEnableA": "Enable Cloud if your app needs user login, stores data across sessions, or requires real-time features like chat or notifications. Think multi-user apps, dashboards, or anything with a database.",
       "whenOffQ": "When should I leave it off?",
@@ -161,7 +161,7 @@
     "opening": "Opening...",
     "opened": "Opened!",
     "startingEnv": "Starting environment...",
-    "shareMessage": "I'm working on \"{{name}}\" with Drape IDE!"
+    "shareMessage": "I'm working on \"{{name}}\" with Bynot IDE!"
   },
   "progress": {
     "title": "Creation in progress",
@@ -293,7 +293,7 @@
   "onboardingFlow": {
     "continue": "Continue",
     "welcome": {
-      "title": "Welcome to Drape",
+      "title": "Welcome to Bynot",
       "subtitle": "Your AI-powered mobile IDE",
       "feature1Title": "AI builds your app",
       "feature1Desc": "Describe your idea, AI writes the code for you",
@@ -314,7 +314,7 @@
       "developerDesc": "I write code regularly"
     },
     "referral": {
-      "title": "How did you find Drape?",
+      "title": "How did you find Bynot?",
       "tiktok": "TikTok",
       "instagram": "Instagram",
       "youtube": "YouTube",

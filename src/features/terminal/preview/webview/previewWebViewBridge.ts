@@ -46,9 +46,9 @@ export function evaluateNavigation(params: {
     return { allow: false, reason: 'same_url_reload' };
   }
 
-  // Subdomain preview (project-xxx.drape.info) — no rewriting needed
-  const isSubdomainPreview = urlHost.endsWith('.drape.info') &&
-    !['www.drape.info', 'dev.drape.info', 'api.drape.info', 'drape.info'].includes(urlHost);
+  // Subdomain preview (project-xxx.bynot.it) — no rewriting needed
+  const isSubdomainPreview = urlHost.endsWith('.bynot.it') &&
+    !['www.bynot.it', 'dev.bynot.it', 'api.bynot.it', 'bynot.it'].includes(urlHost);
   if (isSubdomainPreview) return { allow: true };
 
   // Legacy path-based preview (/preview/{projectId}/) — may need URL rewriting
@@ -56,7 +56,7 @@ export function evaluateNavigation(params: {
   const previewPathMatch = previewBase.match(/\/preview\/[^/]+/);
   const previewPath = previewPathMatch ? previewPathMatch[0] : null;
 
-  if (previewPath && (urlHost === 'drape.info' || urlHost === 'dev.drape.info') && !requestUrl.includes(previewPath)) {
+  if (previewPath && (urlHost === 'bynot.it' || urlHost === 'dev.bynot.it') && !requestUrl.includes(previewPath)) {
     const urlObj = new URL(requestUrl);
     const targetPath = urlObj.pathname;
 

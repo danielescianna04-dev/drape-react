@@ -29,8 +29,8 @@ export const TableDataView: React.FC<Props> = ({ projectId, dbPath, table, onBac
   const [showAddModal, setShowAddModal] = useState(false);
   const [newRowValues, setNewRowValues] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
-  const isUsersTable = dbPath === '__drape__' && table === 'users';
-  const isSystemTable = dbPath === '__drape__' && (table === 'users' || table === 'sessions');
+  const isUsersTable = dbPath === '__bynot__' && table === 'users';
+  const isSystemTable = dbPath === '__bynot__' && (table === 'users' || table === 'sessions');
 
   const editableColumns = useMemo(
     () => columns.filter((c) => !['id', 'rowid', 'created_at', 'updated_at', 'end_user_id'].includes(c)),

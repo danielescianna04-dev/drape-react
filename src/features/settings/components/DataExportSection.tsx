@@ -57,7 +57,7 @@ export const DataExportSection: React.FC<DataExportSectionProps> = ({ loading, t
       }
 
       // Save JSON to a temporary file
-      const fileName = `drape-data-export-${new Date().toISOString().slice(0, 10)}.json`;
+      const fileName = `bynot-data-export-${new Date().toISOString().slice(0, 10)}.json`;
       const filePath = `${FileSystem.documentDirectory}${fileName}`;
 
       await FileSystem.writeAsStringAsync(

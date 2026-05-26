@@ -56,10 +56,10 @@ Questo script ti mostrerà tutti i passaggi da seguire in Xcode.
 
 ### Passaggi Chiave (TL;DR)
 
-1. Apri Xcode: `cd ios && open drapereact.xcworkspace`
+1. Apri Xcode: `cd ios && open bynotreact.xcworkspace`
 2. Aggiungi Widget Extension target (nome: `PreviewWidgetExtension`)
 3. Aggiungi i file Swift dal folder `ios/PreviewWidgetExtension/`
-4. Configura App Groups: `group.com.drape.app`
+4. Configura App Groups: `group.com.bynot.app`
 5. iOS Deployment Target widget: `16.1`
 6. Build e test su device reale con Dynamic Island
 
@@ -151,7 +151,7 @@ cd ..
 npx expo start --clear
 ```
 
-Verifica anche che i file `PreviewActivityModule.swift/m` abbiano Target Membership su `drapereact` (non sul widget).
+Verifica anche che i file `PreviewActivityModule.swift/m` abbiano Target Membership su `bynotreact` (non sul widget).
 
 ### Widget non si aggiorna
 
@@ -166,7 +166,7 @@ Verifica anche che i file `PreviewActivityModule.swift/m` abbiano Target Members
 
 # Oppure da terminale
 cd ios
-xcodebuild clean -workspace drapereact.xcworkspace -scheme drapereact
+xcodebuild clean -workspace bynotreact.xcworkspace -scheme bynotreact
 ```
 
 ## 📚 Risorse

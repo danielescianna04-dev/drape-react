@@ -266,7 +266,7 @@ const MineSection: React.FC<{
   const handlePublish = useCallback((skill: Skill) => {
     Alert.alert(
       'Pubblica nel marketplace',
-      `Pubblicare /${skill.slash}? Sarà visibile a tutti gli utenti Drape.`,
+      `Pubblicare /${skill.slash}? Sarà visibile a tutti gli utenti Bynot.`,
       [
         { text: 'Annulla', style: 'cancel' },
         {
@@ -482,10 +482,10 @@ const MarketplaceSection: React.FC<{ onInstalled: () => void }> = ({ onInstalled
             />
           )}
 
-          {/* Carousel — Drape officials */}
+          {/* Carousel — Bynot officials */}
           {officials.length > 0 && (
             <CarouselSection
-              title="Ufficiali Drape"
+              title="Ufficiali Bynot"
               caption="Curati dal team"
               icon="sparkles"
               skills={officials}
@@ -536,7 +536,7 @@ const FeaturedHero: React.FC<{
         {skill.isOfficial && (
           <>
             <View style={s.heroEyebrowDot} />
-            <Text style={s.heroEyebrowMeta}>Ufficiale Drape</Text>
+            <Text style={s.heroEyebrowMeta}>Ufficiale Bynot</Text>
           </>
         )}
         {!!skill.installCount && (
@@ -690,9 +690,9 @@ const CompactRow: React.FC<{
         <View style={s.compactTitleRow}>
           <Text style={s.compactSlash}>/{skill.slash}</Text>
           {skill.isOfficial && (
-            <View style={s.officialBadge}>
+            <View style={(s as any).officialBadge}>
               <Ionicons name="checkmark" size={9} color="#0a0a0c" />
-              <Text style={s.officialBadgeText}>OFFICIAL</Text>
+              <Text style={(s as any).officialBadgeText}>OFFICIAL</Text>
             </View>
           )}
         </View>
@@ -765,7 +765,7 @@ const EditorSection: React.FC<{
       <EmptyBlock
         icon="lock-closed-outline"
         title="Plugin ufficiale"
-        copy="Questo è un plugin curato dal team Drape e non può essere modificato. Forka una copia per personalizzarlo."
+        copy="Questo è un plugin curato dal team Bynot e non può essere modificato. Forka una copia per personalizzarlo."
       />
     );
   }

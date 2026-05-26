@@ -4,7 +4,6 @@ import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { GlassCard } from '../../../features/settings/components/GlassCard';
 import { AppColors } from '../../../shared/theme/colors';
-import { PreviewToolbar } from './PreviewToolbar';
 
 interface Props {
   styles: any;
@@ -35,6 +34,7 @@ interface Props {
   onPublishPreview: () => void;
   onOpenInBrowser?: () => void;
   onOpenProjectHistory: () => void;
+  currentWorkstationName?: string;
 }
 
 export const VSCodeSidebarHeader: React.FC<Props> = ({
@@ -66,11 +66,13 @@ export const VSCodeSidebarHeader: React.FC<Props> = ({
   onPublishPreview,
   onOpenInBrowser,
   onOpenProjectHistory,
+  currentWorkstationName,
 }) => {
   const chatTab = tabs.find((tab) => tab.type === 'terminal' || tab.type === 'chat');
 
   return (
     <>
+      {!isPreviewShowing && (
       <View style={styles.minimalHeader}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <TouchableOpacity activeOpacity={0.7} onPress={() => togglePanel('chat')}>
@@ -85,16 +87,6 @@ export const VSCodeSidebarHeader: React.FC<Props> = ({
             </GlassCard>
           </TouchableOpacity>
 
-          {activeTabType !== 'terminal' && activeTabType !== 'chat' && chatTab && (
-            <TouchableOpacity activeOpacity={0.7} onPress={() => setActiveTab(chatTab.id)}>
-              <GlassCard style={styles.headerButtonGlass}>
-                <View style={styles.headerButton}>
-                  <Ionicons name="chatbubble-ellipses-outline" size={18} color="#fff" />
-                </View>
-              </GlassCard>
-            </TouchableOpacity>
-          )}
-
           {activeTabType === 'database' && databaseBackHandler && (
             <TouchableOpacity activeOpacity={0.7} onPress={() => databaseBackHandler()}>
               <GlassCard style={styles.headerButtonGlass}>
@@ -106,33 +98,28 @@ export const VSCodeSidebarHeader: React.FC<Props> = ({
           )}
         </View>
 
-        {isPreviewShowing && (
-          <>
-            <TouchableOpacity
-              onPress={() => previewHandlers.goBack?.()}
-              activeOpacity={0.7}
-              style={{ width: 28, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: 4 }}
-            >
-              <Ionicons name="chevron-back" size={18} color="rgba(255, 255, 255, 0.5)" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => previewHandlers.goForward?.()}
-              activeOpacity={0.7}
-              style={{ width: 28, height: 40, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Ionicons name="chevron-forward" size={18} color="rgba(255, 255, 255, 0.5)" />
-            </TouchableOpacity>
-            <GlassCard style={{ borderRadius: 20, overflow: 'hidden', flex: 1, marginLeft: 4 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', height: 40, paddingHorizontal: 14, gap: 6 }}>
-                <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: previewCurrentUrl ? '#00D084' : '#666' }} />
-                <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }} numberOfLines={1}>
-                  {currentPreviewPath}
+        {/* Centered project chip — shows the active workstation name and
+            opens the ChatPanel drawer on tap. */}
+        {!isPreviewShowing && currentWorkstationName && (
+          <TouchableOpacity
+            onPress={() => togglePanel('chat')}
+            activeOpacity={0.7}
+            style={localStyles.projectChipWrapper}
+            hitSlop={6}
+          >
+            <GlassCard style={localStyles.projectChipGlass}>
+              <View style={localStyles.projectChipInner}>
+                <Ionicons name="folder-outline" size={13} color="rgba(255,255,255,0.7)" />
+                <Text style={localStyles.projectChipText} numberOfLines={1}>
+                  {currentWorkstationName}
                 </Text>
               </View>
             </GlassCard>
-          </>
+          </TouchableOpacity>
         )}
+
       </View>
+      )}
 
       {showHeaderMenu && (
         <TouchableWithoutFeedback onPress={closeMenu}>
@@ -140,14 +127,13 @@ export const VSCodeSidebarHeader: React.FC<Props> = ({
         </TouchableWithoutFeedback>
       )}
 
-      <View style={styles.morphButtonWrapper} pointerEvents="box-none">
-        <TouchableOpacity activeOpacity={1} onPress={showHeaderMenu ? closeMenu : openMenu}>
+      {!isPreviewShowing && (
+      <View style={[styles.morphButtonWrapper, !currentWorkstationName && { opacity: 0.35 }]} pointerEvents="box-none">
+        <TouchableOpacity activeOpacity={0.7} onPress={onOpenPreview} disabled={!currentWorkstationName}>
           <GlassCard style={{ borderRadius: 20, overflow: 'visible' }}>
             <Animated.View style={[styles.morphButton, morphStyle]}>
               <Animated.View style={[styles.dotsContainer, dotsOpacity]}>
-                <View style={localStyles.dot} />
-                <View style={localStyles.dot} />
-                <View style={localStyles.dot} />
+                <Ionicons name="play" size={18} color={currentWorkstationName ? '#fff' : 'rgba(255,255,255,0.5)'} style={{ marginLeft: 2 }} />
               </Animated.View>
               <Animated.View style={[styles.menuContent, menuItemsOpacity]}>
                 <TouchableOpacity style={styles.menuItem} activeOpacity={0.6} onPress={onOpenPreview}>
@@ -199,6 +185,7 @@ export const VSCodeSidebarHeader: React.FC<Props> = ({
           </GlassCard>
         </TouchableOpacity>
       </View>
+      )}
     </>
   );
 };
@@ -209,6 +196,33 @@ const localStyles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: '#fff',
+  },
+  projectChipWrapper: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 64,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'box-none',
+  },
+  projectChipGlass: {
+    borderRadius: 999,
+    overflow: 'hidden',
+    maxWidth: 220,
+  },
+  projectChipInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    gap: 6,
+  },
+  projectChipText: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 13,
+    fontWeight: '500',
   },
 });
 

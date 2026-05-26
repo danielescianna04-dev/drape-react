@@ -2,7 +2,7 @@ import React from "react";
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { Colors } from "../design/colors";
 import { fontFamily, fontSize } from "../design/tokens";
-import { DrapeLogo } from "../components/DrapeLogo";
+import { BynotLogo } from "../components/BynotLogo";
 import { PhoneMockup } from "../components/PhoneMockup";
 import { HomeScreen } from "../components/AppScreen";
 
@@ -144,7 +144,7 @@ export const Scene3Reveal: React.FC = () => {
             transform: `perspective(800px) rotateY(${logoEntryRotate}deg) scale(${finalLogoScale})`,
           }}
         >
-          <DrapeLogo size={140} animate={false} glowIntensity={0.5} />
+          <BynotLogo size={140} animate={false} glowIntensity={0.5} />
         </div>
 
         {/* Tagline — fades in as logo rises */}
@@ -166,7 +166,7 @@ export const Scene3Reveal: React.FC = () => {
               marginBottom: 6,
             }}
           >
-            Drape
+            Bynot
           </div>
           <div
             style={{

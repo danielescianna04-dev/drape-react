@@ -1,671 +1,147 @@
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { Platform, Dimensions } from 'react-native';
-import { db, auth } from '../firebase/firebase';
-import { isConsentGranted } from './consentService';
-
-/**
- * Servizio analytics — scrive eventi nella collezione Firestore `user_events`.
- * Gli eventi vengono aggregati lato server per la dashboard admin.
- *
- * GDPR: ogni chiamata di tracking controlla il consenso analytics prima di scrivere.
- * L'email non è mai inclusa — solo userId pseudonimizzato.
- */
-
-const getDeviceType = (): string => {
-  const { width, height } = Dimensions.get('window');
-  const minDim = Math.min(width, height);
-  return minDim >= 600 ? 'tablet' : 'phone';
-};
-
-type AnalyticsValue = string | number | boolean | null | undefined;
-
-function normalizeEventPayload(type: string, data?: Record<string, AnalyticsValue>): Record<string, AnalyticsValue> {
-  const payload: Record<string, AnalyticsValue> = { ...(data || {}) };
-
-  if (type === 'schermata' && payload.schermata && !payload.screen) {
-    payload.screen = payload.schermata;
-  }
-
-  const isError = type === 'error'
-    || type === 'app_error'
-    || type === 'errore_app'
-    || type.startsWith('errore_')
-    || type.endsWith('_error');
-
-  if (isError) {
-    const message = payload.errorMessage || payload.messaggio_errore || payload.messaggio || payload.message;
-    const context = payload.context || payload.contesto;
-
-    if (message) {
-      const normalized = String(message).substring(0, 200);
-      payload.errorMessage = normalized;
-      payload.messaggio = payload.messaggio || normalized;
-      payload.messaggio_errore = payload.messaggio_errore || normalized;
-    }
-
-    if (context) {
-      const normalized = String(context).substring(0, 100);
-      payload.context = normalized;
-      payload.contesto = payload.contesto || normalized;
-    }
-  }
-
-  return payload;
-}
-
-function trackEvent(type: string, data?: Record<string, AnalyticsValue>) {
-  // GDPR: skip tracking if user has not given analytics consent
-  if (!isConsentGranted('analytics')) return;
-
-  const user = auth.currentUser;
-  if (!user) return;
-  const payload = normalizeEventPayload(type, data);
-  addDoc(collection(db, 'user_events'), {
-    type,
-    ...payload,
-    userId: user.uid,
-    platform: Platform.OS,
-    deviceType: getDeviceType(),
-    timestamp: serverTimestamp(),
-  }).catch(() => {});
-}
-
-// ── Autenticazione ──────────────────────────────────
-
-export function tracciaLogin(metodo: string) {
-  trackEvent('login', { metodo });
-}
-
-export function tracciaRegistrazione() {
-  trackEvent('registrazione');
-}
-
-export function tracciaResetPassword() {
-  trackEvent('reset_password');
-}
-
-export function tracciaLogout() {
-  trackEvent('logout');
-}
-
-export async function tracciaEliminaAccount() {
-  // GDPR: skip tracking if user has not given analytics consent
-  if (!isConsentGranted('analytics')) return;
-
-  const user = auth.currentUser;
-  if (!user) return;
-  await addDoc(collection(db, 'user_events'), {
-    type: 'elimina_account',
-    userId: user.uid,
-    email: user.email || '',
-    platform: Platform.OS,
-    deviceType: getDeviceType(),
-    timestamp: serverTimestamp(),
-  });
-}
-
-export function tracciaErrore(messaggio: string, contesto: string) {
-  trackEvent('errore_app', { messaggio, contesto });
-}
-
-// ── Navigazione ─────────────────────────────────────
-
-export function tracciaSchermata(schermata: string) {
-  trackEvent('schermata', { schermata, screen: schermata });
-}
-
-// ── Progetti ────────────────────────────────────────
-
-export function tracciaProgettoCreato(nome: string, linguaggio: string, modalita: string, descrizione?: string) {
-  trackEvent('progetto_creato', { nome, linguaggio, modalita, ...(descrizione ? { descrizione: descrizione.substring(0, 200) } : {}) });
-}
-
-export function tracciaContinuaPremuto(da_step: string) {
-  trackEvent('continua_premuto', { da_step });
-}
-
-export function tracciaLinguaggioSelezionato(linguaggio: string, consigliato: boolean) {
-  trackEvent('linguaggio_selezionato', { linguaggio, consigliato: consigliato ? 'sì' : 'no' });
-}
-
-export function tracciaNomeProgetto(nome: string) {
-  trackEvent('nome_progetto_inserito', { nome });
-}
-
-export function tracciaGenerazioneAvviata(nome: string, linguaggio: string) {
-  trackEvent('generazione_avviata', { nome, linguaggio });
-}
-
-export function tracciaEntrataNelProgetto(nome: string) {
-  trackEvent('entrato_nel_progetto', { nome });
-}
-
-export function tracciaTemplateCancellato(template: string) {
-  trackEvent('template_idea_cancellato', { template });
-}
-
-export function tracciaCloudMode(attivo: boolean) {
-  trackEvent('cloud_mode_toggle', { attivo: attivo ? 'sì' : 'no' });
-}
-
-export function tracciaDescrizionePersonalizzata() {
-  trackEvent('descrizione_personalizzata');
-}
-
-export function tracciaProgettoAperto(nome: string) {
-  trackEvent('progetto_aperto', { nome });
-}
-
-export function tracciaProgettoEliminato(nome: string) {
-  trackEvent('progetto_eliminato', { nome });
-}
-
-export function tracciaProgettoRinominato(vecchio_nome: string, nuovo_nome: string) {
-  trackEvent('progetto_rinominato', { vecchio_nome, nuovo_nome });
-}
-
-export function tracciaProgettoDuplicato(nome: string) {
-  trackEvent('progetto_duplicato', { nome });
-}
-
-export function tracciaProgettoCondiviso(nome: string) {
-  trackEvent('progetto_condiviso', { nome });
-}
-
-export function tracciaProgettoFiltro(filtro: string) {
-  trackEvent('progetto_filtro', { filtro });
-}
-
-export function tracciaProgettoEliminaMultipli(quantita: string) {
-  trackEvent('progetto_elimina_multipli', { quantita });
-}
-
-// ── Chat & AI ───────────────────────────────────────
-
-export function tracciaMessaggioChat(modello: string, modalita_agente: string) {
-  trackEvent('messaggio_chat', { modello, modalita_agente });
-}
-
-export function tracciaComandoTerminaleChat() {
-  trackEvent('comando_terminale_chat');
-}
-
-export function tracciaNuovaChat(tipo: string) {
-  trackEvent('nuova_chat', { tipo });
-}
-
-export function tracciaChatMinimizzata(compressa: string) {
-  trackEvent('chat_minimizzata', { compressa });
-}
-
-export function tracciaChatSelezionata(titolo: string) {
-  trackEvent('chat_selezionata', { titolo: titolo.substring(0, 100) });
-}
-
-export function tracciaChatEliminata() {
-  trackEvent('chat_eliminata');
-}
-
-export function tracciaChatRinominata(nuovo_titolo: string) {
-  trackEvent('chat_rinominata', { nuovo_titolo: nuovo_titolo.substring(0, 100) });
-}
-
-export function tracciaChatFissata(fissata: string) {
-  trackEvent('chat_fissata', { fissata });
-}
-
-export function tracciaChatSpostataCartella() {
-  trackEvent('chat_spostata_cartella');
-}
-
-export function tracciaAnteprimaDaChat() {
-  trackEvent('anteprima_da_chat');
-}
-
-export function tracciaChatBenvenutoChiuso() {
-  trackEvent('chat_benvenuto_chiuso');
-}
-
-export function tracciaModelloSelezionato(modello: string) {
-  trackEvent('modello_selezionato', { modello });
-}
-
-// ── Editor / Pannelli / Tab ─────────────────────────
-
-export function tracciaPannelloAperto(pannello: string) {
-  trackEvent('pannello_aperto', { pannello });
-}
-
-export function tracciaPannelloChiuso(pannello: string) {
-  trackEvent('pannello_chiuso', { pannello });
-}
-
-export function tracciaTabAperto(tab: string) {
-  trackEvent('tab_aperto', { tab });
-}
-
-export function tracciaTabCambiato(tipo_tab: string) {
-  trackEvent('tab_cambiato', { tipo_tab });
-}
-
-export function tracciaTabChiuso(tipo_tab: string) {
-  trackEvent('tab_chiuso', { tipo_tab });
-}
-
-export function tracciaFileAperto(nome_file: string) {
-  trackEvent('file_aperto', { nome_file });
-}
-
-export function tracciaFileCreato(nome_file: string, tipo_file: string) {
-  trackEvent('file_creato', { nome_file, tipo_file });
-}
-
-export function tracciaFileEliminato(nome_file: string) {
-  trackEvent('file_eliminato', { nome_file });
-}
-
-export function tracciaFileRinominato(vecchio_nome: string, nuovo_nome: string) {
-  trackEvent('file_rinominato', { vecchio_nome, nuovo_nome });
-}
-
-export function tracciaRicercaFile(query: string, modalita: string) {
-  trackEvent('ricerca_file', { query: query.substring(0, 100), modalita });
-}
-
-export function tracciaEsploraFile() {
-  trackEvent('esplora_file');
-}
-
-export function tracciaLayoutGriglia() {
-  trackEvent('layout_griglia');
-}
-
-export function tracciaModalitaIspettore(attivo: string) {
-  trackEvent('modalita_ispettore', { attivo });
-}
-
-export function tracciaElementoSelezionato(selettore: string) {
-  trackEvent('elemento_selezionato', { selettore: selettore.substring(0, 200) });
-}
-
-export function tracciaCambioViewport(modalita: string) {
-  trackEvent('cambio_viewport', { modalita });
-}
-
-// ── Anteprima ───────────────────────────────────────
-
-export function tracciaAnteprimaAvviata(nome_progetto: string) {
-  trackEvent('anteprima_avviata', { nome_progetto });
-}
-
-export function tracciaAnteprimaPronta(nome_progetto: string) {
-  trackEvent('anteprima_pronta', { nome_progetto });
-}
-
-export function tracciaAnteprimaAggiornata() {
-  trackEvent('anteprima_aggiornata');
-}
-
-export function tracciaAnteprimaFermata() {
-  trackEvent('anteprima_fermata');
-}
-
-export function tracciaErroreAnteprima(messaggio_errore: string) {
-  trackEvent('errore_anteprima', { messaggio_errore: messaggio_errore.substring(0, 200) });
-}
-
-export function tracciaFixAIAnteprima() {
-  trackEvent('fix_ai_anteprima');
-}
-
-// ── Pubblicazione ───────────────────────────────────
-
-export function tracciaPubblicaPremuto() {
-  trackEvent('pubblica_premuto');
-}
-
-export function tracciaPaywallPubblicaMostrato() {
-  trackEvent('paywall_pubblica_mostrato');
-}
-
-export function tracciaPubblicazioneAvviata(slug: string) {
-  trackEvent('pubblicazione_avviata', { slug });
-}
-
-export function tracciaPubblicazioneRiuscita(slug: string, url: string) {
-  trackEvent('pubblicazione_riuscita', { slug, url: url.substring(0, 200) });
-}
-
-export function tracciaErrorePubblicazione(messaggio_errore: string) {
-  trackEvent('errore_pubblicazione', { messaggio_errore: messaggio_errore.substring(0, 200) });
-}
-
-export function tracciaLinkPubblicazioneCondiviso(slug: string) {
-  trackEvent('link_pubblicazione_condiviso', { slug });
-}
-
-export function tracciaUrlPubblicazioneAperto(slug: string) {
-  trackEvent('url_pubblicazione_aperto', { slug });
-}
-
-export function tracciaDePubblicato(slug: string) {
-  trackEvent('de_pubblicato', { slug });
-}
-
-// ── Git ─────────────────────────────────────────────
-
-export function tracciaAzioneGit(azione: string) {
-  trackEvent('azione_git', { azione });
-}
-
-export function tracciaCommitCreato() {
-  trackEvent('commit_creato');
-}
-
-export function tracciaCambioBranch(branch: string) {
-  trackEvent('cambio_branch', { branch: branch.substring(0, 100) });
-}
-
-export function tracciaPushEffettuato() {
-  trackEvent('push_effettuato');
-}
-
-export function tracciaAuthGit(provider: string) {
-  trackEvent('auth_git', { provider });
-}
-
-export function tracciaAuthGitRiuscita(provider: string) {
-  trackEvent('auth_git_riuscita', { provider });
-}
-
-export function tracciaErroreAuthGit(provider: string, messaggio_errore: string) {
-  trackEvent('errore_auth_git', { provider, messaggio_errore: messaggio_errore.substring(0, 200) });
-}
-
-export function tracciaAccountGitRimosso(provider: string) {
-  trackEvent('account_git_rimosso', { provider });
-}
-
-export function tracciaRepoConnesso(url_repo: string) {
-  trackEvent('repo_connesso', { url_repo: url_repo.substring(0, 200) });
-}
-
-export function tracciaRepoImportato(nome_repo: string) {
-  trackEvent('repo_importato', { nome_repo: nome_repo.substring(0, 100) });
-}
-
-export function tracciaImportGitAvviato() {
-  trackEvent('import_git_avviato');
-}
-
-export function tracciaImportGitAnnullato() {
-  trackEvent('import_git_annullato');
-}
-
-export function tracciaImportGitConfermato(url_repo: string) {
-  trackEvent('import_git_confermato', { url_repo: url_repo.substring(0, 200) });
-}
-
-export function tracciaImportGitRepoNonValida(url_repo: string) {
-  trackEvent('import_git_repo_non_valida', { url_repo: url_repo.substring(0, 200) });
-}
-
-export function tracciaTabGitCambiato(tab: string) {
-  trackEvent('tab_git_cambiato', { tab });
-}
-
-export function tracciaBranchCreato(branch: string) {
-  trackEvent('branch_creato', { branch: branch.substring(0, 100) });
-}
-
-export function tracciaCronologiaCommit() {
-  trackEvent('cronologia_commit');
-}
-
-export function tracciaSelezionaTuttoGit() {
-  trackEvent('seleziona_tutto_git');
-}
-
-export function tracciaAccountGitCollegato(provider: string) {
-  trackEvent('account_git_collegato', { provider });
-}
-
-export function tracciaAccountGitScollegato(provider: string) {
-  trackEvent('account_git_scollegato', { provider });
-}
-
-export function tracciaConnettiRepo() {
-  trackEvent('connetti_repo');
-}
-
-// ── Impostazioni ────────────────────────────────────
-
-export function tracciaImpostazioniAperte(modale: string) {
-  trackEvent('impostazioni_aperte', { modale });
-}
-
-export function tracciaImpostazioniChiuse(modale: string) {
-  trackEvent('impostazioni_chiuse', { modale });
-}
-
-export function tracciaLinguaCambiata(lingua: string) {
-  trackEvent('lingua_cambiata', { lingua });
-}
-
-export function tracciaPasswordCambiata() {
-  trackEvent('password_cambiata');
-}
-
-export function tracciaErroreCambioPassword(messaggio_errore: string) {
-  trackEvent('errore_cambio_password', { messaggio_errore: messaggio_errore.substring(0, 200) });
-}
-
-export function tracciaEmailCambiata() {
-  trackEvent('email_cambiata');
-}
-
-export function tracciaErroreCambioEmail(messaggio_errore: string) {
-  trackEvent('errore_cambio_email', { messaggio_errore: messaggio_errore.substring(0, 200) });
-}
-
-export function tracciaNomeCambiato() {
-  trackEvent('nome_cambiato');
-}
-
-export function tracciaVarAmbienteAggiunta(chiave: string) {
-  trackEvent('var_ambiente_aggiunta', { chiave: chiave.substring(0, 50) });
-}
-
-export function tracciaVarAmbienteRimossa(chiave: string) {
-  trackEvent('var_ambiente_rimossa', { chiave: chiave.substring(0, 50) });
-}
-
-export function tracciaNotificheToggle(tipo: string, attivo: string) {
-  trackEvent('notifiche_toggle', { tipo, attivo });
-}
-
-export function tracciaAcquistiRipristinati() {
-  trackEvent('acquisti_ripristinati');
-}
-
-export function tracciaDocumentoLegaleVisto(tipo: string) {
-  trackEvent('documento_legale_visto', { tipo });
-}
-
-// ── Piani & Fatturazione ────────────────────────────
-
-export function tracciaPianoVisualizzato(piano: string) {
-  trackEvent('piano_visualizzato', { piano });
-}
-
-export function tracciaAcquistoAvviato(prodotto: string) {
-  trackEvent('acquisto_avviato', { prodotto });
-}
-
-export function tracciaAcquistoCompletato(prodotto: string, piano: string) {
-  trackEvent('acquisto_completato', { prodotto, piano });
-}
-
-export function tracciaErroreAcquisto(prodotto: string, tipo_errore: string) {
-  trackEvent('errore_acquisto', { prodotto, tipo_errore });
-}
-
-export function tracciaPaginaPianiVista(sorgente: string) {
-  trackEvent('pagina_piani_vista', { sorgente });
-}
-
-export function tracciaPaginaPianiChiusa() {
-  trackEvent('pagina_piani_chiusa');
-}
-
-export function tracciaCicloFatturazioneCambiato(ciclo: string) {
-  trackEvent('ciclo_fatturazione_cambiato', { ciclo });
-}
-
-// ── Onboarding ──────────────────────────────────────
-
-export function tracciaOnboardingStepCompletato(step: string) {
-  trackEvent('onboarding_step_completato', { step });
-}
-
-export function tracciaOnboardingStepSaltato(step: string) {
-  trackEvent('onboarding_step_saltato', { step });
-}
-
-export function tracciaOnboardingEsperienzaScelta(livello: string) {
-  trackEvent('onboarding_esperienza_scelta', { livello });
-}
-
-export function tracciaOnboardingScopertaScelta(fonte: string) {
-  trackEvent('onboarding_scoperta_scelta', { fonte });
-}
-
-export function tracciaOnboardingCompletato() {
-  trackEvent('onboarding_completato');
-}
-
-export function tracciaOnboardingPianoScelto(piano: string) {
-  trackEvent('onboarding_piano_scelto', { piano });
-}
-
-export function tracciaOnboardingIndietro(da_step: string) {
-  trackEvent('onboarding_indietro', { da_step });
-}
-
-export function tracciaNavigazioneIndietro(a_schermata: string) {
-  trackEvent('navigazione_indietro', { a_schermata });
-}
-
-export function tracciaTutorialStepAvanzato(indice: string, nome_step: string) {
-  trackEvent('tutorial_step_avanzato', { indice, nome_step });
-}
-
-export function tracciaTutorialSaltato(indice: string) {
-  trackEvent('tutorial_saltato', { indice });
-}
-
-// ── 9 Nuove Funzioni ───────────────────────────────
-
-export function tracciaOnboardingSceltaProgetto(scelta: string) {
-  trackEvent('onboarding_scelta_progetto', { scelta });
-}
-
-export function tracciaOnboardingIdeaChip(idea: string) {
-  trackEvent('onboarding_idea_chip', { idea });
-}
-
-export function tracciaImmagineCaricata(sorgente: string) {
-  trackEvent('immagine_caricata', { sorgente });
-}
-
-export function tracciaModalitaChatCambiata(modalita: string) {
-  trackEvent('modalita_chat_cambiata', { modalita });
-}
-
-export function tracciaPianoApprovatoAgente() {
-  trackEvent('piano_approvato_agente');
-}
-
-export function tracciaTemaCambiato(tema: string) {
-  trackEvent('tema_cambiato', { tema });
-}
-
-export function tracciaProgettoImportato(nome: string, url_repo: string) {
-  trackEvent('progetto_importato', { nome, url_repo: url_repo.substring(0, 200) });
-}
-
-export function tracciaSidebarToggle(aperta: string) {
-  trackEvent('sidebar_toggle', { aperta });
-}
-
-export function tracciaCopiaCodicePremuto() {
-  trackEvent('copia_codice');
-}
-
-// ── Errori per flussi critici ───────────────────────
-
-export function tracciaErroreLogin(metodo: string, messaggio: string) {
-  trackEvent('errore_login', { metodo, messaggio: messaggio.substring(0, 200) });
-}
-
-export function tracciaErroreAperturaProgetto(nome: string, messaggio: string) {
-  trackEvent('errore_apertura_progetto', { nome, messaggio: messaggio.substring(0, 200) });
-}
-
-export function tracciaErroreCreazioneProgetto(messaggio: string) {
-  trackEvent('errore_creazione_progetto', { messaggio: messaggio.substring(0, 200) });
-}
-
-export function tracciaErroreRispostaAI(modello: string, messaggio: string) {
-  trackEvent('errore_risposta_ai', { modello, messaggio: messaggio.substring(0, 200) });
-}
-
-export function tracciaErroreRegistrazione(messaggio: string) {
-  trackEvent('errore_registrazione', { messaggio: messaggio.substring(0, 200) });
-}
-
-// ── Operazioni Git complete (successo + errore) ─────
-
-export function tracciaPullEffettuato() {
-  trackEvent('pull_effettuato');
-}
-
-export function tracciaErrorePull(messaggio: string) {
-  trackEvent('errore_pull', { messaggio: messaggio.substring(0, 200) });
-}
-
-export function tracciaErrorePush(messaggio: string) {
-  trackEvent('errore_push', { messaggio: messaggio.substring(0, 200) });
-}
-
-export function tracciaErroreCommit(messaggio: string) {
-  trackEvent('errore_commit', { messaggio: messaggio.substring(0, 200) });
-}
-
-export function tracciaMergeEffettuato(branch: string) {
-  trackEvent('merge_effettuato', { branch: branch.substring(0, 100) });
-}
-
-export function tracciaErroreMerge(branch: string, messaggio: string) {
-  trackEvent('errore_merge', { branch: branch.substring(0, 100), messaggio: messaggio.substring(0, 200) });
-}
-
-export function tracciaStashCreato() {
-  trackEvent('stash_creato');
-}
-
-export function tracciaStashApplicato() {
-  trackEvent('stash_applicato');
-}
-
-export function tracciaErroreStash(messaggio: string) {
-  trackEvent('errore_stash', { messaggio: messaggio.substring(0, 200) });
-}
-
-export function tracciaErroreCambioBranch(branch: string, messaggio: string) {
-  trackEvent('errore_cambio_branch', { branch: branch.substring(0, 100), messaggio: messaggio.substring(0, 200) });
-}
-
-export function tracciaErroreCreazioneBranch(branch: string, messaggio: string) {
-  trackEvent('errore_creazione_branch', { branch: branch.substring(0, 100), messaggio: messaggio.substring(0, 200) });
-}
+// v2 stub: analytics non collegate (TODO post-PMF: integrare PostHog/Mixpanel/etc.)
+// Tutte le funzioni preservano la signature loose accettando qualsiasi argomento.
+
+type AnyArgs = any[];
+const noop = (..._args: AnyArgs): void => { /* v2 stub */ };
+const asyncNoop = async (..._args: AnyArgs): Promise<void> => { /* v2 stub */ };
+
+export const tracciaAccountGitCollegato = noop;
+export const tracciaAccountGitRimosso = noop;
+export const tracciaAccountGitScollegato = noop;
+export const tracciaAcquistiRipristinati = noop;
+export const tracciaAcquistoAvviato = noop;
+export const tracciaAcquistoCompletato = noop;
+export const tracciaAnteprimaAggiornata = noop;
+export const tracciaAnteprimaAvviata = noop;
+export const tracciaAnteprimaDaChat = noop;
+export const tracciaAnteprimaFermata = noop;
+export const tracciaAnteprimaPronta = noop;
+export const tracciaAuthGit = noop;
+export const tracciaAuthGitRiuscita = noop;
+export const tracciaAzioneGit = noop;
+export const tracciaBranchCreato = noop;
+export const tracciaCambioBranch = noop;
+export const tracciaCambioViewport = noop;
+export const tracciaChatBenvenutoChiuso = noop;
+export const tracciaChatEliminata = noop;
+export const tracciaChatFissata = noop;
+export const tracciaChatMinimizzata = noop;
+export const tracciaChatRinominata = noop;
+export const tracciaChatSelezionata = noop;
+export const tracciaChatSpostataCartella = noop;
+export const tracciaCicloFatturazioneCambiato = noop;
+export const tracciaCloudMode = noop;
+export const tracciaComandoTerminaleChat = noop;
+export const tracciaCommitCreato = noop;
+export const tracciaConnettiRepo = noop;
+export const tracciaContinuaPremuto = noop;
+export const tracciaCopiaCodicePremuto = noop;
+export const tracciaCronologiaCommit = noop;
+export const tracciaDePubblicato = noop;
+export const tracciaDescrizionePersonalizzata = noop;
+export const tracciaDocumentoLegaleVisto = noop;
+export const tracciaElementoSelezionato = noop;
+export const tracciaEliminaAccount = asyncNoop;
+export const tracciaEmailCambiata = noop;
+export const tracciaEntrataNelProgetto = noop;
+export const tracciaErrore = noop;
+export const tracciaErroreAcquisto = noop;
+export const tracciaErroreAnteprima = noop;
+export const tracciaErroreAperturaProgetto = noop;
+export const tracciaErroreAuthGit = noop;
+export const tracciaErroreCambioBranch = noop;
+export const tracciaErroreCambioEmail = noop;
+export const tracciaErroreCambioPassword = noop;
+export const tracciaErroreCommit = noop;
+export const tracciaErroreCreazioneBranch = noop;
+export const tracciaErroreCreazioneProgetto = noop;
+export const tracciaErroreLogin = noop;
+export const tracciaErroreMerge = noop;
+export const tracciaErrorePubblicazione = noop;
+export const tracciaErrorePull = noop;
+export const tracciaErrorePush = noop;
+export const tracciaErroreRegistrazione = noop;
+export const tracciaErroreRispostaAI = noop;
+export const tracciaErroreStash = noop;
+export const tracciaEsploraFile = noop;
+export const tracciaFileAperto = noop;
+export const tracciaFileCreato = noop;
+export const tracciaFileEliminato = noop;
+export const tracciaFileRinominato = noop;
+export const tracciaFixAIAnteprima = noop;
+export const tracciaGenerazioneAvviata = noop;
+export const tracciaImmagineCaricata = noop;
+export const tracciaImportGitAnnullato = noop;
+export const tracciaImportGitAvviato = noop;
+export const tracciaImportGitConfermato = noop;
+export const tracciaImportGitRepoNonValida = noop;
+export const tracciaImpostazioniAperte = noop;
+export const tracciaImpostazioniChiuse = noop;
+export const tracciaLayoutGriglia = noop;
+export const tracciaLinguaCambiata = noop;
+export const tracciaLinguaggioSelezionato = noop;
+export const tracciaLinkPubblicazioneCondiviso = noop;
+export const tracciaLogin = noop;
+export const tracciaLogout = noop;
+export const tracciaMergeEffettuato = noop;
+export const tracciaMessaggioChat = noop;
+export const tracciaModalitaChatCambiata = noop;
+export const tracciaModalitaIspettore = noop;
+export const tracciaModelloSelezionato = noop;
+export const tracciaNavigazioneIndietro = noop;
+export const tracciaNomeCambiato = noop;
+export const tracciaNomeProgetto = noop;
+export const tracciaNotificheToggle = noop;
+export const tracciaNuovaChat = noop;
+export const tracciaOnboardingCompletato = noop;
+export const tracciaOnboardingEsperienzaScelta = noop;
+export const tracciaOnboardingIdeaChip = noop;
+export const tracciaOnboardingIndietro = noop;
+export const tracciaOnboardingPianoScelto = noop;
+export const tracciaOnboardingSceltaProgetto = noop;
+export const tracciaOnboardingScopertaScelta = noop;
+export const tracciaOnboardingStepCompletato = noop;
+export const tracciaOnboardingStepSaltato = noop;
+export const tracciaPaginaPianiChiusa = noop;
+export const tracciaPaginaPianiVista = noop;
+export const tracciaPannelloAperto = noop;
+export const tracciaPannelloChiuso = noop;
+export const tracciaPasswordCambiata = noop;
+export const tracciaPaywallPubblicaMostrato = noop;
+export const tracciaPianoApprovatoAgente = noop;
+export const tracciaPianoVisualizzato = noop;
+export const tracciaProgettoAperto = noop;
+export const tracciaProgettoCondiviso = noop;
+export const tracciaProgettoCreato = noop;
+export const tracciaProgettoDuplicato = noop;
+export const tracciaProgettoEliminaMultipli = noop;
+export const tracciaProgettoEliminato = noop;
+export const tracciaProgettoFiltro = noop;
+export const tracciaProgettoImportato = noop;
+export const tracciaProgettoRinominato = noop;
+export const tracciaPubblicaPremuto = noop;
+export const tracciaPubblicazioneAvviata = noop;
+export const tracciaPubblicazioneRiuscita = noop;
+export const tracciaPullEffettuato = noop;
+export const tracciaPushEffettuato = noop;
+export const tracciaRegistrazione = noop;
+export const tracciaRepoConnesso = noop;
+export const tracciaRepoImportato = noop;
+export const tracciaResetPassword = noop;
+export const tracciaRicercaFile = noop;
+export const tracciaSchermata = noop;
+export const tracciaSelezionaTuttoGit = noop;
+export const tracciaSidebarToggle = noop;
+export const tracciaStashApplicato = noop;
+export const tracciaStashCreato = noop;
+export const tracciaTabAperto = noop;
+export const tracciaTabCambiato = noop;
+export const tracciaTabChiuso = noop;
+export const tracciaTabGitCambiato = noop;
+export const tracciaTemaCambiato = noop;
+export const tracciaTemplateCancellato = noop;
+export const tracciaTutorialSaltato = noop;
+export const tracciaTutorialStepAvanzato = noop;
+export const tracciaUrlPubblicazioneAperto = noop;
+export const tracciaVarAmbienteAggiunta = noop;
+export const tracciaVarAmbienteRimossa = noop;

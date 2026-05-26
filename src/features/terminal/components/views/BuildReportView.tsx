@@ -668,7 +668,7 @@ export const BuildReportView: React.FC<Props> = ({ tab }) => {
             {report && (
               <View style={st.debugInfo}>
                 <Text style={st.debugTitle}>Debug Info</Text>
-                <Text style={st.debugText}>Modello: {report.summary?.aiModel || 'gemini-3-flash'}</Text>
+                <Text style={st.debugText}>Modello: {report.summary?.aiModel || 'deepseek-v4-flash-free'}</Text>
                 <Text style={st.debugText}>Token: {report.summary?.aiTokensUsed?.toLocaleString() ?? '?'}</Text>
                 <Text style={st.debugText}>Costo generation: €{(report.summary?.aiGenerationCostEur ?? 0).toFixed(4)}</Text>
                 <Text style={st.debugText}>Costo verify cheap: €{(report.summary?.aiVerifyCostEur ?? 0).toFixed(4)}</Text>

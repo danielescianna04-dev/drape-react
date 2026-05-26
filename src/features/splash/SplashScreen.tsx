@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
 import { AppColors } from '../../shared/theme/colors';
-import { DrapeLogo } from '../../shared/components/icons';
+import { BynotLogo } from '../../shared/components/icons';
 
 const APP_VERSION = Constants.expoConfig?.version ?? '2.2.0';
 
@@ -122,11 +122,10 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
       opacity: exitOpacity,
       transform: [{ scale: exitScale }],
     }]}>
-      {/* Deep gradient background — matches onboarding */}
+      {/* Background matches ChatPage */}
       <LinearGradient
-        colors={['#0C0816', '#1a0a2e', '#2d0845', '#0C0816']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        colors={AppColors.gradient.dark}
+        locations={[0, 0.3, 0.7, 1]}
         style={StyleSheet.absoluteFill}
       />
 
@@ -149,7 +148,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
           ],
         }]}>
           <View style={styles.iconBox}>
-            <DrapeLogo size={88} />
+            <BynotLogo size={88} />
           </View>
         </Animated.View>
 
@@ -161,7 +160,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
             { scale: nameScale },
           ],
         }}>
-          <Text style={styles.brandName}>Drape</Text>
+          <Text style={styles.brandName}>Bynot</Text>
         </Animated.View>
 
         {/* Tagline with shimmer */}

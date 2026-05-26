@@ -1,5 +1,5 @@
 {
-  "_comment": "Composite indexes for the platform-side queries. The current code intentionally avoids these by reading wider and sorting/filtering in memory. Deploy these once the gallery has more than a few thousand public sites: `firebase deploy --only firestore:indexes --project drape-dev` (and `drapev2` for prod).",
+  "_comment": "Composite indexes for the platform-side queries. The current code intentionally avoids these by reading wider and sorting/filtering in memory. Deploy these once the gallery has more than a few thousand public sites: `firebase deploy --only firestore:indexes --project bynot-dev` (and `bynotv2` for prod).",
   "indexes": [
     {
       "collectionGroup": "published_sites",

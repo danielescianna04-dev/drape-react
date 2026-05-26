@@ -144,29 +144,6 @@ export const ChatComposerArea: React.FC<ComposerProps> = ({
         </View>
       )}
 
-      {selectedInputImages.length > 0 && (
-        <View style={styles.compactImageBar}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.compactImageBarContent}
-          >
-            {selectedInputImages.map((image, index) => (
-              <View key={`${image.uri}-${index}`} style={styles.compactImageItem}>
-                <Image source={{ uri: image.uri }} style={styles.compactImage} />
-                <TouchableOpacity
-                  style={styles.compactRemoveButton}
-                  onPress={() => onRemoveImage(index)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="close-circle" size={16} color="#fff" />
-                </TouchableOpacity>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
       <ChatInputBar
         input={input}
         onChangeText={handleInputChange}
@@ -177,6 +154,8 @@ export const ChatComposerArea: React.FC<ComposerProps> = ({
         isStreaming={agentStreaming}
         isLoading={isLoading}
         hasImages={selectedInputImages.length > 0}
+        selectedImages={selectedInputImages}
+        onRemoveImage={onRemoveImage}
         selectedModel={selectedModel}
         currentModelName={currentModelName}
         showModelSelector={showModelSelector}
@@ -190,11 +169,7 @@ export const ChatComposerArea: React.FC<ComposerProps> = ({
         onLockedModelPress={(model) => {
           Alert.alert(
             model.name,
-            model.id.includes('opus')
-              ? 'Il modello piu potente. Genera codice complesso, debug avanzato e architettura superiore. Disponibile con il piano Go.'
-              : model.id.includes('gpt')
-                ? 'GPT-5.3 di OpenAI. Eccelle in ragionamento e coding. Disponibile con il piano Go.'
-                : 'Gemini Pro di Google. Ottime capacita di ragionamento e analisi. Disponibile con il piano Go.',
+            'Questo modello richiede un piano a pagamento. Abbonati per sbloccarlo.',
             [
               { text: 'Annulla', style: 'cancel' },
               { text: 'Vedi piani', onPress: navigateToPlans },

@@ -44,18 +44,8 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
 
   // Sync translateX when currentIndex or containerWidth changes
   useEffect(() => {
-    const previousIndex = previousIndexRef.current;
-    const previousTabType = tabs[previousIndex] && (tabs[previousIndex] as any).type;
-    const currentTabType = tabs[currentIndex] && (tabs[currentIndex] as any).type;
-    const touchesPreview = previousTabType === 'preview' || currentTabType === 'preview';
     const nextTranslateX = -currentIndex * containerWidth;
-
-    if (touchesPreview) {
-      translateX.value = nextTranslateX;
-    } else {
-      translateX.value = withSpring(nextTranslateX, SPRING_CONFIG);
-    }
-
+    translateX.value = withSpring(nextTranslateX, SPRING_CONFIG);
     previousIndexRef.current = currentIndex;
   }, [currentIndex, containerWidth, tabs]);
 
@@ -111,12 +101,13 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
         targetIndex = currentIndex - 1;
       }
 
+      // Notify index change immediately so headers / chrome can swap in sync
+      // with the slide animation instead of after the spring settles.
+      if (targetIndex !== currentIndex) {
+        runOnJS(handleIndexChange)(targetIndex);
+      }
       // Animate to target position
-      translateX.value = withSpring(-targetIndex * containerWidth, SPRING_CONFIG, (finished) => {
-        if (finished && targetIndex !== currentIndex) {
-          runOnJS(handleIndexChange)(targetIndex);
-        }
-      });
+      translateX.value = withSpring(-targetIndex * containerWidth, SPRING_CONFIG);
     });
 
   // Animated style for the entire track
@@ -173,7 +164,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     overflow: 'hidden',
-    backgroundColor: AppColors.dark.backgroundAlt,
+    backgroundColor: 'transparent',
   },
   track: {
     flexDirection: 'row',
@@ -181,7 +172,8 @@ const styles = StyleSheet.create({
   },
   page: {
     height: '100%',
-    backgroundColor: AppColors.dark.backgroundAlt,
+    position: 'relative',
+    backgroundColor: 'transparent',
   },
   tabContent: {
     flex: 1,

@@ -121,7 +121,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
     try {
 
       const redirectUri = AuthSession.makeRedirectUri({
-        scheme: 'drape',
+        scheme: 'bynot',
         path: 'auth/callback'
       });
 

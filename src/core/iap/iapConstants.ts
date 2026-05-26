@@ -1,8 +1,8 @@
 export const IAP_PRODUCT_IDS = {
-  GO_MONTHLY: 'com.drape.app.go.monthly.v2',
-  GO_YEARLY: 'com.drape.app.go.yearly.v2',
-  PRO_MONTHLY: 'com.drape.app.pro.monthly.v2',
-  PRO_YEARLY: 'com.drape.app.pro.yearly.v2',
+  GO_MONTHLY: 'com.bynot.app.go.monthly.v2',
+  GO_YEARLY: 'com.bynot.app.go.yearly.v2',
+  PRO_MONTHLY: 'com.bynot.app.pro.monthly.v2',
+  PRO_YEARLY: 'com.bynot.app.pro.yearly.v2',
 } as const;
 
 export const ALL_PRODUCT_IDS = [

@@ -1,10 +1,10 @@
-# Drape Desktop — Electron App Specification
+# Bynot Desktop — Electron App Specification
 
 ## Overview
 
-Build **Drape Desktop**, a macOS desktop application using **Electron + React + TypeScript** that replicates the core functionality of the Drape mobile app (React Native). The visual style should be inspired by **OpenAI Codex** — minimal, dark, with a monospaced terminal-centric aesthetic.
+Build **Bynot Desktop**, a macOS desktop application using **Electron + React + TypeScript** that replicates the core functionality of the Bynot mobile app (React Native). The visual style should be inspired by **OpenAI Codex** — minimal, dark, with a monospaced terminal-centric aesthetic.
 
-The app connects to the **existing Drape backend** (no backend rewrite needed). Everything runs on the same infrastructure.
+The app connects to the **existing Bynot backend** (no backend rewrite needed). Everything runs on the same infrastructure.
 
 ---
 
@@ -14,10 +14,10 @@ The app connects to the **existing Drape backend** (no backend rewrite needed). 
 
 | Environment | URL | Port | Service | Deploy Script |
 |---|---|---|---|---|
-| **Dev** | `https://dev.drape.info` | 3002 | `drape-backend-dev` | `deploy-dev.sh` |
-| **Prod** | `https://drape.info` | 3001 | `drape-backend` | `deploy.sh` |
+| **Dev** | `https://dev.bynot.it` | 3002 | `bynot-backend-dev` | `deploy-dev.sh` |
+| **Prod** | `https://bynot.it` | 3001 | `bynot-backend` | `deploy.sh` |
 
-- SSH: `root@77.42.1.116` port `49222`, key `~/.ssh/id_ed25519_drape`
+- SSH: `root@77.42.1.116` port `49222`, key `~/.ssh/id_ed25519_bynot`
 - Backend source: `backend-ts/` (Express + TypeScript + Docker)
 - Projects stored on NVMe at `/data/projects/{projectId}`
 - Published sites at `/data/published/{slug}`
@@ -26,15 +26,15 @@ The app connects to the **existing Drape backend** (no backend rewrite needed). 
 
 | Environment | Project ID | Auth Domain | API Key |
 |---|---|---|---|
-| **Dev** | `drape-dev` | `drape-dev.firebaseapp.com` | `AIzaSyApLi3ZCoaJxE9PKV617LczwOGnffyHca4` |
-| **Prod** | `drapev2` | `drapev2.firebaseapp.com` | `AIzaSyAJkZyI2b_77f8XWfP1anWdmWlaTotx930` |
+| **Dev** | `bynot-dev` | `bynot-dev.firebaseapp.com` | `AIzaSyApLi3ZCoaJxE9PKV617LczwOGnffyHca4` |
+| **Prod** | `bynotv2` | `bynotv2.firebaseapp.com` | `AIzaSyAJkZyI2b_77f8XWfP1anWdmWlaTotx930` |
 
 **Dev Firebase full config:**
 ```
 API_KEY=AIzaSyApLi3ZCoaJxE9PKV617LczwOGnffyHca4
-AUTH_DOMAIN=drape-dev.firebaseapp.com
-PROJECT_ID=drape-dev
-STORAGE_BUCKET=drape-dev.firebasestorage.app
+AUTH_DOMAIN=bynot-dev.firebaseapp.com
+PROJECT_ID=bynot-dev
+STORAGE_BUCKET=bynot-dev.firebasestorage.app
 MESSAGING_SENDER_ID=127888670449
 APP_ID=1:127888670449:web:d7de3fe78034aaa74b3350
 ```
@@ -42,9 +42,9 @@ APP_ID=1:127888670449:web:d7de3fe78034aaa74b3350
 **Prod Firebase full config:**
 ```
 API_KEY=AIzaSyAJkZyI2b_77f8XWfP1anWdmWlaTotx930
-AUTH_DOMAIN=drapev2.firebaseapp.com
-PROJECT_ID=drapev2
-STORAGE_BUCKET=drapev2.firebasestorage.app
+AUTH_DOMAIN=bynotv2.firebaseapp.com
+PROJECT_ID=bynotv2
+STORAGE_BUCKET=bynotv2.firebasestorage.app
 MESSAGING_SENDER_ID=76009555388
 APP_ID=1:76009555388:ios:2152442e43e04855ccd7b9
 ```
@@ -59,17 +59,17 @@ APP_ID=1:76009555388:ios:2152442e43e04855ccd7b9
 
 ### Docker Containers
 
-Each project gets a Docker container (`drape-workspace:latest`) with:
+Each project gets a Docker container (`bynot-workspace:latest`) with:
 - **User**: `coder` (UID 1000)
 - **Resources**: 4 CPUs, 4GB RAM
-- **Network**: `drape-net` (bridge)
+- **Network**: `bynot-net` (bridge)
 - **Mounts**:
   - `/data/projects/{projectId}` → `/home/coder/project`
   - `/data/pnpm-store` → `/home/coder/volumes/pnpm-store` (ro)
   - `/data/cache` → `/data/cache`
   - `/opt/flutter` → `/opt/flutter` (ro)
 - **Software inside**: Node.js, Python, Go, Rust, Flutter, pnpm, git
-- **OpenCode pre-installed**: The AI coding agent `opencode` is already installed in every container. The backend uses `opencode run --attach --format json` via `docker exec` to stream AI responses. Model mapping: Drape model names → OpenCode provider/model format.
+- **OpenCode pre-installed**: The AI coding agent `opencode` is already installed in every container. The backend uses `opencode run --attach --format json` via `docker exec` to stream AI responses. Model mapping: Bynot model names → OpenCode provider/model format.
 - **API keys injected as env vars**: `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`
 - **Dev server** runs on port 3000 inside container, mapped to a dynamic host port (49152+)
 - **Idle reaper**: containers destroyed after 15 min of inactivity
@@ -79,7 +79,7 @@ Each project gets a Docker container (`drape-workspace:latest`) with:
 The backend uses OpenCode as the AI agent engine inside containers:
 
 ```typescript
-// Model mapping (Drape → OpenCode)
+// Model mapping (Bynot → OpenCode)
 'gemini-3-flash'    → 'google/gemini-3-flash-preview'
 'gemini-3.1-pro'    → 'google/gemini-3.1-pro-preview'
 'claude-4-6-sonnet' → 'anthropic/claude-sonnet-4-6'
@@ -87,7 +87,7 @@ The backend uses OpenCode as the AI agent engine inside containers:
 'gpt-5-4'           → 'openai/gpt-5.4'
 ```
 
-OpenCode JSONL events are translated to Drape SSE events by `opencode-adapter.service.ts`. Event types: `step_start`, `text`, `tool_use`, `step_finish`, `error`.
+OpenCode JSONL events are translated to Bynot SSE events by `opencode-adapter.service.ts`. Event types: `step_start`, `text`, `tool_use`, `step_finish`, `error`.
 
 ---
 
@@ -263,13 +263,13 @@ AI model costs tracked per-token with cached token discount (1/4 rate). USD→EU
 - Single-column layout: sidebar (projects/chat list) + main area
 - Terminal-first feel — the AI chat looks like a terminal conversation
 - Subtle borders (rgba(255,255,255,0.08))
-- Purple accent (#8B5CF6) for interactive elements (matching Drape brand)
+- Purple accent (#8B5CF6) for interactive elements (matching Bynot brand)
 - No unnecessary animations — fast, snappy transitions
 
 ### Window Layout
 ```
 ┌──────────────────────────────────────────────────┐
-│ Traffic lights          Drape Desktop    ⚙️      │
+│ Traffic lights          Bynot Desktop    ⚙️      │
 ├────────┬─────────────────────────────────────────┤
 │        │ Tab bar: Chat | Terminal | Files | ...   │
 │ Side   │─────────────────────────────────────────│
@@ -294,7 +294,7 @@ AI model costs tracked per-token with cached token discount (1/4 rate). USD→EU
 4. **Terminal**: Full PTY terminal via WebSocket (`terminal_start`/`terminal_input`/`terminal_output`)
 5. **File Explorer**: Tree view of project files via `/fly/project/:id/files`
 6. **Code Editor**: Monaco editor for file editing via `/fly/project/:id/file` (read/write)
-7. **Preview**: Embedded webview showing dev server output (`https://{projectId}.drape.info/` or proxy URL)
+7. **Preview**: Embedded webview showing dev server output (`https://{projectId}.bynot.it/` or proxy URL)
 8. **Git**: Status, commit, push, pull, branch switch via `/git/*` endpoints
 
 #### P1 — Should Have
@@ -317,12 +317,12 @@ AI model costs tracked per-token with cached token discount (1/4 rate). USD→EU
 3. Get `idToken` from Firebase user object
 4. Store refresh token securely (Electron `safeStorage`)
 5. All API calls: `Authorization: Bearer {idToken}`
-6. WebSocket connect: `wss://dev.drape.info?token={idToken}`
+6. WebSocket connect: `wss://dev.bynot.it?token={idToken}`
 
 ### Dev/Prod Switching
-- Use environment variable `DRAPE_ENV=development|production`
-- Dev: `https://dev.drape.info`, Firebase project `drape-dev`
-- Prod: `https://drape.info`, Firebase project `drapev2`
+- Use environment variable `BYNOT_ENV=development|production`
+- Dev: `https://dev.bynot.it`, Firebase project `bynot-dev`
+- Prod: `https://bynot.it`, Firebase project `bynotv2`
 - Config file selects the right Firebase credentials and API URL
 
 ### Desktop-Specific Additions (NOT in mobile)
@@ -345,7 +345,7 @@ AI model costs tracked per-token with cached token discount (1/4 rate). USD→EU
 
 ## Project Structure
 ```
-drape-desktop/
+bynot-desktop/
 ├── electron/
 │   ├── main.ts              # Electron main process
 │   ├── preload.ts           # Preload script (IPC bridge)
@@ -392,7 +392,7 @@ drape-desktop/
 
 2. **Terminal PTY**: Connect via WebSocket, send `terminal_start`, then pipe `terminal_input`/`terminal_output` to xterm.js. Data is base64-encoded.
 
-3. **Preview iframe**: Use `<webview>` tag (Electron) or `<iframe>` pointing to `https://{projectId}.drape.info/`. The backend handles all proxying.
+3. **Preview iframe**: Use `<webview>` tag (Electron) or `<iframe>` pointing to `https://{projectId}.bynot.it/`. The backend handles all proxying.
 
 4. **File editing**: Read file via `GET /fly/project/:id/file?path=...`, edit in Monaco, save via `POST /fly/project/:id/file` with `{ path, content }`.
 

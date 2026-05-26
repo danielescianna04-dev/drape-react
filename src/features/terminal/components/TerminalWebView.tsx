@@ -64,14 +64,14 @@ export const TerminalWebView = React.forwardRef<TerminalWebViewHandle, TerminalW
   useImperativeHandle(ref, () => ({
     focus: () => {
       webViewRef.current?.injectJavaScript(`
-        window.__DRAPE_TERM_FOCUS && window.__DRAPE_TERM_FOCUS();
+        window.__BYNOT_TERM_FOCUS && window.__BYNOT_TERM_FOCUS();
         true;
       `);
     },
     sendInput: (data: string) => {
       const encoded = btoa(data);
       webViewRef.current?.injectJavaScript(`
-        window.__DRAPE_TERM_SEND && window.__DRAPE_TERM_SEND('${encoded}');
+        window.__BYNOT_TERM_SEND && window.__BYNOT_TERM_SEND('${encoded}');
         true;
       `);
     },

@@ -4,13 +4,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
-import { workstationService } from '../../../core/workstation/workstationService-firebase';
+import { workstationService } from '../../../core/workstation/workstationService';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { gitAccountService } from '../../../core/git/gitAccountService';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
-import { auth } from '../../../config/firebase';
+import { useAuthStore } from '../../../core/auth/authStore';
 import { tracciaFileAperto, tracciaFileCreato, tracciaFileEliminato, tracciaFileRinominato, tracciaRicercaFile, tracciaErrore } from '../../../core/services/analyticsService';
 
 // Enable LayoutAnimation on Android
@@ -718,7 +718,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
                 id: tabId,
                 type: 'file',
                 title: node.name,
-                data: { filePath: node.path, projectId, repositoryUrl, userId: auth.currentUser?.uid || 'anonymous' }
+                data: { filePath: node.path, projectId, repositoryUrl, userId: useAuthStore.getState().user?.uid || 'anonymous' }
               });
               tracciaFileAperto(node.name);
               onFileSelect(node.path);
@@ -919,7 +919,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
                         const tabId = `file-${projectId}-${filePath}`;
                         addTab({
                           id: tabId, type: 'file', title: fileName,
-                          data: { filePath, projectId, repositoryUrl, userId: auth.currentUser?.uid || 'anonymous', highlightLine: result.line }
+                          data: { filePath, projectId, repositoryUrl, userId: useAuthStore.getState().user?.uid || 'anonymous', highlightLine: result.line }
                         });
                         onFileSelect(filePath);
                       }}

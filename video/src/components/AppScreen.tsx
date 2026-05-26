@@ -4,7 +4,7 @@ import { Colors } from "../design/colors";
 import { fontFamily } from "../design/tokens";
 
 /**
- * Pixel-perfect replicas of real Drape app screens.
+ * Pixel-perfect replicas of real Bynot app screens.
  * Recreated from actual device screenshots + source code styles.
  * All text in Italian to match real app locale.
  */
@@ -276,7 +276,7 @@ export const HomeScreen: React.FC = () => (
         <HomeProjectCard name="ff" lang="nextjs" time="13h fa" iconColor="#9B8AFF" />
         <HomeProjectCard name="dj" lang="html" time="14h fa" iconColor="#E34F26" />
         <HomeProjectCard name="Dashboard" lang="react" time="15h fa" iconColor="#61DAFB" />
-        <HomeProjectCard name="drape-dev.it" lang="danielescianna04-dev..." time="1g fa" iconColor="#888" isGithub />
+        <HomeProjectCard name="bynot-dev.it" lang="danielescianna04-dev..." time="1g fa" iconColor="#888" isGithub />
 
         {/* Vedi tutti button */}
         <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>

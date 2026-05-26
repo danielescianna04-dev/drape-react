@@ -157,11 +157,11 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = React.memo(({
                 headers: {
                   'Coder-Session-Token': coderToken || '',
                   'session_token': coderToken || '',
-                  ...(previewAccessToken ? { 'X-Drape-Preview-Token': previewAccessToken } : {}),
+                  ...(previewAccessToken ? { 'X-Bynot-Preview-Token': previewAccessToken } : {}),
                   ...(globalFlyMachineId ? { 'Fly-Force-Instance-Id': globalFlyMachineId } : {}),
-                  'cookie': `drape_vm_id=${globalFlyMachineId || ''}; fly-force-instance-id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}; drape_preview_token=${previewAccessToken || ''}`,
+                  'cookie': `bynot_vm_id=${globalFlyMachineId || ''}; fly-force-instance-id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}; bynot_preview_token=${previewAccessToken || ''}`,
                   ...(flyMachineIdRef.current ? {
-                    'X-Drape-VM-Id': flyMachineIdRef.current,
+                    'X-Bynot-VM-Id': flyMachineIdRef.current,
                     'Fly-Force-Instance-Id': flyMachineIdRef.current
                   } : {})
                 }

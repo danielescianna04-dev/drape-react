@@ -1,11 +1,11 @@
 {
-  "name": "drape-promo-video",
+  "name": "bynot-promo-video",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "start": "npx remotion studio",
-    "build": "npx remotion render DrapePromo30s out/drape-30s.mp4",
-    "build:15s": "npx remotion render DrapePromo15s out/drape-15s.mp4",
+    "build": "npx remotion render BynotPromo30s out/bynot-30s.mp4",
+    "build:15s": "npx remotion render BynotPromo15s out/bynot-15s.mp4",
     "build:all": "npm run build && npm run build:15s"
   },
   "dependencies": {

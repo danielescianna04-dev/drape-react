@@ -18,7 +18,6 @@ export const previewStyles = StyleSheet.create({
     flex: 1,
     position: 'relative',
     backgroundColor: '#0a0a0a',
-    paddingTop: 88,
   },
   reloadBanner: {
     position: 'absolute',

@@ -36,8 +36,8 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
   const insets = useSafeAreaInsets();
   const isSupabase = dbPath === '__supabase__';
   const isNeon = dbPath === '__neon__' || dbPath.includes('neon.tech');
-  const isDrape = dbPath === '__drape__';
-  const isCloud = isSupabase || isNeon || isDrape;
+  const isBynot = dbPath === '__bynot__';
+  const isCloud = isSupabase || isNeon || isBynot;
   const totalRows = tables.reduce((sum, t) => sum + (t.rowCount || 0), 0);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -49,7 +49,7 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
   const [junctionTo, setJunctionTo] = useState<string>('');
   const [creating, setCreating] = useState(false);
 
-  const canCreate = isDrape && !!onCreateTable;
+  const canCreate = isBynot && !!onCreateTable;
   const referenceableTables = tables.filter((t) => !t.system).map((t) => t.name);
 
   const resetModal = () => {
@@ -186,7 +186,7 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
                       )}
                     </View>
                     <Text style={styles.tableType}>
-                      {table.system ? 'Auth-managed, read-only' : isDrape ? 'Drape Cloud table' : isCloud ? 'PostgreSQL table' : 'SQLite table'}
+                      {table.system ? 'Auth-managed, read-only' : isBynot ? 'Bynot Cloud table' : isCloud ? 'PostgreSQL table' : 'SQLite table'}
                     </Text>
                   </View>
                   <View style={styles.tableRight}>
@@ -331,7 +331,7 @@ export const TableListView: React.FC<Props> = ({ tables, dbPath, isLoading, onSe
                 <Text style={styles.emptyFieldsHint}>
                   {newScope === 'junction'
                     ? 'Nessun campo extra — la relazione basta a sé stessa.'
-                    : 'Nessun campo definito. Drape Cloud accetta qualsiasi struttura, ma definire i campi aiuta l\'AI e la UI.'}
+                    : 'Nessun campo definito. Bynot Cloud accetta qualsiasi struttura, ma definire i campi aiuta l\'AI e la UI.'}
                 </Text>
               )}
 

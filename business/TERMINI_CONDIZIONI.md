@@ -1,4 +1,4 @@
-# Drape IDE - Termini e Condizioni di Servizio
+# Bynot IDE - Termini e Condizioni di Servizio
 
 **Ultima modifica**: Marzo 2026
 **Versione**: 1.1
@@ -7,7 +7,7 @@
 
 ## 1. Descrizione del Servizio
 
-Drape IDE ("Servizio") è una piattaforma di sviluppo software cloud-based che offre:
+Bynot IDE ("Servizio") è una piattaforma di sviluppo software cloud-based che offre:
 - Ambiente di sviluppo integrato (IDE) accessibile via app mobile
 - Container cloud (workstation) per l'esecuzione di codice e l'anteprima
 - Assistente AI per la generazione e analisi di codice
@@ -54,13 +54,13 @@ La violazione comporta la sospensione immediata dell'account.
 
 ### 5.1 Codice dell'Utente
 - L'utente mantiene la **piena proprietà** di tutto il codice creato
-- Drape non rivendica alcun diritto sul codice utente
-- L'utente concede a Drape una licenza limitata per:
+- Bynot non rivendica alcun diritto sul codice utente
+- L'utente concede a Bynot una licenza limitata per:
   - Memorizzare e trasmettere il codice per erogare il Servizio
   - Eseguire il codice sulle workstation cloud
 
-### 5.2 Servizio Drape
-- Il Servizio, inclusi software, design e marchi, è proprietà di Drape
+### 5.2 Servizio Bynot
+- Il Servizio, inclusi software, design e marchi, è proprietà di Bynot
 - L'utente riceve una licenza non esclusiva e non trasferibile per l'uso
 
 ---
@@ -71,17 +71,17 @@ La violazione comporta la sospensione immediata dell'account.
 Ogni piano include un budget AI mensile. L'utilizzo viene tracciato e il budget si resetta mensilmente.
 
 ### 6.2 Contenuto generato dall'AI
-L'assistente AI genera suggerimenti e codice. L'utente è responsabile della verifica e dell'utilizzo del contenuto generato. Drape non garantisce l'accuratezza o la completezza delle risposte AI.
+L'assistente AI genera suggerimenti e codice. L'utente è responsabile della verifica e dell'utilizzo del contenuto generato. Bynot non garantisce l'accuratezza o la completezza delle risposte AI.
 
 ### 6.3 Esclusione di responsabilità per il codice generato dall'AI
-Il codice generato dall'AI deve essere verificato dall'utente prima della distribuzione in qualsiasi ambiente di produzione. Drape non è responsabile per vulnerabilità di sicurezza, bug, difetti funzionali o problemi legali derivanti dal codice generato dall'AI. L'utente è il solo responsabile di garantire che il codice generato dall'AI sia conforme a tutte le licenze open-source applicabili, ai diritti di proprietà intellettuale di terzi e ai requisiti normativi vigenti.
+Il codice generato dall'AI deve essere verificato dall'utente prima della distribuzione in qualsiasi ambiente di produzione. Bynot non è responsabile per vulnerabilità di sicurezza, bug, difetti funzionali o problemi legali derivanti dal codice generato dall'AI. L'utente è il solo responsabile di garantire che il codice generato dall'AI sia conforme a tutte le licenze open-source applicabili, ai diritti di proprietà intellettuale di terzi e ai requisiti normativi vigenti.
 
 ---
 
 ## 7. Politica di Utilizzo dei Container
 
 ### 7.1 Usi vietati
-Gli utenti non possono utilizzare i container cloud (workstation) forniti da Drape per:
+Gli utenti non possono utilizzare i container cloud (workstation) forniti da Bynot per:
 - Mining di criptovalute o qualsiasi forma di calcolo distribuito a scopo di lucro
 - Lancio o partecipazione ad attacchi Distributed Denial of Service (DDoS)
 - Scansione di porte, ricognizione di rete o attacchi di forza bruta (brute force)
@@ -91,13 +91,13 @@ Gli utenti non possono utilizzare i container cloud (workstation) forniti da Dra
 - Qualsiasi attività che violi le leggi locali, nazionali o internazionali applicabili
 
 ### 7.2 Applicazione
-Drape si riserva il diritto di terminare immediatamente i container e sospendere o bannare permanentemente gli account senza preavviso in caso di violazioni della presente politica.
+Bynot si riserva il diritto di terminare immediatamente i container e sospendere o bannare permanentemente gli account senza preavviso in caso di violazioni della presente politica.
 
 ### 7.3 Limiti delle risorse
 I limiti delle risorse (CPU, memoria, storage, banda) si applicano per ciascun livello di piano di abbonamento e sono descritti nell'App. I tentativi di aggirare i limiti delle risorse costituiscono una violazione dei presenti Termini.
 
 ### 7.4 Monitoraggio
-Drape può monitorare l'utilizzo aggregato delle risorse dei container ai fini della prevenzione degli abusi, della pianificazione della capacità e dell'applicazione dei presenti Termini. Drape non ispeziona il contenuto del codice degli utenti salvo ove necessario per indagare su una violazione segnalata.
+Bynot può monitorare l'utilizzo aggregato delle risorse dei container ai fini della prevenzione degli abusi, della pianificazione della capacità e dell'applicazione dei presenti Termini. Bynot non ispeziona il contenuto del codice degli utenti salvo ove necessario per indagare su una violazione segnalata.
 
 ---
 
@@ -127,32 +127,32 @@ Per l'informativa completa sulla privacy, consultare la Privacy Policy disponibi
 ## 9. Diritto d'Autore e DMCA
 
 ### 9.1 Rispetto della proprietà intellettuale
-Drape rispetta i diritti di proprietà intellettuale altrui e si aspetta che i propri utenti facciano altrettanto.
+Bynot rispetta i diritti di proprietà intellettuale altrui e si aspetta che i propri utenti facciano altrettanto.
 
 ### 9.2 Segnalazione di violazione del diritto d'autore
-Se si ritiene che un contenuto ospitato o pubblicato tramite la piattaforma Drape violi il proprio diritto d'autore, è possibile inviare una notifica di rimozione (takedown notice) a abuse@drape.info. La notifica deve includere:
+Se si ritiene che un contenuto ospitato o pubblicato tramite la piattaforma Bynot violi il proprio diritto d'autore, è possibile inviare una notifica di rimozione (takedown notice) a abuse@bynot.it. La notifica deve includere:
 - Una descrizione dell'opera protetta da diritto d'autore che si ritiene sia stata violata
-- L'URL o altra identificazione specifica del contenuto in violazione su Drape
+- L'URL o altra identificazione specifica del contenuto in violazione su Bynot
 - Nome completo, indirizzo postale, numero di telefono e indirizzo email
 - Una dichiarazione in buona fede che l'uso del materiale non è autorizzato dal titolare del diritto d'autore, dal suo rappresentante o dalla legge
 - Una dichiarazione, resa sotto la propria responsabilità, che le informazioni nella notifica sono accurate e che si è il titolare del diritto d'autore o si è autorizzati ad agire per conto del titolare
 - Firma fisica o elettronica
 
 ### 9.3 Risposta alle notifiche
-Al ricevimento di una notifica di rimozione valida, Drape esaminerà la segnalazione e potrà rimuovere o disabilitare l'accesso al contenuto presuntamente in violazione entro 48 ore. L'utente interessato sarà informato della rimozione.
+Al ricevimento di una notifica di rimozione valida, Bynot esaminerà la segnalazione e potrà rimuovere o disabilitare l'accesso al contenuto presuntamente in violazione entro 48 ore. L'utente interessato sarà informato della rimozione.
 
 ### 9.4 Contro-notifica
-Se si ritiene che il proprio contenuto sia stato rimosso per errore o non sia in violazione, è possibile presentare una contro-notifica a abuse@drape.info includendo:
+Se si ritiene che il proprio contenuto sia stato rimosso per errore o non sia in violazione, è possibile presentare una contro-notifica a abuse@bynot.it includendo:
 - Identificazione del contenuto rimosso e della sua posizione precedente
 - Una dichiarazione resa sotto la propria responsabilità che si ha motivo fondato di ritenere che il contenuto sia stato rimosso per errore o errata identificazione
 - Nome, indirizzo, numero di telefono e indirizzo email
 - Una dichiarazione in cui si acconsente alla giurisdizione del Tribunale di Milano, Italia, e si accetta la notifica di atti processuali dalla persona che ha presentato la notifica di rimozione originale
 - Firma fisica o elettronica
 
-Al ricevimento di una contro-notifica valida, Drape potrà ripristinare il contenuto rimosso entro 10-14 giorni lavorativi, salvo che il reclamante originale avvii un procedimento giudiziario.
+Al ricevimento di una contro-notifica valida, Bynot potrà ripristinare il contenuto rimosso entro 10-14 giorni lavorativi, salvo che il reclamante originale avvii un procedimento giudiziario.
 
 ### 9.5 Recidivi
-Drape procederà alla chiusura degli account degli utenti che risultino recidivi nella violazione del diritto d'autore. Un utente può essere considerato recidivo dopo due o più notifiche di rimozione valide.
+Bynot procederà alla chiusura degli account degli utenti che risultino recidivi nella violazione del diritto d'autore. Un utente può essere considerato recidivo dopo due o più notifiche di rimozione valide.
 
 ---
 
@@ -172,7 +172,7 @@ Il Servizio offre piani gratuiti e a pagamento: Free, Go e Pro. I piani Go e Pro
 I rimborsi sono gestiti da Apple secondo le loro politiche. L'utente può richiedere un rimborso tramite reportaproblem.apple.com.
 
 ### 10.4 Modifiche Prezzi
-- Drape può modificare i prezzi con 30 giorni di preavviso
+- Bynot può modificare i prezzi con 30 giorni di preavviso
 - Le modifiche non si applicano al periodo già pagato
 
 ---
@@ -180,16 +180,16 @@ I rimborsi sono gestiti da Apple secondo le loro politiche. L'utente può richie
 ## 11. Disponibilità del Servizio e SLA
 
 ### 11.1 Disponibilità
-Drape si impegna a mantenere la disponibilità del servizio ma non garantisce un accesso ininterrotto o privo di errori alla piattaforma.
+Bynot si impegna a mantenere la disponibilità del servizio ma non garantisce un accesso ininterrotto o privo di errori alla piattaforma.
 
 ### 11.2 Manutenzione programmata
-La manutenzione programmata sarà comunicata agli utenti in anticipo quando ragionevolmente possibile. Drape farà ragionevoli sforzi per programmare la manutenzione durante le ore di minor utilizzo.
+La manutenzione programmata sarà comunicata agli utenti in anticipo quando ragionevolmente possibile. Bynot farà ragionevoli sforzi per programmare la manutenzione durante le ore di minor utilizzo.
 
 ### 11.3 Responsabilità sui dati
-Drape non è responsabile per la perdita di dati derivante da interruzioni del servizio, guasti infrastrutturali o qualsiasi altra causa. Si raccomanda vivamente agli utenti di mantenere copie locali e backup indipendenti dei propri progetti e del codice sorgente.
+Bynot non è responsabile per la perdita di dati derivante da interruzioni del servizio, guasti infrastrutturali o qualsiasi altra causa. Si raccomanda vivamente agli utenti di mantenere copie locali e backup indipendenti dei propri progetti e del codice sorgente.
 
 ### 11.4 Crediti di servizio
-In caso di interruzioni non pianificate prolungate superiori a 24 ore consecutive, gli abbonati a pagamento interessati possono richiedere un credito pro-rata per il periodo interessato contattando legal@drape.info entro 30 giorni dall'interruzione. I crediti saranno applicati al ciclo di fatturazione successivo e non costituiscono un rimborso in denaro.
+In caso di interruzioni non pianificate prolungate superiori a 24 ore consecutive, gli abbonati a pagamento interessati possono richiedere un credito pro-rata per il periodo interessato contattando legal@bynot.it entro 30 giorni dall'interruzione. I crediti saranno applicati al ciclo di fatturazione successivo e non costituiscono un rimborso in denaro.
 
 ---
 
@@ -202,7 +202,7 @@ Il Servizio è fornito "così com'è" senza garanzie di:
 - Idoneità a scopi particolari
 
 ### 12.2 Esclusioni
-Drape non è responsabile per:
+Bynot non è responsabile per:
 - Perdita di dati (l'utente deve mantenere backup)
 - Danni indiretti, incidentali o consequenziali
 - Perdita di profitti o opportunità commerciali
@@ -210,7 +210,7 @@ Drape non è responsabile per:
 - Danni derivanti dall'utilizzo del contenuto generato dall'AI
 
 ### 12.3 Limite Massimo
-La responsabilità massima di Drape è limitata all'importo pagato dall'utente negli ultimi 12 mesi.
+La responsabilità massima di Bynot è limitata all'importo pagato dall'utente negli ultimi 12 mesi.
 
 ---
 
@@ -229,7 +229,7 @@ Ai sensi della Direttiva UE 2011/83/UE sui diritti dei consumatori, i consumator
 Iniziando a utilizzare il servizio digitale (inclusi l'accesso o il download di contenuti digitali, l'esecuzione di container o l'utilizzo dell'assistente AI), l'utente dichiara espressamente di riconoscere e accettare che il diritto di recesso può essere limitato o perduto per i contenuti digitali che sono stati consultati, fruiti in streaming o scaricati, ai sensi dell'Articolo 16, lettera m), della Direttiva UE 2011/83/UE.
 
 ### 14.3 Come esercitare il diritto di recesso
-Per esercitare il diritto di recesso, l'utente deve comunicare la propria decisione mediante una dichiarazione chiara e inequivocabile inviata a legal@drape.info prima della scadenza del periodo di recesso di 14 giorni. In caso di recesso valido, Drape rimborserà tutti i pagamenti ricevuti senza indebito ritardo e comunque entro 14 giorni dalla data in cui è stata ricevuta comunicazione della decisione di recedere.
+Per esercitare il diritto di recesso, l'utente deve comunicare la propria decisione mediante una dichiarazione chiara e inequivocabile inviata a legal@bynot.it prima della scadenza del periodo di recesso di 14 giorni. In caso di recesso valido, Bynot rimborserà tutti i pagamenti ricevuti senza indebito ritardo e comunque entro 14 giorni dalla data in cui è stata ricevuta comunicazione della decisione di recedere.
 
 ---
 
@@ -240,8 +240,8 @@ Per esercitare il diritto di recesso, l'utente deve comunicare la propria decisi
 - I dati saranno eliminati entro 30 giorni dalla cancellazione
 - L'utente può richiedere export dei propri dati prima della cancellazione
 
-### 15.2 Da Parte di Drape
-Drape può sospendere o terminare l'account per:
+### 15.2 Da Parte di Bynot
+Bynot può sospendere o terminare l'account per:
 - Violazione dei Termini
 - Mancato pagamento
 - Inattività prolungata (12+ mesi)
@@ -251,7 +251,7 @@ Drape può sospendere o terminare l'account per:
 
 ## 16. Modifiche ai Termini
 
-- Drape può modificare questi Termini in qualsiasi momento
+- Bynot può modificare questi Termini in qualsiasi momento
 - Le modifiche sostanziali saranno comunicate tramite l'App con almeno 30 giorni di preavviso
 - L'uso continuato dopo le modifiche costituisce accettazione
 
@@ -266,10 +266,10 @@ I presenti Termini sono regolati dalla legge italiana. Per qualsiasi controversi
 ## 18. Contatti
 
 Per domande sui Termini:
-- Email: legal@drape.info
+- Email: legal@bynot.it
 
 Per segnalazioni di violazione del diritto d'autore/DMCA:
-- Email: abuse@drape.info
+- Email: abuse@bynot.it
 
 ---
 

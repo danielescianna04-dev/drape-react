@@ -74,6 +74,10 @@ export interface UIState {
   autoRetryPreview: boolean;
   openPreviewRequested: boolean;
   openPreviewRequestId: number;
+  /** Set by callers that want the dev server to auto-start on the next idle
+   * mount of PreviewPanel (e.g. the "Avvia preview" button on the agent
+   * activity card). Consumed exactly once by PreviewPanel. */
+  autoStartPreviewPending: boolean;
   openGitSheetRequested: boolean;
   openGitSheetRequestId: number;
   openGitSheetTab: 'commits' | 'branches' | 'changes' | null;
@@ -124,7 +128,9 @@ export interface UIState {
   setOpenPreviewRequested: (value: boolean) => void;
   setOpenGitSheetRequested: (value: boolean) => void;
   setOpenEnvVarsRequested: (value: boolean) => void;
-  requestOpenPreview: () => void;
+  requestOpenPreview: (opts?: { autoStart?: boolean }) => void;
+  setAutoStartPreviewPending: (value: boolean) => void;
+  consumeAutoStartPreviewPending: () => boolean;
   requestOpenGitSheet: (tab?: 'commits' | 'branches' | 'changes' | null) => void;
   requestOpenEnvVars: () => void;
   consumeOpenPreviewRequest: (lastHandledId: number) => number;
@@ -141,7 +147,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     hasInteracted: false,
 
     // Initial state - UI
-    selectedModel: 'gemini-3-flash',
+    selectedModel: 'openrouter/deepseek/deepseek-v4-pro',
     isTerminalMode: true,
     autoApprove: false,
     isRecording: false,
@@ -197,6 +203,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     autoRetryPreview: false,
     openPreviewRequested: false,
     openPreviewRequestId: 0,
+    autoStartPreviewPending: false,
     openGitSheetRequested: false,
     openGitSheetRequestId: 0,
     openGitSheetTab: null,
@@ -337,10 +344,17 @@ export const useUIStore = create<UIState>((set, get) => ({
     setOpenPreviewRequested: (value) => set({ openPreviewRequested: value }),
     setOpenGitSheetRequested: (value) => set({ openGitSheetRequested: value }),
     setOpenEnvVarsRequested: (value) => set({ openEnvVarsRequested: value }),
-    requestOpenPreview: () => set((state) => ({
+    requestOpenPreview: (opts) => set((state) => ({
       openPreviewRequested: true,
       openPreviewRequestId: state.openPreviewRequestId + 1,
+      autoStartPreviewPending: opts?.autoStart ? true : state.autoStartPreviewPending,
     })),
+    setAutoStartPreviewPending: (value) => set({ autoStartPreviewPending: value }),
+    consumeAutoStartPreviewPending: () => {
+      const pending = get().autoStartPreviewPending;
+      if (pending) set({ autoStartPreviewPending: false });
+      return pending;
+    },
     requestOpenGitSheet: (tab = null) => set((state) => ({
       openGitSheetRequested: true,
       openGitSheetRequestId: state.openGitSheetRequestId + 1,
@@ -372,10 +386,13 @@ export const useUIStore = create<UIState>((set, get) => ({
 }));
 
 // Hydrate persisted simpleToolView on import
-AsyncStorage.getItem('chat_simple_tool_view')
-  .then((raw) => {
-    if (raw === '0' || raw === '1') {
-      useUIStore.setState({ simpleToolView: raw === '1' });
-    }
-  })
-  .catch(() => {});
+const chatSimpleToolViewPromise = AsyncStorage.getItem('chat_simple_tool_view');
+if (chatSimpleToolViewPromise && typeof chatSimpleToolViewPromise.then === 'function') {
+  chatSimpleToolViewPromise
+    .then((raw) => {
+      if (raw === '0' || raw === '1') {
+        useUIStore.setState({ simpleToolView: raw === '1' });
+      }
+    })
+    .catch(() => {});
+}

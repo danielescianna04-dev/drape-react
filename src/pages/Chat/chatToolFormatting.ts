@@ -8,7 +8,7 @@ type ToolPayload = Record<string, unknown>;
 
 const PROJECT_ROOT_PREFIXES = [
   '/home/coder/project/',
-  '/Users/daniele/drape-react/',
+  '/Users/daniele/bynot-react/',
 ];
 
 /** Safely parse a tool input that may be a string or object */
@@ -146,96 +146,472 @@ export const getToolStartMessage = (tool: string, input: unknown): string => {
   }
 };
 
+/**
+ * Sentinel encoding for the agent-activity card. When a streaming message's
+ * `content` starts with this prefix, ChatMessageList renders a Lovable-style
+ * card instead of plain text. Format:
+ *   __BYNOT_ACTIVITY__|<state>|<title>|<subtitle>
+ * state ∈ "running" | "done"
+ *
+ * The prefix is overwritten as soon as real text tokens stream in, so the
+ * card transitions naturally into the final AI message.
+ */
+export const ACTIVITY_PREFIX = '__BYNOT_ACTIVITY__|';
+
+/**
+ * Encoding: __BYNOT_ACTIVITY__|<state>|<poolKey>|<file>
+ * AgentActivityCard reads poolKey + file and rotates its subtitle internally
+ * through STATUS_POOLS[poolKey] every few seconds — so the user sees variety
+ * even when a single tool runs for a long time (write_file on a big HTML).
+ */
+export function encodeActivityCard(
+  state: 'running' | 'done',
+  poolKey: string,
+  file: string,
+): string {
+  const safe = (s: string) => (s || '').replace(/\|/g, '/');
+  return `${ACTIVITY_PREFIX}${state}|${safe(poolKey)}|${safe(file)}`;
+}
+
+export function parseActivityCard(content: string | undefined | null):
+  | { state: 'running' | 'done'; poolKey: string; file: string }
+  | null
+{
+  if (!content || !content.startsWith(ACTIVITY_PREFIX)) return null;
+  const rest = content.slice(ACTIVITY_PREFIX.length);
+  const [state, poolKey, ...fileParts] = rest.split('|');
+  if (state !== 'running' && state !== 'done') return null;
+  return {
+    state,
+    poolKey: poolKey || 'generic',
+    file: fileParts.join('|') || '',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Friendly status pools for the agent activity card.
+//
+// Each tool maps to MANY phrasings — picking one at random each time keeps the
+// UX feeling alive instead of "Sto leggendo / Sto leggendo / Sto leggendo" on
+// repeat. The text shows for ~1-3 seconds before the next tool overwrites it,
+// so variety matters more than perfect grammatical agreement (file vs files).
+// All copy in Italian: the audience is no-code Italian users.
+// ---------------------------------------------------------------------------
+
+const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+/**
+ * Render a phrase from a pool, substituting {file} with the provided filename
+/**
+ * Resolves a friendly status template by replacing {file} with the file name
+ * (or 'il file' if empty/fallback is used) and fixing Italian grammatical contractions.
+ */
+export function formatFriendlyStatus(template: string, file: string, fallbackFile: string = 'il file'): string {
+  const resolvedFile = file || fallbackFile;
+  let rendered = template.replace('{file}', resolvedFile);
+  
+  if (resolvedFile === 'il file') {
+    rendered = rendered.replace(/\bdi il file\b/gi, 'del file');
+    rendered = rendered.replace(/\ba il file\b/gi, 'al file');
+    rendered = rendered.replace(/\bda il file\b/gi, 'dal file');
+    rendered = rendered.replace(/\bnuovo il file\b/gi, 'nuovo file');
+  }
+  
+  return rendered;
+}
+
+/**
+ * Render a phrase from a pool, substituting {file} with the provided filename
+ * (or a sensible Italian fallback). Used both by friendlyToolStatus (for the
+ * initial subtitle on toolStart) and by AgentActivityCard (to rotate the
+ * subtitle internally while the same tool keeps running).
+ */
+export function renderStatusFromPool(poolKey: string, file: string): string {
+  const pool = STATUS_POOLS[poolKey] ?? STATUS_POOLS.generic;
+  const tpl = pool[Math.floor(Math.random() * pool.length)];
+  return formatFriendlyStatus(tpl, file);
+}
+
+const getToolTarget = (tool: string, input: ToolPayload): string => {
+  if (tool === 'read_file' || tool === 'read' || tool === 'write_file' || tool === 'write' || tool === 'edit_file' || tool === 'edit' || tool === 'multi_edit_file' || tool === 'multiedit' || tool === 'patch_file') {
+    return getFileName(input);
+  }
+  if (tool === 'delete_file') {
+    const path = String(input?.filePath ?? input?.path ?? '');
+    return path ? normalizeDisplayPath(path) : '';
+  }
+  if (tool === 'move_file' || tool === 'copy_file') {
+    const src = normalizeDisplayPath(String(input?.sourcePath ?? input?.source ?? ''));
+    const dest = normalizeDisplayPath(String(input?.destPath ?? input?.destination ?? ''));
+    return src && dest ? `${src} → ${dest}` : (src || dest);
+  }
+  if (tool === 'create_folder') {
+    return normalizeDisplayPath(String(input?.folderPath ?? input?.path ?? ''));
+  }
+  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') {
+    return normalizeDisplayPath(String(input?.directory ?? input?.path ?? '.'));
+  }
+  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') {
+    return String(input?.pattern ?? '');
+  }
+  if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep' || tool === 'code_search') {
+    return String(input?.pattern ?? input?.query ?? '');
+  }
+  if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') {
+    const cmd = String(input?.command ?? '').replace(/\r?\n/g, ' ').trim();
+    return cmd.length > 50 ? cmd.substring(0, 47) + "..." : cmd;
+  }
+  if (tool === 'web_fetch') {
+    const url = String(input?.url ?? '');
+    try {
+      const match = url.match(/^(?:https?:\/\/)?(?:www\.)?([^\/]+)/);
+      if (match) return match[1];
+    } catch {}
+    return url.length > 30 ? url.substring(0, 27) + "..." : url;
+  }
+  if (tool === 'web_search') {
+    return String(input?.query ?? '');
+  }
+  if (tool === 'diagnostics') {
+    const file = getFileName(input);
+    return file ? file : 'progetto';
+  }
+  if (tool === 'load_skill' || tool === 'skill') {
+    return String(input?.name ?? input?.path ?? '');
+  }
+  if (tool === 'dispatch_agent' || tool === 'task' || tool === 'sub_agent' || tool === 'launch_sub_agent') {
+    const desc = String(input?.prompt ?? input?.description ?? '').replace(/\r?\n/g, ' ').trim();
+    return desc.length > 40 ? desc.substring(0, 37) + "..." : desc;
+  }
+  if (tool === 'lsp') {
+    return String(input?.action ?? '');
+  }
+  return '';
+};
+
+/**
+ * Map an opencode tool name (+ inspectable input for the bash family) to a
+ * STATUS_POOLS key. Lets the activity card know which pool to keep rotating
+ * through for as long as a single tool is running.
+ */
+export function toolToPool(tool: string, toolInput: unknown): { poolKey: string; file: string } {
+  const input = parseToolPayload(toolInput);
+  const file = getToolTarget(tool, input);
+  if (tool === 'read_file' || tool === 'read') return { poolKey: 'read', file };
+  if (tool === 'write_file' || tool === 'write') return { poolKey: 'write', file };
+  if (tool === 'edit_file' || tool === 'edit' || tool === 'multi_edit_file' || tool === 'multiedit' || tool === 'patch_file') return { poolKey: 'edit', file };
+  if (tool === 'delete_file') return { poolKey: 'delete', file };
+  if (tool === 'move_file' || tool === 'copy_file') return { poolKey: 'move', file };
+  if (tool === 'create_folder') return { poolKey: 'folder', file };
+  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') return { poolKey: 'list', file };
+  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') return { poolKey: 'glob', file };
+  if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep' || tool === 'code_search') return { poolKey: 'search', file };
+  if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') {
+    const cmd = String(input?.command || '');
+    if (cmd.startsWith('curl') || cmd.includes('http')) return { poolKey: 'bash_curl', file };
+    if (cmd.startsWith('npm') || cmd.startsWith('yarn') || cmd.startsWith('pnpm') || cmd.includes('install')) return { poolKey: 'bash_npm', file };
+    if (cmd.startsWith('git')) return { poolKey: 'bash_git', file };
+    if (cmd.includes('build') || cmd.includes('compile') || cmd.includes('webpack') || cmd.includes('vite')) return { poolKey: 'bash_build', file };
+    if (cmd.includes('test') || cmd.includes('jest') || cmd.includes('vitest')) return { poolKey: 'bash_test', file };
+    return { poolKey: 'bash_other', file };
+  }
+  if (tool === 'web_fetch') return { poolKey: 'web_fetch', file };
+  if (tool === 'web_search') return { poolKey: 'web_search', file };
+  if (tool === 'diagnostics') return { poolKey: 'diagnostics', file };
+  if (tool === 'todo_write' || tool === 'todo_read') return { poolKey: 'todo', file };
+  if (tool === 'load_skill' || tool === 'skill') return { poolKey: 'skill', file };
+  if (tool === 'memory_read' || tool === 'memory_write') return { poolKey: 'memory', file };
+  if (tool === 'dispatch_agent' || tool === 'task' || tool === 'sub_agent' || tool === 'launch_sub_agent') return { poolKey: 'subagent', file };
+  if (tool === 'lsp') return { poolKey: 'lsp', file };
+  if (tool === 'ask_user_question' || tool === 'user_question') return { poolKey: 'question', file };
+  return { poolKey: 'generic', file };
+}
+
+/** Rotating titles for the activity card header (variety > one fixed label). */
+export const ACTIVITY_TITLES = [
+  'Lavoro in corso',
+  'Ci penso io',
+  'Sto preparando tutto',
+  'Un attimo solo',
+  'Quasi pronto',
+  'Sto sistemando',
+  'Procedo',
+  'Costruisco',
+];
+
+export const STATUS_POOLS: Record<string, string[]> = {
+  read: [
+    'Leggo le istruzioni nel file...',
+    'Do un\'occhiata al codice del file...',
+    'Esamino il file per capire come procedere...',
+    'Controllo cosa contiene il file...',
+    'Recupero i dettagli del file...',
+  ],
+  write: [
+    'Creo da zero il file...',
+    'Scrivo le basi del file...',
+    'Preparo il nuovo file per te...',
+    'Aggiungo il file al tuo progetto...',
+    'Salvo il nuovo file...',
+  ],
+  edit: [
+    'Applico le modifiche al file...',
+    'Aggiorno il codice del file...',
+    'Sistemo alcuni dettagli nel file...',
+    'Miglioro e correggo il file...',
+    'Ritocco il file come richiesto...',
+  ],
+  delete: [
+    'Rimuovo il file che non serve più...',
+    'Elimino il file per fare pulizia...',
+    'Cancello il file inutilizzato...',
+  ],
+  move: [
+    'Sposto i file nelle cartelle corrette...',
+    'Riorganizzo l\'ordine dei tuoi file...',
+    'Sistemo la disposizione dei file...',
+  ],
+  folder: [
+    'Creo una nuova cartella per tenere tutto in ordine...',
+    'Preparo una cartella nel tuo progetto...',
+  ],
+  list: [
+    'Esploro le cartelle per orientarmi...',
+    'Do un\'occhiata ai file del tuo progetto...',
+    'Vedo quali file sono presenti...',
+    'Sfoglio le cartelle per capire com\'è strutturato...',
+  ],
+  glob: [
+    'Cerco i file che corrispondono alla richiesta...',
+    'Trovo i file di cui ho bisogno nel progetto...',
+    'Setaccio il progetto per trovare i file giusti...',
+  ],
+  search: [
+    'Cerco parole o frasi chiave all\'interno dei file...',
+    'Frugo nei file per trovare la parte da modificare...',
+    'Cerco il punto esatto del codice da correggere...',
+    'Scansiono i testi del progetto...',
+  ],
+  bash_curl: [
+    'Recupero informazioni da internet...',
+    'Scarico i dati necessari per continuare...',
+    'Faccio una richiesta rapida online...',
+  ],
+  bash_npm: [
+    'Installo i componenti aggiuntivi...',
+    'Scarico le librerie necessarie per l\'app...',
+    'Aggiorno i pacchetti di supporto...',
+  ],
+  bash_git: [
+    'Salvo i progressi in sicurezza con Git...',
+    'Sincronizzo il codice del progetto...',
+    'Memorizzo questa versione del lavoro...',
+  ],
+  bash_build: [
+    'Preparo l\'app per farla partire...',
+    'Costruisco l\'applicazione per provarla...',
+    'Compilo il progetto per renderlo attivo...',
+  ],
+  bash_test: [
+    'Faccio i controlli per verificare che funzioni...',
+    'Eseguo i test automatici di sicurezza...',
+    'Verifico che non ci siano comportamenti strani...',
+  ],
+  bash_other: [
+    'Lavoro sul terminale per configurare l\'ambiente...',
+    'Eseguo un\'operazione tecnica di sistema...',
+    'Elaboro il comando in background...',
+  ],
+  web_fetch: [
+    'Leggo una pagina web per documentarmi...',
+    'Visito il sito per raccogliere informazioni...',
+    'Scarico il contenuto della pagina online...',
+  ],
+  web_search: [
+    'Faccio una ricerca su Google...',
+    'Cerco soluzioni sul web...',
+    'Esploro internet per trovare risposte...',
+  ],
+  diagnostics: [
+    'Verifico che l\'app sia scritta correttamente...',
+    'Controllo se ci sono errori nascosti...',
+    'Faccio una scansione per rilevare bug...',
+  ],
+  todo: [
+    'Organizzo i compiti da fare...',
+    'Aggiorno il mio piano d\'azione...',
+    'Pianifico i prossimi passaggi per non perdere il filo...',
+  ],
+  skill: [
+    'Attivo le mie abilità speciali per questo compito...',
+    'Mi preparo con gli strumenti giusti...',
+    'Carico le istruzioni di progettazione...',
+  ],
+  memory: [
+    'Consulto i miei appunti su questo progetto...',
+    'Recupero quello che abbiamo fatto finora...',
+    'Memorizzo le nuove informazioni utili...',
+  ],
+  subagent: [
+    'Lavoro in squadra con un altro assistente specializzato...',
+    'Chiedo aiuto a un collega virtuale su questo aspetto...',
+    'Divido il compito per finire prima e meglio...',
+    'Coordino un assistente dedicato a questa attività...',
+  ],
+  lsp: [
+    'Analizzo la struttura del codice...',
+    'Studio come sono collegati i file tra loro...',
+    'Esamino i collegamenti del codice...',
+  ],
+  question: [
+    'Ti faccio una domanda per essere sicuro...',
+    'Aspetto una tua conferma per procedere...',
+    'Ho bisogno di un tuo parere...',
+  ],
+  generic: [
+    'Ci sto lavorando...',
+    'Un attimo solo di pazienza...',
+    'Elaboro la soluzione...',
+    'Penso a come fare il prossimo passo...',
+  ],
+};
+
+/**
+ * Pick a random friendly Italian status line for a tool. Same tool called
+ * back-to-back produces different copy each time — keeps the activity card
+ * feeling alive across the agent's multi-step loops.
+ */
+export const friendlyToolStatus = (tool: string, toolInput: unknown): string => {
+  const input = parseToolPayload(toolInput);
+  const file = getFileName(input);
+  const fmt = (key: string, fallback?: string) => {
+    const pool = STATUS_POOLS[key];
+    const tpl = pool ? pick(pool) : (fallback ?? STATUS_POOLS.generic[0]);
+    return formatFriendlyStatus(tpl, file, fallback);
+  };
+
+  if (tool === 'read_file' || tool === 'read') return fmt('read');
+  if (tool === 'write_file' || tool === 'write') return fmt('write');
+  if (tool === 'edit_file' || tool === 'edit' || tool === 'multi_edit_file' || tool === 'multiedit' || tool === 'patch_file') return fmt('edit');
+  if (tool === 'delete_file') return fmt('delete');
+  if (tool === 'move_file' || tool === 'copy_file') return pick(STATUS_POOLS.move);
+  if (tool === 'create_folder') return pick(STATUS_POOLS.folder);
+  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') return pick(STATUS_POOLS.list);
+  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') return pick(STATUS_POOLS.glob);
+  if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep' || tool === 'code_search') {
+    return pick(STATUS_POOLS.search);
+  }
+  if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') {
+    const cmd = String(input?.command || '');
+    if (cmd.startsWith('curl') || cmd.includes('http')) return pick(STATUS_POOLS.bash_curl);
+    if (cmd.startsWith('npm') || cmd.startsWith('yarn') || cmd.startsWith('pnpm') || cmd.includes('install')) return pick(STATUS_POOLS.bash_npm);
+    if (cmd.startsWith('git')) return pick(STATUS_POOLS.bash_git);
+    if (cmd.includes('build') || cmd.includes('compile') || cmd.includes('webpack') || cmd.includes('vite')) return pick(STATUS_POOLS.bash_build);
+    if (cmd.includes('test') || cmd.includes('jest') || cmd.includes('vitest')) return pick(STATUS_POOLS.bash_test);
+    return pick(STATUS_POOLS.bash_other);
+  }
+  if (tool === 'web_fetch') return pick(STATUS_POOLS.web_fetch);
+  if (tool === 'web_search') return pick(STATUS_POOLS.web_search);
+  if (tool === 'diagnostics') return pick(STATUS_POOLS.diagnostics);
+  if (tool === 'todo_write' || tool === 'todo_read') return pick(STATUS_POOLS.todo);
+  if (tool === 'load_skill' || tool === 'skill') return pick(STATUS_POOLS.skill);
+  if (tool === 'memory_read' || tool === 'memory_write') return pick(STATUS_POOLS.memory);
+  if (tool === 'dispatch_agent' || tool === 'task' || tool === 'sub_agent' || tool === 'launch_sub_agent') return pick(STATUS_POOLS.subagent);
+  if (tool === 'lsp') return pick(STATUS_POOLS.lsp);
+  if (tool === 'ask_user_question' || tool === 'user_question') return pick(STATUS_POOLS.question);
+  return pick(STATUS_POOLS.generic);
+};
+
 export const formatToolResult = (tool: string, toolInput: unknown, rawResult: unknown): string => {
+  // Lovable-style "running" card: emitted by chatStreamingRequest when the
+  // backend sends a toolStart event. Renders as a single-line "Working on X"
+  // until the matching toolResult lands and replaces the content.
+  if (rawResult === '__pending__') {
+    const input = parseToolPayload(toolInput);
+    const file = getFileName(input);
+    if (tool === 'read_file' || tool === 'read') return `⏳ Read ${file || 'file'}\n└─ Loading...`;
+    if (tool === 'write_file' || tool === 'write') return `⏳ Write ${file || 'file'}\n└─ Saving...`;
+    if (tool === 'edit_file' || tool === 'edit') return `⏳ Edit ${file || 'file'}\n└─ Modifying...`;
+    if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') return `⏳ Glob ${input?.pattern || ''}\n└─ Searching...`;
+    if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') return `⏳ List ${input?.directory || input?.path || '.'}\n└─ Listing...`;
+    if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep') return `⏳ Search "${input?.pattern || input?.query || ''}"\n└─ Searching...`;
+    if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') return `⏳ Run ${String(input?.command || '').slice(0, 60)}\n└─ Executing...`;
+    return `⏳ ${tool}\n└─ Working...`;
+  }
+
   const { text: result, hasError, errorMessage } = extractResultContent(rawResult);
   const input = parseToolPayload(toolInput);
 
-  if (tool === 'read_file') {
+  // Lovable-style compact cards: title + 1-line summary, NEVER the full body.
+  // Dumping file contents / dir listings / search hits as plain chat text was
+  // overwhelming on a phone. The full result is still on the server (and can
+  // be exposed via a future "expand details" tap), but the chat itself stays
+  // glanceable.
+  if (tool === 'read_file' || tool === 'read') {
     const file = getFileName(input);
     const lines = result ? result.split('\n').length : 0;
-    return `Read ${file || 'file'}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${result}`;
+    return `Read ${file || 'file'}\n└─ ${lines} line${lines !== 1 ? 's' : ''}`;
   }
-  if (tool === 'write_file') {
+  if (tool === 'write_file' || tool === 'write') {
     const file = getFileName(input);
     if (hasError) return `Write ${file || 'file'}\n└─ Error: ${errorMessage}`;
     return `Write ${file || 'file'}\n└─ File created`;
   }
-  if (tool === 'edit_file') {
+  if (tool === 'edit_file' || tool === 'edit') {
     const file = getFileName(input);
     if (hasError) return `Edit ${file || 'file'}\n└─ Error: ${errorMessage}`;
-    return `Edit ${file || 'file'}\n└─ File modified${result ? `\n\n${result}` : ''}`;
+    return `Edit ${file || 'file'}\n└─ File modified`;
   }
-  if (tool === 'glob_files' || tool === 'glob_search') {
+  if (tool === 'glob_files' || tool === 'glob_search' || tool === 'glob') {
     const pattern = input?.pattern || 'files';
     const fileCount = result ? result.split('\n').filter((line: string) => line.trim()).length : 0;
-    return `Glob pattern: ${pattern}\n└─ Found ${fileCount} file(s)\n\n${result}`;
+    return `Glob pattern: ${pattern}\n└─ Found ${fileCount} file(s)`;
   }
-  if (tool === 'list_directory' || tool === 'list_files') {
+  if (tool === 'list_directory' || tool === 'list_files' || tool === 'list') {
     const directory = input?.directory || input?.dirPath || input?.path || '.';
     const fileCount = result ? result.split('\n').filter((line: string) => line.trim()).length : 0;
-    return `List files in ${directory}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${result}`;
+    return `List ${directory}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}`;
   }
-  if (tool === 'search_in_files' || tool === 'grep_search') {
+  if (tool === 'search_in_files' || tool === 'grep_search' || tool === 'grep') {
     const pattern = input?.pattern || input?.query || 'pattern';
     const matches = result ? result.split('\n').filter((line: string) => line.includes(':')).length : 0;
-    return `Search "${pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${result}`;
+    return `Search "${pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}`;
   }
-  if (tool === 'run_command' || tool === 'execute_command') {
+  if (tool === 'run_command' || tool === 'execute_command' || tool === 'bash') {
     const command = String(input?.command || 'command');
+    const shortCmd = command.length > 60 ? command.slice(0, 60) + '…' : command;
     if (command.startsWith('curl')) {
       const urlMatch = command.match(/curl\s+(?:-[sS]\s+)?(?:['"])?([^\s'"]+)/);
       const url = urlMatch ? urlMatch[1] : command.substring(5).trim();
       let exitCode = 0;
-      let stdout = '';
-      let stderr = '';
       try {
         if (isResultObject(rawResult)) {
           exitCode = Number(rawResult.exitCode ?? 0);
-          stdout = String(rawResult.stdout ?? '');
-          stderr = String(rawResult.stderr ?? '');
         } else if (typeof result === 'string' && result.includes('exitCode')) {
-          const parsed = JSON.parse(result);
-          exitCode = parsed.exitCode || 0;
-          stdout = parsed.stdout || '';
-          stderr = parsed.stderr || '';
+          exitCode = JSON.parse(result).exitCode || 0;
         }
-      } catch {
-        stdout = result || '';
-      }
-      const curlHasError = exitCode !== 0 || !!stderr;
-      const status = curlHasError ? `Error (exit ${exitCode})` : 'Completed';
-      let output = '';
-      if (stdout && stdout.trim()) output = `\n\n${stdout}`;
-      if (stderr && stderr.trim()) output += `\n\nError: ${stderr}`;
-      return `Execute: curl ${url}\n└─ ${status}${output}`;
+      } catch {}
+      return `curl ${url.slice(0, 50)}${url.length > 50 ? '…' : ''}\n└─ ${exitCode === 0 ? 'OK' : `Error (exit ${exitCode})`}`;
     }
-    let actualOutput = result;
-    if (isResultObject(rawResult) && typeof rawResult.stdout === 'string') {
-      actualOutput = rawResult.stdout;
+    let exitCode = 0;
+    if (isResultObject(rawResult)) exitCode = Number(rawResult.exitCode ?? 0);
+    if (hasError || exitCode !== 0) {
+      return `$ ${shortCmd}\n└─ Failed${errorMessage ? `: ${errorMessage.slice(0, 80)}` : ''}`;
     }
-    const resultLines = (actualOutput || '').split('\n');
-    const maxOutputLines = 50;
-    let truncatedResult = actualOutput;
-    if (resultLines.length > maxOutputLines) {
-      truncatedResult = resultLines.slice(0, maxOutputLines).join('\n') +
-        `\n\n... (${resultLines.length - maxOutputLines} more lines - expand to see all)`;
-    }
-    return `Execute: ${command}\n└─ Command completed\n\n${truncatedResult}`;
+    return `$ ${shortCmd}\n└─ Done`;
   }
-  if (tool === 'multi_edit_file') {
+  if (tool === 'multi_edit_file' || tool === 'multiedit') {
     const file = getFileName(input);
     const edits = Array.isArray(input?.edits) ? input.edits : [];
     const editCount = edits.length || '?';
     if (hasError) return `Multi-edit ${file || 'file'}\n└─ Error: ${errorMessage}`;
-    const diffStart = result.indexOf('\n\n');
-    const diffContent = diffStart >= 0 ? result.substring(diffStart + 2) : '';
-    return `Multi-edit ${file || 'file'}\n└─ ${editCount} edits applied${diffContent ? `\n\n${diffContent}` : ''}`;
+    return `Multi-edit ${file || 'file'}\n└─ ${editCount} edits applied`;
   }
-  if (tool === 'dispatch_agent') {
-    const agentType = input?.type || 'agent';
-    const description = String(input?.prompt ?? '').substring(0, 80) || 'Task';
-    if (hasError) return `Agent: ${agentType}\n└─ Error: ${errorMessage}\n\n${description}`;
-    return `Agent: ${agentType}\n└─ Completed\n\n${description}${result ? `\n\n${result.substring(0, 1000)}` : ''}`;
+  if (tool === 'dispatch_agent' || tool === 'task') {
+    const agentType = input?.type || input?.subagent_type || 'agent';
+    const description = String(input?.prompt ?? input?.description ?? '').slice(0, 60);
+    if (hasError) return `Agent: ${agentType}\n└─ Error: ${errorMessage}`;
+    return `Agent: ${agentType}${description ? `\n└─ ${description}${description.length >= 60 ? '…' : ''}` : '\n└─ Completed'}`;
   }
   if (tool === 'patch_file') {
     const file = getFileName(input);
@@ -243,16 +619,16 @@ export const formatToolResult = (tool: string, toolInput: unknown, rawResult: un
     return `Patch ${file || 'file'}\n└─ Applied`;
   }
   if (tool === 'create_folder') {
-    return `Create folder: ${input?.folderPath || 'folder'}\n└─ Completed\n\n${result}`;
+    return `Create folder ${input?.folderPath || 'folder'}\n└─ Done`;
   }
   if (tool === 'delete_file') {
-    return `Delete: ${input?.filePath || 'file'}\n└─ Completed\n\n${result}`;
+    return `Delete ${input?.filePath || 'file'}\n└─ Done`;
   }
   if (tool === 'move_file') {
-    return `Move: ${input?.sourcePath || 'source'} → ${input?.destPath || 'destination'}\n└─ Completed\n\n${result}`;
+    return `Move ${input?.sourcePath || 'source'} → ${input?.destPath || 'dest'}\n└─ Done`;
   }
   if (tool === 'copy_file') {
-    return `Copy: ${input?.sourcePath || 'source'} → ${input?.destPath || 'destination'}\n└─ Completed\n\n${result}`;
+    return `Copy ${input?.sourcePath || 'source'} → ${input?.destPath || 'dest'}\n└─ Done`;
   }
   if (tool === 'think') {
     return `💭 ${result}`;
@@ -260,17 +636,17 @@ export const formatToolResult = (tool: string, toolInput: unknown, rawResult: un
   if (tool === 'load_skill') {
     const skillName = input?.name || 'skills';
     if (hasError) return `Skill ${skillName}\n└─ ${errorMessage}`;
-    return `Skill: ${skillName}\n└─ Loaded\n\n${result.substring(0, 1500)}${result.length > 1500 ? '...' : ''}`;
+    return `Skill ${skillName}\n└─ Loaded`;
   }
-  if (tool === 'tool_search') return `Tool search\n└─ ${result.substring(0, 1000)}`;
+  if (tool === 'tool_search') return `Tool search\n└─ Done`;
   if (tool === 'command_output') {
     const commandId = input?.command_id || '?';
-    if (hasError) return `Check command ${commandId}\n└─ Error: ${errorMessage}`;
-    return `Check command ${commandId}\n└─ ${result.includes('still running') ? 'Still running...' : 'Completed'}\n\n${result.substring(0, 2000)}`;
+    if (hasError) return `Check command ${commandId}\n└─ Error`;
+    return `Check command ${commandId}\n└─ ${result.includes('still running') ? 'Still running…' : 'Done'}`;
   }
   if (tool === 'memory_read') {
-    if (!result || result.includes('No memory saved')) return 'Read memory\n└─ No memory saved yet';
-    return `Read memory\n└─ Loaded\n\n${result.substring(0, 1500)}${result.length > 1500 ? '...' : ''}`;
+    if (!result || result.includes('No memory saved')) return 'Read memory\n└─ Empty';
+    return `Read memory\n└─ Loaded`;
   }
   if (tool === 'memory_write') {
     if (hasError) return `Save memory\n└─ Error: ${errorMessage}`;
@@ -278,8 +654,8 @@ export const formatToolResult = (tool: string, toolInput: unknown, rawResult: un
   }
   if (tool === 'web_fetch') {
     const url = String(input?.url || 'URL');
-    const urlShort = url.length > 50 ? `${url.substring(0, 50)}...` : url;
-    return `Fetch: ${urlShort}\n└─ Completed\n\n${result.substring(0, 2000)}${result.length > 2000 ? '...' : ''}`;
+    const urlShort = url.length > 50 ? `${url.substring(0, 50)}…` : url;
+    return `Fetch ${urlShort}\n└─ Done`;
   }
   if (tool === 'launch_sub_agent') {
     const agentType = input?.subagent_type || input?.type || 'agent';
@@ -292,58 +668,48 @@ export const formatToolResult = (tool: string, toolInput: unknown, rawResult: un
     } catch {
       summary = '';
     }
-    return `Agent: ${agentType}\n└─ Completed\n\n${description}${summary ? `\n\n${summary}` : ''}`;
+    return `Agent: ${agentType}\n└─ ${description || 'Completed'}`;
   }
   if (tool === 'todo_write') {
     const todos = Array.isArray(input?.todos) ? (input.todos as ToolPayload[]) : [];
     const totalTasks = todos.length;
     const completedTasks = todos.filter((todo) => todo.status === 'completed').length;
-    const inProgressTasks = todos.filter((todo) => todo.status === 'in_progress').length;
-    const todoLines = todos.map((todo) => `${todo.status || 'pending'}|${todo.content || ''}`).join('\n');
-    return `Todo List\n└─ ${totalTasks} task${totalTasks !== 1 ? 's' : ''} (${completedTasks} done, ${inProgressTasks} in progress)\n\n${todoLines}`;
+    return `Todo List\n└─ ${completedTasks}/${totalTasks} done`;
   }
   if (tool === 'web_search') {
-    let searchResults: ToolPayload[] = [];
     let query = '';
     let count = 0;
     try {
       if (isResultObject(rawResult) && Array.isArray(rawResult.results)) {
-        searchResults = rawResult.results as ToolPayload[];
         query = String(rawResult.query ?? input?.query ?? 'query');
-        count = (typeof rawResult.count === 'number' ? rawResult.count : searchResults.length);
+        count = (typeof rawResult.count === 'number' ? rawResult.count : rawResult.results.length);
       }
-    } catch {
-      searchResults = [];
-    }
-    const searchLines = searchResults.map((entry) => `${entry.title || 'Untitled'}|${entry.url || ''}|${entry.snippet || ''}`).join('\n');
-    return `Web Search "${query}"\n└─ ${count} result${count !== 1 ? 's' : ''} found\n\n${searchLines}`;
+    } catch {}
+    return `Web search "${query}"\n└─ ${count} result${count !== 1 ? 's' : ''}`;
   }
   if (tool === 'ask_user_question') {
     const questions = Array.isArray(input?.questions) ? (input.questions as ToolPayload[]) : [];
-    const answers: ToolPayload = (isResultObject(rawResult) && isResultObject(rawResult.answers)) ? rawResult.answers as ToolPayload : {};
-    const qaLines = questions.map((question, index: number) => `${question.question || ''}|${answers[`q${index}`] || 'No answer'}`).join('\n');
-    return `User Question\n└─ ${questions.length} question${questions.length !== 1 ? 's' : ''} answered\n\n${qaLines}`;
+    return `User Question\n└─ ${questions.length} answered`;
   }
   if (tool === 'sub_agent') {
-    const description = String(input?.prompt ?? '').substring(0, 80) || 'Task';
+    const description = String(input?.prompt ?? '').slice(0, 60) || 'Task';
     if (hasError) return `Agent: sub-agent\n└─ Error: ${errorMessage}`;
-    return `Agent: sub-agent\n└─ Completed\n\n${description}${result ? `\n\n${result.substring(0, 1000)}` : ''}`;
+    return `Agent: sub-agent\n└─ ${description}${description.length >= 60 ? '…' : ''}`;
   }
-  if (tool === 'todo_read') return `Todo List\n└─ Read\n\n${result}`;
+  if (tool === 'todo_read') return `Todo List\n└─ Read`;
   if (tool === 'user_question') {
-    const question = input?.question || input?.text || '';
-    return `User Question\n└─ Answered\n\n${question}`;
+    return `User Question\n└─ Answered`;
   }
   if (tool === 'diagnostics') {
     const file = getFileName(input);
     if (hasError) return `Diagnostics ${file || ''}\n└─ Error: ${errorMessage}`;
     const issueCount = result ? result.split('\n').filter((line: string) => line.trim()).length : 0;
-    return `Diagnostics ${file || 'project'}\n└─ ${issueCount} issue${issueCount !== 1 ? 's' : ''}\n\n${result}`;
+    return `Diagnostics ${file || 'project'}\n└─ ${issueCount} issue${issueCount !== 1 ? 's' : ''}`;
   }
   if (tool === 'code_search') {
     const query = input?.query || input?.pattern || 'code';
     const matches = result ? result.split('\n').filter((line: string) => line.trim()).length : 0;
-    return `Search "${query}"\n└─ ${matches} result${matches !== 1 ? 's' : ''}\n\n${result}`;
+    return `Search "${query}"\n└─ ${matches} result${matches !== 1 ? 's' : ''}`;
   }
   if (tool === 'skill') {
     const name = input?.name || input?.path || 'skill';
@@ -353,10 +719,11 @@ export const formatToolResult = (tool: string, toolInput: unknown, rawResult: un
   if (tool === 'lsp') {
     const action = input?.action || 'query';
     if (hasError) return `LSP: ${action}\n└─ Error: ${errorMessage}`;
-    return `LSP: ${action}\n└─ Completed\n\n${result.substring(0, 1500)}`;
+    return `LSP: ${action}\n└─ Done`;
   }
 
-  return `${tool}\n└─ Completed\n\n${result}`;
+  // Unknown tool fallback — show name + "Done" only, never dump raw result.
+  return `${tool}\n└─ ${hasError ? `Error: ${errorMessage}` : 'Done'}`;
 };
 
 export const formatEngineMessage = (
@@ -506,6 +873,18 @@ export const estimateContextUsage = (
   }
 
   const contextWindows: Record<string, number> = {
+    // Current OpenRouter models (primary)
+    'openrouter/deepseek/deepseek-v4-pro': 1000000,
+    'openrouter/deepseek/deepseek-v4-flash': 1000000,
+    'openrouter/qwen/qwen3-coder': 1000000,
+    'openrouter/google/gemma-4-31b-it:free': 262000,
+    // Legacy Zen IDs (kept for backwards compat with saved sessions)
+    'deepseek-v4-flash-free': 128000,
+    'qwen3.6-plus-free': 128000,
+    'nemotron-3-super-free': 128000,
+    'minimax-m2.5-free': 128000,
+    'big-pickle': 128000,
+    // Legacy support
     'claude-sonnet-4': 200000,
     'claude-4-6-sonnet': 200000,
     'claude-4-7-opus': 1000000,

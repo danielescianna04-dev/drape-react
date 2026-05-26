@@ -57,13 +57,13 @@ export const SettingsPanel = ({ onClose }: Props) => {
     };
   });
 
-  // Model catalog — gating is resolved by canUseModel(plan, modelId).
-  // Free → only claude-4-6-sonnet + gemini-3-0-flash.
+  // Model catalog — gating resolved by canUseModel(plan, modelId).
+  // Source of truth: AI_MODELS in pages/Chat/ChatInputBar.tsx (mirror here).
   const models = [
-    { id: 'claude-4-7-opus', name: 'Claude 4.7 Opus', description: 'Anthropic', icon: 'infinite' as const },
-    { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', description: 'Anthropic', icon: 'sparkles' as const },
-    { id: 'gemini-3-1-pro', name: 'Gemini 3.1 Pro', description: 'Google', icon: 'planet' as const },
-    { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', description: 'Google', icon: 'flash' as const },
+    { id: 'openrouter/deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro', description: 'Default · top quality', icon: 'rocket' as const },
+    { id: 'openrouter/deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'Faster · cheaper', icon: 'flash' as const },
+    { id: 'openrouter/qwen/qwen3-coder', name: 'Qwen3 Coder', description: 'Code-specialized', icon: 'code-slash' as const },
+    { id: 'openrouter/google/gemma-4-31b-it:free', name: 'Gemma 4 31B (free)', description: 'Free · vision + tools', icon: 'sparkles' as const },
   ];
 
   return (
@@ -105,11 +105,7 @@ export const SettingsPanel = ({ onClose }: Props) => {
                   if (isLocked) {
                     Alert.alert(
                       model.name,
-                      model.id.includes('opus')
-                        ? 'Il modello piu potente. Genera codice complesso e architettura superiore. Disponibile con Go.'
-                        : model.id.includes('gpt')
-                        ? 'GPT-5.3 di OpenAI. Eccelle in ragionamento e coding. Disponibile con Go.'
-                        : 'Gemini Pro di Google. Ottime capacita di ragionamento. Disponibile con Go.',
+                      'Questo modello richiede un piano a pagamento. Abbonati per sbloccarlo.',
                       [
                         { text: 'Annulla', style: 'cancel' },
                         { text: 'Vedi piani', onPress: () => { tracciaPaginaPianiVista('settings_model'); navigateTo('plans'); } },

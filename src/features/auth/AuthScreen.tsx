@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
-import { DrapeLogo } from '../../shared/components/icons/DrapeLogo';
+import { BynotLogo } from '../../shared/components/icons/BynotLogo';
 import { DevBanner } from '../../shared/components/DevBanner';
 import {
   AnimatedGradientBg,
@@ -27,8 +27,8 @@ import { AuthDatePickerModal, AuthFooterLinks, AuthModalContent } from './AuthMo
 import { useAuthForm, padDateValue, formatDateOfBirthValue } from './useAuthForm';
 import { styles } from './authScreenStyles';
 
-const TERMS_URL = 'https://www.drape-dev.it/terms-of-service.html';
-const PRIVACY_URL = 'https://www.drape-dev.it/privacy-policy.html';
+const TERMS_URL = 'https://www.bynot-dev.it/terms-of-service.html';
+const PRIVACY_URL = 'https://www.bynot-dev.it/privacy-policy.html';
 
 export const AuthScreen = () => {
   const {
@@ -90,8 +90,8 @@ export const AuthScreen = () => {
         {/* Branding -- fills top space */}
         <View style={[styles.content, { paddingTop: insets.top + 40, flex: 1 }]}>
           <Animated.View entering={FadeInDown.delay(200).duration(700)} style={styles.brandingSection}>
-            <DrapeLogo size={72} gradient />
-            <Text style={styles.brandName}>Drape</Text>
+            <BynotLogo size={72} gradient />
+            <Text style={styles.brandName}>Bynot</Text>
             <Text style={styles.tagline}>{t('auth:tagline')}</Text>
           </Animated.View>
           <DevBanner />
@@ -169,8 +169,8 @@ export const AuthScreen = () => {
       <View style={[styles.content, { paddingTop: insets.top + 40 }]}>
         {/* Logo + Branding */}
         <Animated.View entering={FadeInDown.delay(200).duration(700)} style={styles.brandingSection}>
-          <DrapeLogo size={72} gradient />
-          <Text style={styles.brandName}>Drape</Text>
+          <BynotLogo size={72} gradient />
+          <Text style={styles.brandName}>Bynot</Text>
           <Text style={styles.tagline}>{t('auth:tagline')}</Text>
         </Animated.View>
         <DevBanner />

@@ -183,7 +183,7 @@ export function usePreviewStartupFlow({
           redirect: 'manual' as RequestRedirect,
           headers: {
             'Fly-Force-Instance-Id': session.flyMachineIdRef.current!,
-            ...(session.previewAccessTokenRef.current ? { 'X-Drape-Preview-Token': session.previewAccessTokenRef.current } : {}),
+            ...(session.previewAccessTokenRef.current ? { 'X-Bynot-Preview-Token': session.previewAccessTokenRef.current } : {}),
           },
           signal: controller.signal,
         });
@@ -226,7 +226,7 @@ export function usePreviewStartupFlow({
 
     try {
       const userId = useWorkstationStore.getState().userId || 'anonymous';
-      const userEmail = useAuthStore.getState().user?.email || 'anonymous@drape.dev';
+      const userEmail = useAuthStore.getState().user?.email || 'anonymous@bynot.dev';
       let githubToken: string | null = null;
       const repoUrl = currentWorkstation.repositoryUrl || currentWorkstation.githubUrl;
       if (repoUrl) {
@@ -355,14 +355,17 @@ export function usePreviewStartupFlow({
                         const wsStore = useWorkstationStore.getState();
                         const updated = { ...currentWorkstation, technology: detectedTech, language: detectedTech };
                         wsStore.setWorkstation(updated);
-                        import('firebase/firestore').then(({ doc, updateDoc }) => {
-                          import('../../../../config/firebase').then(({ db }) => {
-                            if (currentWorkstation.projectId || currentWorkstation.id) {
-                              const projId = currentWorkstation.projectId || currentWorkstation.id;
-                              updateDoc(doc(db, 'user_projects', projId), { technology: detectedTech }).catch(() => {});
-                            }
-                          });
-                        }).catch(() => {});
+                        if (currentWorkstation.projectId || currentWorkstation.id) {
+                          const projId = currentWorkstation.projectId || currentWorkstation.id;
+                          import('../../../../lib/supabase/client')
+                            .then(({ supabase }) =>
+                              supabase
+                                .from('projects')
+                                .update({ template: detectedTech })
+                                .eq('id', projId),
+                            )
+                            .catch(() => {});
+                        }
                       }
                     }
 

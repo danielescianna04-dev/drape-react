@@ -15,7 +15,7 @@ export const DevBanner = () => {
       <View style={styles.textContainer}>
         <Text style={styles.label}>DEV ENVIRONMENT</Text>
         <Text style={styles.details}>
-          Firebase: drape-dev  •  API: dev.drape.info
+          Firebase: bynot-dev  •  API: dev.bynot.it
         </Text>
       </View>
       <View style={styles.dot} />

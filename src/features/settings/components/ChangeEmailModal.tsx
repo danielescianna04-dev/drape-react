@@ -4,8 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
-import { reauthenticateWithCredential, EmailAuthProvider, verifyBeforeUpdateEmail } from 'firebase/auth';
-import { auth } from '../../../config/firebase';
+import { supabase } from '../../../lib/supabase/client';
 import { AppColors } from '../../../shared/theme/colors';
 import { tracciaEmailCambiata, tracciaErroreCambioEmail } from '../../../core/services/analyticsService';
 
@@ -49,21 +48,31 @@ export const ChangeEmailModal: React.FC<ChangeEmailModalProps> = ({
 
     setIsLoading(true);
     try {
-      const firebaseUser = auth.currentUser;
-      if (!firebaseUser || !firebaseUser.email) throw new Error('no-user');
+      const { data: userData } = await supabase.auth.getUser();
+      const currentEmail = userData.user?.email;
+      if (!currentEmail) throw new Error('no-user');
 
-      const credential = EmailAuthProvider.credential(firebaseUser.email, password);
-      await reauthenticateWithCredential(firebaseUser, credential);
-      await verifyBeforeUpdateEmail(firebaseUser, newEmail);
+      // Re-authenticate by signing in with the provided password
+      const { error: signinError } = await supabase.auth.signInWithPassword({
+        email: currentEmail,
+        password,
+      });
+      if (signinError) throw signinError;
+
+      // Update email — Supabase sends a verification link to the new address
+      const { error: updateError } = await supabase.auth.updateUser({ email: newEmail });
+      if (updateError) throw updateError;
+
       tracciaEmailCambiata();
       setSuccess(true);
     } catch (err: any) {
-      tracciaErroreCambioEmail(err.code || err.message || 'unknown');
-      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+      tracciaErroreCambioEmail(err.message || 'unknown');
+      const msg = (err?.message || '').toLowerCase();
+      if (msg.includes('invalid login') || msg.includes('invalid_credentials')) {
         setError(t('security.wrongPassword'));
-      } else if (err.code === 'auth/email-already-in-use') {
+      } else if (msg.includes('already') && msg.includes('registered')) {
         setError(t('security.emailInUse'));
-      } else if (err.code === 'auth/invalid-email') {
+      } else if (msg.includes('invalid email')) {
         setError(t('security.invalidEmail'));
       } else {
         setError(err.message || t('common:error'));

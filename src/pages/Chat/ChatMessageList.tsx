@@ -14,6 +14,8 @@ import { AppColors } from '../../shared/theme/colors';
 import { TerminalItemType, type TerminalItem } from '../../shared/types';
 import type { AgentToolEvent } from '../../hooks/api/useAgentStream';
 import { useUIStore } from '../../core/terminal/uiStore';
+import { parseActivityCard } from './chatToolFormatting';
+import { AgentActivityCard } from './AgentActivityCard';
 
 export interface ProcessedChatItem {
   item: TerminalItem;
@@ -46,6 +48,16 @@ interface Props {
   onSetNearBottomState: (nearBottom: boolean) => void;
   onRetryTool: (tool: string, input: Record<string, unknown>) => void | Promise<void>;
   onOpenPlans: () => void;
+  /** True while we're auto-creating a project (generate-title + create-with-
+   * template, ~3-4s). When set, render a Lovable-style activity card above
+   * the message list so the user has immediate visual feedback on first
+   * send from the welcome screen — instead of staring at the original
+   * prompt until the agent stream finally starts. */
+  creatingProject?: boolean;
+  onShowAgentDetails?: () => void;
+  /** Called when the user taps "Avvia preview" on a completed activity
+   * card — typically opens the preview tab on the current project. */
+  onStartPreview?: () => void;
 }
 
 export const ChatMessageList: React.FC<Props> = ({
@@ -71,6 +83,9 @@ export const ChatMessageList: React.FC<Props> = ({
   onSetNearBottomState,
   onRetryTool,
   onOpenPlans,
+  creatingProject,
+  onShowAgentDetails,
+  onStartPreview,
 }) => {
   const { t } = useTranslation(['terminal', 'chat', 'common']);
   const parseAgentStatus = (content?: string | null): { phase?: string; message?: string } | null => {
@@ -97,10 +112,12 @@ export const ChatMessageList: React.FC<Props> = ({
   if (terminalItemsLength === 0) {
     return (
       <View style={[styles.output, isCardMode && styles.outputCardMode]}>
-        <WelcomeScreen
-          keyboardHeight={keyboardHeight}
-          onSuggestionPress={onSuggestionPress}
-        />
+        {creatingProject ? null : (
+          <WelcomeScreen
+            keyboardHeight={keyboardHeight}
+            onSuggestionPress={onSuggestionPress}
+          />
+        )}
       </View>
     );
   }
@@ -143,6 +160,26 @@ export const ChatMessageList: React.FC<Props> = ({
       scrollEventThrottle={16}
       renderItem={({ item: processed }) => {
         const { item, isNextItemAI, outputItem, shouldShowLoading } = processed;
+
+        // Lovable-style activity card while the agent is running tools.
+        // Detected via a sentinel prefix in item.content (see chatToolFormatting
+        // .encodeActivityCard). The card is replaced by real text the moment
+        // the model starts streaming its final reply.
+        const activity = parseActivityCard(item.content);
+        if (activity) {
+          return (
+            <View style={{ marginHorizontal: 16, marginVertical: 8 }}>
+              <AgentActivityCard
+                state={(agentStreaming || creatingProject || item.id === 'temp-auto-create-bootstrap') ? activity.state : 'done'}
+                poolKey={activity.poolKey}
+                file={activity.file}
+                onPress={onShowAgentDetails}
+                onShowDetails={onShowAgentDetails}
+                onStartPreview={onStartPreview}
+              />
+            </View>
+          );
+        }
 
         if ((item as any).isAgentProgress) {
           const isRunning = agentStreaming;

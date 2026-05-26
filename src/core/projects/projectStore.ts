@@ -1,11 +1,23 @@
 import { create } from 'zustand';
-import { workstationService, UserProject } from '../workstation/workstationService-firebase';
-import { getAuthHeaders } from '../api/getAuthToken';
-import { auth } from '../../config/firebase';
+import { supabase } from '../../lib/supabase/client';
+import { useAuthStore } from '../auth/authStore';
 
-const getEffectiveUserId = (storedUserId: string): string | null => {
-  return auth.currentUser?.uid || (storedUserId && storedUserId !== 'default-user' ? storedUserId : null);
-};
+/**
+ * v2 UserProject — modello unificato. In v1 esistevano UserProject + Workstation
+ * come entità separate (progetto = metadata Firebase, workstation = container Docker).
+ * In v2 sono la stessa cosa, una riga in `public.projects`.
+ */
+export interface UserProject {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string | null;
+  template?: string | null;
+  repositoryUrl?: string | null;
+  type?: 'personal' | 'git';
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface ProjectState {
   projects: UserProject[];
@@ -14,13 +26,31 @@ interface ProjectState {
   isLoading: boolean;
   userId: string;
 
-  // Actions
   loadUserProjects: () => Promise<void>;
-  createGitProject: (repositoryUrl: string) => Promise<void>;
+  createGitProject: (repositoryUrl: string, githubToken?: string) => Promise<void>;
   createPersonalProject: (name: string) => Promise<void>;
   selectProject: (project: UserProject) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   setUserId: (userId: string) => void;
+}
+
+const getEffectiveUserId = (storedUserId: string): string | null => {
+  const u = useAuthStore.getState().user;
+  return u?.uid || (storedUserId && storedUserId !== 'default-user' ? storedUserId : null);
+};
+
+function rowToProject(r: any): UserProject {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    name: r.name,
+    description: r.description,
+    template: r.template,
+    repositoryUrl: r.repository_url ?? null,
+    type: r.template === 'git' ? 'git' : 'personal',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -30,7 +60,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   isLoading: false,
   userId: '',
 
-  loadUserProjects: async () => {
+  async loadUserProjects() {
     const { userId } = get();
     const effectiveUserId = getEffectiveUserId(userId);
     if (!effectiveUserId) {
@@ -39,148 +69,96 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
 
     set({ isLoading: true });
-
     try {
-      const projects = await workstationService.getUserProjects(effectiveUserId);
-
-      set({ projects, isLoading: false });
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('user_id', effectiveUserId)
+        .order('updated_at', { ascending: false });
+      if (error) throw error;
+      set({ projects: (data ?? []).map(rowToProject), isLoading: false });
     } catch (error) {
-      console.error('❌ Failed to load projects:', error);
+      console.error('[projectStore] loadUserProjects:', error);
       set({ isLoading: false });
     }
   },
 
-  createGitProject: async (repositoryUrl: string, githubToken?: string) => {
+  async createGitProject(repositoryUrl: string, _githubToken?: string) {
     const { userId, loadUserProjects } = get();
     const effectiveUserId = getEffectiveUserId(userId);
-    if (!effectiveUserId) {
-      throw new Error('User not authenticated');
-    }
+    if (!effectiveUserId) throw new Error('User not authenticated');
 
     set({ isLoading: true });
-
     try {
+      const { data, error } = await supabase
+        .from('projects')
+        .insert({
+          user_id: effectiveUserId,
+          name: repositoryUrl.split('/').pop()?.replace('.git', '') ?? 'imported',
+          description: `git: ${repositoryUrl}`,
+          template: 'git',
+        })
+        .select('*')
+        .single();
+      if (error) throw error;
 
-      // STEP 1: Check visibility BEFORE creating anything
-      const apiUrl = workstationService.getApiUrl();
-      const authHeaders = await getAuthHeaders();
-      const visibilityResponse = await fetch(`${apiUrl}/repo/check-visibility`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ repositoryUrl, githubToken }),
-      });
-
-      const visibilityData = await visibilityResponse.json();
-
-      if (!visibilityResponse.ok || visibilityData.requiresAuth) {
-        set({ isLoading: false });
-        const authError = new Error('Authentication required');
-        (authError as any).requiresAuth = true;
-        (authError as any).repositoryUrl = repositoryUrl;
-        throw authError;
-      }
-
-      // Save to Firebase
-      const project = await workstationService.saveGitProject(repositoryUrl, effectiveUserId);
-
-      // Create workstation
-      const workstation = await workstationService.createWorkstationForProject(project, githubToken);
-
-      // Reload projects
+      const project = rowToProject(data);
       await loadUserProjects();
-
-      set({
-        currentProject: project,
-        currentWorkstationId: workstation.workstationId,
-        isLoading: false
-      });
-
+      set({ currentProject: project, currentWorkstationId: project.id, isLoading: false });
     } catch (error) {
-      console.error('❌ Failed to create Git project:', error);
+      console.error('[projectStore] createGitProject:', error);
       set({ isLoading: false });
       throw error;
     }
   },
 
-  createPersonalProject: async (name: string) => {
+  async createPersonalProject(name: string) {
     const { userId, loadUserProjects } = get();
     const effectiveUserId = getEffectiveUserId(userId);
-    if (!effectiveUserId) {
-      throw new Error('User not authenticated');
-    }
+    if (!effectiveUserId) throw new Error('User not authenticated');
 
     set({ isLoading: true });
-
     try {
+      const { data, error } = await supabase
+        .from('projects')
+        .insert({ user_id: effectiveUserId, name, template: 'personal' })
+        .select('*')
+        .single();
+      if (error) throw error;
 
-      // Save to Firebase
-      const project = await workstationService.savePersonalProject(name, effectiveUserId);
-
-      // Create workstation
-      const workstation = await workstationService.createWorkstationForProject(project);
-
-      // Reload projects
+      const project = rowToProject(data);
       await loadUserProjects();
-
-      set({
-        currentProject: project,
-        currentWorkstationId: workstation.workstationId,
-        isLoading: false
-      });
-
+      set({ currentProject: project, currentWorkstationId: project.id, isLoading: false });
     } catch (error) {
-      console.error('❌ Failed to create personal project:', error);
+      console.error('[projectStore] createPersonalProject:', error);
       set({ isLoading: false });
       throw error;
     }
   },
 
-  selectProject: async (project: UserProject) => {
-    set({ isLoading: true });
-
-    try {
-
-      // Create workstation for existing project
-      const workstation = await workstationService.createWorkstationForProject(project);
-
-      set({
-        currentProject: project,
-        currentWorkstationId: workstation.workstationId,
-        isLoading: false
-      });
-
-    } catch (error) {
-      console.error('❌ Failed to select project:', error);
-      set({ isLoading: false });
-      throw error;
-    }
+  async selectProject(project: UserProject) {
+    set({ currentProject: project, currentWorkstationId: project.id });
   },
 
-  deleteProject: async (projectId: string) => {
+  async deleteProject(projectId: string) {
     set({ isLoading: true });
-
     try {
-
-      await workstationService.deleteProject(projectId);
-
-      // Reload projects
-      const { loadUserProjects } = get();
-      await loadUserProjects();
-
-      // Clear current project if it was deleted
+      const { error } = await supabase.from('projects').delete().eq('id', projectId);
+      if (error) throw error;
+      await get().loadUserProjects();
       const { currentProject } = get();
       if (currentProject?.id === projectId) {
         set({ currentProject: null, currentWorkstationId: null });
       }
-
+      set({ isLoading: false });
     } catch (error) {
-      console.error('❌ Failed to delete project:', error);
+      console.error('[projectStore] deleteProject:', error);
       set({ isLoading: false });
       throw error;
     }
   },
 
-  setUserId: (userId: string) => {
+  setUserId(userId: string) {
     set({ userId });
-  }
+  },
 }));

@@ -16,7 +16,6 @@ import {
 import { AddGitAccountModal } from './AddGitAccountModal';
 import { ProfileSection } from './ProfileSection';
 import { GitAccountsSection } from './GitAccountsSection';
-import { SubscriptionSection } from './SubscriptionSection';
 import { AppearanceSection } from './AppearanceSection';
 import { NotificationSection } from './NotificationSection';
 import { InfoSection } from './InfoSection';
@@ -96,14 +95,6 @@ export const SettingsMainContent = ({
         t={t}
       />
 
-      <SubscriptionSection
-        currentPlan={currentPlan}
-        budgetStatus={budgetStatus}
-        loading={loading}
-        onPlanPress={() => { tracciaPaginaPianiVista('settings'); setShowPlanSelection(true); }}
-        onBudgetPress={() => { tracciaSchermata('Utilizzo Risorse'); setShowResourceUsage(true); }}
-        t={t}
-      />
 
       <AppearanceSection
         language={language}

@@ -63,19 +63,14 @@ interface Props {
 }
 
 const languages = [
-  { id: 'react', name: 'React', icon: 'logo-react', color: '#61DAFB' },
-  { id: 'nextjs', name: 'Next.js', icon: 'server-outline', color: '#FFFFFF' },
-  { id: 'vue', name: 'Vue', icon: 'logo-vue', color: '#4FC08D' },
-  { id: 'astro', name: 'Astro', icon: 'planet-outline', color: '#BC52EE' },
-  { id: 'html', name: 'HTML/CSS/JS', icon: 'logo-html5', color: '#E34F26' },
-  { id: 'expo', name: 'React Native', icon: 'phone-portrait-outline', color: '#61DAFB' },
+  { id: 'react', name: 'React + Vite', icon: 'logo-react', color: '#61DAFB' },
 ];
 
 const languageCategories = [
-  { id: 'all', labelKey: '', items: ['react', 'nextjs', 'html', 'vue', 'astro', 'expo'] },
+  { id: 'all', labelKey: '', items: ['react'] },
 ];
 
-const PROJECT_CREATION_MODEL = 'claude-4-7-opus';
+const PROJECT_CREATION_MODEL = 'openrouter/deepseek/deepseek-v4-pro';
 const PROJECT_CREATION_THINKING_LEVEL = 'medium';
 
 const ideaChips = [
@@ -342,7 +337,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   const { t } = useTranslation('projects');
   const [step, setStep] = useState(1);
   const [projectName, setProjectName] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState('react');
   const [description, setDescription] = useState('');
   const [isListening, setIsListening] = useState(false);
   const micPulse = useRef(new Animated.Value(1)).current;
@@ -537,11 +532,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   }, []);
 
   useEffect(() => {
-    // Track screen view for each step (step 2 tracked after AI recommendation in analyzeRequirements)
-    if (step !== 2) {
-      const stepNames = ['', 'Crea Progetto - Descrivi la tua idea', '', 'Crea Progetto - Nome del progetto'];
-      tracciaSchermata(stepNames[step] || 'Crea Progetto');
-    }
+    const stepNames = ['', 'Crea Progetto - Descrivi la tua idea', 'Crea Progetto - Personalizza', 'Crea Progetto - Nome del progetto'];
+    tracciaSchermata(stepNames[step] || 'Crea Progetto');
     // Reset custom description tracking when returning to step 1
     if (step === 1) {
       hasTrackedCustomDesc.current = false;
@@ -577,7 +569,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         setKeyboardVisible(true);
         setKeyboardHeight(e.endCoordinates.height);
         setTimeout(() => {
-          if (step === 4) {
+          if (step === 3) {
             scrollViewRef.current?.scrollTo({ y: 0, animated: true });
           } else {
             scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -754,17 +746,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       setIsCreating(false);
       resetStream();
       agentProjectIdRef.current = null;
-      // Show post-creation paywall for free users (once)
-      try {
-        const userPlan = useAuthStore.getState().user?.plan || 'free';
-        const seenPaywall = await AsyncStorage.getItem('hasSeenPostCreationPaywall');
-        if (userPlan === 'free' && !seenPaywall) {
-          setPendingWorkstation(workstation);
-          setShowPostCreationPaywall(true);
-          await AsyncStorage.setItem('hasSeenPostCreationPaywall', 'true');
-          return;
-        }
-      } catch {}
       tracciaEntrataNelProgetto(workstation.name);
       onCreate(workstation);
     }, 800);
@@ -908,8 +889,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         return;
       }
 
-      // Project name stays empty — user fills it in step 3
-
       Keyboard.dismiss();
       tracciaContinuaPremuto('Descrivi la tua idea');
 
@@ -917,21 +896,12 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       fetchAiQuestions();
       animateStepTransition(2, 'forward');
     } else if (step === 2) {
-      // AI interview done — go to tech selection
+      // AI interview done — go to summary/project name
       Keyboard.dismiss();
       tracciaContinuaPremuto('AI Interview');
       // AI Analysis for tech recommendation
       analyzeRequirements();
       animateStepTransition(3, 'forward');
-    } else if (step === 3) {
-      if (!selectedLanguage) {
-        Alert.alert(t('common:warning'), t('alerts.selectLanguage'));
-        return;
-      }
-      Keyboard.dismiss();
-      tracciaContinuaPremuto('Seleziona linguaggio');
-      fetchPreviewContract(); // Fetch contract summary for review step
-      animateStepTransition(4, 'forward');
     }
   };
 
@@ -1012,9 +982,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     setAiAnalyzing(true);
 
     try {
-      // Don't re-analyze if we already have a selection or if description hasn't changed enough?
-      // For now, always analyze to give fresh recommendation
-
       const apiUrl = config.apiUrl;
       const recAuthHeaders = await getAuthHeaders();
       const response = await fetch(`${apiUrl}/ai/recommend`, {
@@ -1027,31 +994,28 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
       const result = await response.json();
       if (isMounted && result.success && result.recommendation) {
-        // Find matching language
         const match = languages.find(l => l.id === result.recommendation);
+        const resolvedTech = match ? match.id : 'react';
+        setSelectedLanguage(resolvedTech);
         if (match) {
-          setSelectedLanguage(match.id);
           setAiRecommendedLang(match.id);
           if (result.explanation) {
             setAiExplanation(result.explanation);
           }
-          // Auto-expand if recommendation is not in Popular category
-          if (!languageCategories[0].items.includes(match.id)) {
-            setShowAllLangs(true);
-          }
-          tracciaSchermata(`Crea Progetto - Scegli il linguaggio (${match.name} consigliato)`);
-        } else {
-          tracciaSchermata('Crea Progetto - Scegli il linguaggio');
         }
+        fetchPreviewContract(resolvedTech);
       } else {
-        if (isMounted) tracciaSchermata('Crea Progetto - Scegli il linguaggio');
+        if (isMounted) {
+          setSelectedLanguage('react');
+          fetchPreviewContract('react');
+        }
       }
     } catch (error) {
       if (isMounted) {
         console.error("AI recommendation failed", error);
-        tracciaSchermata('Crea Progetto - Scegli il linguaggio');
+        setSelectedLanguage('nextjs');
+        fetchPreviewContract('nextjs');
       }
-      // Fail silently, let user choose
     } finally {
       if (isMounted) setAiAnalyzing(false);
     }
@@ -1061,7 +1025,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
 
   const handleBack = () => {
     if (step > 1) {
-      const stepNames = ['', 'Descrivi la tua idea', 'Personalizza', 'Scegli il linguaggio', 'Nome del progetto'];
+      const stepNames = ['', 'Descrivi la tua idea', 'Personalizza', 'Nome del progetto'];
       tracciaNavigazioneIndietro(stepNames[step - 1]);
       animateStepTransition(step - 1, 'back');
     } else {
@@ -1311,15 +1275,14 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   };
 
   const selectedLang = languages.find(l => l.id === selectedLanguage);
-  // Step 1: Desc, Step 2: Tech, Step 3: AI Interview, Step 4: Review
+  // Step 1: Description, Step 2: AI Interview, Step 3: Review
   const allQuestionsAnswered = aiQuestions.length > 0 && aiQuestions.every((q) => {
     const a = aiAnswers[q.questionId];
     return a && (a.selectedIds.length > 0 || a.custom?.trim());
   });
   const canProceed = step === 1 ? (description.trim().length > 0)
     : step === 2 ? (!questionsLoading && allQuestionsAnswered)
-      : step === 3 ? selectedLanguage !== ''
-        : projectName.trim().length > 0;
+      : (projectName.trim().length > 0 && selectedLanguage !== '' && !aiAnalyzing);
 
   const estimatedAgentProgress = estimateAgentCreationProgress(agentEvents, agentStatus, isStreaming);
 
@@ -1355,14 +1318,13 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
     }).catch(() => {});
   }, [isCreating, creationTask?.status, creationTask?.progress, creationTask?.message, creationTask?.step, t]);
 
-  const totalSteps = 4;
+  const totalSteps = 3;
   const p1 = `${Math.round(((progressOffset + 1) / (progressOffset + totalSteps)) * 100)}%`;
   const p2 = `${Math.round(((progressOffset + 2) / (progressOffset + totalSteps)) * 100)}%`;
   const p3 = `${Math.round(((progressOffset + 3) / (progressOffset + totalSteps)) * 100)}%`;
-  const p4 = `${Math.round(((progressOffset + 4) / (progressOffset + totalSteps)) * 100)}%`;
   const progressWidth = progressAnim.interpolate({
-    inputRange: [1, 2, 3, 4],
-    outputRange: [p1, p2, p3, p4],
+    inputRange: [1, 2, 3],
+    outputRange: [p1, p2, p3],
   });
 
   const handleChipPress = (chipId: string) => {
@@ -1780,7 +1742,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             </Text>
           )}
         </View>
-        {(isEditing || !isNameEmpty) && (
+        {(isEditing || (!isNameEmpty && field !== 'tech')) && (
           <TouchableOpacity
             style={styles.editBtn}
             onPress={() => {
@@ -1788,8 +1750,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
                 setEditingField(editingField === 'name' ? null : 'name');
               } else if (field === 'description') {
                 animateStepTransition(1, 'back');
-              } else {
-                animateStepTransition(2, 'back');
               }
             }}
           >
@@ -1929,7 +1889,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
   };
 
   /** Fetch preview contract when entering review step */
-  const fetchPreviewContract = async () => {
+  const fetchPreviewContract = async (techOverride?: string) => {
+    const tech = techOverride || selectedLanguage;
     setContractLoading(true);
     try {
       const headers = await getAuthHeaders();
@@ -1938,7 +1899,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           description: description.trim(),
-          technology: selectedLanguage,
+          technology: tech,
           projectName: projectName.trim(),
           answers: getStructuredAnswers(),
         }),
@@ -2077,8 +2038,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
           <Animated.View style={{ transform: [{ translateX: stepTranslateX }] }}>
             {step === 1 && renderStep1()}
             {step === 2 && renderStep3Interview()}
-            {step === 3 && renderStep2()}
-            {step === 4 && renderStep3()}
+            {step === 3 && renderStep3()}
           </Animated.View>
         </ScrollView>
       </Animated.View>
@@ -2091,7 +2051,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
       ]}>
         <TouchableOpacity
           style={[styles.actionBtn, !canProceed && styles.actionBtnDisabled]}
-          onPress={step === 4 ? handleCreate : handleNext}
+          onPress={step === 3 ? handleCreate : handleNext}
           disabled={!canProceed || isCreating}
           activeOpacity={0.85}
         >
@@ -2106,11 +2066,11 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans, hideBack, p
             ) : (
               <>
                 <Text style={[styles.actionBtnText, !canProceed && styles.actionBtnTextDisabled]}>
-                  {step === 4 ? t('create.createButton') : t('common:continue')}
+                  {step === 3 ? t('create.createButton') : t('common:continue')}
                 </Text>
                 {canProceed && (
                   <View style={styles.actionBtnIconBox}>
-                    <Ionicons name={step === 4 ? "checkmark" : "arrow-forward"} size={18} color="#fff" />
+                    <Ionicons name={step === 3 ? "checkmark" : "arrow-forward"} size={18} color="#fff" />
                   </View>
                 )}
               </>

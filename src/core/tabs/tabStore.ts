@@ -46,7 +46,15 @@ export const useTabStore = create<TabStore>((set, get) => ({
       type: 'chat',
       title: 'Nuova Conversazione',
       data: { chatId: Date.now().toString() }
-    }
+    },
+    // Pre-mount the preview tab so the FluidTabSwitcher can show it during the
+    // edge-swipe slide instead of waiting for a first request to open it.
+    {
+      id: 'preview',
+      type: 'preview',
+      title: 'Preview',
+      data: {},
+    },
   ],
   activeTabId: 'chat-main',
   savedProjects: {},
@@ -61,8 +69,22 @@ export const useTabStore = create<TabStore>((set, get) => ({
         activeTabId: tab.id
       };
     }
+    // Preserve order [chat..., preview]: if the new tab isn't a preview, insert
+    // it before any existing preview tabs so the FluidTabSwitcher slides the
+    // preview in from the right (chat must remain at a lower index than preview).
+    let newTabs: Tab[];
+    if (tab.type === 'preview') {
+      newTabs = [...state.tabs, tab];
+    } else {
+      const previewIdx = state.tabs.findIndex(t => t.type === 'preview');
+      if (previewIdx === -1) {
+        newTabs = [...state.tabs, tab];
+      } else {
+        newTabs = [...state.tabs.slice(0, previewIdx), tab, ...state.tabs.slice(previewIdx)];
+      }
+    }
     return {
-      tabs: [...state.tabs, tab],
+      tabs: newTabs,
       activeTabId: tab.id,
     };
   }),

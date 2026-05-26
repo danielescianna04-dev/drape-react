@@ -1,6 +1,6 @@
-# Drape React - Architettura
+# Bynot React - Architettura
 
-Documentazione dell'architettura del progetto Drape React seguendo il pattern **Atomic Design**.
+Documentazione dell'architettura del progetto Bynot React seguendo il pattern **Atomic Design**.
 
 ## 📁 Struttura del Progetto
 
@@ -281,5 +281,5 @@ export default IconButton;
 
 ---
 
-**Autori**: Drape Team
+**Autori**: Bynot Team
 **Ultima modifica**: 2025-01-24

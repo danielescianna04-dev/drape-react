@@ -12,7 +12,7 @@ interface DatabaseFile {
 interface TableInfo {
   name: string;
   rowCount: number;
-  /** Drape Cloud system tables (users, sessions) are read-only. */
+  /** Bynot Cloud system tables (users, sessions) are read-only. */
   system?: boolean;
 }
 
@@ -54,7 +54,7 @@ async function apiFetch(path: string, options?: RequestInit) {
 }
 
 export function useDatabaseApi(projectId: string | undefined) {
-  const discover = useCallback(async (): Promise<{ databases: DatabaseFile[]; pgDetected: boolean; supabaseDetected?: boolean; supabaseUrl?: string; drapeCloudDetected?: boolean; containerReady?: boolean }> => {
+  const discover = useCallback(async (): Promise<{ databases: DatabaseFile[]; pgDetected: boolean; supabaseDetected?: boolean; supabaseUrl?: string; bynotCloudDetected?: boolean; containerReady?: boolean }> => {
     if (!projectId) throw new Error('No project');
     return apiFetch(`/db/discover/${projectId}`);
   }, [projectId]);

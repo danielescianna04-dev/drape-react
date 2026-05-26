@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue, interpolate, Extrapolate } from 'react-native-reanimated';
@@ -25,9 +25,11 @@ import { PreviewPublishSheet } from './PreviewPublishSheet';
 import { ProjectInsightsSheet } from '../../explore/ProjectInsightsSheet';
 import { usePreviewMachine } from '../preview';
 import { derivePreviewPhase } from '../preview/derivePreviewPhase';
+import { SandpackPreview } from '../../preview/SandpackPreview';
 import {
   PreviewStateStart,
   PreviewStateLoading,
+  PreviewPreparingState,
   PreviewStateEnvRequired,
   PreviewStateSessionExpired,
   PreviewStateFatalError,
@@ -92,19 +94,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const { sidebarTranslateX } = useSidebarOffset();
 
-  // Animated container position
+  // Animated container position — disabled: the preview now lives in a
+  // FluidTabSwitcher slot, so any sidebar-driven horizontal offset would
+  // expose the underlying chat as a vertical "band" during the slide.
   const containerAnimatedStyle = useAnimatedStyle(() => {
     'worklet';
-    return {
-      transform: [{
-        translateX: interpolate(
-          sidebarTranslateX.value,
-          [-50, 0],
-          [0, 44],
-          Extrapolate.CLAMP
-        ),
-      }],
-    };
+    return { transform: [{ translateX: 0 }] };
   });
 
   const isExpandedShared = useSharedValue(false);
@@ -456,6 +451,20 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const previewEnvVars = previewState.envVarsRequired;
   const previewSessionMessage = previewState.sessionExpiredMessage;
 
+  // If a previous screen requested auto-start of the preview (e.g. the
+  // "Avvia preview" button on the agent activity card), kick the dev
+  // server off automatically the moment the preview is in an idle state.
+  // We subscribe to the flag directly (vs. polling on phase change) so
+  // we react even when phase was ALREADY 'idle' before the request fired.
+  const autoStartPending = useUIStore((s) => s.autoStartPreviewPending);
+  useEffect(() => {
+    if (!autoStartPending) return;
+    if (previewState.phase !== 'idle') return;
+    if (useUIStore.getState().consumeAutoStartPreviewPending()) {
+      handleStartWithTransition();
+    }
+  }, [autoStartPending, previewState.phase, handleStartWithTransition]);
+
   if (!isVisible) {
     return null;
   }
@@ -532,9 +541,13 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             )}
 
             <View ref={webViewContainerRef} style={styles.webViewContainer}>
-              {/* Reload banner moved to VSCodeSidebar root — renders above chat drawer */}
-              {/* Phase 5: State screens — pure components */}
-              {previewState.phase === 'preflight_env' && previewEnvVars ? (
+              {/* Backend-v2 path: render the project entirely in-WebView with
+                  Sandpack — no per-project dev server, no /preview/start SSE
+                  call (that endpoint never existed on backend-v2). Files come
+                  straight from Supabase Storage via filesApi. */}
+              {projectId ? <SandpackPreview projectId={projectId} template="react-ts" /> : null}
+              {/* eslint-disable-next-line @typescript-eslint/no-unused-expressions */}
+              {false ? (previewState.phase === 'preflight_env' && previewEnvVars ? (
                 <PreviewStateEnvRequired
                   requiredEnvVars={previewEnvVars}
                   envVarValues={envVarValues}
@@ -561,26 +574,25 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   t={t}
                 />
               ) : previewState.phase === 'idle' ? (
-                <PreviewStateStart
-                  projectName={currentWorkstation?.name}
-                  technology={currentWorkstation?.technology}
-                  language={currentWorkstation?.language}
-                  projectId={currentWorkstation?.id}
-                  isStartTransitioning={startup.isStartTransitioning}
-                  startTransitionAnim={startup.startTransitionAnim}
+                <PreviewPreparingState
+                  projectName={currentWorkstation?.name || 'bynot cloud'}
+                  isStarting={false}
                   onStart={handleStartWithTransition}
-                  t={t}
+                  onClose={handleClose}
+                  onRefresh={handleStartWithTransition}
+                  previewUrl={currentPreviewUrl}
+                  onUrlChange={setCurrentPreviewUrl}
                 />
               ) : previewState.phase === 'starting' || previewState.phase === 'waiting_health' || previewState.phase === 'fixing' ? (
-                /* During 'checking'/'fixing', show ONLY loading screen — no WebView, no fix banner. */
-                <PreviewStateLoading
-                  terminalLines={previewTerminalLines}
-                  displayedMessage={previewState.displayedMessage}
-                  startingMessage={startup.startingMessage}
-                  smoothProgress={startup.smoothProgress}
-                  elapsedSeconds={startup.elapsedSeconds}
-                  pulseAnim={startup.pulseAnim}
-                  t={t}
+                <PreviewPreparingState
+                  projectName={currentWorkstation?.name || 'bynot cloud'}
+                  isStarting={true}
+                  statusMessage={previewState.displayedMessage || startup.startingMessage || 'Getting ready...'}
+                  onStart={handleStartWithTransition}
+                  onClose={handleClose}
+                  onRefresh={handleStartWithTransition}
+                  previewUrl={currentPreviewUrl}
+                  onUrlChange={setCurrentPreviewUrl}
                 />
               ) : previewCapability === 'console' && previewState.phase === 'ready' ? (
                 /* Phase 6: Console surface for non-web projects */
@@ -628,7 +640,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   forceReloadKey={forceReloadKey}
                   t={t}
                 />
-              )}
+              )) : null}
             </View>
           </View>
 

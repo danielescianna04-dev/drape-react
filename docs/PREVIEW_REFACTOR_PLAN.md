@@ -54,10 +54,10 @@ Acceptance criteria:
 
 ### Files involved
 
-- `/Users/daniele/drape-react/src/features/terminal/components/PreviewPanel.tsx`
-- `/Users/daniele/drape-react/src/features/terminal/components/preview/PreviewPanelV2.tsx`
-- `/Users/daniele/drape-react/src/features/terminal/components/views/PreviewView.tsx`
-- `/Users/daniele/drape-react/src/features/terminal/components/preview/PreviewStates.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/components/PreviewPanel.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/components/preview/PreviewPanelV2.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/components/views/PreviewView.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/components/preview/PreviewStates.tsx`
 
 ### Changes
 
@@ -87,8 +87,8 @@ Acceptance criteria:
 
 ### New files
 
-- `/Users/daniele/drape-react/src/features/terminal/preview/previewMachine.ts`
-- `/Users/daniele/drape-react/src/features/terminal/preview/previewMachine.types.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/previewMachine.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/previewMachine.types.ts`
 
 ### Proposed phases
 
@@ -173,16 +173,16 @@ type PreviewEvent =
 
 ### File to split
 
-- `/Users/daniele/drape-react/src/features/terminal/hooks/usePreviewServerLifecycle.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/hooks/usePreviewServerLifecycle.ts`
 
 ### New hooks
 
-- `/Users/daniele/drape-react/src/features/terminal/preview/hooks/usePreviewSession.ts`
-- `/Users/daniele/drape-react/src/features/terminal/preview/hooks/usePreviewPreflight.ts`
-- `/Users/daniele/drape-react/src/features/terminal/preview/hooks/usePreviewHealth.ts`
-- `/Users/daniele/drape-react/src/features/terminal/preview/hooks/usePreviewStartupFlow.ts`
-- `/Users/daniele/drape-react/src/features/terminal/preview/hooks/usePreviewRecovery.ts`
-- `/Users/daniele/drape-react/src/features/terminal/preview/hooks/usePreviewNavigation.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/hooks/usePreviewSession.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/hooks/usePreviewPreflight.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/hooks/usePreviewHealth.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/hooks/usePreviewStartupFlow.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/hooks/usePreviewRecovery.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/hooks/usePreviewNavigation.ts`
 
 ### Responsibilities
 
@@ -247,13 +247,13 @@ type PreviewEvent =
 
 ### File to refactor
 
-- `/Users/daniele/drape-react/src/features/terminal/components/PreviewWebView.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/components/PreviewWebView.tsx`
 
 ### New files
 
-- `/Users/daniele/drape-react/src/features/terminal/preview/webview/previewWebViewBridge.ts`
-- `/Users/daniele/drape-react/src/features/terminal/preview/webview/previewWebViewInjectedScript.ts`
-- `/Users/daniele/drape-react/src/features/terminal/preview/webview/previewWebViewEvents.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/webview/previewWebViewBridge.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/webview/previewWebViewInjectedScript.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/webview/previewWebViewEvents.ts`
 
 ### `PreviewWebView` should do only this
 
@@ -291,14 +291,14 @@ type PreviewEvent =
 
 ### Existing files involved
 
-- `/Users/daniele/drape-react/src/features/terminal/components/PreviewServerStatus.tsx`
-- `/Users/daniele/drape-react/src/features/terminal/components/previewStatusScreens.tsx`
-- `/Users/daniele/drape-react/src/features/terminal/components/preview/PreviewStates.tsx`
-- `/Users/daniele/drape-react/src/features/terminal/components/PreviewVerifyingScreen.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/components/PreviewServerStatus.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/components/previewStatusScreens.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/components/preview/PreviewStates.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/components/PreviewVerifyingScreen.tsx`
 
 ### New target folder
 
-- `/Users/daniele/drape-react/src/features/terminal/preview/components/`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/components/`
 
 ### New pure state components
 
@@ -340,9 +340,9 @@ The current preview path mixes:
 
 ### New files
 
-- `/Users/daniele/drape-react/src/features/terminal/preview/components/PreviewSurfaceWeb.tsx`
-- `/Users/daniele/drape-react/src/features/terminal/preview/components/PreviewSurfaceConsole.tsx`
-- `/Users/daniele/drape-react/src/features/terminal/preview/previewCapabilities.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/components/PreviewSurfaceWeb.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/components/PreviewSurfaceConsole.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/previewCapabilities.ts`
 
 ### Capability API
 
@@ -373,8 +373,8 @@ export function getPreviewCapability(projectType: string): 'web' | 'console' | '
 
 ### New files
 
-- `/Users/daniele/drape-react/src/features/terminal/preview/errors/previewErrorClassifier.ts`
-- `/Users/daniele/drape-react/src/features/terminal/preview/errors/previewEnvVarExtractor.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/errors/previewErrorClassifier.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/errors/previewEnvVarExtractor.ts`
 
 ### Error kinds
 
@@ -398,9 +398,9 @@ type PreviewErrorKind =
 
 ### Remove duplication from
 
-- `/Users/daniele/drape-react/src/features/terminal/hooks/usePreviewServerLifecycle.ts`
-- `/Users/daniele/drape-react/src/features/terminal/components/PreviewWebView.tsx`
-- `/Users/daniele/drape-react/src/features/terminal/hooks/usePreviewStartup.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/hooks/usePreviewServerLifecycle.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/components/PreviewWebView.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/hooks/usePreviewStartup.ts`
 
 ### Why
 
@@ -417,9 +417,9 @@ type PreviewErrorKind =
 
 ### Backend files involved
 
-- `/Users/daniele/drape-react/backend-ts/src/services/preview.service.ts`
+- `/Users/daniele/bynot-react/backend-ts/src/services/preview.service.ts`
 - Any preview-related backend routes/services used by startup and health checks
-- `/Users/daniele/drape-react/backend-ts/docs/superpowers/plans/2026-04-03-preview-quality-hardening.md`
+- `/Users/daniele/bynot-react/backend-ts/docs/superpowers/plans/2026-04-03-preview-quality-hardening.md`
 
 ### Target behavior
 
@@ -477,7 +477,7 @@ Current preview startup UI is spread across:
 
 ### New file
 
-- `/Users/daniele/drape-react/src/features/terminal/preview/previewTimeline.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/previewTimeline.ts`
 
 ### Proposed shape
 
@@ -553,12 +553,12 @@ Two conflicting UX philosophies exist:
 
 ### Files involved
 
-- `/Users/daniele/drape-react/src/features/terminal/components/PreviewToolbar.tsx`
-- `/Users/daniele/drape-react/src/features/terminal/components/PreviewWebView.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/components/PreviewToolbar.tsx`
+- `/Users/daniele/bynot-react/src/features/terminal/components/PreviewWebView.tsx`
 
 ### New file
 
-- `/Users/daniele/drape-react/src/features/terminal/preview/navigation/previewNavigationAdapter.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/preview/navigation/previewNavigationAdapter.ts`
 
 ### Responsibilities
 
@@ -583,8 +583,8 @@ Two conflicting UX philosophies exist:
 
 ### Files involved
 
-- `/Users/daniele/drape-react/src/features/terminal/components/PreviewPanel.tsx`
-- `/Users/daniele/drape-react/src/core/preview/projectDetector.ts`
+- `/Users/daniele/bynot-react/src/features/terminal/components/PreviewPanel.tsx`
+- `/Users/daniele/bynot-react/src/core/preview/projectDetector.ts`
 
 ### Suggested capability map
 
@@ -622,12 +622,12 @@ const PREVIEW_CAPABILITIES = {
 
 ### New tests
 
-- `/Users/daniele/drape-react/src/__tests__/preview/previewMachine.test.ts`
-- `/Users/daniele/drape-react/src/__tests__/preview/previewErrorClassifier.test.ts`
-- `/Users/daniele/drape-react/src/__tests__/preview/previewEnvVarExtractor.test.ts`
-- `/Users/daniele/drape-react/src/__tests__/preview/previewNavigationAdapter.test.ts`
-- `/Users/daniele/drape-react/src/__tests__/preview/usePreviewHealth.test.ts`
-- `/Users/daniele/drape-react/src/__tests__/preview/usePreviewPreflight.test.ts`
+- `/Users/daniele/bynot-react/src/__tests__/preview/previewMachine.test.ts`
+- `/Users/daniele/bynot-react/src/__tests__/preview/previewErrorClassifier.test.ts`
+- `/Users/daniele/bynot-react/src/__tests__/preview/previewEnvVarExtractor.test.ts`
+- `/Users/daniele/bynot-react/src/__tests__/preview/previewNavigationAdapter.test.ts`
+- `/Users/daniele/bynot-react/src/__tests__/preview/usePreviewHealth.test.ts`
+- `/Users/daniele/bynot-react/src/__tests__/preview/usePreviewPreflight.test.ts`
 
 ### Minimum scenarios
 
@@ -662,7 +662,7 @@ const PREVIEW_CAPABILITIES = {
 - reduce `any`
 - reduce `as any`
 - consolidate shared preview types into:
-  - `/Users/daniele/drape-react/src/features/terminal/preview/types.ts`
+  - `/Users/daniele/bynot-react/src/features/terminal/preview/types.ts`
 - normalize naming conventions:
   - `PreviewState*`
   - `usePreview*`

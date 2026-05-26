@@ -1,5 +1,5 @@
 {
-  "welcomeTitle": "Come posso aiutarti?",
+  "welcomeTitle": "Cosa costruiamo, {{username}}?",
   "welcomeSubtitle": "Scrivi cosa vuoi fare o prova un suggerimento",
   "suggestionFeature": "Aggiungi una nuova feature",
   "suggestionBugs": "Trova e correggi i bug",

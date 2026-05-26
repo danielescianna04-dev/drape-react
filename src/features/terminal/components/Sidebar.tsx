@@ -24,7 +24,7 @@ import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { GitHubConnect } from './GitHubConnect';
 import { ProjectItem } from './ProjectItem';
-import { workstationService } from '../../../core/workstation/workstationService-firebase';
+import { workstationService } from '../../../core/workstation/workstationService';
 import { NewFolderModal } from './NewFolderModal';
 import { NewProjectModal } from './NewProjectModal';
 import { ImportGitHubModal } from './ImportGitHubModal';
@@ -321,20 +321,14 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
         Alert.alert(
           t('projects:alerts.cloneLimitTitle'),
           t('projects:alerts.cloneLimitMessage', { max }),
-          [
-            { text: t('projects:limit.notNow'), style: 'cancel' },
-            { text: t('projects:limit.upgradeTo', { plan: 'Go' }), onPress: () => { tracciaPaginaPianiVista('sidebar_limit'); useNavigationStore.getState().navigateTo('plans'); } },
-          ]
+          [{ text: 'OK', style: 'cancel' }]
         );
       } else if (errCode === 'STORAGE_LIMIT_EXCEEDED') {
         const maxMb = error.response.data.limits?.maxStorageMb || '?';
         Alert.alert(
           t('projects:alerts.storageFullTitle'),
           t('projects:alerts.storageFullMessage', { maxMb }),
-          [
-            { text: t('projects:limit.notNow'), style: 'cancel' },
-            { text: t('projects:limit.upgradeTo', { plan: 'Go' }), onPress: () => { tracciaPaginaPianiVista('sidebar_limit'); useNavigationStore.getState().navigateTo('plans'); } },
-          ]
+          [{ text: 'OK', style: 'cancel' }]
         );
       } else {
         console.error('Import failed:', error.response?.data?.message || error.message);

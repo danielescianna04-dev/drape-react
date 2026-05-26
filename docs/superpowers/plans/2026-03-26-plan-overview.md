@@ -1,10 +1,10 @@
-# Drape "Production-Ready App Builder" — Master Plan
+# Bynot "Production-Ready App Builder" — Master Plan
 
 > 3 piani indipendenti, da eseguire in ordine. Ogni piano produce software testabile.
 
 ## Piano 1: Auth + DB Production-Ready (Priorita MASSIMA)
 **File:** `2026-03-26-plan-1-auth-db.md`
-**Goal:** Un progetto creato con Cloud Mode ha login funzionante, DB con vincoli, e funziona sia in Drape che esportato.
+**Goal:** Un progetto creato con Cloud Mode ha login funzionante, DB con vincoli, e funziona sia in Bynot che esportato.
 **Durata stimata:** 2-3 giorni
 
 ## Piano 2: Self-Healing Verification con Screenshot (Priorita ALTA)

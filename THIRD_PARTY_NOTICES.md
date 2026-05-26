@@ -1,6 +1,6 @@
 # Third-Party Software Notices
 
-This file lists the third-party software packages used by Drape and their licenses.
+This file lists the third-party software packages used by Bynot and their licenses.
 
 ## Packages Requiring Special Notice
 
