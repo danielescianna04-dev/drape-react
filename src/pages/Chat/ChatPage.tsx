@@ -349,6 +349,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // the incoming ones, so if the user navigated away mid-stream (or
   // before the agent_completion_effect could persist) nothing is lost.
   const prevWorkstationIdRef = useRef<string | null | undefined>(currentWorkstation?.id);
+  // Subscribe to chatHistory so hydration retries once AsyncStorage finishes
+  // loading. Without this, a fast app open can run hydration before
+  // App.tsx's loadChats() resolves → chatHistory is still [] → no match.
+  const chatHistory = useChatStore((s) => s.chatHistory);
   useEffect(() => {
     if (!currentTab?.id) return;
     const prevWsId = prevWorkstationIdRef.current;
@@ -363,16 +367,24 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     if (!currentWorkstation?.id) return;
     if ((currentTab.terminalItems?.length ?? 0) > 0) return;
-    const chats = useChatStore.getState().chatHistory
+    const chats = chatHistory
       .filter((c) => c.repositoryId === currentWorkstation.id && (c.messages?.length ?? 0) > 0)
       .sort((a, b) => new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime());
     const latest = chats[0];
+    console.log('[HydrationDebug]', {
+      wsId: currentWorkstation.id,
+      tabId: currentTab.id,
+      chatHistoryLen: chatHistory.length,
+      matched: chats.length,
+      latestId: latest?.id,
+      latestMsgs: latest?.messages?.length,
+    });
     if (!latest) return;
     updateTab(currentTab.id, {
       terminalItems: latest.messages as any,
       data: { ...currentTab.data, chatId: latest.id },
     });
-  }, [currentWorkstation?.id, currentTab?.id]); // intentionally narrow deps — fire only on project/tab switch
+  }, [currentWorkstation?.id, currentTab?.id, chatHistory]);
 
   const [homeMenuVisible, setHomeMenuVisible] = useState(false);
   const [homeMenuView, setHomeMenuView] = useState<'root' | 'attach'>('root');
